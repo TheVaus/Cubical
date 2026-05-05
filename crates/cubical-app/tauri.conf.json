@@ -1,0 +1,49 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Cubical",
+  "version": "0.1.0",
+  "identifier": "dev.cubical.app",
+  "build": {
+    "frontendDist": "../../ui/dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": {
+      "cwd": "../../ui",
+      "script": "npm run dev"
+    },
+    "beforeBuildCommand": {
+      "cwd": "../../ui",
+      "script": "npm run build"
+    }
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Cubical",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 720,
+        "minHeight": 480,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "category": "Productivity",
+    "shortDescription": "Local-first PKM",
+    "longDescription": "A blazing-fast, strictly local-first Personal Knowledge Management application built on Tauri + Rust. Plain .md files are the absolute source of truth; everything else is derived state."
+  }
+}

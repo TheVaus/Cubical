@@ -1,0 +1,33 @@
+# Rust
+target/
+**/*.rs.bk
+
+# Node / Vite / Tauri frontend
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# Tauri (auto-generated build artifacts)
+src-tauri/target/
+src-tauri/gen/
+crates/cubical-app/gen/
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log

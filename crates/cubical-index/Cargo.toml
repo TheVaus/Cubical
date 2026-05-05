@@ -1,0 +1,16 @@
+[package]
+name = "cubical-index"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "libSQL schema, migrations, and queries. Owns the on-disk index database at .cubical/index.db."
+
+[dependencies]
+cubical-core = { path = "../cubical-core" }
+tokio = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+libsql = { workspace = true }

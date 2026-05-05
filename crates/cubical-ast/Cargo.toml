@@ -1,0 +1,11 @@
+[package]
+name = "cubical-ast"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "The canonical Markdown AST. Lingua franca for every system outside the editor: indexer, link resolver, exporter, plugin host."
+
+[dependencies]
+serde = { workspace = true }

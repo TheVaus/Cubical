@@ -1,0 +1,12 @@
+[package]
+name = "cubical-sync"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "CRDT abstraction. Trait CrdtBackend lives here; the Loro implementation lands at L7."
+
+[dependencies]
+cubical-ast = { path = "../cubical-ast" }
+thiserror = { workspace = true }

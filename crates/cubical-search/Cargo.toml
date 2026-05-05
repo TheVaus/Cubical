@@ -1,0 +1,11 @@
+[package]
+name = "cubical-search"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Tantivy wrapper. Skeleton only in L0; full-text search lands at L4."
+
+[dependencies]
+cubical-ast = { path = "../cubical-ast" }
