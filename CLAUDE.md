@@ -131,10 +131,10 @@ Crates without Tauri dependencies (`cubical-core`, `cubical-ast`, `cubical-index
 
 ## Project state
 
-**Current layer:** 0 — Bedrock. Not yet started in code.
+**Current layer:** 0 — Bedrock. Scaffold complete; feature work pending.
 
-**Last completed milestone:** Architecture revised post-alignment session (2026-05-02). Three spec docs (`architecture.md`, `CLAUDE.md`, `layer-0-spec.md`) updated. Repository not yet scaffolded.
+**Last completed milestone (2026-05-05):** L0 first-session task list complete. Cargo workspace with six crates (`cubical-core`, `cubical-ast`, `cubical-index`, `cubical-search`, `cubical-sync`, `cubical-app`) builds clean (`cargo clippy --all-targets --all-features -- -D warnings`). `cubical-app` is structured around the pure-handler / thin-shim pattern from `docs/layer-0-spec.md` §8 — `commands/`, `api/types.rs`, and `state.rs` are Tauri-free; only `events.rs` and `lib.rs`'s `#[tauri::command]` shims touch Tauri. The `ui/` Solid + TS + Vite skeleton ships with the CSS-variable token surface (`tokens.css` + `base.css`) and a single-chokepoint `api/ipc.ts`. `cargo tauri dev` verified to open an empty Cubical window with the tracing init log line firing. `docs/migration-touchpoints.md` documents the Tauri-coupled surfaces. Initial commit landed.
 
-**Next session's task:** Scaffold the Cargo workspace, set up the Tauri app skeleton, scaffold the `ui/` Vite + Solid + TS skeleton with the token-surface placeholder, verify `cargo tauri dev` opens an empty window. No feature work. Success criterion is "an empty Cubical window opens via `cargo tauri dev`, with both Rust and frontend builds clean."
+**Next session's task:** Begin filling in the L0 feature surfaces in the order outlined in `docs/layer-0-spec.md` §13: file-type registry trait → markdown + binary handlers (no UUID logic; just classification + content hashing) → libSQL schema and migration runner → vault open/scan logic (non-blocking) → file watcher → pure command handlers in `commands::vault` → Tauri shims in `lib.rs` → frontend wiring through `ui/src/api/ipc.ts` → tests → DoD verification per §12.
 
-When this is done, update this section to reflect it and proceed to the next item in `docs/layer-0-spec.md`.
+When the layer is done, tag the commit and update this section to reflect L1 next.
