@@ -9,3 +9,9 @@
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
+
+pub mod file_type;
+
+pub use file_type::{
+    BinaryHandler, FileTypeError, FileTypeHandler, FileTypeRegistry, MarkdownHandler,
+};
