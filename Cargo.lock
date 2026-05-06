@@ -703,6 +703,7 @@ dependencies = [
  "cubical-core",
  "libsql",
  "serde",
+ "tempfile",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
