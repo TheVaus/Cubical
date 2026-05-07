@@ -11,7 +11,9 @@
 #![warn(missing_docs)]
 
 pub mod file_type;
+pub mod vault;
 
 pub use file_type::{
     BinaryHandler, FileTypeError, FileTypeHandler, FileTypeRegistry, MarkdownHandler,
 };
+pub use vault::{scan, ScanProgress, Vault, VaultError};

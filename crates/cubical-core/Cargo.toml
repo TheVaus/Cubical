@@ -8,6 +8,7 @@ authors.workspace = true
 description = "Vault, file watcher, file-type registry, frontmatter I/O. Core building blocks shared by the rest of Cubical, with no Tauri dependency."
 
 [dependencies]
+cubical-index = { path = "../cubical-index" }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 serde = { workspace = true }
@@ -17,6 +18,7 @@ tracing = { workspace = true }
 notify = { workspace = true }
 walkdir = { workspace = true }
 sha2 = { workspace = true }
+libsql = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"

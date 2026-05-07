@@ -684,6 +684,8 @@ dependencies = [
 name = "cubical-core"
 version = "0.1.0"
 dependencies = [
+ "cubical-index",
+ "libsql",
  "notify",
  "serde",
  "serde_yaml_ng",
@@ -700,7 +702,6 @@ dependencies = [
 name = "cubical-index"
 version = "0.1.0"
 dependencies = [
- "cubical-core",
  "libsql",
  "serde",
  "tempfile",
