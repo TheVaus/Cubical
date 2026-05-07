@@ -23,6 +23,10 @@ cubical-sync   = { path = "../cubical-sync" }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 
+# Database — needed for the `From<libsql::Error>` impl on CubicalError and
+# for libsql::params! / Rows in the vault command handlers.
+libsql = { workspace = true }
+
 # Async runtime + utilities
 tokio = { workspace = true }
 tokio-util = { workspace = true }

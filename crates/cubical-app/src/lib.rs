@@ -26,9 +26,15 @@
 
 pub mod api;
 pub mod commands;
+pub mod error;
 pub mod events;
 pub mod state;
 
+use api::types::{
+    CancelVaultScanRequest, CloseVaultRequest, GetVaultInfoRequest, GetVaultInfoResponse,
+    ListFilesRequest, ListFilesResponse, OpenVaultRequest, OpenVaultResponse,
+};
+use error::CubicalError;
 use state::AppState;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
@@ -56,19 +62,65 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::new())
-        // Tauri-shim handlers are registered here as commands are added in
-        // subsequent L0 sessions. Each shim is a 3-line forwarder to a pure
-        // handler in `crate::commands`. Example shape:
-        //
-        //     #[tauri::command]
-        //     async fn open_vault(
-        //         state: tauri::State<'_, AppState>,
-        //         req: OpenVaultRequest,
-        //     ) -> Result<OpenVaultResponse, CubicalError> {
-        //         commands::vault::open_vault(state.inner(), req).await
-        //     }
-        //
-        // and registered via `.invoke_handler(tauri::generate_handler![open_vault, ...])`.
+        .invoke_handler(tauri::generate_handler![
+            open_vault,
+            cancel_vault_scan,
+            get_vault_info,
+            list_files,
+            close_vault,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+// ---------------------------------------------------------------------------
+// Tauri command shims — three lines each, forwarding to pure handlers in
+// `commands::vault`. The shims are the only `#[tauri::command]`-decorated
+// functions in the crate; everything below them is Tauri-free.
+// ---------------------------------------------------------------------------
+
+/// Tauri shim — see [`commands::vault::open_vault`].
+#[tauri::command]
+async fn open_vault(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    req: OpenVaultRequest,
+) -> Result<OpenVaultResponse, CubicalError> {
+    commands::vault::open_vault(state.inner(), &app, req).await
+}
+
+/// Tauri shim — see [`commands::vault::cancel_vault_scan`].
+#[tauri::command]
+async fn cancel_vault_scan(
+    state: tauri::State<'_, AppState>,
+    req: CancelVaultScanRequest,
+) -> Result<(), CubicalError> {
+    commands::vault::cancel_vault_scan(state.inner(), req).await
+}
+
+/// Tauri shim — see [`commands::vault::get_vault_info`].
+#[tauri::command]
+async fn get_vault_info(
+    state: tauri::State<'_, AppState>,
+    req: GetVaultInfoRequest,
+) -> Result<GetVaultInfoResponse, CubicalError> {
+    commands::vault::get_vault_info(state.inner(), req).await
+}
+
+/// Tauri shim — see [`commands::vault::list_files`].
+#[tauri::command]
+async fn list_files(
+    state: tauri::State<'_, AppState>,
+    req: ListFilesRequest,
+) -> Result<ListFilesResponse, CubicalError> {
+    commands::vault::list_files(state.inner(), req).await
+}
+
+/// Tauri shim — see [`commands::vault::close_vault`].
+#[tauri::command]
+async fn close_vault(
+    state: tauri::State<'_, AppState>,
+    req: CloseVaultRequest,
+) -> Result<(), CubicalError> {
+    commands::vault::close_vault(state.inner(), req).await
 }
