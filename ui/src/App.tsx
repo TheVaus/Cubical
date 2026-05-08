@@ -11,6 +11,7 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 
 import {
   listFiles,
+  onVaultFileChanged,
   onVaultScanCancelled,
   onVaultScanComplete,
   onVaultScanProgress,
@@ -42,6 +43,7 @@ const App: Component = () => {
   let unlistenProgress: UnlistenFn | undefined;
   let unlistenComplete: UnlistenFn | undefined;
   let unlistenCancelled: UnlistenFn | undefined;
+  let unlistenFileChanged: UnlistenFn | undefined;
 
   // Throttle the listFiles refetch so a 10k-file vault doesn't issue
   // ten thousand round trips. The scan emits a progress event per file;
@@ -92,12 +94,20 @@ const App: Component = () => {
       if (p.vault_id !== vaultId()) return;
       setScanStatus("cancelled");
     });
+    unlistenFileChanged = await onVaultFileChanged((p) => {
+      if (p.vault_id !== vaultId()) return;
+      // Reuse the same throttle as scan-progress so a burst of watcher
+      // events (e.g. `git checkout`) doesn't trigger one round trip per
+      // file. The list is best-effort; the next refresh shows the truth.
+      scheduleRefresh();
+    });
   });
 
   onCleanup(() => {
     unlistenProgress?.();
     unlistenComplete?.();
     unlistenCancelled?.();
+    unlistenFileChanged?.();
   });
 
   const handleOpen = async () => {

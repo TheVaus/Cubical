@@ -125,6 +125,20 @@ export interface VaultScanCancelled {
   vault_id: string;
 }
 
+export type VaultFileChangeKind =
+  | "created"
+  | "modified"
+  | "removed"
+  | "renamed";
+
+export interface VaultFileChanged {
+  vault_id: string;
+  path: string;
+  kind: VaultFileChangeKind;
+  /** Set only when `kind === "renamed"`. */
+  from_path?: string;
+}
+
 export function onVaultScanProgress(
   handler: (payload: VaultScanProgress) => void,
 ): Promise<UnlistenFn> {
@@ -145,6 +159,14 @@ export function onVaultScanCancelled(
   handler: (payload: VaultScanCancelled) => void,
 ): Promise<UnlistenFn> {
   return listen<VaultScanCancelled>("vault:scan-cancelled", (e) =>
+    handler(e.payload),
+  );
+}
+
+export function onVaultFileChanged(
+  handler: (payload: VaultFileChanged) => void,
+): Promise<UnlistenFn> {
+  return listen<VaultFileChanged>("vault:file-changed", (e) =>
     handler(e.payload),
   );
 }
