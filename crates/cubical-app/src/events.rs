@@ -14,7 +14,8 @@ use serde::Serialize;
 use tauri::Emitter;
 use tokio::sync::{mpsc, RwLock};
 
-use cubical_core::{scan, ScanProgress, Vault, VaultError};
+use cubical_core::{scan, ScanProgress, Vault, VaultError, WatchEvent};
+use libsql::params;
 use tokio_util::sync::CancellationToken;
 
 use crate::state::{OpenVault, ScanStatusBackend};
@@ -80,7 +81,7 @@ pub struct VaultFileChanged {
 }
 
 /// Discriminator for [`VaultFileChanged`].
-#[derive(Serialize, Clone)]
+#[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum VaultFileChangeKind {
     Created,
@@ -239,4 +240,364 @@ pub fn spawn_scan_dispatcher(
             open.scan_status = new_status;
         }
     });
+}
+
+// -- Watcher dispatcher -----------------------------------------------------
+//
+// Spawned by `commands::vault::open_vault` after `start_watcher`. Owns the
+// receiver end of the watcher mpsc, persists each event to the `files`
+// table + `audit_log`, and emits `vault:file-changed`. Lives here for
+// the same reason `spawn_scan_dispatcher` does: the pure command handler
+// stays Tauri-free.
+
+/// Spawn the dispatcher task that consumes [`WatchEvent`]s.
+///
+/// Each event:
+/// 1. Updates the `files` table (`Created` / `Modified` refresh
+///    `mtime_unix` + `content_hash` + `last_seen`; `Removed` and
+///    `Renamed` refresh `last_seen` only — row-level deletion / path
+///    update are L1+ work, see `docs/layer-0-spec.md` §6 + §3).
+/// 2. Inserts a row into `audit_log` (`category = 'watcher'`).
+/// 3. Emits a `vault:file-changed` Tauri event.
+///
+/// Errors are logged and the loop continues — a single failed event
+/// must not take the watcher down.
+pub fn spawn_watcher_dispatcher(
+    app: AppHandle,
+    vault_id: String,
+    vault: Vault,
+    mut events_rx: tokio::sync::mpsc::Receiver<WatchEvent>,
+) {
+    tokio::spawn(async move {
+        while let Some(ev) = events_rx.recv().await {
+            let arrived = Instant::now();
+            handle_watch_event(&app, &vault_id, &vault, &ev, arrived).await;
+        }
+        tracing::debug!(vault_id = %vault_id, "watcher dispatcher: channel closed");
+    });
+}
+
+async fn handle_watch_event(
+    app: &AppHandle,
+    vault_id: &str,
+    vault: &Vault,
+    ev: &WatchEvent,
+    arrived: Instant,
+) {
+    apply_watch_event_to_db(vault, ev).await;
+
+    let payload = file_changed_payload(vault_id, ev);
+    let elapsed_ms = arrived.elapsed().as_millis();
+    tracing::info!(
+        vault_id = %vault_id,
+        kind = ?payload.kind,
+        path = %payload.path,
+        elapsed_ms,
+        "watcher: emitting vault:file-changed",
+    );
+    emit_file_changed(app, payload);
+}
+
+/// Apply one watcher event to the index — the `files` row plus an
+/// `audit_log` insert.
+///
+/// Pulled out of [`handle_watch_event`] so it can be unit-tested without
+/// an `AppHandle`. Returns `()` because errors here are logged and
+/// swallowed: a bad write should not take the dispatcher down.
+pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) {
+    let now = unix_now_secs();
+    let conn = vault.index().connection();
+
+    // -- Update files row -------------------------------------------------
+    match ev {
+        WatchEvent::Created(rel) | WatchEvent::Modified(rel) => {
+            let abs = vault.root().join(rel);
+            let path_str = rel.to_string_lossy().into_owned();
+            // None case (file already gone, unreadable, or hash failed):
+            // upsert with zeros + empty hash, but still audit + emit so
+            // the UI refreshes. The next scan or modify event will heal
+            // the row.
+            let (size, mtime, hash): (i64, i64, String) =
+                read_file_stats(&abs, vault).await.unwrap_or_default();
+            // type_id is derived from the registry; if no handler
+            // matches (impossible with the default registry) skip.
+            let type_id = vault
+                .registry()
+                .handler_for(&abs)
+                .map(|h| h.type_id().to_string())
+                .unwrap_or_else(|| "binary".into());
+
+            let upsert = "
+                INSERT INTO files (
+                    path, type_id, size_bytes, mtime_unix, content_hash,
+                    inode, last_seen, created_at, updated_at
+                )
+                VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?6, ?6)
+                ON CONFLICT(path) DO UPDATE SET
+                    size_bytes   = excluded.size_bytes,
+                    mtime_unix   = excluded.mtime_unix,
+                    content_hash = excluded.content_hash,
+                    last_seen    = excluded.last_seen,
+                    updated_at   = excluded.last_seen
+            ";
+            if let Err(e) = conn
+                .execute(
+                    upsert,
+                    params![path_str.clone(), type_id, size, mtime, hash, now],
+                )
+                .await
+            {
+                tracing::warn!(path = %path_str, error = %e, "watcher: files upsert failed");
+            }
+        }
+        WatchEvent::Removed(rel) => {
+            // Row stays — refresh `last_seen` only. L3 cleanup work
+            // will reconcile path-keyed identity properly; deleting
+            // here would orphan future block refs that still point at
+            // the old path. Spec §6 calls for `last_seen` refresh.
+            let path_str = rel.to_string_lossy().into_owned();
+            if let Err(e) = conn
+                .execute(
+                    "UPDATE files SET last_seen = ?1 WHERE path = ?2",
+                    params![now, path_str.clone()],
+                )
+                .await
+            {
+                tracing::warn!(path = %path_str, error = %e, "watcher: files last_seen update failed");
+            }
+        }
+        WatchEvent::Renamed { from, to: _ } => {
+            // Path-keyed identity update is non-trivial: a row rename
+            // would orphan any future `wiki_links` / `block_refs`
+            // pointing at the old path. Defer to L3's pending-rewrites
+            // work. For now: refresh `last_seen` on the old row, emit
+            // the event, and audit-log it. The next vault scan will
+            // observe the new path as a fresh row.
+            let from_str = from.to_string_lossy().into_owned();
+            if let Err(e) = conn
+                .execute(
+                    "UPDATE files SET last_seen = ?1 WHERE path = ?2",
+                    params![now, from_str.clone()],
+                )
+                .await
+            {
+                tracing::warn!(path = %from_str, error = %e, "watcher: rename last_seen update failed");
+            }
+        }
+    }
+
+    // -- Audit log ---------------------------------------------------------
+    let (message, detail) = audit_payload_for(ev);
+    if let Err(e) = conn
+        .execute(
+            "INSERT INTO audit_log (timestamp, level, category, message, detail)
+             VALUES (?1, 'info', 'watcher', ?2, ?3)",
+            params![now, message, detail],
+        )
+        .await
+    {
+        // TODO(L0+): auto-prune to 10000 rows per spec §7. Skipped for
+        // now; the table grows unbounded until that lands.
+        tracing::warn!(error = %e, "watcher: audit_log insert failed");
+    }
+}
+
+/// Pull size/mtime/hash for an absolute path. Hashing happens off the
+/// runtime via `spawn_blocking`, mirroring what `scan.rs` does for
+/// large files.
+async fn read_file_stats(abs: &std::path::Path, vault: &Vault) -> Option<(i64, i64, String)> {
+    let metadata = match std::fs::metadata(abs) {
+        Ok(m) => m,
+        Err(e) => {
+            tracing::debug!(path = %abs.display(), error = %e, "watcher: metadata read failed");
+            return None;
+        }
+    };
+    let size = i64::try_from(metadata.len()).unwrap_or(i64::MAX);
+    let mtime = metadata
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::SystemTime::UNIX_EPOCH).ok())
+        .map(|d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
+        .unwrap_or(0);
+
+    let abs_for_hash = abs.to_path_buf();
+    let registry = vault.registry_arc();
+    let hash = tokio::task::spawn_blocking(move || {
+        registry
+            .handler_for(&abs_for_hash)
+            .ok_or_else(|| "no handler".to_string())
+            .and_then(|h| h.content_hash(&abs_for_hash).map_err(|e| e.to_string()))
+    })
+    .await;
+    let hash = match hash {
+        Ok(Ok(h)) => h,
+        Ok(Err(e)) => {
+            tracing::debug!(path = %abs.display(), error = %e, "watcher: hash failed");
+            return None;
+        }
+        Err(e) => {
+            tracing::warn!(path = %abs.display(), error = %e, "watcher: hash join failed");
+            return None;
+        }
+    };
+    Some((size, mtime, hash))
+}
+
+fn audit_payload_for(ev: &WatchEvent) -> (String, String) {
+    match ev {
+        WatchEvent::Created(p) => (
+            format!("created {}", p.display()),
+            serde_json::json!({ "kind": "created", "path": p.to_string_lossy() }).to_string(),
+        ),
+        WatchEvent::Modified(p) => (
+            format!("modified {}", p.display()),
+            serde_json::json!({ "kind": "modified", "path": p.to_string_lossy() }).to_string(),
+        ),
+        WatchEvent::Removed(p) => (
+            format!("removed {}", p.display()),
+            serde_json::json!({ "kind": "removed", "path": p.to_string_lossy() }).to_string(),
+        ),
+        WatchEvent::Renamed { from, to } => (
+            format!("renamed {} → {}", from.display(), to.display()),
+            serde_json::json!({
+                "kind": "renamed",
+                "from": from.to_string_lossy(),
+                "to": to.to_string_lossy(),
+            })
+            .to_string(),
+        ),
+    }
+}
+
+fn file_changed_payload(vault_id: &str, ev: &WatchEvent) -> VaultFileChanged {
+    match ev {
+        WatchEvent::Created(p) => VaultFileChanged {
+            vault_id: vault_id.to_string(),
+            path: p.to_string_lossy().into_owned(),
+            kind: VaultFileChangeKind::Created,
+            from_path: None,
+        },
+        WatchEvent::Modified(p) => VaultFileChanged {
+            vault_id: vault_id.to_string(),
+            path: p.to_string_lossy().into_owned(),
+            kind: VaultFileChangeKind::Modified,
+            from_path: None,
+        },
+        WatchEvent::Removed(p) => VaultFileChanged {
+            vault_id: vault_id.to_string(),
+            path: p.to_string_lossy().into_owned(),
+            kind: VaultFileChangeKind::Removed,
+            from_path: None,
+        },
+        WatchEvent::Renamed { from, to } => VaultFileChanged {
+            vault_id: vault_id.to_string(),
+            path: to.to_string_lossy().into_owned(),
+            kind: VaultFileChangeKind::Renamed,
+            from_path: Some(from.to_string_lossy().into_owned()),
+        },
+    }
+}
+
+fn unix_now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .map(|d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
+        .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    //! Tests for the watcher dispatcher's DB side. The Tauri-emit half
+    //! is exercised by the smoke pass against `cargo tauri dev`; here
+    //! we cover the audit-log row shape and the files-table updates,
+    //! which are the parts that can regress silently.
+
+    use super::*;
+    use std::path::PathBuf;
+    use tempfile::tempdir;
+
+    async fn fresh_vault_with_one_md(name: &str) -> (tempfile::TempDir, Vault) {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join(name), b"hello\n").unwrap();
+        let vault = Vault::open(dir.path()).await.expect("vault open");
+        (dir, vault)
+    }
+
+    #[tokio::test]
+    async fn created_event_writes_files_row_and_audit_log() {
+        let (_dir, vault) = fresh_vault_with_one_md("note.md").await;
+
+        apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("note.md"))).await;
+
+        // files row exists with type_id=markdown and a non-empty hash.
+        let conn = vault.index().connection();
+        let mut rows = conn
+            .query(
+                "SELECT type_id, content_hash FROM files WHERE path = 'note.md'",
+                (),
+            )
+            .await
+            .unwrap();
+        let row = rows.next().await.unwrap().expect("files row");
+        let type_id: String = row.get(0).unwrap();
+        let hash: String = row.get(1).unwrap();
+        assert_eq!(type_id, "markdown");
+        assert!(!hash.is_empty(), "content_hash must be set");
+
+        // audit_log row exists with category=watcher and a JSON detail.
+        let mut rows = conn
+            .query(
+                "SELECT category, level, message, detail
+                 FROM audit_log
+                 ORDER BY id DESC LIMIT 1",
+                (),
+            )
+            .await
+            .unwrap();
+        let row = rows.next().await.unwrap().expect("audit_log row");
+        let category: String = row.get(0).unwrap();
+        let level: String = row.get(1).unwrap();
+        let message: String = row.get(2).unwrap();
+        let detail: String = row.get(3).unwrap();
+        assert_eq!(category, "watcher");
+        assert_eq!(level, "info");
+        assert!(message.contains("created"), "{message}");
+        assert!(message.contains("note.md"), "{message}");
+        let parsed: serde_json::Value = serde_json::from_str(&detail).unwrap();
+        assert_eq!(parsed["kind"], "created");
+        assert_eq!(parsed["path"], "note.md");
+    }
+
+    #[tokio::test]
+    async fn renamed_event_audits_with_from_and_to() {
+        let (_dir, vault) = fresh_vault_with_one_md("a.md").await;
+
+        apply_watch_event_to_db(
+            &vault,
+            &WatchEvent::Renamed {
+                from: PathBuf::from("a.md"),
+                to: PathBuf::from("b.md"),
+            },
+        )
+        .await;
+
+        let conn = vault.index().connection();
+        let mut rows = conn
+            .query(
+                "SELECT message, detail FROM audit_log ORDER BY id DESC LIMIT 1",
+                (),
+            )
+            .await
+            .unwrap();
+        let row = rows.next().await.unwrap().expect("audit_log row");
+        let message: String = row.get(0).unwrap();
+        let detail: String = row.get(1).unwrap();
+        assert!(message.contains("a.md"), "{message}");
+        assert!(message.contains("b.md"), "{message}");
+        let parsed: serde_json::Value = serde_json::from_str(&detail).unwrap();
+        assert_eq!(parsed["kind"], "renamed");
+        assert_eq!(parsed["from"], "a.md");
+        assert_eq!(parsed["to"], "b.md");
+    }
 }

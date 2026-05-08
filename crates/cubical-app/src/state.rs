@@ -14,7 +14,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
-use cubical_core::Vault;
+use cubical_core::{Vault, WatcherHandle};
 
 /// One open vault, including its scan lifecycle handles.
 ///
@@ -32,6 +32,10 @@ pub struct OpenVault {
     /// Mirrors the wire-level scan status. Updated by the scan dispatcher
     /// when the scan terminates (complete or cancelled).
     pub scan_status: ScanStatusBackend,
+    /// Active filesystem watcher. Held here so it lives as long as the
+    /// vault is open; dropping it (via `close_vault`) tears down the OS
+    /// watch and aborts the watcher dispatcher's bridge task.
+    pub watcher: Option<WatcherHandle>,
 }
 
 /// Backend representation of [`crate::api::types::ScanStatus`].

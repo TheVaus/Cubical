@@ -9,7 +9,8 @@
 //!
 //! See `docs/layer-0-spec.md` §8.
 
-use cubical_core::Vault;
+use cubical_core::{start_watcher, Vault, WatchEvent};
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::api::types::{
@@ -18,8 +19,13 @@ use crate::api::types::{
     ScanStatus,
 };
 use crate::error::CubicalError;
-use crate::events::{spawn_scan_dispatcher, AppHandle};
+use crate::events::{spawn_scan_dispatcher, spawn_watcher_dispatcher, AppHandle};
 use crate::state::{AppState, OpenVault, ScanStatusBackend};
+
+/// Bound on the watcher's mpsc buffer. A burst (e.g. `git checkout`
+/// touching dozens of files at once) clears in well under this depth;
+/// going much higher would just hide a sluggish dispatcher.
+const WATCHER_CHANNEL_DEPTH: usize = 256;
 
 impl From<ScanStatusBackend> for ScanStatus {
     fn from(value: ScanStatusBackend) -> Self {
@@ -46,10 +52,16 @@ pub async fn open_vault(
     let vault_id = state.new_vault_id();
     let cancel = CancellationToken::new();
 
+    // Start the watcher *before* registering the vault, so a watcher
+    // failure doesn't leave a half-initialized OpenVault in state.
+    let (watch_tx, watch_rx) = mpsc::channel::<WatchEvent>(WATCHER_CHANNEL_DEPTH);
+    let watcher = start_watcher(&vault, cancel.clone(), watch_tx)?;
+
     let open = OpenVault {
         vault: vault.clone(),
         cancel: cancel.clone(),
         scan_status: ScanStatusBackend::InProgress,
+        watcher: Some(watcher),
     };
     state.vaults().write().await.insert(vault_id.clone(), open);
 
@@ -57,9 +69,11 @@ pub async fn open_vault(
         app.clone(),
         state.vaults_arc(),
         vault_id.clone(),
-        vault,
+        vault.clone(),
         cancel,
     );
+
+    spawn_watcher_dispatcher(app.clone(), vault_id.clone(), vault, watch_rx);
 
     Ok(OpenVaultResponse {
         vault_id,

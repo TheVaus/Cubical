@@ -60,6 +60,10 @@ pub enum CubicalError {
     #[error("file type error: {0}")]
     FileType(String),
 
+    /// OS file watcher failure.
+    #[error("watcher error: {0}")]
+    Watcher(String),
+
     /// Argument validation failure.
     #[error("invalid request: {0}")]
     InvalidRequest(String),
@@ -79,6 +83,7 @@ impl CubicalError {
             Self::Io(_) => "Io",
             Self::Db(_) => "Db",
             Self::FileType(_) => "FileType",
+            Self::Watcher(_) => "Watcher",
             Self::InvalidRequest(_) => "InvalidRequest",
         }
     }
@@ -104,6 +109,7 @@ impl From<VaultError> for CubicalError {
             VaultError::NotWritable(p) => Self::VaultNotWritable(p.display().to_string()),
             VaultError::Io(e) => Self::Io(e.to_string()),
             VaultError::Index(e) => Self::from(e),
+            VaultError::Watcher(e) => Self::Watcher(e.to_string()),
             VaultError::ScanCancelled => Self::ScanCancelled,
         }
     }

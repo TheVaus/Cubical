@@ -48,3 +48,6 @@ tracing-subscriber = { workspace = true }
 # `custom-protocol` is enabled by `tauri build` for production bundles.
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+
+[dev-dependencies]
+tempfile = "3"
