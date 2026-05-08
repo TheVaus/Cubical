@@ -16,8 +16,10 @@ use cubical_index::{open_index, IndexConn, IndexError};
 use crate::file_type::FileTypeRegistry;
 
 mod scan;
+mod watcher;
 
 pub use scan::{scan, ScanProgress};
+pub use watcher::{start_watcher, WatchEvent, WatcherHandle};
 
 /// Errors produced by vault operations.
 ///
@@ -44,6 +46,10 @@ pub enum VaultError {
     /// The libSQL index could not be opened or migrated.
     #[error("index error: {0}")]
     Index(#[from] IndexError),
+
+    /// The OS file watcher backend failed to start or stopped unexpectedly.
+    #[error("watcher error: {0}")]
+    Watcher(#[from] notify::Error),
 
     /// The scan was cancelled before it completed.
     #[error("scan cancelled")]

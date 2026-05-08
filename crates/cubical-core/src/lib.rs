@@ -16,4 +16,4 @@ pub mod vault;
 pub use file_type::{
     BinaryHandler, FileTypeError, FileTypeHandler, FileTypeRegistry, MarkdownHandler,
 };
-pub use vault::{scan, ScanProgress, Vault, VaultError};
+pub use vault::{scan, start_watcher, ScanProgress, Vault, VaultError, WatchEvent, WatcherHandle};

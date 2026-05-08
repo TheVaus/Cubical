@@ -16,6 +16,7 @@ serde_yaml_ng = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 notify = { workspace = true }
+notify-debouncer-full = { workspace = true }
 walkdir = { workspace = true }
 sha2 = { workspace = true }
 libsql = { workspace = true }
