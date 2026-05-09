@@ -146,6 +146,51 @@ pub struct FrontmatterEntry {
     pub value: serde_json::Value,
 }
 
+// -- read_file_text ------------------------------------------------------
+
+/// Request payload for `read_file_text`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ReadFileTextRequest {
+    /// Vault to read from.
+    pub vault_id: String,
+    /// Path of the file (relative to the vault root, as stored in
+    /// `files.path`).
+    pub path: String,
+}
+
+/// Response payload for `read_file_text`.
+#[derive(Debug, Clone, Serialize)]
+pub struct ReadFileTextResponse {
+    /// File contents as a UTF-8 string. Only markdown files are
+    /// readable through this command — binary files are rejected
+    /// with [`crate::error::CubicalError::InvalidRequest`].
+    pub content: String,
+}
+
+// -- get_canonical_ast ---------------------------------------------------
+
+/// Request payload for `get_canonical_ast`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct GetCanonicalAstRequest {
+    /// Vault to read from.
+    pub vault_id: String,
+    /// Path of the file (relative to the vault root, as stored in
+    /// `files.path`).
+    pub path: String,
+}
+
+/// Response payload for `get_canonical_ast`.
+///
+/// The wire shape of `document` is the canonical AST defined in
+/// `cubical_ast`. The frontend's TS mirrors must stay in lockstep —
+/// see `ui/src/ast/types.ts`.
+#[derive(Debug, Clone, Serialize)]
+pub struct GetCanonicalAstResponse {
+    /// Parsed canonical document. Always reflects on-disk source —
+    /// nothing is cached between calls.
+    pub document: cubical_ast::Document,
+}
+
 // -- close_vault ---------------------------------------------------------
 
 /// Request payload for `close_vault`.

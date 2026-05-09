@@ -14,9 +14,10 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::api::types::{
-    CancelVaultScanRequest, CloseVaultRequest, FileEntry, FrontmatterEntry, GetFrontmatterRequest,
-    GetFrontmatterResponse, GetVaultInfoRequest, GetVaultInfoResponse, ListFilesRequest,
-    ListFilesResponse, OpenVaultRequest, OpenVaultResponse, ScanStatus,
+    CancelVaultScanRequest, CloseVaultRequest, FileEntry, FrontmatterEntry, GetCanonicalAstRequest,
+    GetCanonicalAstResponse, GetFrontmatterRequest, GetFrontmatterResponse, GetVaultInfoRequest,
+    GetVaultInfoResponse, ListFilesRequest, ListFilesResponse, OpenVaultRequest, OpenVaultResponse,
+    ReadFileTextRequest, ReadFileTextResponse, ScanStatus,
 };
 use crate::error::CubicalError;
 use crate::events::{spawn_scan_dispatcher, spawn_watcher_dispatcher, AppHandle};
@@ -263,6 +264,101 @@ pub async fn get_frontmatter(
     Ok(GetFrontmatterResponse { entries })
 }
 
+/// Read a markdown file's UTF-8 text contents from disk.
+///
+/// Coarse-grained on purpose: callers don't have to re-issue
+/// `get_vault_info` or check `type_id` separately — the handler does
+/// the existence + type check, then reads. Binary files are rejected
+/// with [`CubicalError::InvalidRequest`] so the editor surface never
+/// receives non-text bytes.
+///
+/// Returns:
+/// - [`CubicalError::VaultNotOpen`] if `vault_id` is unknown.
+/// - [`CubicalError::FileNotFound`] if `path` is not in `files`.
+/// - [`CubicalError::InvalidRequest`] if the file's `type_id` is not
+///   `"markdown"`.
+/// - [`CubicalError::Io`] if the on-disk read fails (file vanished
+///   since the index row, permission denied, invalid UTF-8, ...).
+pub async fn read_file_text(
+    state: &AppState,
+    req: ReadFileTextRequest,
+) -> Result<ReadFileTextResponse, CubicalError> {
+    let abs_path = {
+        let guard = state.vaults().read().await;
+        let open = guard
+            .get(&req.vault_id)
+            .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
+        let conn = open.vault.index().connection();
+
+        let mut rows = conn
+            .query(
+                "SELECT type_id FROM files WHERE path = ?1",
+                libsql::params![req.path.clone()],
+            )
+            .await?;
+        let row = rows
+            .next()
+            .await?
+            .ok_or_else(|| CubicalError::FileNotFound(req.path.clone()))?;
+        let type_id: String = row.get(0)?;
+        if type_id != "markdown" {
+            return Err(CubicalError::InvalidRequest(format!(
+                "read_file_text only supports markdown files (path '{}' has type_id '{}')",
+                req.path, type_id,
+            )));
+        }
+        open.vault.root().join(&req.path)
+    };
+
+    // Disk I/O off the async executor.
+    let content = tokio::task::spawn_blocking(move || std::fs::read_to_string(&abs_path))
+        .await
+        .map_err(|e| CubicalError::Io(format!("read task join error: {e}")))?
+        .map_err(|e| CubicalError::Io(e.to_string()))?;
+
+    Ok(ReadFileTextResponse { content })
+}
+
+/// Read a markdown file from disk and parse it into the canonical AST.
+///
+/// Backed by `cubical_ast::parse`. The editor produces the same shape
+/// from its Lezer tree (in `ui/src/ast/normalize.ts`); this command
+/// is the authoritative-on-disk view, useful for indexers, exporters,
+/// and tests that don't want to spin up a CodeMirror instance.
+///
+/// Pre-L7 the AST is recomputed on every call — there is no AST
+/// cache table. The frontmatter index is the only AST-derived
+/// storage at L1.
+///
+/// Returns:
+/// - [`CubicalError::VaultNotOpen`] if `vault_id` is unknown.
+/// - [`CubicalError::FileNotFound`] if `path` is not in `files`.
+/// - [`CubicalError::InvalidRequest`] if the file's `type_id` is not
+///   `"markdown"`.
+/// - [`CubicalError::Io`] if the on-disk read fails.
+pub async fn get_canonical_ast(
+    state: &AppState,
+    req: GetCanonicalAstRequest,
+) -> Result<GetCanonicalAstResponse, CubicalError> {
+    // Reuse the same disk-fetch path so the type check + I/O behavior
+    // stays in one place.
+    let ReadFileTextResponse { content } = read_file_text(
+        state,
+        ReadFileTextRequest {
+            vault_id: req.vault_id,
+            path: req.path,
+        },
+    )
+    .await?;
+
+    // Parsing is CPU-bound; keep it off the async executor.
+    let document = tokio::task::spawn_blocking(move || cubical_ast::parse(&content))
+        .await
+        .map_err(|e| CubicalError::Io(format!("parse task join error: {e}")))?;
+
+    Ok(GetCanonicalAstResponse { document })
+}
+
 /// Cancel any in-flight scan and remove the vault from session state.
 ///
 /// Drops the underlying `IndexConn` (and therefore the libSQL connection)
@@ -417,6 +513,155 @@ mod tests {
             CubicalError::FileNotFound(p) => assert_eq!(p, "ghost.md"),
             other => panic!("expected FileNotFound, got {other:?}"),
         }
+    }
+
+    /// Insert a `files` row whose `path` exists on disk relative to
+    /// `vault.root()`. Writes `body` to that path so the read commands
+    /// have something to fetch.
+    async fn seed_file_on_disk(vault: &Vault, rel: &str, body: &str, type_id: &str) {
+        let abs = vault.root().join(rel);
+        if let Some(parent) = abs.parent() {
+            std::fs::create_dir_all(parent).expect("mkdir");
+        }
+        std::fs::write(&abs, body).expect("write body");
+        let conn = vault.index().connection();
+        conn.execute(
+            "INSERT INTO files (
+                path, type_id, size_bytes, mtime_unix, content_hash,
+                inode, last_seen, created_at, updated_at
+            ) VALUES (?1, ?2, 0, 0, '', NULL, 0, 0, 0)",
+            libsql::params![rel, type_id],
+        )
+        .await
+        .expect("seed files");
+    }
+
+    #[tokio::test]
+    async fn read_file_text_returns_content_for_markdown() {
+        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        let body = "# Hi\n\nA paragraph.\n";
+        seed_file_on_disk(&vault, "note.md", body, "markdown").await;
+
+        let resp = read_file_text(
+            &state,
+            ReadFileTextRequest {
+                vault_id: "v1".into(),
+                path: "note.md".into(),
+            },
+        )
+        .await
+        .expect("ok");
+        assert_eq!(resp.content, body);
+    }
+
+    #[tokio::test]
+    async fn read_file_text_rejects_binary() {
+        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        seed_file_on_disk(&vault, "icon.png", "fake png bytes", "binary").await;
+
+        let err = read_file_text(
+            &state,
+            ReadFileTextRequest {
+                vault_id: "v1".into(),
+                path: "icon.png".into(),
+            },
+        )
+        .await
+        .expect_err("should be InvalidRequest");
+        match err {
+            CubicalError::InvalidRequest(msg) => assert!(msg.contains("markdown")),
+            other => panic!("expected InvalidRequest, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn read_file_text_errors_for_unknown_path() {
+        let (_dir, _vault, state) = fresh_state_with_vault("v1").await;
+        let err = read_file_text(
+            &state,
+            ReadFileTextRequest {
+                vault_id: "v1".into(),
+                path: "missing.md".into(),
+            },
+        )
+        .await
+        .expect_err("should be FileNotFound");
+        assert!(matches!(err, CubicalError::FileNotFound(p) if p == "missing.md"));
+    }
+
+    #[tokio::test]
+    async fn get_canonical_ast_returns_parsed_document() {
+        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        let body = "# Hello\n\nA paragraph.\n";
+        seed_file_on_disk(&vault, "note.md", body, "markdown").await;
+
+        let resp = get_canonical_ast(
+            &state,
+            GetCanonicalAstRequest {
+                vault_id: "v1".into(),
+                path: "note.md".into(),
+            },
+        )
+        .await
+        .expect("ok");
+
+        assert_eq!(resp.document.source_len, body.len());
+        assert_eq!(resp.document.blocks.len(), 2);
+        assert!(matches!(
+            &resp.document.blocks[0],
+            cubical_ast::Block::Heading { level: 1, .. }
+        ));
+        assert!(matches!(
+            &resp.document.blocks[1],
+            cubical_ast::Block::Paragraph { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn get_canonical_ast_errors_for_unknown_path() {
+        let (_dir, _vault, state) = fresh_state_with_vault("v1").await;
+        let err = get_canonical_ast(
+            &state,
+            GetCanonicalAstRequest {
+                vault_id: "v1".into(),
+                path: "ghost.md".into(),
+            },
+        )
+        .await
+        .expect_err("should be FileNotFound");
+        assert!(matches!(err, CubicalError::FileNotFound(p) if p == "ghost.md"));
+    }
+
+    #[tokio::test]
+    async fn get_canonical_ast_errors_for_unknown_vault() {
+        let (_dir, _vault, state) = fresh_state_with_vault("v1").await;
+        let err = get_canonical_ast(
+            &state,
+            GetCanonicalAstRequest {
+                vault_id: "v999".into(),
+                path: "note.md".into(),
+            },
+        )
+        .await
+        .expect_err("should be VaultNotOpen");
+        assert!(matches!(err, CubicalError::VaultNotOpen(v) if v == "v999"));
+    }
+
+    #[tokio::test]
+    async fn get_canonical_ast_rejects_binary() {
+        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        seed_file_on_disk(&vault, "icon.png", "bytes", "binary").await;
+
+        let err = get_canonical_ast(
+            &state,
+            GetCanonicalAstRequest {
+                vault_id: "v1".into(),
+                path: "icon.png".into(),
+            },
+        )
+        .await
+        .expect_err("should be InvalidRequest");
+        assert!(matches!(err, CubicalError::InvalidRequest(_)));
     }
 
     #[tokio::test]
