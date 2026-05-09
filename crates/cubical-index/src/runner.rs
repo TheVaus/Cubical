@@ -79,6 +79,13 @@ pub(crate) async fn open_index_with_migrations(
     let db = Builder::new_local(path).build().await?;
     let conn = db.connect()?;
 
+    // Foreign-key enforcement is OFF by default in libSQL/SQLite —
+    // the pragma is per-connection. Cubical relies on it for the
+    // `frontmatter.file_path` cascade (introduced in v2) and for any
+    // future cascade rules; turn it on before migrations so
+    // schema-level constraints behave as documented.
+    conn.execute("PRAGMA foreign_keys = ON", ()).await?;
+
     run_migrations(&conn, migrations).await?;
 
     Ok(IndexConn { _db: db, conn })
@@ -208,8 +215,13 @@ mod tests {
         rows.next().await.expect("next").is_some()
     }
 
+    /// The version the highest-numbered known migration applies. Use
+    /// this rather than hard-coding so adding a new migration only
+    /// requires updating the `MIGRATIONS` slice — not every test.
+    const HIGHEST_KNOWN_VERSION: i64 = 2;
+
     #[tokio::test]
-    async fn fresh_db_applies_v1() {
+    async fn fresh_db_applies_all_known_migrations() {
         let dir = TempDir::new().unwrap();
         let path = db_path(&dir);
 
@@ -227,10 +239,14 @@ mod tests {
         assert!(index_exists(conn, "idx_files_inode").await);
         assert!(index_exists(conn, "idx_audit_timestamp").await);
 
-        // schema_version is exactly 1, single row.
+        // L1's frontmatter table + index exist.
+        assert!(table_exists(conn, "frontmatter").await);
+        assert!(index_exists(conn, "idx_frontmatter_key").await);
+
+        // schema_version == HIGHEST_KNOWN_VERSION, single row.
         assert_eq!(
             scalar_i64(conn, "SELECT MAX(version) FROM schema_version").await,
-            1
+            HIGHEST_KNOWN_VERSION
         );
         assert_eq!(
             scalar_i64(conn, "SELECT COUNT(*) FROM schema_version").await,
@@ -243,7 +259,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = db_path(&dir);
 
-        // First open: applies v1.
+        // First open: applies all migrations.
         {
             let _ = open_index(&path).await.expect("open #1");
         }
@@ -254,7 +270,7 @@ mod tests {
 
         assert_eq!(
             scalar_i64(conn, "SELECT MAX(version) FROM schema_version").await,
-            1
+            HIGHEST_KNOWN_VERSION
         );
         assert_eq!(
             scalar_i64(conn, "SELECT COUNT(*) FROM schema_version").await,
@@ -267,27 +283,32 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = db_path(&dir);
 
-        // Bring the DB up to v1 the normal way.
+        // Bring the DB up to the current version the normal way.
         {
             let _ = open_index(&path).await.expect("initial open");
         }
-        // Then manually bump schema_version to 2 to simulate a vault
-        // touched by a future build of Cubical.
+        // Then manually bump schema_version to a value beyond the
+        // current set of migrations to simulate a vault touched by a
+        // future build of Cubical.
+        let future_version = HIGHEST_KNOWN_VERSION + 1;
         {
             let db = Builder::new_local(&path).build().await.expect("builder");
             let conn = db.connect().expect("connect");
             conn.execute("DELETE FROM schema_version", ())
                 .await
                 .expect("delete");
-            conn.execute("INSERT INTO schema_version (version) VALUES (2)", ())
-                .await
-                .expect("insert");
+            conn.execute(
+                "INSERT INTO schema_version (version) VALUES (?1)",
+                [future_version],
+            )
+            .await
+            .expect("insert");
         }
 
         let err = open_index(&path).await.expect_err("should reject");
         match err {
-            IndexError::SchemaTooNew(v) => assert_eq!(v, 2),
-            other => panic!("expected SchemaTooNew(2), got {other:?}"),
+            IndexError::SchemaTooNew(v) => assert_eq!(i64::from(v), future_version),
+            other => panic!("expected SchemaTooNew, got {other:?}"),
         }
     }
 
@@ -296,42 +317,96 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = db_path(&dir);
 
-        // Bring the DB up to v1 cleanly.
+        // Bring the DB up to the current version cleanly.
         {
             let _ = open_index(&path).await.expect("initial open");
         }
 
-        // Now try to apply [v1, v2_broken]. Only v2 will run (v1 is
-        // already applied), and its SQL is invalid — so the transaction
-        // should roll back, leaving schema_version at 1 and no v2 side
-        // effects on disk.
-        let migrations: &[Migration] = &[
-            MIGRATIONS[0],
-            Migration {
-                version: 2,
-                up: "CREATE TABLE not_a_real_table (this is not valid sql);",
-            },
-        ];
+        // Stitch together the real migrations + a broken trailing one.
+        // Only the broken one will run (existing ones are already
+        // applied), and its SQL is invalid — so the transaction
+        // should roll back, leaving schema_version unchanged and no
+        // side effects on disk.
+        let mut migrations: Vec<Migration> = MIGRATIONS.to_vec();
+        let next_version = u32::try_from(HIGHEST_KNOWN_VERSION + 1).unwrap();
+        migrations.push(Migration {
+            version: next_version,
+            up: "CREATE TABLE not_a_real_table (this is not valid sql);",
+        });
 
-        let err = open_index_with_migrations(&path, migrations)
+        let err = open_index_with_migrations(&path, &migrations)
             .await
             .expect_err("broken migration should fail");
-        // The exact libSQL error variant isn't important; what matters
-        // is that we got *some* error and the DB state is unchanged.
         assert!(matches!(err, IndexError::LibSql(_)), "got {err:?}");
 
-        // Reopen with the real (valid) migrations slice and verify nothing
-        // from the failed v2 leaked in.
+        // Reopen with the real (valid) migrations slice and verify
+        // nothing from the failed migration leaked in.
         let idx = open_index(&path).await.expect("reopen after rollback");
         let conn = idx.connection();
         assert_eq!(
             scalar_i64(conn, "SELECT MAX(version) FROM schema_version").await,
-            1,
-            "schema_version must stay at 1 after a rolled-back migration"
+            HIGHEST_KNOWN_VERSION,
+            "schema_version must stay unchanged after a rolled-back migration"
         );
         assert!(
             !table_exists(conn, "not_a_real_table").await,
-            "no v2 side effects should be visible after rollback"
+            "no broken-migration side effects should be visible after rollback"
         );
+    }
+
+    #[tokio::test]
+    async fn v2_applies_on_top_of_existing_v1_database() {
+        // Bring the DB up to v1 only, with data in `files`, then
+        // re-open with the full migrations slice and verify the data
+        // survives and the new table is in place.
+        let dir = TempDir::new().unwrap();
+        let path = db_path(&dir);
+
+        let v1_only: &[Migration] = &[MIGRATIONS[0]];
+        {
+            let idx = open_index_with_migrations(&path, v1_only)
+                .await
+                .expect("v1 open");
+            let conn = idx.connection();
+            conn.execute(
+                "INSERT INTO files (
+                    path, type_id, size_bytes, mtime_unix, content_hash,
+                    inode, last_seen, created_at, updated_at
+                ) VALUES ('a.md', 'markdown', 1, 0, 'h', NULL, 0, 0, 0)",
+                (),
+            )
+            .await
+            .expect("insert seed file");
+        }
+
+        // Now apply the full set including v2.
+        let idx = open_index(&path).await.expect("reopen with v2");
+        let conn = idx.connection();
+
+        // Seed data survived.
+        assert_eq!(
+            scalar_i64(conn, "SELECT COUNT(*) FROM files WHERE path = 'a.md'").await,
+            1
+        );
+        // v2 table exists.
+        assert!(table_exists(conn, "frontmatter").await);
+        // schema_version reflects v2.
+        assert_eq!(
+            scalar_i64(conn, "SELECT MAX(version) FROM schema_version").await,
+            HIGHEST_KNOWN_VERSION
+        );
+    }
+
+    #[tokio::test]
+    async fn foreign_keys_pragma_is_on_after_open() {
+        let dir = TempDir::new().unwrap();
+        let path = db_path(&dir);
+        let idx = open_index(&path).await.expect("open");
+        let conn = idx.connection();
+
+        let mut rows = conn.query("PRAGMA foreign_keys", ()).await.expect("query");
+        let row = rows.next().await.expect("next").expect("row");
+        let v: i64 = row.get(0).expect("get");
+        assert_eq!(v, 1, "foreign_keys must be ON after open_index");
     }
 }

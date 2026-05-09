@@ -29,10 +29,19 @@ pub struct Migration {
 
 /// All known migrations, in ascending version order.
 ///
-/// Layer 0 ships only `v1`, which creates the four bedrock tables
-/// (`schema_version`, `files`, `config`, `audit_log`) and their indexes.
+/// - `v1` (L0): bedrock tables — `schema_version`, `files`, `config`,
+///   `audit_log` — and their indexes.
+/// - `v2` (L1): the `frontmatter` table for parsed YAML keys, keyed
+///   on `(file_path, key)` with JSON-encoded values.
+///
 /// Subsequent layers append entries here.
-pub const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    up: include_str!("../migrations/001_initial.sql"),
-}];
+pub const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        up: include_str!("../migrations/001_initial.sql"),
+    },
+    Migration {
+        version: 2,
+        up: include_str!("../migrations/002_frontmatter.sql"),
+    },
+];
