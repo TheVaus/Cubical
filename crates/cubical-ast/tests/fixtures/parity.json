@@ -1,0 +1,401 @@
+[
+  {
+    "name": "heading_and_paragraph",
+    "input": "# Hello\n\nA paragraph with *emph* and **strong** text.\n",
+    "expected": {
+      "blocks": [
+        {
+          "inlines": [
+            {
+              "kind": "text",
+              "value": "Hello"
+            }
+          ],
+          "kind": "heading",
+          "level": 1,
+          "span": {
+            "end": 8,
+            "start": 0
+          }
+        },
+        {
+          "inlines": [
+            {
+              "kind": "text",
+              "value": "A paragraph with "
+            },
+            {
+              "children": [
+                {
+                  "kind": "text",
+                  "value": "emph"
+                }
+              ],
+              "kind": "emph"
+            },
+            {
+              "kind": "text",
+              "value": " and "
+            },
+            {
+              "children": [
+                {
+                  "kind": "text",
+                  "value": "strong"
+                }
+              ],
+              "kind": "strong"
+            },
+            {
+              "kind": "text",
+              "value": " text."
+            }
+          ],
+          "kind": "paragraph",
+          "span": {
+            "end": 54,
+            "start": 9
+          }
+        }
+      ],
+      "frontmatter": null,
+      "source_len": 54
+    }
+  },
+  {
+    "name": "fenced_code_block",
+    "input": "```rust\nfn main() {\n    println!(\"hi\");\n}\n```\n",
+    "expected": {
+      "blocks": [
+        {
+          "content": "fn main() {\n    println!(\"hi\");\n}\n",
+          "kind": "code_block",
+          "lang": "rust",
+          "span": {
+            "end": 45,
+            "start": 0
+          }
+        }
+      ],
+      "frontmatter": null,
+      "source_len": 46
+    }
+  },
+  {
+    "name": "loose_list",
+    "input": "- one\n\n- two\n\n- three\n",
+    "expected": {
+      "blocks": [
+        {
+          "items": [
+            {
+              "blocks": [
+                {
+                  "inlines": [
+                    {
+                      "kind": "text",
+                      "value": "one"
+                    }
+                  ],
+                  "kind": "paragraph",
+                  "span": {
+                    "end": 6,
+                    "start": 2
+                  }
+                }
+              ],
+              "span": {
+                "end": 7,
+                "start": 0
+              }
+            },
+            {
+              "blocks": [
+                {
+                  "inlines": [
+                    {
+                      "kind": "text",
+                      "value": "two"
+                    }
+                  ],
+                  "kind": "paragraph",
+                  "span": {
+                    "end": 13,
+                    "start": 9
+                  }
+                }
+              ],
+              "span": {
+                "end": 14,
+                "start": 7
+              }
+            },
+            {
+              "blocks": [
+                {
+                  "inlines": [
+                    {
+                      "kind": "text",
+                      "value": "three"
+                    }
+                  ],
+                  "kind": "paragraph",
+                  "span": {
+                    "end": 22,
+                    "start": 16
+                  }
+                }
+              ],
+              "span": {
+                "end": 22,
+                "start": 14
+              }
+            }
+          ],
+          "kind": "list",
+          "ordered": false,
+          "span": {
+            "end": 22,
+            "start": 0
+          }
+        }
+      ],
+      "frontmatter": null,
+      "source_len": 22
+    }
+  },
+  {
+    "name": "blockquote",
+    "input": "> A quoted line.\n>\n> Another line.\n",
+    "expected": {
+      "blocks": [
+        {
+          "blocks": [
+            {
+              "inlines": [
+                {
+                  "kind": "text",
+                  "value": "A quoted line."
+                }
+              ],
+              "kind": "paragraph",
+              "span": {
+                "end": 17,
+                "start": 2
+              }
+            },
+            {
+              "inlines": [
+                {
+                  "kind": "text",
+                  "value": "Another line."
+                }
+              ],
+              "kind": "paragraph",
+              "span": {
+                "end": 35,
+                "start": 21
+              }
+            }
+          ],
+          "kind": "quote",
+          "span": {
+            "end": 35,
+            "start": 0
+          }
+        }
+      ],
+      "frontmatter": null,
+      "source_len": 35
+    }
+  },
+  {
+    "name": "link_and_image",
+    "input": "See [Cubical](https://example.test \"home\") and ![logo](pic.png).\n",
+    "expected": {
+      "blocks": [
+        {
+          "inlines": [
+            {
+              "kind": "text",
+              "value": "See "
+            },
+            {
+              "children": [
+                {
+                  "kind": "text",
+                  "value": "Cubical"
+                }
+              ],
+              "dest": "https://example.test",
+              "kind": "link",
+              "title": "home"
+            },
+            {
+              "kind": "text",
+              "value": " and "
+            },
+            {
+              "alt": [
+                {
+                  "kind": "text",
+                  "value": "logo"
+                }
+              ],
+              "dest": "pic.png",
+              "kind": "image",
+              "title": null
+            },
+            {
+              "kind": "text",
+              "value": "."
+            }
+          ],
+          "kind": "paragraph",
+          "span": {
+            "end": 65,
+            "start": 0
+          }
+        }
+      ],
+      "frontmatter": null,
+      "source_len": 65
+    }
+  },
+  {
+    "name": "frontmatter_simple",
+    "input": "---\ntitle: Hello\ncount: 3\ntags:\n  - a\n  - b\n---\n\n# Body heading\n\nBody paragraph.\n",
+    "expected": {
+      "blocks": [
+        {
+          "inlines": [
+            {
+              "kind": "text",
+              "value": "Body heading"
+            }
+          ],
+          "kind": "heading",
+          "level": 1,
+          "span": {
+            "end": 64,
+            "start": 49
+          }
+        },
+        {
+          "inlines": [
+            {
+              "kind": "text",
+              "value": "Body paragraph."
+            }
+          ],
+          "kind": "paragraph",
+          "span": {
+            "end": 81,
+            "start": 65
+          }
+        }
+      ],
+      "frontmatter": {
+        "entries": [
+          [
+            "title",
+            "Hello"
+          ],
+          [
+            "count",
+            3
+          ],
+          [
+            "tags",
+            [
+              "a",
+              "b"
+            ]
+          ]
+        ],
+        "span": {
+          "end": 48,
+          "start": 0
+        }
+      },
+      "source_len": 81
+    }
+  },
+  {
+    "name": "thematic_break",
+    "input": "Above.\n\n---\n\nBelow.\n",
+    "expected": {
+      "blocks": [
+        {
+          "inlines": [
+            {
+              "kind": "text",
+              "value": "Above."
+            }
+          ],
+          "kind": "paragraph",
+          "span": {
+            "end": 7,
+            "start": 0
+          }
+        },
+        {
+          "kind": "thematic_break",
+          "span": {
+            "end": 12,
+            "start": 8
+          }
+        },
+        {
+          "inlines": [
+            {
+              "kind": "text",
+              "value": "Below."
+            }
+          ],
+          "kind": "paragraph",
+          "span": {
+            "end": 20,
+            "start": 13
+          }
+        }
+      ],
+      "frontmatter": null,
+      "source_len": 20
+    }
+  },
+  {
+    "name": "inline_code_and_hard_break",
+    "input": "use `cargo test`  \nto run tests.\n",
+    "expected": {
+      "blocks": [
+        {
+          "inlines": [
+            {
+              "kind": "text",
+              "value": "use "
+            },
+            {
+              "kind": "code",
+              "value": "cargo test"
+            },
+            {
+              "kind": "line_break"
+            },
+            {
+              "kind": "text",
+              "value": "to run tests."
+            }
+          ],
+          "kind": "paragraph",
+          "span": {
+            "end": 33,
+            "start": 0
+          }
+        }
+      ],
+      "frontmatter": null,
+      "source_len": 33
+    }
+  }
+]
