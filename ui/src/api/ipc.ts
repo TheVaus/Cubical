@@ -15,6 +15,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
+import type { CanonicalDocument } from "../ast/types";
+
 // ---------------------------------------------------------------------------
 // Wire types — mirror the Rust structs in cubical-app/src/api/types.rs.
 // ---------------------------------------------------------------------------
@@ -88,6 +90,29 @@ export interface GetFrontmatterResponse {
   entries: FrontmatterEntry[];
 }
 
+export interface ReadFileTextRequest {
+  vault_id: string;
+  path: string;
+}
+
+export interface ReadFileTextResponse {
+  content: string;
+}
+
+export interface GetCanonicalAstRequest {
+  vault_id: string;
+  path: string;
+}
+
+/**
+ * Wire shape for `get_canonical_ast`. The `document` field mirrors
+ * the Rust `cubical_ast::Document` type — see `ui/src/ast/types.ts`
+ * for the canonical AST type aliases that match it.
+ */
+export interface GetCanonicalAstResponse {
+  document: CanonicalDocument;
+}
+
 /**
  * Stable error shape from the backend. `code` matches a `CubicalError`
  * variant and is safe to switch on; `message` is for human-facing UI.
@@ -127,6 +152,18 @@ export function getFrontmatter(
   req: GetFrontmatterRequest,
 ): Promise<GetFrontmatterResponse> {
   return invoke("get_frontmatter", { req });
+}
+
+export function readFileText(
+  req: ReadFileTextRequest,
+): Promise<ReadFileTextResponse> {
+  return invoke("read_file_text", { req });
+}
+
+export function getCanonicalAst(
+  req: GetCanonicalAstRequest,
+): Promise<GetCanonicalAstResponse> {
+  return invoke("get_canonical_ast", { req });
 }
 
 // ---------------------------------------------------------------------------

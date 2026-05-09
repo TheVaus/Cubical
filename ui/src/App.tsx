@@ -9,6 +9,8 @@ import {
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
+import Editor from "./Editor";
+import type { CanonicalDocument } from "./ast/types";
 import {
   listFiles,
   onVaultFileChanged,
@@ -16,6 +18,7 @@ import {
   onVaultScanComplete,
   onVaultScanProgress,
   openVault,
+  readFileText,
   type FileEntry,
   type ScanStatus,
 } from "./api/ipc";
@@ -39,6 +42,11 @@ const App: Component = () => {
   const [files, setFiles] = createSignal<FileEntry[]>([]);
   const [error, setError] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal(false);
+  const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
+  const [selectedContent, setSelectedContent] = createSignal<string | null>(
+    null,
+  );
+  const [astSummary, setAstSummary] = createSignal<string>("");
 
   let unlistenProgress: UnlistenFn | undefined;
   let unlistenComplete: UnlistenFn | undefined;
@@ -110,6 +118,33 @@ const App: Component = () => {
     unlistenFileChanged?.();
   });
 
+  const handleSelectFile = async (file: FileEntry) => {
+    if (file.type_id !== "markdown") return;
+    const id = vaultId();
+    if (!id) return;
+    setError(null);
+    setSelectedPath(file.path);
+    try {
+      const resp = await readFileText({ vault_id: id, path: file.path });
+      setSelectedContent(resp.content);
+    } catch (e) {
+      const message =
+        typeof e === "object" && e !== null && "message" in e
+          ? String((e as { message: unknown }).message)
+          : String(e);
+      setError(message);
+      setSelectedContent(null);
+    }
+  };
+
+  const handleAstChange = (doc: CanonicalDocument) => {
+    setAstSummary(
+      `${doc.blocks.length} block${doc.blocks.length === 1 ? "" : "s"}, ` +
+        `${doc.source_len} byte${doc.source_len === 1 ? "" : "s"}` +
+        (doc.frontmatter ? `, frontmatter: ${doc.frontmatter.entries.length} key${doc.frontmatter.entries.length === 1 ? "" : "s"}` : ""),
+    );
+  };
+
   const handleOpen = async () => {
     setError(null);
     setBusy(true);
@@ -125,6 +160,9 @@ const App: Component = () => {
       setFilesTotalEstimate(0);
       setScanStatus("in_progress");
       setVaultPath(picked);
+      setSelectedPath(null);
+      setSelectedContent(null);
+      setAstSummary("");
 
       const resp = await openVault({ path: picked });
       setVaultId(resp.vault_id);
@@ -244,54 +282,124 @@ const App: Component = () => {
           >
             {vaultPath()}
           </p>
-          <ul
+          <div
             style={{
-              "list-style": "none",
-              padding: 0,
-              margin: 0,
-              "overflow-y": "auto",
+              display: "flex",
+              gap: "var(--space-3)",
               flex: 1,
-              border: "1px solid var(--c-border-subtle)",
-              "border-radius": "var(--radius-md)",
-              background: "var(--c-bg-secondary)",
+              "min-height": 0,
             }}
           >
-            <For
-              each={files()}
-              fallback={
-                <li
-                  style={{
-                    padding: "var(--space-3)",
-                    "font-size": "var(--text-sm)",
-                    color: "var(--c-fg-muted)",
-                  }}
-                >
-                  No files yet…
-                </li>
-              }
+            <ul
+              style={{
+                "list-style": "none",
+                padding: 0,
+                margin: 0,
+                "overflow-y": "auto",
+                flex: "0 0 18rem",
+                border: "1px solid var(--c-border-subtle)",
+                "border-radius": "var(--radius-md)",
+                background: "var(--c-bg-secondary)",
+              }}
             >
-              {(file) => (
-                <li
+              <For
+                each={files()}
+                fallback={
+                  <li
+                    style={{
+                      padding: "var(--space-3)",
+                      "font-size": "var(--text-sm)",
+                      color: "var(--c-fg-muted)",
+                    }}
+                  >
+                    No files yet…
+                  </li>
+                }
+              >
+                {(file) => {
+                  const isMarkdown = file.type_id === "markdown";
+                  const isSelected = () => selectedPath() === file.path;
+                  return (
+                    <li
+                      onClick={() => handleSelectFile(file)}
+                      style={{
+                        padding: "var(--space-2) var(--space-3)",
+                        "font-family": "var(--font-mono)",
+                        "font-size": "var(--text-xs)",
+                        "border-bottom": "1px solid var(--c-border-subtle)",
+                        display: "flex",
+                        "justify-content": "space-between",
+                        gap: "var(--space-3)",
+                        cursor: isMarkdown ? "pointer" : "default",
+                        background: isSelected()
+                          ? "var(--c-bg-tertiary)"
+                          : "transparent",
+                        color: isMarkdown
+                          ? "var(--c-fg-primary)"
+                          : "var(--c-fg-muted)",
+                      }}
+                    >
+                      <span
+                        style={{
+                          overflow: "hidden",
+                          "text-overflow": "ellipsis",
+                        }}
+                      >
+                        {file.path}
+                      </span>
+                      <span style={{ color: "var(--c-fg-muted)" }}>
+                        {file.type_id}
+                      </span>
+                    </li>
+                  );
+                }}
+              </For>
+            </ul>
+            <div
+              style={{
+                flex: 1,
+                "min-width": 0,
+                display: "flex",
+                "flex-direction": "column",
+                gap: "var(--space-2)",
+              }}
+            >
+              <Show
+                when={selectedContent() !== null}
+                fallback={
+                  <div
+                    style={{
+                      flex: 1,
+                      display: "flex",
+                      "align-items": "center",
+                      "justify-content": "center",
+                      color: "var(--c-fg-muted)",
+                      "font-size": "var(--text-sm)",
+                      border: "1px dashed var(--c-border-subtle)",
+                      "border-radius": "var(--radius-md)",
+                    }}
+                  >
+                    Select a markdown file to open it.
+                  </div>
+                }
+              >
+                <Editor
+                  value={selectedContent() ?? ""}
+                  onAstChange={handleAstChange}
+                />
+                <p
                   style={{
-                    padding: "var(--space-2) var(--space-3)",
-                    "font-family": "var(--font-mono)",
+                    color: "var(--c-fg-secondary)",
                     "font-size": "var(--text-xs)",
-                    "border-bottom": "1px solid var(--c-border-subtle)",
-                    display: "flex",
-                    "justify-content": "space-between",
-                    gap: "var(--space-3)",
+                    "font-family": "var(--font-mono)",
+                    margin: 0,
                   }}
                 >
-                  <span style={{ overflow: "hidden", "text-overflow": "ellipsis" }}>
-                    {file.path}
-                  </span>
-                  <span style={{ color: "var(--c-fg-muted)" }}>
-                    {file.type_id}
-                  </span>
-                </li>
-              )}
-            </For>
-          </ul>
+                  AST: {astSummary()}
+                </p>
+              </Show>
+            </div>
+          </div>
         </section>
       </Show>
 
