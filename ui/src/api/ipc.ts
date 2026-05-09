@@ -69,6 +69,25 @@ export interface CloseVaultRequest {
   vault_id: string;
 }
 
+export interface GetFrontmatterRequest {
+  vault_id: string;
+  path: string;
+}
+
+/**
+ * One frontmatter key/value pair. `value` is whatever JSON shape the
+ * source YAML had — scalar, array, or nested object — so callers
+ * narrow it themselves.
+ */
+export interface FrontmatterEntry {
+  key: string;
+  value: unknown;
+}
+
+export interface GetFrontmatterResponse {
+  entries: FrontmatterEntry[];
+}
+
 /**
  * Stable error shape from the backend. `code` matches a `CubicalError`
  * variant and is safe to switch on; `message` is for human-facing UI.
@@ -102,6 +121,12 @@ export function listFiles(req: ListFilesRequest): Promise<ListFilesResponse> {
 
 export function closeVault(req: CloseVaultRequest): Promise<void> {
   return invoke("close_vault", { req });
+}
+
+export function getFrontmatter(
+  req: GetFrontmatterRequest,
+): Promise<GetFrontmatterResponse> {
+  return invoke("get_frontmatter", { req });
 }
 
 // ---------------------------------------------------------------------------
