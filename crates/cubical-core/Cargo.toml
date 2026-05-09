@@ -8,10 +8,12 @@ authors.workspace = true
 description = "Vault, file watcher, file-type registry, frontmatter I/O. Core building blocks shared by the rest of Cubical, with no Tauri dependency."
 
 [dependencies]
+cubical-ast = { path = "../cubical-ast" }
 cubical-index = { path = "../cubical-index" }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 serde_yaml_ng = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }

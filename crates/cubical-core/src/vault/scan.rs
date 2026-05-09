@@ -16,7 +16,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use walkdir::WalkDir;
 
-use crate::vault::{Vault, VaultError};
+use crate::vault::{frontmatter::refresh_frontmatter, Vault, VaultError};
 
 /// Progress update streamed from an in-flight scan.
 ///
@@ -164,7 +164,7 @@ pub async fn scan(
             .execute(
                 upsert,
                 params![
-                    path_str,
+                    path_str.clone(),
                     type_id,
                     size_bytes,
                     mtime_unix,
@@ -177,6 +177,18 @@ pub async fn scan(
         {
             tracing::warn!(path = %abs_path.display(), error = %e, "files upsert failed; skipping");
             continue;
+        }
+
+        // L1: refresh the `frontmatter` rows for markdown files. Other
+        // file types skip — frontmatter is a markdown-only concept.
+        // Errors are logged and ignored: the `files` row is in place,
+        // so a malformed YAML file is still tracked, just without a
+        // frontmatter index. The next scan or modify event will heal
+        // it if the file gets fixed.
+        if type_id == "markdown" {
+            if let Err(e) = refresh_frontmatter(&vault, &abs_path, &path_str).await {
+                tracing::warn!(path = %abs_path.display(), error = %e, "frontmatter refresh failed");
+            }
         }
 
         files_processed = files_processed.saturating_add(1);
@@ -480,6 +492,164 @@ mod tests {
 
     // Sanity check that libsql accepts `Option<i64>` for the inode
     // parameter on platforms that always supply Some.
+    // -- Frontmatter wiring (L1) --------------------------------------
+
+    /// Build a vault with `files` (relative path → bytes) explicitly
+    /// listed. Useful when tests want a file with frontmatter without
+    /// going through `fixture_vault`'s template body.
+    async fn fixture_vault_with(files: &[(&str, &[u8])]) -> (tempfile::TempDir, Vault) {
+        let dir = tempdir().unwrap();
+        for (rel, bytes) in files {
+            let p = dir.path().join(rel);
+            if let Some(parent) = p.parent() {
+                fs::create_dir_all(parent).unwrap();
+            }
+            fs::write(&p, bytes).unwrap();
+        }
+        let vault = Vault::open(dir.path()).await.expect("open");
+        (dir, vault)
+    }
+
+    #[tokio::test]
+    async fn scan_populates_frontmatter_rows_for_markdown_files() {
+        let (_dir, vault) = fixture_vault_with(&[(
+            "note.md",
+            b"---\ntitle: Hello\ntags: [a, b]\nready: true\n---\n\nbody\n",
+        )])
+        .await;
+
+        let (tx, _rx) = mpsc::channel::<ScanProgress>(64);
+        scan(vault.clone(), CancellationToken::new(), tx)
+            .await
+            .expect("scan");
+
+        let conn = vault.index().connection();
+        // Three keys → three rows.
+        assert_eq!(
+            scalar_i64(&vault, "SELECT COUNT(*) FROM frontmatter").await,
+            3
+        );
+        // Spot-check the JSON-encoded value for `tags`.
+        let mut rows = conn
+            .query(
+                "SELECT value FROM frontmatter WHERE file_path = 'note.md' AND key = 'tags'",
+                (),
+            )
+            .await
+            .unwrap();
+        let row = rows.next().await.unwrap().expect("tags row");
+        let raw: String = row.get(0).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(parsed, serde_json::json!(["a", "b"]));
+    }
+
+    #[tokio::test]
+    async fn scan_handles_malformed_frontmatter_without_failing() {
+        let (_dir, vault) =
+            fixture_vault_with(&[("broken.md", b"---\ntitle: : :\n  - bad\n---\n\nbody\n")]).await;
+
+        let (tx, _rx) = mpsc::channel::<ScanProgress>(64);
+        scan(vault.clone(), CancellationToken::new(), tx)
+            .await
+            .expect("scan should succeed despite malformed YAML");
+
+        // The `files` row is there.
+        assert_eq!(
+            scalar_i64(
+                &vault,
+                "SELECT COUNT(*) FROM files WHERE path = 'broken.md'"
+            )
+            .await,
+            1
+        );
+        // No frontmatter rows for this file.
+        assert_eq!(
+            scalar_i64(
+                &vault,
+                "SELECT COUNT(*) FROM frontmatter WHERE file_path = 'broken.md'"
+            )
+            .await,
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn rescan_drops_keys_removed_from_frontmatter() {
+        let dir = tempdir().unwrap();
+        let p = dir.path().join("note.md");
+        fs::write(&p, "---\ntitle: A\nstatus: draft\n---\n").unwrap();
+        let vault = Vault::open(dir.path()).await.expect("open");
+
+        let (tx, _rx) = mpsc::channel::<ScanProgress>(64);
+        scan(vault.clone(), CancellationToken::new(), tx)
+            .await
+            .expect("scan1");
+        assert_eq!(
+            scalar_i64(&vault, "SELECT COUNT(*) FROM frontmatter").await,
+            2
+        );
+
+        // User edits the file — drops `status`, renames `title`.
+        fs::write(&p, "---\nheading: B\n---\n").unwrap();
+
+        let (tx2, _rx2) = mpsc::channel::<ScanProgress>(64);
+        scan(vault.clone(), CancellationToken::new(), tx2)
+            .await
+            .expect("scan2");
+        assert_eq!(
+            scalar_i64(&vault, "SELECT COUNT(*) FROM frontmatter").await,
+            1
+        );
+        assert_eq!(
+            scalar_i64(
+                &vault,
+                "SELECT COUNT(*) FROM frontmatter WHERE key = 'status'"
+            )
+            .await,
+            0
+        );
+        assert_eq!(
+            scalar_i64(
+                &vault,
+                "SELECT COUNT(*) FROM frontmatter WHERE key = 'heading'"
+            )
+            .await,
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn scan_skips_frontmatter_for_non_markdown_files() {
+        let (_dir, vault) = fixture_vault_with(&[
+            ("note.md", b"---\ntitle: Hello\n---\nbody\n"),
+            ("data.bin", b"---\ntitle: NotMarkdown\n---\n"),
+        ])
+        .await;
+
+        let (tx, _rx) = mpsc::channel::<ScanProgress>(64);
+        scan(vault.clone(), CancellationToken::new(), tx)
+            .await
+            .expect("scan");
+
+        // Only the markdown file produces frontmatter rows.
+        assert_eq!(
+            scalar_i64(
+                &vault,
+                "SELECT COUNT(*) FROM frontmatter WHERE file_path = 'data.bin'"
+            )
+            .await,
+            0
+        );
+        assert_eq!(
+            scalar_i64(
+                &vault,
+                "SELECT COUNT(*) FROM frontmatter WHERE file_path = 'note.md'"
+            )
+            .await,
+            1
+        );
+    }
+
     #[tokio::test]
     async fn inode_param_round_trips() {
         let (_dir, vault) = fixture_vault(1, &[]).await;
