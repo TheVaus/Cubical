@@ -14,7 +14,7 @@ use serde::Serialize;
 use tauri::Emitter;
 use tokio::sync::{mpsc, RwLock};
 
-use cubical_core::{scan, ScanProgress, Vault, VaultError, WatchEvent};
+use cubical_core::{refresh_frontmatter, scan, ScanProgress, Vault, VaultError, WatchEvent};
 use libsql::params;
 use tokio_util::sync::CancellationToken;
 
@@ -343,11 +343,21 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) {
             if let Err(e) = conn
                 .execute(
                     upsert,
-                    params![path_str.clone(), type_id, size, mtime, hash, now],
+                    params![path_str.clone(), type_id.clone(), size, mtime, hash, now],
                 )
                 .await
             {
                 tracing::warn!(path = %path_str, error = %e, "watcher: files upsert failed");
+            }
+
+            // L1: refresh `frontmatter` rows for markdown files. Best
+            // effort — a malformed YAML or transient I/O error here
+            // must not take the dispatcher down. Non-markdown types
+            // skip; frontmatter is a markdown-only concept.
+            if type_id == "markdown" {
+                if let Err(e) = refresh_frontmatter(vault, &abs, &path_str).await {
+                    tracing::warn!(path = %path_str, error = %e, "watcher: frontmatter refresh failed");
+                }
             }
         }
         WatchEvent::Removed(rel) => {
@@ -567,6 +577,37 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&detail).unwrap();
         assert_eq!(parsed["kind"], "created");
         assert_eq!(parsed["path"], "note.md");
+    }
+
+    #[tokio::test]
+    async fn modified_event_refreshes_frontmatter_table() {
+        let dir = tempdir().unwrap();
+        let p = dir.path().join("note.md");
+        std::fs::write(&p, "---\ntitle: Old\n---\n\nbody\n").unwrap();
+        let vault = Vault::open(dir.path()).await.expect("vault open");
+
+        // Seed a Created event so the `files` row exists, then
+        // overwrite the file and fire Modified.
+        apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("note.md"))).await;
+        std::fs::write(&p, "---\ntitle: New\nstatus: ready\n---\n\nbody\n").unwrap();
+        apply_watch_event_to_db(&vault, &WatchEvent::Modified(PathBuf::from("note.md"))).await;
+
+        let conn = vault.index().connection();
+        let mut rows = conn
+            .query(
+                "SELECT key, value FROM frontmatter WHERE file_path = 'note.md' ORDER BY key",
+                (),
+            )
+            .await
+            .unwrap();
+        let mut got: Vec<(String, String)> = Vec::new();
+        while let Some(row) = rows.next().await.unwrap() {
+            got.push((row.get(0).unwrap(), row.get(1).unwrap()));
+        }
+        assert_eq!(got.len(), 2, "expected exactly two keys after Modified");
+        let map: std::collections::HashMap<String, String> = got.into_iter().collect();
+        assert_eq!(map["title"], "\"New\"");
+        assert_eq!(map["status"], "\"ready\"");
     }
 
     #[tokio::test]

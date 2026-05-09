@@ -44,6 +44,10 @@ pub enum CubicalError {
     #[error("vault not open: {0}")]
     VaultNotOpen(String),
 
+    /// The named file is not tracked in the vault's index.
+    #[error("file not found in vault: {0}")]
+    FileNotFound(String),
+
     /// The scan was cancelled before completing.
     #[error("scan cancelled")]
     ScanCancelled,
@@ -79,6 +83,7 @@ impl CubicalError {
             Self::VaultNotWritable(_) => "VaultNotWritable",
             Self::SchemaVersionUnsupported(_) => "SchemaVersionUnsupported",
             Self::VaultNotOpen(_) => "VaultNotOpen",
+            Self::FileNotFound(_) => "FileNotFound",
             Self::ScanCancelled => "ScanCancelled",
             Self::Io(_) => "Io",
             Self::Db(_) => "Db",

@@ -113,6 +113,39 @@ pub struct FileEntry {
     pub mtime_unix: i64,
 }
 
+// -- get_frontmatter ------------------------------------------------------
+
+/// Request payload for `get_frontmatter`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct GetFrontmatterRequest {
+    /// Vault to query.
+    pub vault_id: String,
+    /// Path of the file (relative to the vault root, as stored in
+    /// `files.path`).
+    pub path: String,
+}
+
+/// Response payload for `get_frontmatter`.
+#[derive(Debug, Clone, Serialize)]
+pub struct GetFrontmatterResponse {
+    /// Parsed frontmatter entries in stored order. Empty list means
+    /// the file exists in the index but has no frontmatter (or its
+    /// frontmatter was malformed and was logged but not indexed).
+    pub entries: Vec<FrontmatterEntry>,
+}
+
+/// One frontmatter key/value pair.
+///
+/// `value` is `serde_json::Value` so callers handle scalars, lists,
+/// and nested objects with the same wire shape.
+#[derive(Debug, Clone, Serialize)]
+pub struct FrontmatterEntry {
+    /// YAML key as written in the source.
+    pub key: String,
+    /// JSON-shaped value parsed from YAML.
+    pub value: serde_json::Value,
+}
+
 // -- close_vault ---------------------------------------------------------
 
 /// Request payload for `close_vault`.
