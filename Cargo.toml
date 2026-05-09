@@ -38,6 +38,10 @@ libsql = "0.6"
 # Hashing
 sha2 = "0.10"
 
+# Markdown parsing — used by `cubical-ast` for the canonical AST normalizer.
+# CommonMark-conformant pull parser; MIT/Apache-2.0; no_std-compatible.
+pulldown-cmark = { version = "0.13", default-features = false }
+
 # uuid + filetime are intentionally NOT in L0 — they land at L7 with frontmatter UUIDs.
 
 [profile.release]
