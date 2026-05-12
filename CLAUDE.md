@@ -76,7 +76,8 @@ cubical/
 │   ├── layer-0-spec.md     # Bedrock (complete)
 │   ├── layer-1-spec.md     # Document Model (in progress)
 │   ├── migration-touchpoints.md
-│   └── vault-gitignore.md
+│   ├── vault-gitignore.md
+│   └── superpowers/        # planning artifacts (specs + plans)
 ├── CLAUDE.md
 ├── Cargo.toml
 └── README.md

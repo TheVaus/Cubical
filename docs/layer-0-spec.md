@@ -617,7 +617,7 @@ crates/cubical-app/src/
 
 Subsequent sessions implement, in roughly this order: file-type registry trait → markdown + binary handlers (no UUID logic) → libSQL schema and migrations → vault open/scan logic (non-blocking) → file watcher → pure command handlers in `commands::vault` → Tauri shims in `lib.rs` → frontend wiring through `ui/src/api/ipc.ts` → tests → DoD verification.
 
-Each session begins by reading `CLAUDE.md`, ends by updating "Project state."
+Session protocol is maintained in `CLAUDE.md` — see the "Session protocol" section there.
 
 ---
 
@@ -657,4 +657,4 @@ Before tagging `l0`:
 
 ### 14.6 Session protocol change
 
-The original guidance (§13 last line: *"each session begins by reading `CLAUDE.md`, ends by updating 'Project state'"*) is superseded. Current protocol is in `CLAUDE.md` — sessions rewrite the 4-6 line Project state block and record milestones in the relevant layer spec's "What was built" section.
+The session protocol in §13 was updated to redirect to `CLAUDE.md` rather than state the protocol inline. Current protocol: sessions rewrite the 4-6 line Project state block in `CLAUDE.md` and record milestones in the relevant layer spec's "What was built" section.
