@@ -66,6 +66,8 @@ cubical/
     └── layer-0-spec.md
 ```
 
+> Note: this was the initial L0 layout. See `CLAUDE.md` for the current repository structure.
+
 ### Workspace `Cargo.toml`
 
 Workspace-level dependencies are pinned here so all crates use the same versions.
@@ -616,3 +618,43 @@ crates/cubical-app/src/
 Subsequent sessions implement, in roughly this order: file-type registry trait → markdown + binary handlers (no UUID logic) → libSQL schema and migrations → vault open/scan logic (non-blocking) → file watcher → pure command handlers in `commands::vault` → Tauri shims in `lib.rs` → frontend wiring through `ui/src/api/ipc.ts` → tests → DoD verification.
 
 Each session begins by reading `CLAUDE.md`, ends by updating "Project state."
+
+---
+
+## 14. What was built
+
+### 14.1 Sessions
+
+- **2026-05-05** — Initial workspace, Tauri scaffold, `ui/` skeleton, `tokens.css` + `base.css`, `ipc.ts`. `cargo tauri dev` verified.
+- **2026-05-06 (registry)** — `FileTypeHandler` trait, `FileTypeError`, `FileTypeRegistry`, `MarkdownHandler`, `BinaryHandler`, `sha256_file_hex` helper. 10 unit tests.
+- **2026-05-06 (migration runner)** — `open_index`, `Migration` struct, `MIGRATIONS` slice, `IndexError`, `001_initial.sql` (4 tables + 3 indexes). 4 `tokio::test` tests.
+- **2026-05-07** — `Vault` type, `scan()`, 5 Tauri shims (`open_vault` / `cancel_vault_scan` / `get_vault_info` / `list_files` / `close_vault`), `spawn_scan_dispatcher`, `CubicalError`, frontend open-vault flow, 200ms-throttled list refresh. 28 tests total.
+- **2026-05-08** — `WatchEvent` enum, `start_watcher()`, `WatcherHandle`, `notify` + `notify-debouncer-full` (100ms debounce + 25ms tick), `spawn_watcher_dispatcher`, `apply_watch_event_to_db`, audit_log rows. Frontend `VaultFileChanged` listener. 43 tests total.
+
+### 14.2 Deviations from spec
+
+1. **Dep direction (§2 crate graph):** `cubical-index` no longer depends on `cubical-core`; direction reversed. `cubical-core` now depends on `cubical-index` (for `IndexConn`) and on `libsql` (for `params!`).
+2. **CubicalError location (§9):** lives in `cubical-app`, not `cubical-core`. Required by dep direction — must be downstream of all error sources.
+3. **macOS FSEvents (§6):** `notify-debouncer-full` 0.3 coalesces synthetic Modify/Remove events in tests. Real editor flows work correctly. `translate_event` is fully unit-tested via synthetic `DebouncedEvent`s. `notify` 8.x + debouncer 0.6 is a candidate future fix.
+4. **Rename persistence (§6):** `apply_watch_event_to_db` for `Renamed` refreshes `last_seen` on the from-row only — does not update the `path` column or insert a to-row. Next vault scan handles it. Proper rename handler deferred to L3 Pending Rewrites Cache.
+
+### 14.3 Outstanding items
+
+- `audit_log` auto-pruning to 10 000 rows (spec §7) is a TODO. Table grows unbounded until this lands.
+
+### 14.4 Smoke test status — BLOCKING for `l0` tag
+
+§12 DoD #4 and #6 were NOT completed interactively (non-interactive session harness).
+
+Before tagging `l0`:
+- **(a)** Run `cargo tauri dev`; open a 10-file folder; verify the five scan DoD points (§12 #4).
+- **(b)** Modify a `.md` file externally; verify `vault:file-changed` reaches the frontend within ~300ms (§12 #6).
+- **(c)** Recreate the `cubical-cancel-test` fixture (2000–5000 plain `.md` files outside the repo) for the cancel-during-scan check.
+
+### 14.5 Test counts (final)
+
+`cubical-core` 34 · `cubical-app` 5 · `cubical-index` 4 = **43 tests**
+
+### 14.6 Session protocol change
+
+The original guidance (§13 last line: *"each session begins by reading `CLAUDE.md`, ends by updating 'Project state'"*) is superseded. Current protocol is in `CLAUDE.md` — sessions rewrite the 4-6 line Project state block and record milestones in the relevant layer spec's "What was built" section.

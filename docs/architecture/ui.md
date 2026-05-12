@@ -1,0 +1,67 @@
+> Locked decisions. Architecture review required to change. Index: [docs/architecture/README.md](README.md)
+
+# Cubical — Architecture: UI
+
+## 11. UI
+
+### 11.1 Layout
+
+- **Left panel:** universal '+' create button, file explorer (heights measured by Pretext, virtualized via standard list-virtualization), persistent search panel (Tantivy).
+- **Central workspace:** tab bar with split-pane support, unified Live Preview editor.
+- **Right sidebar:** backlinks pane and unlinked mentions pane.
+- **Bottom status bar:** indexer progress, vault health (broken refs, malformed YAML), Pending Rewrites count, sync state (post-L7).
+
+### 11.2 Global triggers
+
+- `Cmd/Ctrl+K`: Omni-Bar for transient quick-nav and command execution.
+- `[[`: in-editor link auto-complete.
+- `#`: in-editor tag auto-complete (when typed at word boundary outside code blocks).
+- Drag-and-drop: dropping an asset into the editor creates an inline link and triggers the deduplication pipeline.
+
+### 11.3 Live Preview
+
+There is no separate "Read mode" and "Edit mode." Live Preview is the only mode for normal use. A Raw Source toggle exists for power users who want to see the literal markdown.
+
+Live Preview is implemented as Lezer-driven decorations on the CodeMirror state. The line the cursor is on shows raw markdown; other lines show rendered form. Cursor movement triggers decoration re-application, which is fast because Lezer parsing is incremental.
+
+### 11.4 Theming
+
+A single CSS-variable token surface lives in `ui/src/styles/tokens.css`. **All UI components consume tokens; no hardcoded colors, fonts, or spacings exist outside the tokens file.** This is enforced by lint rule.
+
+**Token categories:** colors (`--c-bg-primary`, `--c-fg-primary`, `--c-accent`, `--c-success`, `--c-warning`, `--c-error`, …), typography (`--font-body`, `--font-mono`, `--text-base`, `--leading-base`, …), spacing scale (`--space-1` through `--space-8`), border radii, shadows.
+
+**Built-in themes** ship with the app: Light, Dark, optionally High-Contrast.
+
+**User themes** live at `<vault>/.cubical/themes/<theme-name>.css`. Cubical scans this folder on startup and populates the theme picker.
+
+**Plugin themes** are registered via the plugin manifest's `themes` field. They plug into the same token surface — they are CSS files that override token values.
+
+**CodeMirror integration.** The CM6 theme is generated programmatically from the same token surface. Authors write themes against tokens; the editor stays in sync with the rest of the UI without a second theme to maintain.
+
+**Live theme switch.** Setting `<html data-theme="...">` triggers a CSS-variable cascade. No reload, no flicker.
+
+### 11.5 Multi-vault
+
+**One vault per window, multiple windows allowed.** A single Tauri process holds `HashMap<VaultId, Vault>` in Rust state. Each window's frontend tracks one `vault_id` and uses it in all IPC commands. Users with multiple vaults open multiple windows.
+
+Cross-vault search, cross-vault tabs, and cross-vault command-palette are explicitly out of scope — most users don't ask for them, and the implementation cost is significant. The IPC contract leaves the door open if user demand emerges later.
+
+---
+
+## 12. Settings
+
+User-facing settings, organized by category:
+
+**Files & Core.** Vault path. `.cubical/recovery/` retention window (default 30 days). Pending Rewrites flush cadence (default 5 min). Auto-save debounce (default 300ms). Asset destination is locked to `.assets/` (not configurable).
+
+**Editor & Export.** Live Preview vs Raw Source default. Export sanitization rules (display only — sanitization is mandatory).
+
+**Appearance.** Theme picker (built-in + user themes from `<vault>/.cubical/themes/` + plugin-distributed themes). Font family, font size overrides.
+
+**Search.** Tantivy indexing controls.
+
+**Sync & Network.** (L7+) Local P2P toggle, E2EE key generation and management, relay configuration.
+
+**Plugins & Security.** (L6+) Per-plugin WASI permission toggles.
+
+**Time Machine.** (L8+) Snapshot retention window, manual snapshot trigger.

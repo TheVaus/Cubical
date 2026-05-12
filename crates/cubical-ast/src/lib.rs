@@ -13,7 +13,7 @@
 //! tags will be recognized in L3 — until then they pass through as
 //! plain [`Inline::Text`].
 //!
-//! See `docs/architecture.md` §5.5.
+//! See `docs/architecture/document-model.md` — "Canonical AST".
 //!
 //! ## Public surface
 //!
