@@ -1,4 +1,6 @@
 > Locked decisions. Architecture review required to change. Index: [docs/architecture/README.md](README.md)
+>
+> *Covers §3 (vault), §4 (file identity), §9 (binary assets). Remaining sections live in sibling files — see [README.md](README.md).*
 
 # Cubical — Architecture: Vault
 

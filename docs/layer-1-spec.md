@@ -2,6 +2,8 @@
 
 The canonical Markdown AST, frontmatter indexing, and the editor's Lezer integration.
 
+> **Before starting Session B:** Read `docs/layer-0-spec.md §14.2` — L0 deviated from the original spec in two ways that affect this layer's code: the crate dependency direction is reversed (`cubical-core` depends on `cubical-index`, not the other way around), and `CubicalError` lives in `cubical-app`, not `cubical-core`.
+
 ---
 
 ## 1. Goals
