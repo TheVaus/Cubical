@@ -34,7 +34,7 @@ The `.cubical/` directory is the only state Cubical owns inside the vault. Every
 
 File identity is the absolute anchor for cross-references (wiki-links, block refs, backlinks). Cubical's identity model evolves across the build:
 
-- **Layers 0–6 (v1.0): path-based identity.** No UUIDs are written into user files. The vault Cubical opens is the vault the user wrote, byte-for-byte. Renames are detected via the file watcher and reconciled through the Pending Rewrites Cache (§5.6). Renames that happen while the app is closed fall back to inode + content-hash heuristics.
+- **Layers 0–6 (v1.0): path-based identity.** No UUIDs are written into user files. The vault Cubical opens is the vault the user wrote, byte-for-byte. Renames are detected via the file watcher and reconciled through the [Pending Rewrites Cache](document-model.md#57-pending-rewrites-cache). Renames that happen while the app is closed fall back to inode + content-hash heuristics.
 - **Layer 7 (sync): frontmatter UUIDs introduced.** When the user opts into sync, Cubical mints a `cubical_id: <uuid>` key in each file's YAML frontmatter as part of onboarding. The OS "last modified" timestamp is captured before each write and restored after. Files without frontmatter get one created. This is the single batch-write moment in a vault's lifetime; it is framed to the user as "enabling sync" rather than "Cubical mangling your files on first open."
 
 Path is mutable across both phases; the UUID (post-L7) is stable forever.
