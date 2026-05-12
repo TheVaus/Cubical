@@ -1,4 +1,6 @@
 > Locked decisions. Architecture review required to change. Index: [docs/architecture/README.md](README.md)
+>
+> *Covers §7 (sync), §8 (plugins), §10 (time machine), §14 (open questions). Remaining sections live in sibling files — see [README.md](README.md).*
 
 # Cubical — Architecture: Planned Layers
 
