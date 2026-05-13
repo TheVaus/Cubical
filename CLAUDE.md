@@ -105,8 +105,8 @@ Crates without Tauri deps (`cubical-core`, `cubical-ast`, `cubical-index`, `cubi
 
 ## Project state
 
-Current layer: 2 — Editing · L2 spec drafted (`docs/layer-2-spec.md`); 6 sessions planned (A editor+decorations · B settings · C theme · D raw toggle · E properties · F closeout).
+Current layer: 2 — Editing · L2 spec drafted (`docs/layer-2-spec.md`); 7 sessions planned (A write-path+safety · B decorations · C settings · D theme · E raw toggle · F properties · G closeout).
 L0 closed 2026-05-13 (`l0` tag); L1 closed 2026-05-09 (`l1` tag).
 Carried into L2: L1 `cargo tauri dev` interactive smoke pass — open a vault, click a `.md` file, confirm editor renders, typing fires `onAstChange`, external edits surface via `vault:file-changed`. Do this at Session A kickoff before any L2 code.
-Next: L2 Session A — `write_file_text` IPC + autosave in `Editor.tsx` + Lezer-driven Live Preview decorations + external-edit conflict banner scaffolding.
+Next: L2 Session A — `write_file_text` IPC + 300ms autosave in `Editor.tsx` + watcher `new_content_hash` plumbing + hash-gating suppression + external-edit conflict banner. Decorations are Session B, not bundled.
 Layer specs: `docs/layer-0-spec.md` (closed) · `docs/layer-1-spec.md` (closed) · `docs/layer-2-spec.md` (Session A pending)

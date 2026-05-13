@@ -285,7 +285,7 @@ No `docs/architecture/` files are modified by L2. If any of the above turns out 
 - [ ] Properties UI: opening a doc with `title: foo`, `tags: [a, b]`, `created: 2026-05-13`, `archived: false`, `count: 7`, `nested: { x: 1 }` renders six rows with correct cell types; editing each commits via autosave; the on-disk frontmatter round-trips losslessly. Adding a new `string` property writes a valid `---` frontmatter block to a previously-frontmatter-less file.
 - [ ] External-edit conflict banner: with a dirty buffer, modify the same file externally — banner appears, both Reload and Keep mine work; Keep mine writes an `external_edit_override` audit_log row.
 - [ ] No hardcoded colors / fonts / spacings appear in any L2 component. (Manual grep; lint rule deferred to L5.)
-- [ ] Interactive smoke pass against `cargo tauri dev` recorded in §8 (the closeout session). All six surfaces exercised by hand.
+- [ ] Interactive smoke pass against `cargo tauri dev` recorded in §9.7 (the closeout session). All six L2 surfaces exercised by hand.
 - [ ] `l2` git tag applied only after all of the above.
 
 ---
@@ -312,20 +312,37 @@ L2 explicitly does **not** ship the following. Each item links to the layer that
 
 ## 8. Session slicing
 
-Six sessions. Each session is independently verifiable; the closeout session is its own session per user direction so smoke + tag are not bundled under feature implementation.
+Seven sessions. Each session has one feature surface and is independently verifiable; the closeout session is its own session per user direction so smoke + tag are not bundled under feature implementation. The seam between Session A (write-path) and Session B (decorations) was chosen deliberately — those two share no state, and the conflict banner stays bundled with the write-path because it is what makes autosave safe.
 
-### Session A — Writable editor + Live Preview decorations
+### Session A — Writable editor (write-path + safety)
 
-- **Scope:** `write_file_text` IPC (Rust pure handler + Tauri shim); autosave in `Editor.tsx` (300ms debounce, blur flush, file-change flush, app-quit flush); Lezer-driven decorations CM6 plugin at `ui/src/editor/decorations.ts` covering the §2.2 table; external-edit detection scaffolding (records `seen_hash` + `last_written_hash`); conflict banner UI hooked up to the detection signal.
-- **Key files:** `crates/cubical-app/src/{api/types.rs, commands/vault.rs, lib.rs}`, `crates/cubical-app/src/events.rs` (add `new_content_hash` to `VaultFileChangedPayload`), `crates/cubical-core/src/vault/watcher.rs` (plumb hash), `ui/src/Editor.tsx`, `ui/src/editor/decorations.ts`, `ui/src/api/ipc.ts`, `ui/src/App.tsx` (conflict banner mount point).
+The full write-path story together, because every piece touches the same two pieces of state (`seen_hash` and `last_written_hash`).
+
+- **Scope:** `write_file_text` IPC (Rust pure handler + Tauri shim); autosave in `Editor.tsx` (300ms debounce, blur flush, file-change flush, app-quit flush); `new_content_hash` plumbed onto the `vault:file-changed` event payload; hash-gating suppression in the Editor so the editor doesn't see its own writes; external-edit detection via `seen_hash` mismatch; conflict banner UI ("Reload from disk" / "Keep my edits") with the `external_edit_override` audit_log row on Keep mine.
+- **Key files:** `crates/cubical-app/src/{api/types.rs, commands/vault.rs, lib.rs}`, `crates/cubical-app/src/events.rs` (add `new_content_hash` to `VaultFileChangedPayload`), `crates/cubical-core/src/vault/watcher.rs` (emit the already-computed hash), `ui/src/Editor.tsx`, `ui/src/api/ipc.ts`, `ui/src/App.tsx` (conflict banner mount point above the Editor slot).
 - **DoD bullets:**
-  - `write_file_text` happy + error paths covered by Rust tests.
-  - Autosave round-trip: buffer dirty → 300ms idle → file on disk matches; `vault:file-changed` round-trip suppressed via hash gating; the watcher event still reaches the rest of the app (file list refresh, audit log).
-  - Decoration plugin renders headings / emph / strong / inline-code / fenced-code / lists / blockquotes / plain links. Cursor on a decorated line reveals the source.
-  - External-edit conflict banner appears with a dirty buffer; Reload + Keep mine both work; audit_log row on Keep mine.
-- **Prereqs:** L1 carry-over smoke pass.
+  - `write_file_text` happy + error paths covered by Rust tests (markdown-only gate, atomic round-trip, hash returned).
+  - Autosave round-trip: buffer dirty → 300ms idle → file on disk matches buffer byte-for-byte (verified via SHA-256); `vault:file-changed` round-trip suppressed via hash gating; file list / audit log still see the event.
+  - Editor blur flushes any pending write before the focus actually moves.
+  - File-selection change flushes the previous file's pending write before loading the new file.
+  - External-edit conflict banner appears with a dirty buffer; **Reload** discards the buffer and re-reads; **Keep mine** resumes autosave and the next write overwrites the external version; `audit_log` row category `external_edit_override` recorded on Keep mine with the overwritten hash.
+  - Clean-buffer external edit silently reloads (no banner).
+- **Prereqs:** L1 carry-over interactive smoke pass.
 
-### Session B — Vault-local settings infrastructure
+### Session B — Live Preview decorations
+
+Pure CodeMirror / Lezer work. No write-path entanglement; verifiable on a read-only buffer.
+
+- **Scope:** Lezer-driven CM6 `ViewPlugin` at `ui/src/editor/decorations.ts` covering the §2.2 table (ATX + Setext headings, emphasis, strong, inline code, fenced + indented code blocks, bullet + ordered lists, blockquotes, plain `[text](url)` links); active-line detection via `view.state.doc.lineAt(selection.main.head)`; decorations on the active line dropped so raw markdown shows through; the plugin sits in a CM6 `Compartment` so Session E (raw toggle) can swap it for a no-op extension. All visual values consume CSS vars; no hardcoded colors.
+- **Key files:** `ui/src/editor/decorations.ts` (new), `ui/src/Editor.tsx` (compose the plugin + compartment into the `EditorState`), `ui/src/styles/tokens.css` (any new tokens that surface — `--editor-active-line-bg`, `--editor-mark-fg-muted`).
+- **DoD bullets:**
+  - A demo doc containing one of each in-scope node type renders with the decoration applied on non-cursor lines.
+  - Cursor on a decorated line reveals the raw markdown (markers + url + brackets visible).
+  - Tables, images, wiki-links, embeds, block IDs, tags, task-list markers all stay raw — no accidental decoration.
+  - Visual smoke pass against `cargo tauri dev` recorded as part of the session notes.
+- **Prereqs:** Session A (the conflict banner / write path must be in place so visual smoke can exercise the editor end-to-end without losing edits).
+
+### Session C — Vault-local settings infrastructure
 
 - **Scope:** `get_setting` / `set_setting` IPC (Rust pure handlers + shims); typed `ipc.ts` wrappers with the `Setting` discriminated union; no UI changes yet.
 - **Key files:** `crates/cubical-app/src/{api/types.rs, commands/vault.rs, lib.rs}`, `ui/src/api/ipc.ts`.
@@ -334,49 +351,50 @@ Six sessions. Each session is independently verifiable; the closeout session is 
   - Reading an absent key returns `value: None`.
   - JSON parse failure on a corrupt value returns `InvalidRequest` (not a panic).
   - Rust + TypeScript types are kept in lockstep (typed `Setting` union in `ipc.ts`).
-- **Prereqs:** Session A.
+- **Prereqs:** Session A (the IPC pattern needs Session A's typing precedent to mirror; no functional dep).
 
-### Session C — Theme mechanism + CM6 theme generator
+### Session D — Theme mechanism + CM6 theme generator
 
-- **Scope:** audit `tokens.css` (tune dark values, add `--editor-active-line-bg`, `--editor-mark-fg-muted`, any others surfaced by Session A's decoration work); new `ui/src/styles/theme.ts` (`applyTheme`, system-preference subscribe); new `ui/src/editor/cm-theme.ts` (CM6 `Extension` reading computed CSS vars; rebuild on theme change via CM6 compartment); theme button in `App.tsx` header cycling `light → dark → system`; reads/writes `appearance.theme_mode` via Session B's IPC; OS-preference detection.
-- **Key files:** `ui/src/styles/tokens.css`, `ui/src/styles/theme.ts`, `ui/src/editor/cm-theme.ts`, `ui/src/Editor.tsx` (theme compartment), `ui/src/App.tsx` (theme button).
+- **Scope:** audit `tokens.css` (tune dark values, add any new editor-surface tokens not added by Session B); new `ui/src/styles/theme.ts` (`applyTheme`, system-preference subscription via `matchMedia`); new `ui/src/editor/cm-theme.ts` (CM6 `Extension` reading computed CSS vars; rebuild on theme change via the editor's theme compartment); theme button in `App.tsx` header cycling `light → dark → system`; reads/writes `appearance.theme_mode` via Session C's IPC.
+- **Key files:** `ui/src/styles/tokens.css`, `ui/src/styles/theme.ts` (new), `ui/src/editor/cm-theme.ts` (new), `ui/src/Editor.tsx` (theme compartment), `ui/src/App.tsx` (theme button).
 - **DoD bullets:**
-  - `data-theme="light"` and `data-theme="dark"` both render Session A's decorations with adequate contrast (verified manually).
+  - `data-theme="light"` and `data-theme="dark"` both render Session B's decorations with adequate contrast (verified manually).
   - `system` mode flips on OS theme change without reload.
   - `appearance.theme_mode` persists across app restart.
   - CM6 theme tracks UI theme — no visual divergence between editor and surrounding chrome.
-- **Prereqs:** Sessions A + B.
+- **Prereqs:** Sessions B + C (B's decorations need theme tokens; C's settings store the mode).
 
-### Session D — Raw Source toggle
+### Session E — Raw Source toggle
 
-- **Scope:** `</>` button in `App.tsx` header; `Cmd/Ctrl+E` CM6 keymap; Solid signal for per-doc transient override (resets on file selection change); Shift-click writes `editor.raw_source_default`; Editor swaps decoration extension via CM6 compartment when raw mode toggles.
+- **Scope:** `</>` button in `App.tsx` header; `Cmd/Ctrl+E` CM6 keymap; Solid signal for per-doc transient override (resets on file selection change); Shift-click writes `editor.raw_source_default` via Session C's IPC; Editor swaps the Session B decoration plugin for a no-op extension via the CM6 compartment when raw mode toggles.
 - **Key files:** `ui/src/App.tsx`, `ui/src/Editor.tsx` (decoration compartment).
 - **DoD bullets:**
   - Naked click flips the current doc; Shift-click sets the default; restart honors the default.
   - `Cmd/Ctrl+E` keybind works while the editor has focus.
   - Switching files resets the per-doc override to match the current default.
-- **Prereqs:** Sessions A + B (and C is nice-to-have so the toggle looks right in dark).
+  - Lezer parsing keeps running in raw mode (`onAstChange` still fires) so Properties UI in Session F stays live.
+- **Prereqs:** Sessions B + C (B's compartment is what we swap; C's settings hold the default). D is nice-to-have so the toggle button looks right in dark, but not blocking.
 
-### Session E — Properties UI
+### Session F — Properties UI
 
-- **Scope:** `Properties.tsx` + the `properties/` subdir (six cell components + `inferType` + `serializeFrontmatter`); mount above the Editor in `App.tsx` for markdown files; type inference from parsed `Frontmatter`; type override menu; commit through the shared autosave queue.
-- **Key files:** `ui/src/Properties.tsx`, `ui/src/properties/*`, `ui/src/App.tsx`, `ui/src/Editor.tsx` (debounced `onAstChange` for Properties refresh).
+- **Scope:** `Properties.tsx` + the `properties/` subdir (six cell components + `inferType` + `serializeFrontmatter`); mount above the Editor in `App.tsx` for markdown files; type inference from parsed `Frontmatter`; type override menu; commit through the shared autosave queue introduced in Session A.
+- **Key files:** `ui/src/Properties.tsx` (new), `ui/src/properties/*` (new), `ui/src/App.tsx`, `ui/src/Editor.tsx` (debounced `onAstChange` for Properties refresh).
 - **DoD bullets:**
   - Six-row demo doc renders with correct cell types; each edit round-trips.
-  - Adding a property to a frontmatter-less file inserts a valid `---` block.
+  - Adding a property to a frontmatter-less file inserts a valid `---` block at file start.
   - Unknown / nested values render raw and are read-only.
   - Properties refresh is driven by `onAstChange` — raw-mode edits to frontmatter flow back without flicker.
-- **Prereqs:** Sessions A + C.
+- **Prereqs:** Sessions A + D (A's `write_file_text` is the commit path; D's theme tokens style the cells). C indirectly via D.
 
-### Session F — Interactive smoke + L2 closeout
+### Session G — Interactive smoke + L2 closeout
 
-- **Scope:** no new code. Interactive `cargo tauri dev` pass exercising all six surfaces against a vault containing diverse `.md` files (with and without frontmatter, with each in-scope Lezer node type, with one file simulating an external edit during a dirty buffer). Record observed values in §9.6 below. Rewrite `CLAUDE.md` "Project state" block to reflect L2 closed. Apply the `l2` git tag.
+- **Scope:** no new code. Interactive `cargo tauri dev` pass exercising all six L2 surfaces (write+autosave, decorations, settings, theme, raw toggle, properties) against a vault containing diverse `.md` files (with and without frontmatter, with each in-scope Lezer node type, with one file simulating an external edit during a dirty buffer). Record observed values (latencies, hashes, audit_log row IDs) in §9.7. Rewrite `CLAUDE.md` "Project state" block to reflect L2 closed. Apply the `l2` git tag.
 - **Key files:** `docs/layer-2-spec.md` (§9 fill-in), `CLAUDE.md` (state rewrite).
 - **DoD bullets:**
   - Every §6 DoD checkbox ticked.
-  - §9.6 smoke pass recorded with timestamps + observed hashes / latencies.
+  - §9.7 smoke pass recorded with timestamps + observed hashes / latencies.
   - `l2` tag applied on the closeout commit.
-- **Prereqs:** Sessions A through E.
+- **Prereqs:** Sessions A through F.
 
 ---
 
@@ -384,26 +402,30 @@ Six sessions. Each session is independently verifiable; the closeout session is 
 
 *[Filled in per session as L2 lands.]*
 
-### 9.1 Session A — Writable editor + Live Preview decorations
+### 9.1 Session A — Writable editor (write-path + safety)
 
 *Pending.*
 
-### 9.2 Session B — Settings infrastructure
+### 9.2 Session B — Live Preview decorations
 
 *Pending.*
 
-### 9.3 Session C — Theme mechanism + CM6 theme generator
+### 9.3 Session C — Vault-local settings infrastructure
 
 *Pending.*
 
-### 9.4 Session D — Raw Source toggle
+### 9.4 Session D — Theme mechanism + CM6 theme generator
 
 *Pending.*
 
-### 9.5 Session E — Properties UI
+### 9.5 Session E — Raw Source toggle
 
 *Pending.*
 
-### 9.6 Session F — Interactive smoke + L2 closeout
+### 9.6 Session F — Properties UI
+
+*Pending.*
+
+### 9.7 Session G — Interactive smoke + L2 closeout
 
 *Pending.*
