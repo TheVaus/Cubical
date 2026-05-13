@@ -105,9 +105,8 @@ Crates without Tauri deps (`cubical-core`, `cubical-ast`, `cubical-index`, `cubi
 
 ## Project state
 
-Current layer: 1 — Document Model · Session B complete; `l1` tag landed.
-L0 closed 2026-05-13: smoke pass passed (`docs/layer-0-spec.md` §14.4 — DoD #4, #6 passed; #7 cancel-during-scan deferred to L2 once a Close-vault UI exists); `l0` tag applied.
-L1 closed 2026-05-09: canonical AST + frontmatter index + Lezer/CodeMirror 6 editor + `read_file_text` / `get_canonical_ast` IPC + cross-language parity harness (`docs/layer-1-spec.md` §5).
-Carried into L2: L1 `cargo tauri dev` interactive smoke pass — open a vault, click a `.md` file, confirm editor renders, typing fires `onAstChange`, external edits surface via `vault:file-changed`. Do this at L2 kickoff before any L2 code.
-Next: L2 Editing — CodeMirror + Live Preview decorations, raw-source toggle, properties UI, themes derived from the token surface.
-Layer specs: `docs/layer-0-spec.md` (closed) · `docs/layer-1-spec.md` (closed)
+Current layer: 2 — Editing · L2 spec drafted (`docs/layer-2-spec.md`); 6 sessions planned (A editor+decorations · B settings · C theme · D raw toggle · E properties · F closeout).
+L0 closed 2026-05-13 (`l0` tag); L1 closed 2026-05-09 (`l1` tag).
+Carried into L2: L1 `cargo tauri dev` interactive smoke pass — open a vault, click a `.md` file, confirm editor renders, typing fires `onAstChange`, external edits surface via `vault:file-changed`. Do this at Session A kickoff before any L2 code.
+Next: L2 Session A — `write_file_text` IPC + autosave in `Editor.tsx` + Lezer-driven Live Preview decorations + external-edit conflict banner scaffolding.
+Layer specs: `docs/layer-0-spec.md` (closed) · `docs/layer-1-spec.md` (closed) · `docs/layer-2-spec.md` (Session A pending)
