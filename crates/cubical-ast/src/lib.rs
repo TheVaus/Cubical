@@ -99,4 +99,18 @@ mod tests {
         assert!(doc.frontmatter.is_none());
         assert_eq!(doc.blocks.len(), 1);
     }
+
+    /// Documents must round-trip through serde_json so the IPC layer
+    /// can ship them to the frontend. This test specifically guards
+    /// against a regression where `Inline::Text` / `Inline::Code`
+    /// were tuple variants on an internally tagged enum — a shape
+    /// `serde_json` panics on at serialization time.
+    #[test]
+    fn document_round_trips_through_serde_json() {
+        let src = "---\ntitle: x\n---\n\n# Heading `code` *emph*\n\n[label](u) ![alt](p)\n";
+        let doc = parse(src);
+        let s = serde_json::to_string(&doc).expect("serialize");
+        let back: Document = serde_json::from_str(&s).expect("deserialize");
+        assert_eq!(doc, back);
+    }
 }

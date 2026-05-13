@@ -642,14 +642,13 @@ Session protocol is maintained in `CLAUDE.md` — see the "Session protocol" sec
 
 - `audit_log` auto-pruning to 10 000 rows (spec §7) is a TODO. Table grows unbounded until this lands.
 
-### 14.4 Smoke test status — BLOCKING for `l0` tag
+### 14.4 Smoke test status — passed 2026-05-13
 
-§12 DoD #4 and #6 were NOT completed interactively (non-interactive session harness).
+- **(a)** §12 #4 scan correctness: 10-file fixture, `open_vault` returned in 3 ms, `index.db` had 10 `files` rows, UI listed all 10, SHA-256 of every `.md` unchanged vs pre-open baseline.
+- **(b)** §12 #6 external-edit propagation: `printf >> file3.md` → `vault:file-changed` reached the frontend ~185 ms later (incl. 100 ms watcher debounce); audit_log captured the Modified row.
+- **(c)** §12 #7 cancel-during-scan interactive variant deferred: L0 has no Close-vault UI affordance, and the dev-console `cancel_vault_scan` IPC could not beat a 30 000-file scan completing in ~19 s. Coverage stands on `scan_cancels_within_100ms_of_signal_on_a_200_file_vault` (`crates/cubical-core/src/vault/scan.rs`) plus code review of the dispatcher's `ScanCancelled` arm in `events.rs` and the frontend listener in `App.tsx`. Re-test interactively once L2 adds a Close-vault control.
 
-Before tagging `l0`:
-- **(a)** Run `cargo tauri dev`; open a 10-file folder; verify the five scan DoD points (§12 #4).
-- **(b)** Modify a `.md` file externally; verify `vault:file-changed` reaches the frontend within ~300ms (§12 #6).
-- **(c)** Recreate the `cubical-cancel-test` fixture (2000–5000 plain `.md` files outside the repo) for the cancel-during-scan check.
+**Open observation (not blocking, follow-up for L2 perf pass):** `open_vault` on a 30 000-file vault first-open returned in 158–166 ms, over §12 #5's "<100 ms regardless of vault size" budget. §12 #5's stated test point is 10 000 files; that case was not measured this session. The bulk of the time sits inside `Vault::open` (164 ms of 166 ms); likely candidates are the schema migration runner plus initial directory stat. Worth profiling before §12 #5 is asserted as met.
 
 ### 14.5 Test counts (final)
 

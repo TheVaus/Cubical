@@ -31,9 +31,10 @@ pub mod events;
 pub mod state;
 
 use api::types::{
-    CancelVaultScanRequest, CloseVaultRequest, GetFrontmatterRequest, GetFrontmatterResponse,
-    GetVaultInfoRequest, GetVaultInfoResponse, ListFilesRequest, ListFilesResponse,
-    OpenVaultRequest, OpenVaultResponse,
+    CancelVaultScanRequest, CloseVaultRequest, GetCanonicalAstRequest, GetCanonicalAstResponse,
+    GetFrontmatterRequest, GetFrontmatterResponse, GetVaultInfoRequest, GetVaultInfoResponse,
+    ListFilesRequest, ListFilesResponse, OpenVaultRequest, OpenVaultResponse, ReadFileTextRequest,
+    ReadFileTextResponse,
 };
 use error::CubicalError;
 use state::AppState;
@@ -69,6 +70,8 @@ pub fn run() {
             get_vault_info,
             list_files,
             get_frontmatter,
+            read_file_text,
+            get_canonical_ast,
             close_vault,
         ])
         .run(tauri::generate_context!())
@@ -125,6 +128,24 @@ async fn get_frontmatter(
     req: GetFrontmatterRequest,
 ) -> Result<GetFrontmatterResponse, CubicalError> {
     commands::vault::get_frontmatter(state.inner(), req).await
+}
+
+/// Tauri shim — see [`commands::vault::read_file_text`].
+#[tauri::command]
+async fn read_file_text(
+    state: tauri::State<'_, AppState>,
+    req: ReadFileTextRequest,
+) -> Result<ReadFileTextResponse, CubicalError> {
+    commands::vault::read_file_text(state.inner(), req).await
+}
+
+/// Tauri shim — see [`commands::vault::get_canonical_ast`].
+#[tauri::command]
+async fn get_canonical_ast(
+    state: tauri::State<'_, AppState>,
+    req: GetCanonicalAstRequest,
+) -> Result<GetCanonicalAstResponse, CubicalError> {
+    commands::vault::get_canonical_ast(state.inner(), req).await
 }
 
 /// Tauri shim — see [`commands::vault::close_vault`].

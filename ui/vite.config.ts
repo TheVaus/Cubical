@@ -1,3 +1,4 @@
+/// <reference types="vitest" />
 import { defineConfig } from "vite";
 import solid from "vite-plugin-solid";
 
@@ -34,5 +35,13 @@ export default defineConfig({
     sourcemap: !!process.env.TAURI_DEBUG,
     outDir: "dist",
     emptyOutDir: true,
+  },
+  test: {
+    // Vitest runs in node by default; the AST normalizer + frontmatter
+    // splitter are pure functions with no DOM dependency, so node is
+    // the right environment. Component tests (deferred) would need
+    // jsdom or happy-dom.
+    environment: "node",
+    include: ["src/**/*.test.ts"],
   },
 });

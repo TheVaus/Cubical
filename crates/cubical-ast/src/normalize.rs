@@ -110,13 +110,19 @@ impl State {
         match event {
             Event::Start(tag) => self.start(tag, range),
             Event::End(tag) => self.end(tag, range),
-            Event::Text(s) => self.push_inline(Inline::Text(s.to_string())),
-            Event::Code(s) => self.push_inline(Inline::Code(s.to_string())),
+            Event::Text(s) => self.push_inline(Inline::Text {
+                value: s.to_string(),
+            }),
+            Event::Code(s) => self.push_inline(Inline::Code {
+                value: s.to_string(),
+            }),
             Event::SoftBreak => {
                 // Fold soft breaks into the surrounding text run as a
                 // single space. This matches CommonMark rendering and
                 // keeps `Inline::Text` runs contiguous.
-                self.push_inline(Inline::Text(" ".to_string()));
+                self.push_inline(Inline::Text {
+                    value: " ".to_string(),
+                });
             }
             Event::HardBreak => self.push_inline(Inline::LineBreak),
             Event::Html(s) | Event::InlineHtml(s) => {
@@ -128,7 +134,9 @@ impl State {
                 if let Some(Container::HtmlBlock { content, .. }) = self.stack.last_mut() {
                     content.push_str(&s);
                 } else if self.is_inline_context() {
-                    self.push_inline(Inline::Text(s.to_string()));
+                    self.push_inline(Inline::Text {
+                        value: s.to_string(),
+                    });
                 } else {
                     self.push_block(Block::Html {
                         content: s.to_string(),
@@ -326,8 +334,8 @@ impl State {
                     items.push(item);
                 }
             }
-            Container::Emph(children) => self.push_inline(Inline::Emph(children)),
-            Container::Strong(children) => self.push_inline(Inline::Strong(children)),
+            Container::Emph(children) => self.push_inline(Inline::Emph { children }),
+            Container::Strong(children) => self.push_inline(Inline::Strong { children }),
             Container::Link {
                 dest,
                 title,
@@ -371,8 +379,8 @@ impl State {
         // Code-block bodies aren't structurally inlines — they
         // accumulate text in their own buffer, regardless of variant.
         if let Some(Container::CodeBlockBody { content, .. }) = self.stack.last_mut() {
-            if let Inline::Text(s) = inline {
-                content.push_str(&s);
+            if let Inline::Text { value } = inline {
+                content.push_str(&value);
             }
             // Other inline variants inside a code block (shouldn't
             // happen, but defensively) are dropped.
@@ -401,8 +409,8 @@ impl State {
         };
         if let Some(v) = target {
             // Coalesce adjacent Text runs to keep the AST tight.
-            if let Inline::Text(s) = &inline {
-                if let Some(Inline::Text(prev)) = v.last_mut() {
+            if let Inline::Text { value: s } = &inline {
+                if let Some(Inline::Text { value: prev }) = v.last_mut() {
                     prev.push_str(s);
                     return;
                 }
@@ -514,7 +522,7 @@ mod tests {
             } => {
                 assert_eq!(*level, 1);
                 assert_eq!(inlines.len(), 1);
-                assert!(matches!(&inlines[0], Inline::Text(s) if s == "Hello"));
+                assert!(matches!(&inlines[0], Inline::Text { value } if value == "Hello"));
                 assert_eq!(span.start, 0);
                 assert!(span.end >= 7);
             }
@@ -612,10 +620,10 @@ mod tests {
         let kinds: Vec<&str> = inlines
             .iter()
             .map(|i| match i {
-                Inline::Text(_) => "text",
-                Inline::Emph(_) => "emph",
-                Inline::Strong(_) => "strong",
-                Inline::Code(_) => "code",
+                Inline::Text { .. } => "text",
+                Inline::Emph { .. } => "emph",
+                Inline::Strong { .. } => "strong",
+                Inline::Code { .. } => "code",
                 Inline::Link { .. } => "link",
                 Inline::Image { .. } => "image",
                 Inline::LineBreak => "break",
@@ -641,7 +649,7 @@ mod tests {
             .unwrap();
         assert_eq!(link.0, "https://x.test");
         assert_eq!(link.1.as_deref(), Some("t"));
-        assert!(matches!(&link.2[0], Inline::Text(s) if s == "label"));
+        assert!(matches!(&link.2[0], Inline::Text { value } if value == "label"));
     }
 
     #[test]

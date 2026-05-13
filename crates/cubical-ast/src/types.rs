@@ -143,19 +143,39 @@ pub struct ListItem {
 }
 
 /// An inline-level AST node. Inlines do not carry spans in L1.
+///
+/// All variants are struct-shaped (named fields) rather than tuple
+/// newtypes — `serde`'s internally tagged representation
+/// (`#[serde(tag = "kind")]`) refuses to serialize newtype variants
+/// whose inner type is not a struct/map at runtime, so `Text(String)`
+/// would `panic` the moment it crossed an IPC boundary. The wire shape
+/// for `Text` is therefore `{"kind":"text","value":"..."}`; the
+/// editor-side normalizer in TS produces the same shape.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Inline {
     /// Plain text. Soft line breaks are folded into a single space
     /// inside the surrounding text run; hard breaks are explicit
     /// [`Inline::LineBreak`]s.
-    Text(String),
+    Text {
+        /// Text content.
+        value: String,
+    },
     /// `*emph*` / `_emph_`.
-    Emph(Vec<Inline>),
+    Emph {
+        /// Inline children inside the emphasis.
+        children: Vec<Inline>,
+    },
     /// `**strong**` / `__strong__`.
-    Strong(Vec<Inline>),
+    Strong {
+        /// Inline children inside the strong run.
+        children: Vec<Inline>,
+    },
     /// `` `code` `` — inline code span.
-    Code(String),
+    Code {
+        /// Verbatim code-span content.
+        value: String,
+    },
     /// `[text](dest "title")`.
     Link {
         /// Link destination URL.
