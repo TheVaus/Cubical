@@ -113,6 +113,23 @@ export interface GetCanonicalAstResponse {
   document: CanonicalDocument;
 }
 
+export interface WriteFileTextRequest {
+  vault_id: string;
+  path: string;
+  content: string;
+  /**
+   * Advisory in L2: if set and the on-disk hash differs at write time,
+   * an `external_edit_override` audit_log row lands but the write still
+   * proceeds. Hard rejection arrives in L8 alongside the merge UI.
+   */
+  expected_seen_hash?: string;
+}
+
+export interface WriteFileTextResponse {
+  new_content_hash: string;
+  new_mtime_unix: number;
+}
+
 /**
  * Stable error shape from the backend. `code` matches a `CubicalError`
  * variant and is safe to switch on; `message` is for human-facing UI.
@@ -166,6 +183,12 @@ export function getCanonicalAst(
   return invoke("get_canonical_ast", { req });
 }
 
+export function writeFileText(
+  req: WriteFileTextRequest,
+): Promise<WriteFileTextResponse> {
+  return invoke("write_file_text", { req });
+}
+
 // ---------------------------------------------------------------------------
 // Events. Each function returns the unlisten handle so components can wire
 // it into Solid's `onCleanup`.
@@ -199,6 +222,13 @@ export interface VaultFileChanged {
   kind: VaultFileChangeKind;
   /** Set only when `kind === "renamed"`. */
   from_path?: string;
+  /**
+   * Content hash after the watcher processed the event. Set for
+   * `"created"` and `"modified"`; absent for `"removed"` / `"renamed"`.
+   * L2's hash-gating uses this to suppress own-write echoes and detect
+   * external edits (`docs/layer-2-spec.md` §2.7 + §2.8).
+   */
+  new_content_hash?: string;
 }
 
 export function onVaultScanProgress(
