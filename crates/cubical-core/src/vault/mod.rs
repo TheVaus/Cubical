@@ -15,10 +15,12 @@ use cubical_index::{open_index, IndexConn, IndexError};
 
 use crate::file_type::FileTypeRegistry;
 
+mod atomic;
 mod frontmatter;
 mod scan;
 mod watcher;
 
+pub use atomic::atomic_write;
 pub use frontmatter::refresh_frontmatter;
 pub use scan::{scan, ScanProgress};
 pub use watcher::{start_watcher, WatchEvent, WatcherHandle};

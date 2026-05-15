@@ -14,9 +14,10 @@ pub mod file_type;
 pub mod vault;
 
 pub use file_type::{
-    BinaryHandler, FileTypeError, FileTypeHandler, FileTypeRegistry, MarkdownHandler,
+    sha256_bytes_hex, BinaryHandler, FileTypeError, FileTypeHandler, FileTypeRegistry,
+    MarkdownHandler,
 };
 pub use vault::{
-    refresh_frontmatter, scan, start_watcher, ScanProgress, Vault, VaultError, WatchEvent,
-    WatcherHandle,
+    atomic_write, refresh_frontmatter, scan, start_watcher, ScanProgress, Vault, VaultError,
+    WatchEvent, WatcherHandle,
 };

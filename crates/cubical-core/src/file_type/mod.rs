@@ -129,6 +129,23 @@ impl Default for FileTypeRegistry {
     }
 }
 
+/// SHA-256 of an in-memory byte buffer, returned as lowercase hex.
+///
+/// Same digest as [`sha256_file_hex`] would produce after that buffer
+/// is written to disk — used by `write_file_text` (L2) so the editor
+/// can populate `last_written_hash` without round-tripping back through
+/// the disk.
+pub fn sha256_bytes_hex(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let digest = hasher.finalize();
+    let mut hex = String::with_capacity(digest.len() * 2);
+    for byte in digest.iter() {
+        let _ = write!(hex, "{:02x}", byte);
+    }
+    hex
+}
+
 /// Streaming SHA-256 of `path`'s contents, returned as lowercase hex.
 ///
 /// Reads in 64 KiB chunks so files larger than RAM hash without buffering the
