@@ -17,32 +17,45 @@ import type { CanonicalDocument } from "./ast/types";
  * CodeMirror 6 markdown editor surface.
  *
  * Owns its own DOM and `EditorView` — Solid stays out of it so the
- * webview's main-thread Lane 1 contract holds. The component exposes
- * a one-way `onAstChange` callback that fires the Lezer-backed
- * canonical AST whenever the document changes (debounced 150ms).
+ * webview's main-thread Lane 1 contract holds. The component exposes:
  *
- * L1 ships raw markdown only. Live Preview decorations + a real
- * theme arrive in L2; this component is intentionally minimal so the
- * pipeline (CM6 → Lezer → canonical AST → IPC consumers) is the
- * thing under test, not visual polish.
+ * - `onAstChange` — the freshly-normalized canonical AST, debounced
+ *   150ms (downstream consumers like the L1 footer / the future L2
+ *   Properties UI).
+ * - `onContentChange` — raw doc text on every `docChanged` update. The
+ *   autosave timer (300ms) lives in the parent so blur / file-change
+ *   flushes can coordinate with the buffer the user is *about to*
+ *   leave. The Editor is too local to know when those things happen.
+ * - `onBlur` — fires when the CM6 view loses focus, so the parent can
+ *   force-flush a pending autosave (L2 spec §2.1).
+ *
+ * `ref(api)` exposes imperative handles the parent needs:
+ * - `getContent()` — current doc text, useful when flushing on
+ *   file-change before reading the new file.
+ * - `replaceContent(next)` — drop in new bytes (used by the conflict
+ *   banner's "Reload from disk" action).
  */
+export interface EditorApi {
+  getContent: () => string;
+  replaceContent: (next: string) => void;
+}
+
 export interface EditorProps {
   /** Initial document content; replacing it via prop swaps the doc. */
   value: string;
-  /**
-   * Fires on every doc change with the freshly-normalized canonical
-   * AST. Debounced so a fast typist doesn't trigger a parse per
-   * keystroke.
-   */
   onAstChange?: (doc: CanonicalDocument) => void;
+  onContentChange?: (content: string) => void;
+  onBlur?: () => void;
+  /** Imperative handle, set on mount. */
+  ref?: (api: EditorApi) => void;
 }
 
-const DEBOUNCE_MS = 150;
+const AST_DEBOUNCE_MS = 150;
 
 const Editor: Component<EditorProps> = (props) => {
   let host!: HTMLDivElement;
   let view: EditorView | undefined;
-  let pending: ReturnType<typeof setTimeout> | undefined;
+  let astPending: ReturnType<typeof setTimeout> | undefined;
 
   const fireAst = (source: string) => {
     if (!props.onAstChange) return;
@@ -51,17 +64,24 @@ const Editor: Component<EditorProps> = (props) => {
 
   const scheduleAst = (source: string) => {
     if (!props.onAstChange) return;
-    if (pending !== undefined) clearTimeout(pending);
-    pending = setTimeout(() => {
-      pending = undefined;
+    if (astPending !== undefined) clearTimeout(astPending);
+    astPending = setTimeout(() => {
+      astPending = undefined;
       fireAst(source);
-    }, DEBOUNCE_MS);
+    }, AST_DEBOUNCE_MS);
   };
 
   onMount(() => {
     const updateListener = EditorView.updateListener.of((update) => {
       if (!update.docChanged) return;
-      scheduleAst(update.state.doc.toString());
+      const source = update.state.doc.toString();
+      scheduleAst(source);
+      props.onContentChange?.(source);
+    });
+
+    const focusListener = EditorView.focusChangeEffect.of((_state, focusing) => {
+      if (!focusing) props.onBlur?.();
+      return null;
     });
 
     view = new EditorView({
@@ -73,6 +93,7 @@ const Editor: Component<EditorProps> = (props) => {
           keymap.of([...defaultKeymap, ...historyKeymap]),
           markdown(),
           updateListener,
+          focusListener,
           EditorView.theme({
             // Placeholder; L2 wires the real CSS-variable token surface.
             "&": {
@@ -92,6 +113,18 @@ const Editor: Component<EditorProps> = (props) => {
     // Fire the initial AST synchronously so consumers don't have to
     // wait for the first keystroke to know what's loaded.
     fireAst(props.value);
+
+    props.ref?.({
+      getContent: () => view?.state.doc.toString() ?? "",
+      replaceContent: (next) => {
+        if (!view) return;
+        const current = view.state.doc.toString();
+        if (current === next) return;
+        view.dispatch({
+          changes: { from: 0, to: current.length, insert: next },
+        });
+      },
+    });
   });
 
   // Replace the document when `value` changes externally. Compare
@@ -107,14 +140,14 @@ const Editor: Component<EditorProps> = (props) => {
         view.dispatch({
           changes: { from: 0, to: current.length, insert: next },
         });
-        // The updateListener above will schedule the AST.
+        // The updateListener above will schedule the AST + onContentChange.
       },
       { defer: true },
     ),
   );
 
   onCleanup(() => {
-    if (pending !== undefined) clearTimeout(pending);
+    if (astPending !== undefined) clearTimeout(astPending);
     view?.destroy();
     view = undefined;
   });

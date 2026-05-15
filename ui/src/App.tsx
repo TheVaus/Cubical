@@ -9,7 +9,7 @@ import {
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
-import Editor from "./Editor";
+import Editor, { type EditorApi } from "./Editor";
 import type { CanonicalDocument } from "./ast/types";
 import {
   listFiles,
@@ -19,20 +19,31 @@ import {
   onVaultScanProgress,
   openVault,
   readFileText,
+  writeFileText,
   type FileEntry,
   type ScanStatus,
 } from "./api/ipc";
 
 /**
- * Layer 0 UI.
+ * L2 Session A surface.
  *
- * One window, one button. After a folder is picked the vault opens
- * non-blockingly: progress streams via `vault:scan-progress`, the file
- * list populates as rows appear, and `vault:scan-complete` flips the
- * status bar from "Scanning…" to the final count. All visual values
- * come from `styles/tokens.css` — no hardcoded colors / fonts /
- * spacings live here. Real UX lands at L2.
+ * Adds the editor's write-path on top of the L1 file list. The state
+ * that matters for autosave + conflict detection lives here in App so
+ * the buffer-the-user-is-leaving can be flushed *before* the new file
+ * loads (per L2 spec §2.1 flush-on-file-change semantics).
+ *
+ * Per-file state:
+ * - `seenHash`     — hash of the file as of the last read or own-write.
+ * - `lastWrittenHash` — hash of the most recent successful write.
+ *                       Used to drop the watcher's own-write echo
+ *                       before any external-edit logic runs (§2.8).
+ *
+ * The 300ms autosave timer is a single ambient handle (the L2 surface
+ * only ever has one buffer open). Flush triggers: idle debounce, blur,
+ * file selection change, app quit.
  */
+const AUTOSAVE_DEBOUNCE_MS = 300;
+
 const App: Component = () => {
   const [vaultId, setVaultId] = createSignal<string | null>(null);
   const [vaultPath, setVaultPath] = createSignal<string | null>(null);
@@ -48,14 +59,31 @@ const App: Component = () => {
   );
   const [astSummary, setAstSummary] = createSignal<string>("");
 
+  // Conflict banner state — surfaces when an external edit lands on a
+  // dirty buffer (spec §2.7). `externalHash` holds the most recent
+  // unfamiliar hash so "Keep my edits" knows what's being overwritten.
+  const [conflictExternalHash, setConflictExternalHash] = createSignal<
+    string | null
+  >(null);
+
+  // Per-file hash bookkeeping. Non-reactive (signals are overkill here
+  // and would cause spurious re-renders when only the bookkeeping
+  // changes). The active file's hashes are read directly from these
+  // when needed.
+  let seenHash: string | null = null;
+  let lastWrittenHash: string | null = null;
+  // Tracks whether the buffer has unsaved changes vs. seenHash.
+  let dirty = false;
+
+  let editorApi: EditorApi | undefined;
+  let autosaveTimer: ReturnType<typeof setTimeout> | undefined;
+  let pendingWrite: Promise<void> | null = null;
+
   let unlistenProgress: UnlistenFn | undefined;
   let unlistenComplete: UnlistenFn | undefined;
   let unlistenCancelled: UnlistenFn | undefined;
   let unlistenFileChanged: UnlistenFn | undefined;
 
-  // Throttle the listFiles refetch so a 10k-file vault doesn't issue
-  // ten thousand round trips. The scan emits a progress event per file;
-  // the UI catches up at most every 200ms.
   let pendingRefresh = false;
   let lastRefreshAt = 0;
   const REFRESH_INTERVAL_MS = 200;
@@ -83,6 +111,160 @@ const App: Component = () => {
     }, wait);
   };
 
+  /**
+   * Run the actual write. Resets `dirty` only if no new keystrokes
+   * landed during the write (the editor remains the source of truth
+   * for whether the buffer matches what we just persisted).
+   */
+  const performWrite = async (): Promise<void> => {
+    const id = vaultId();
+    const path = selectedPath();
+    if (!id || !path || !editorApi) return;
+    const content = editorApi.getContent();
+    try {
+      const req: Parameters<typeof writeFileText>[0] = {
+        vault_id: id,
+        path,
+        content,
+      };
+      if (seenHash !== null) req.expected_seen_hash = seenHash;
+      const resp = await writeFileText(req);
+      lastWrittenHash = resp.new_content_hash;
+      seenHash = resp.new_content_hash;
+      // Only clear `dirty` if the buffer matches what we wrote. If a
+      // keystroke landed mid-write, the buffer diverged and we still
+      // owe another flush.
+      if (editorApi.getContent() === content) {
+        dirty = false;
+      }
+    } catch (e) {
+      const message =
+        typeof e === "object" && e !== null && "message" in e
+          ? String((e as { message: unknown }).message)
+          : String(e);
+      setError(message);
+    }
+  };
+
+  /** Trigger a write now, queuing serially so two flushes don't race. */
+  const flushAutosave = async (): Promise<void> => {
+    if (autosaveTimer !== undefined) {
+      clearTimeout(autosaveTimer);
+      autosaveTimer = undefined;
+    }
+    // If nothing is pending and the buffer is clean, no-op.
+    if (!dirty && pendingWrite === null) return;
+    // Chain after any in-flight write so the second flush sees the
+    // first's hash update.
+    const prior = pendingWrite ?? Promise.resolve();
+    const next = prior.then(performWrite);
+    pendingWrite = next;
+    try {
+      await next;
+    } finally {
+      if (pendingWrite === next) pendingWrite = null;
+    }
+  };
+
+  const scheduleAutosave = () => {
+    if (conflictExternalHash() !== null) {
+      // Banner is up — autosave is paused until the user resolves.
+      return;
+    }
+    if (autosaveTimer !== undefined) clearTimeout(autosaveTimer);
+    autosaveTimer = setTimeout(() => {
+      autosaveTimer = undefined;
+      void flushAutosave();
+    }, AUTOSAVE_DEBOUNCE_MS);
+  };
+
+  const handleContentChange = (_content: string) => {
+    dirty = true;
+    scheduleAutosave();
+  };
+
+  const handleAstChange = (doc: CanonicalDocument) => {
+    setAstSummary(
+      `${doc.blocks.length} block${doc.blocks.length === 1 ? "" : "s"}, ` +
+        `${doc.source_len} byte${doc.source_len === 1 ? "" : "s"}` +
+        (doc.frontmatter
+          ? `, frontmatter: ${doc.frontmatter.entries.length} key${doc.frontmatter.entries.length === 1 ? "" : "s"}`
+          : ""),
+    );
+  };
+
+  const handleSelectFile = async (file: FileEntry) => {
+    if (file.type_id !== "markdown") return;
+    const id = vaultId();
+    if (!id) return;
+    // Selecting the same file again is a no-op; don't flush and reload
+    // a buffer that's already in front of the user.
+    if (selectedPath() === file.path) return;
+
+    // Flush the *previous* file's pending write before swapping. Per
+    // §2.1: "the previous file's pending write is awaited before the
+    // new file is read."
+    await flushAutosave();
+
+    setError(null);
+    setConflictExternalHash(null);
+    setSelectedPath(file.path);
+    // Reset per-file hash bookkeeping. seenHash will be repopulated
+    // below once the read response gets us a hash to anchor on.
+    seenHash = null;
+    lastWrittenHash = null;
+    dirty = false;
+    try {
+      const resp = await readFileText({ vault_id: id, path: file.path });
+      setSelectedContent(resp.content);
+      // The watcher will eventually report a hash for this path via
+      // its event payload; until then, we anchor seenHash against the
+      // current `files.content_hash` indirectly: we wait for the first
+      // hash-bearing `vault:file-changed` for this file, or for our
+      // own next write. In practice the editor only needs seenHash to
+      // be *non-null* for autosave to gate sensibly — and we get that
+      // from our first write response. Until then, autosave omits the
+      // expected_seen_hash (advisory in L2 §3.1).
+    } catch (e) {
+      const message =
+        typeof e === "object" && e !== null && "message" in e
+          ? String((e as { message: unknown }).message)
+          : String(e);
+      setError(message);
+      setSelectedContent(null);
+    }
+  };
+
+  const reloadFromDisk = async () => {
+    const id = vaultId();
+    const path = selectedPath();
+    if (!id || !path || !editorApi) return;
+    try {
+      const resp = await readFileText({ vault_id: id, path });
+      editorApi.replaceContent(resp.content);
+      setSelectedContent(resp.content);
+      seenHash = conflictExternalHash();
+      lastWrittenHash = null;
+      dirty = false;
+      setConflictExternalHash(null);
+    } catch (e) {
+      const message =
+        typeof e === "object" && e !== null && "message" in e
+          ? String((e as { message: unknown }).message)
+          : String(e);
+      setError(message);
+    }
+  };
+
+  const keepMyEdits = () => {
+    // Resume autosave. The next write's `expected_seen_hash` carries
+    // whatever `seenHash` we last knew about; the Rust handler will
+    // detect the mismatch vs. the file's current hash and write the
+    // `external_edit_override` audit_log row.
+    setConflictExternalHash(null);
+    scheduleAutosave();
+  };
+
   onMount(async () => {
     unlistenProgress = await onVaultScanProgress((p) => {
       if (p.vault_id !== vaultId()) return;
@@ -95,7 +277,6 @@ const App: Component = () => {
       setFilesProcessed(p.file_count);
       setFilesTotalEstimate(p.file_count);
       setScanStatus("complete");
-      // Final refresh so the list matches the final count.
       void refreshFileList();
     });
     unlistenCancelled = await onVaultScanCancelled((p) => {
@@ -104,11 +285,62 @@ const App: Component = () => {
     });
     unlistenFileChanged = await onVaultFileChanged((p) => {
       if (p.vault_id !== vaultId()) return;
-      // Reuse the same throttle as scan-progress so a burst of watcher
-      // events (e.g. `git checkout`) doesn't trigger one round trip per
-      // file. The list is best-effort; the next refresh shows the truth.
       scheduleRefresh();
+
+      // L2 §2.7 + §2.8: external-edit detection vs. own-write
+      // suppression. Only relevant when the changed file is the one
+      // currently open in the editor and a hash is present on the
+      // payload (created/modified events).
+      if (p.path !== selectedPath()) return;
+      const incoming = p.new_content_hash;
+      if (!incoming) return;
+
+      // Own-write suppression first — drop the round-trip echo before
+      // any conflict logic runs.
+      if (incoming === lastWrittenHash) return;
+
+      // External edit. Branch on dirty state per §2.7.5: clean buffer
+      // → silent reload; dirty buffer → conflict banner.
+      if (dirty || conflictExternalHash() !== null) {
+        setConflictExternalHash(incoming);
+        // Cancel any pending debounce — autosave is paused until the
+        // user resolves the conflict.
+        if (autosaveTimer !== undefined) {
+          clearTimeout(autosaveTimer);
+          autosaveTimer = undefined;
+        }
+      } else {
+        // Clean buffer: silently re-read so the editor reflects disk.
+        const id = vaultId();
+        const path = selectedPath();
+        if (!id || !path) return;
+        readFileText({ vault_id: id, path })
+          .then((resp) => {
+            editorApi?.replaceContent(resp.content);
+            setSelectedContent(resp.content);
+            seenHash = incoming;
+            dirty = false;
+          })
+          .catch((e) => {
+            console.error("silent reload failed", e);
+          });
+      }
     });
+
+    // App-quit / window-close flush (best effort, §2.1 flush triggers).
+    // `beforeunload` is the only synchronous hook the webview exposes;
+    // we kick the autosave and let the in-flight IPC race the close.
+    const onBeforeUnload = () => {
+      if (autosaveTimer !== undefined) {
+        clearTimeout(autosaveTimer);
+        autosaveTimer = undefined;
+      }
+      // No await available — fire-and-forget. The IPC will be queued
+      // even if the webview tears down mid-flight.
+      if (dirty) void performWrite();
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    onCleanup(() => window.removeEventListener("beforeunload", onBeforeUnload));
   });
 
   onCleanup(() => {
@@ -116,34 +348,8 @@ const App: Component = () => {
     unlistenComplete?.();
     unlistenCancelled?.();
     unlistenFileChanged?.();
+    if (autosaveTimer !== undefined) clearTimeout(autosaveTimer);
   });
-
-  const handleSelectFile = async (file: FileEntry) => {
-    if (file.type_id !== "markdown") return;
-    const id = vaultId();
-    if (!id) return;
-    setError(null);
-    setSelectedPath(file.path);
-    try {
-      const resp = await readFileText({ vault_id: id, path: file.path });
-      setSelectedContent(resp.content);
-    } catch (e) {
-      const message =
-        typeof e === "object" && e !== null && "message" in e
-          ? String((e as { message: unknown }).message)
-          : String(e);
-      setError(message);
-      setSelectedContent(null);
-    }
-  };
-
-  const handleAstChange = (doc: CanonicalDocument) => {
-    setAstSummary(
-      `${doc.blocks.length} block${doc.blocks.length === 1 ? "" : "s"}, ` +
-        `${doc.source_len} byte${doc.source_len === 1 ? "" : "s"}` +
-        (doc.frontmatter ? `, frontmatter: ${doc.frontmatter.entries.length} key${doc.frontmatter.entries.length === 1 ? "" : "s"}` : ""),
-    );
-  };
 
   const handleOpen = async () => {
     setError(null);
@@ -163,12 +369,14 @@ const App: Component = () => {
       setSelectedPath(null);
       setSelectedContent(null);
       setAstSummary("");
+      setConflictExternalHash(null);
+      seenHash = null;
+      lastWrittenHash = null;
+      dirty = false;
 
       const resp = await openVault({ path: picked });
       setVaultId(resp.vault_id);
       setScanStatus(resp.scan_status);
-      // First refresh kicks off so the list isn't empty for tiny vaults
-      // that scan-complete before the throttle elapses.
       scheduleRefresh();
     } catch (e) {
       const message =
@@ -211,7 +419,7 @@ const App: Component = () => {
               margin: 0,
             }}
           >
-            Layer 0 — Bedrock
+            Layer 2 — Editing
           </p>
         </div>
         <button
@@ -383,9 +591,67 @@ const App: Component = () => {
                   </div>
                 }
               >
+                <Show when={conflictExternalHash() !== null}>
+                  <div
+                    role="alert"
+                    style={{
+                      display: "flex",
+                      "align-items": "center",
+                      "justify-content": "space-between",
+                      gap: "var(--space-3)",
+                      padding: "var(--space-2) var(--space-3)",
+                      border: "1px solid var(--c-warning, var(--c-border-subtle))",
+                      "border-left": "var(--space-1) solid var(--c-warning, var(--c-accent))",
+                      "border-radius": "var(--radius-md)",
+                      background: "var(--c-bg-secondary)",
+                      "font-size": "var(--text-sm)",
+                    }}
+                  >
+                    <span>This file was changed outside Cubical.</span>
+                    <span style={{ display: "flex", gap: "var(--space-2)" }}>
+                      <button
+                        type="button"
+                        onClick={reloadFromDisk}
+                        style={{
+                          padding: "var(--space-1) var(--space-3)",
+                          "font-size": "var(--text-xs)",
+                          "font-family": "var(--font-body)",
+                          color: "var(--c-fg-primary)",
+                          background: "var(--c-bg-tertiary)",
+                          border: "1px solid var(--c-border-subtle)",
+                          "border-radius": "var(--radius-sm, var(--radius-md))",
+                          cursor: "pointer",
+                        }}
+                      >
+                        Reload from disk
+                      </button>
+                      <button
+                        type="button"
+                        onClick={keepMyEdits}
+                        style={{
+                          padding: "var(--space-1) var(--space-3)",
+                          "font-size": "var(--text-xs)",
+                          "font-family": "var(--font-body)",
+                          color: "var(--c-fg-inverse)",
+                          background: "var(--c-accent)",
+                          border: "none",
+                          "border-radius": "var(--radius-sm, var(--radius-md))",
+                          cursor: "pointer",
+                        }}
+                      >
+                        Keep my edits
+                      </button>
+                    </span>
+                  </div>
+                </Show>
                 <Editor
                   value={selectedContent() ?? ""}
                   onAstChange={handleAstChange}
+                  onContentChange={handleContentChange}
+                  onBlur={() => void flushAutosave()}
+                  ref={(api) => {
+                    editorApi = api;
+                  }}
                 />
                 <p
                   style={{
