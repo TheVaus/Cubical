@@ -261,16 +261,26 @@ fn relativize(root: &Path, abs: &Path) -> Option<PathBuf> {
     Some(rel.to_path_buf())
 }
 
-/// Is any component of `rel` an excluded directory?
+/// Is any component of `rel` an excluded directory, or is the
+/// filename itself one we don't want to surface?
 ///
-/// Mirrors the skip set in `scan.rs`: `node_modules` plus any
-/// dot-prefixed directory (which catches `.cubical`, `.git`,
+/// Directory exclusions mirror the skip set in `scan.rs`: `node_modules`
+/// plus any dot-prefixed directory (which catches `.cubical`, `.git`,
 /// `.obsidian`, …).
+///
+/// Filename exclusion: the `.cubical-tmp` suffix is reserved for the
+/// atomic-write helper (`docs/layer-0-spec.md` §4 / L2 §2.1). Without
+/// this filter every autosave would echo three watcher events (create
+/// and modify of the temp file plus modify of the target) and the temp
+/// path would even leak into the `files` table before the rename.
 fn is_excluded(rel: &Path) -> bool {
-    rel.components().any(|c| {
+    if rel.components().any(|c| {
         let s = c.as_os_str().to_string_lossy();
         s == "node_modules" || s.starts_with('.')
-    })
+    }) {
+        return true;
+    }
+    rel.extension().is_some_and(|ext| ext == "cubical-tmp")
 }
 
 #[cfg(test)]
@@ -493,6 +503,23 @@ mod tests {
             out,
             vec![WatchEvent::Created(PathBuf::from("notes/keep.md"))]
         );
+    }
+
+    #[test]
+    fn translate_filters_cubical_tmp_scratch_files() {
+        let root = Path::new("/v");
+        let ev = synth_event(
+            EventKind::Create(notify::event::CreateKind::File),
+            vec![
+                PathBuf::from("/v/note.md.cubical-tmp"),
+                PathBuf::from("/v/projects/cubical.md.cubical-tmp"),
+                PathBuf::from("/v/keep.md"),
+            ],
+        );
+        let out = translate_event(root, &ev);
+        // Only the real markdown file survives — both temp paths
+        // (regardless of nesting) get filtered.
+        assert_eq!(out, vec![WatchEvent::Created(PathBuf::from("keep.md"))]);
     }
 
     #[test]

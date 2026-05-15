@@ -86,6 +86,12 @@ pub async fn scan(
         if !entry.file_type().is_file() {
             continue;
         }
+        // Skip atomic-write scratch files left behind by a crashed
+        // write. Mirrors the watcher's same filter in
+        // `watcher.rs::is_excluded` — both filters must agree.
+        if entry.path().extension().is_some_and(|e| e == "cubical-tmp") {
+            continue;
+        }
 
         let abs_path = entry.path().to_path_buf();
         let rel_path = abs_path
