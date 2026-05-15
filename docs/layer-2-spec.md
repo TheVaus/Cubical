@@ -404,7 +404,105 @@ Pure CodeMirror / Lezer work. No write-path entanglement; verifiable on a read-o
 
 ### 9.1 Session A — Writable editor (write-path + safety)
 
-*Pending.*
+#### Atomic write helper (load-bearing prerequisite)
+
+L0 §4 documented the temp-file + fsync + rename procedure but didn't actually land a callable. L2 Session A could not honor "all writes go through `cubical-core`'s temp-and-rename helper" without first implementing it. New module [`crates/cubical-core/src/vault/atomic.rs`](../crates/cubical-core/src/vault/atomic.rs) exposes `pub fn atomic_write(target: &Path, content: &[u8]) -> Result<(), VaultError>` — sync, called via `tokio::task::spawn_blocking` so `fsync` doesn't stall the runtime. Windows retry is wired in (50ms / 200ms / 800ms backoff) but only triggered by `is_transient_rename_error`, which is `false` on POSIX (no retry path runs on macOS/Linux).
+
+#### Watcher exclude filter (load-bearing prerequisite)
+
+The watcher (and scan) `is_excluded` filters skipped dot-prefixed directories but not the `.cubical-tmp` suffix used by `atomic_write`. Every autosave was leaking three watcher events (create + modify of the temp file, modify of the target) and the temp path was being upserted into the `files` table before the rename. Both filters in [`crates/cubical-core/src/vault/watcher.rs::is_excluded`](../crates/cubical-core/src/vault/watcher.rs) and [`crates/cubical-core/src/vault/scan.rs`](../crates/cubical-core/src/vault/scan.rs) now drop files whose extension is `cubical-tmp`. After the fix, each autosave produces exactly one `Modified <target>` event in the logs.
+
+#### Rust IPC
+
+`write_file_text` lands in [`crates/cubical-app/src/commands/vault.rs`](../crates/cubical-app/src/commands/vault.rs) following the §8 pure-handler / thin-shim pattern.
+
+- Looks up the path in `files`, rejects non-`markdown` with `InvalidRequest`, captures the on-disk hash.
+- Computes the post-write hash from the buffer bytes (`cubical_core::sha256_bytes_hex` — newly exposed helper that mirrors the file-streaming `sha256_file_hex` digest without re-reading disk).
+- Runs `atomic_write` inside `spawn_blocking`.
+- Pre-write audit row: when `expected_seen_hash` is `Some` and doesn't match the captured on-disk hash, inserts a `level='warn', category='external_edit_override'` row with detail `{path, expected, actual}`. Spec §3.1 keeps `expected_seen_hash` advisory in L2 — the write proceeds. Hard rejection lands in L8 alongside the merge UI.
+- Post-write: updates the `files` row with new size, mtime, hash; inserts a `level='info', category='autosave'` row with detail `{path, bytes, new_content_hash}`.
+- Returns `{new_content_hash, new_mtime_unix}` so the editor can populate `last_written_hash` for §2.8 hash-gating.
+
+Wire types in [`crates/cubical-app/src/api/types.rs`](../crates/cubical-app/src/api/types.rs); Tauri shim in [`crates/cubical-app/src/lib.rs`](../crates/cubical-app/src/lib.rs); `invoke_handler` updated.
+
+#### Watcher payload extension
+
+`VaultFileChanged` gains `new_content_hash: Option<String>` (`#[serde(skip_serializing_if = "Option::is_none")]`). `apply_watch_event_to_db` returns `Option<String>` instead of `()`; `handle_watch_event` threads the hash into `file_changed_payload`. The hash is set for `Created` and `Modified` (when the disk read succeeded), `None` for `Removed`/`Renamed`. The shape is invariant on event kind — `file_changed_payload` drops any inbound hash on `Removed`/`Renamed` regardless of caller intent.
+
+#### Frontend wire layer
+
+[`ui/src/api/ipc.ts`](../ui/src/api/ipc.ts) gains `writeFileText` + its request/response types, and the `VaultFileChanged` event payload now carries `new_content_hash?: string`. Solid's `exactOptionalPropertyTypes` requires building the request object conditionally — `expected_seen_hash` is omitted when `null`, not set to `undefined`.
+
+#### Editor refactor
+
+[`ui/src/Editor.tsx`](../ui/src/Editor.tsx) gains three callback props and one imperative-ref escape hatch, keeping autosave coordination in `App.tsx`:
+
+- `onContentChange(content)` fires raw on every `docChanged` so the parent's 300ms debounce can be shared with blur / file-change flushes.
+- `onBlur()` fires when CM6's `focusChangeEffect` reports focus loss.
+- `ref({ getContent, replaceContent })` lets the parent flush (read the current buffer for the IPC) and reload (replace the doc on "Reload from disk" without fighting the next `value` prop tick).
+
+The Lezer-backed 150ms `onAstChange` from L1 is untouched.
+
+#### App-level autosave + conflict orchestration
+
+[`ui/src/App.tsx`](../ui/src/App.tsx) owns per-file `seenHash` / `lastWrittenHash` / `dirty` and the 300ms autosave timer. Flush triggers (§2.1):
+
+- Idle debounce — the typical path.
+- Blur — `Editor.onBlur` → `flushAutosave()`.
+- File-selection change — `handleSelectFile` awaits `flushAutosave()` before reading the next file.
+- App-quit — `beforeunload` cancels the debounce and fires `performWrite()` synchronously (best-effort, the webview tear-down may race).
+
+`flushAutosave` chains serially via a `pendingWrite: Promise<void>` so two flushes don't race — the second's `expected_seen_hash` sees the first's hash update. `performWrite` only clears `dirty` if the buffer still matches what was written (handles keystrokes during the IPC await).
+
+Hash-gating in the `vault:file-changed` listener: incoming events whose `new_content_hash === lastWrittenHash` are dropped before any conflict logic runs. Surviving events branch on `dirty`:
+
+- Dirty buffer → `setConflictExternalHash(incoming)`, cancel pending debounce, banner appears.
+- Clean buffer → silent re-read via `readFileText`, `replaceContent`, `seenHash = incoming`.
+
+#### Conflict banner
+
+Mounted above the Editor when `conflictExternalHash() !== null`. Two buttons:
+
+- **Reload from disk** → `readFileText` + `editorApi.replaceContent` + reset hashes + clear `dirty` + clear banner.
+- **Keep my edits** → just clear the banner; autosave resumes; the next `performWrite` carries the stale `seenHash` as `expected_seen_hash`, the Rust handler detects the mismatch, and writes the `external_edit_override` audit_log row.
+
+Styled with existing tokens (`--c-bg-secondary`, `--c-border-subtle`, `--c-accent`) with a `--c-warning` fallback so the warn aesthetic is consistent if/when D adds that token.
+
+#### Audit verification
+
+Smoke pass on macOS at session close:
+
+```sql
+SELECT level, category, message FROM audit_log
+WHERE category IN ('autosave', 'external_edit_override') ORDER BY id;
+-- info | autosave                | autosave welcome.md
+-- info | autosave                | autosave note.md
+-- warn | external_edit_override  | override external edit on welcome.md
+-- info | autosave                | autosave welcome.md
+```
+
+#### Test counts (cumulative)
+
+**Rust:** cubical-ast 26 + 1 parity_fixtures · cubical-core 49 (was 42; +6 atomic_write tests, +1 watcher temp-file filter test) · cubical-index 6 · cubical-app 29 (was 17; +8 write_file_text tests, +4 watcher hash-plumbing/payload tests) = **111 Rust tests across the workspace, all green**.
+
+**UI:** 23 vitest tests (unchanged — Session A is plumbing, no new TS units).
+
+#### Interactive smoke (recorded)
+
+Against `cargo tauri dev` with `/Users/user/Developer/sandbox/cubical-demo`:
+
+- Type → wait → switch file → switch back: edits persist (`Yes` on the autosave round-trip check).
+- Editor doesn't reset on its own watcher event (own-write suppression working — observed cursor doesn't jump during continuous typing through autosave boundaries).
+- Conflict banner appears when the external append lands during the 300ms-dirty window. Both buttons confirmed working: "Reload from disk" replaces the buffer with disk contents; "Keep my edits" preserves the buffer and lets autosave overwrite.
+- Watcher log: one `kind=Modified path=<file>` event per autosave (down from three pre–temp-file-filter).
+
+Race-on-banner caveat: with manual terminal `printf`, the 300ms debounce is usually faster than typing-then-running-the-command, so the autosave fires first and the next external append goes through the clean-buffer silent-reload path. Spec-correct, but it makes the banner harder to reach in manual testing than in the Rust unit test (which forces the mismatch by manipulating `content_hash` directly).
+
+#### Architectural notes
+
+- **`expected_seen_hash` is advisory until L8.** The `write_file_text` handler unconditionally proceeds when `expected_seen_hash` is set and mismatched, writing the `external_edit_override` audit row as a breadcrumb. L8's 3-way merge UI is the only viable consumer of a hard `Conflict` rejection; until then, the user's "Keep my edits" choice from §2.7 is the source of truth.
+- **`atomic_write` is sync by design.** It returns from `spawn_blocking` so `fsync` doesn't stall the runtime. Making it `async fn` would force every L1+ caller into the same call pattern; keeping it sync lets non-async tools (future plugin host, headless exporters) call it directly.
+- **Frontend owns autosave timing.** Putting the 300ms debounce in `Editor.tsx` would force file-change and blur flushes through callbacks anyway; putting it in `App.tsx` keeps timer ownership next to the IPC call and the per-file hash bookkeeping. Editor.tsx still owns the AST debounce (150ms) — different consumers, different cadence.
 
 ### 9.2 Session B — Live Preview decorations
 

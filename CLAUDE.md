@@ -105,8 +105,8 @@ Crates without Tauri deps (`cubical-core`, `cubical-ast`, `cubical-index`, `cubi
 
 ## Project state
 
-Current layer: 2 — Editing · L2 spec drafted (`docs/layer-2-spec.md`); 7 sessions planned (A write-path+safety · B decorations · C settings · D theme · E raw toggle · F properties · G closeout).
+Current layer: 2 — Editing · L2 Session A complete 2026-05-15 (`write_file_text` IPC + `atomic_write` helper + watcher `new_content_hash` plumbing + 300ms autosave with blur / file-change / app-quit flushes + own-write hash-gating + external-edit conflict banner with Reload / Keep-my-edits). Tests: 111 Rust + 23 vitest.
 L0 closed 2026-05-13 (`l0` tag); L1 closed 2026-05-09 (`l1` tag).
-Carried into L2: L1 `cargo tauri dev` interactive smoke pass — open a vault, click a `.md` file, confirm editor renders, typing fires `onAstChange`, external edits surface via `vault:file-changed`. Do this at Session A kickoff before any L2 code.
-Next: L2 Session A — `write_file_text` IPC + 300ms autosave in `Editor.tsx` + watcher `new_content_hash` plumbing + hash-gating suppression + external-edit conflict banner. Decorations are Session B, not bundled.
-Layer specs: `docs/layer-0-spec.md` (closed) · `docs/layer-1-spec.md` (closed) · `docs/layer-2-spec.md` (Session A pending)
+Sessions B–G pending: B decorations · C settings IPC · D theme + CM6 theme generator · E raw-source toggle · F Properties UI · G interactive smoke + `l2` tag.
+Next: L2 Session B — Lezer-driven Live Preview decorations (`ui/src/editor/decorations.ts`). Session C (settings IPC) is independent and can run in parallel.
+Layer specs: `docs/layer-0-spec.md` (closed) · `docs/layer-1-spec.md` (closed) · `docs/layer-2-spec.md` (Session A closed; §9.1 filled, §9.2-9.7 pending)
