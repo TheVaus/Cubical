@@ -78,6 +78,13 @@ pub struct VaultFileChanged {
     /// Set only when `kind == Renamed`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub from_path: Option<String>,
+    /// Content hash of the file after the watcher processed the event.
+    /// Set for `Created` and `Modified`; `None` for `Removed` and
+    /// `Renamed`. Used by L2's hash-gating to suppress the editor's
+    /// own-write echoes (see `docs/layer-2-spec.md` §2.8) and by L2's
+    /// external-edit conflict detection (§2.7).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub new_content_hash: Option<String>,
 }
 
 /// Discriminator for [`VaultFileChanged`].
@@ -284,9 +291,9 @@ async fn handle_watch_event(
     ev: &WatchEvent,
     arrived: Instant,
 ) {
-    apply_watch_event_to_db(vault, ev).await;
+    let new_content_hash = apply_watch_event_to_db(vault, ev).await;
 
-    let payload = file_changed_payload(vault_id, ev);
+    let payload = file_changed_payload(vault_id, ev, new_content_hash);
     let elapsed_ms = arrived.elapsed().as_millis();
     tracing::info!(
         vault_id = %vault_id,
@@ -302,14 +309,17 @@ async fn handle_watch_event(
 /// `audit_log` insert.
 ///
 /// Pulled out of [`handle_watch_event`] so it can be unit-tested without
-/// an `AppHandle`. Returns `()` because errors here are logged and
+/// an `AppHandle`. Returns the file's content hash post-update for
+/// `Created`/`Modified` events (so the caller can put it on the emitted
+/// payload — see L2 spec §3.5); returns `None` for `Removed`/`Renamed`
+/// and for the degenerate hash-failed case. Errors are logged and
 /// swallowed: a bad write should not take the dispatcher down.
-pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) {
+pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) -> Option<String> {
     let now = unix_now_secs();
     let conn = vault.index().connection();
 
     // -- Update files row -------------------------------------------------
-    match ev {
+    let new_content_hash = match ev {
         WatchEvent::Created(rel) | WatchEvent::Modified(rel) => {
             let abs = vault.root().join(rel);
             let path_str = rel.to_string_lossy().into_owned();
@@ -343,7 +353,14 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) {
             if let Err(e) = conn
                 .execute(
                     upsert,
-                    params![path_str.clone(), type_id.clone(), size, mtime, hash, now],
+                    params![
+                        path_str.clone(),
+                        type_id.clone(),
+                        size,
+                        mtime,
+                        hash.clone(),
+                        now
+                    ],
                 )
                 .await
             {
@@ -358,6 +375,12 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) {
                 if let Err(e) = refresh_frontmatter(vault, &abs, &path_str).await {
                     tracing::warn!(path = %path_str, error = %e, "watcher: frontmatter refresh failed");
                 }
+            }
+
+            if hash.is_empty() {
+                None
+            } else {
+                Some(hash)
             }
         }
         WatchEvent::Removed(rel) => {
@@ -375,6 +398,7 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) {
             {
                 tracing::warn!(path = %path_str, error = %e, "watcher: files last_seen update failed");
             }
+            None
         }
         WatchEvent::Renamed { from, to: _ } => {
             // Path-keyed identity update is non-trivial: a row rename
@@ -393,8 +417,9 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) {
             {
                 tracing::warn!(path = %from_str, error = %e, "watcher: rename last_seen update failed");
             }
+            None
         }
-    }
+    };
 
     // -- Audit log ---------------------------------------------------------
     let (message, detail) = audit_payload_for(ev);
@@ -410,6 +435,8 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) {
         // now; the table grows unbounded until that lands.
         tracing::warn!(error = %e, "watcher: audit_log insert failed");
     }
+
+    new_content_hash
 }
 
 /// Pull size/mtime/hash for an absolute path. Hashing happens off the
@@ -480,31 +507,39 @@ fn audit_payload_for(ev: &WatchEvent) -> (String, String) {
     }
 }
 
-fn file_changed_payload(vault_id: &str, ev: &WatchEvent) -> VaultFileChanged {
+fn file_changed_payload(
+    vault_id: &str,
+    ev: &WatchEvent,
+    new_content_hash: Option<String>,
+) -> VaultFileChanged {
     match ev {
         WatchEvent::Created(p) => VaultFileChanged {
             vault_id: vault_id.to_string(),
             path: p.to_string_lossy().into_owned(),
             kind: VaultFileChangeKind::Created,
             from_path: None,
+            new_content_hash,
         },
         WatchEvent::Modified(p) => VaultFileChanged {
             vault_id: vault_id.to_string(),
             path: p.to_string_lossy().into_owned(),
             kind: VaultFileChangeKind::Modified,
             from_path: None,
+            new_content_hash,
         },
         WatchEvent::Removed(p) => VaultFileChanged {
             vault_id: vault_id.to_string(),
             path: p.to_string_lossy().into_owned(),
             kind: VaultFileChangeKind::Removed,
             from_path: None,
+            new_content_hash: None,
         },
         WatchEvent::Renamed { from, to } => VaultFileChanged {
             vault_id: vault_id.to_string(),
             path: to.to_string_lossy().into_owned(),
             kind: VaultFileChangeKind::Renamed,
             from_path: Some(from.to_string_lossy().into_owned()),
+            new_content_hash: None,
         },
     }
 }
@@ -538,7 +573,9 @@ mod tests {
     async fn created_event_writes_files_row_and_audit_log() {
         let (_dir, vault) = fresh_vault_with_one_md("note.md").await;
 
-        apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("note.md"))).await;
+        let hash =
+            apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("note.md"))).await;
+        assert!(hash.is_some(), "Created on a real file returns its hash");
 
         // files row exists with type_id=markdown and a non-empty hash.
         let conn = vault.index().connection();
@@ -588,9 +625,14 @@ mod tests {
 
         // Seed a Created event so the `files` row exists, then
         // overwrite the file and fire Modified.
-        apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("note.md"))).await;
+        let h1 = apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("note.md")))
+            .await
+            .expect("Created hash");
         std::fs::write(&p, "---\ntitle: New\nstatus: ready\n---\n\nbody\n").unwrap();
-        apply_watch_event_to_db(&vault, &WatchEvent::Modified(PathBuf::from("note.md"))).await;
+        let h2 = apply_watch_event_to_db(&vault, &WatchEvent::Modified(PathBuf::from("note.md")))
+            .await
+            .expect("Modified hash");
+        assert_ne!(h1, h2, "hash must change after content changes");
 
         let conn = vault.index().connection();
         let mut rows = conn
@@ -614,7 +656,7 @@ mod tests {
     async fn renamed_event_audits_with_from_and_to() {
         let (_dir, vault) = fresh_vault_with_one_md("a.md").await;
 
-        apply_watch_event_to_db(
+        let hash = apply_watch_event_to_db(
             &vault,
             &WatchEvent::Renamed {
                 from: PathBuf::from("a.md"),
@@ -622,6 +664,7 @@ mod tests {
             },
         )
         .await;
+        assert!(hash.is_none(), "Renamed must not carry a hash");
 
         let conn = vault.index().connection();
         let mut rows = conn
@@ -640,5 +683,56 @@ mod tests {
         assert_eq!(parsed["kind"], "renamed");
         assert_eq!(parsed["from"], "a.md");
         assert_eq!(parsed["to"], "b.md");
+    }
+
+    #[tokio::test]
+    async fn removed_event_returns_no_hash() {
+        let (_dir, vault) = fresh_vault_with_one_md("note.md").await;
+        // Seed a row first so the UPDATE has something to touch.
+        apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("note.md"))).await;
+
+        let hash =
+            apply_watch_event_to_db(&vault, &WatchEvent::Removed(PathBuf::from("note.md"))).await;
+        assert!(hash.is_none(), "Removed must not carry a hash");
+    }
+
+    #[test]
+    fn file_changed_payload_carries_hash_on_modified() {
+        let payload = file_changed_payload(
+            "v1",
+            &WatchEvent::Modified(PathBuf::from("note.md")),
+            Some("abc123".into()),
+        );
+        assert!(matches!(payload.kind, VaultFileChangeKind::Modified));
+        assert_eq!(payload.path, "note.md");
+        assert_eq!(payload.new_content_hash.as_deref(), Some("abc123"));
+        assert!(payload.from_path.is_none());
+    }
+
+    #[test]
+    fn file_changed_payload_drops_hash_on_removed() {
+        let payload = file_changed_payload(
+            "v1",
+            &WatchEvent::Removed(PathBuf::from("note.md")),
+            // Even if a caller passes a hash for a Remove (it shouldn't),
+            // we drop it — the wire shape is invariant on event kind.
+            Some("ignored".into()),
+        );
+        assert!(payload.new_content_hash.is_none());
+    }
+
+    #[test]
+    fn file_changed_payload_drops_hash_on_renamed() {
+        let payload = file_changed_payload(
+            "v1",
+            &WatchEvent::Renamed {
+                from: PathBuf::from("a.md"),
+                to: PathBuf::from("b.md"),
+            },
+            Some("ignored".into()),
+        );
+        assert!(payload.new_content_hash.is_none());
+        assert_eq!(payload.from_path.as_deref(), Some("a.md"));
+        assert_eq!(payload.path, "b.md");
     }
 }
