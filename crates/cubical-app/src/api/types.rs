@@ -191,6 +191,42 @@ pub struct GetCanonicalAstResponse {
     pub document: cubical_ast::Document,
 }
 
+// -- write_file_text -----------------------------------------------------
+
+/// Request payload for `write_file_text`.
+///
+/// `expected_seen_hash` is advisory in L2 (see `docs/layer-2-spec.md`
+/// §3.1): if `Some` and it doesn't match the on-disk hash at write
+/// time, the handler still proceeds (preserving the user's "Keep my
+/// edits" choice from §2.7) but writes an `external_edit_override`
+/// audit_log row at level `warn`. Hard rejection is deferred to L8
+/// when the merge UI exists.
+#[derive(Debug, Clone, Deserialize)]
+pub struct WriteFileTextRequest {
+    /// Vault to write into.
+    pub vault_id: String,
+    /// Path of the file (relative to the vault root, as stored in
+    /// `files.path`). Must already exist with `type_id = "markdown"`.
+    pub path: String,
+    /// New UTF-8 contents to write.
+    pub content: String,
+    /// Hash the editor *thought* the file had on disk when the user's
+    /// edits diverged from baseline. Advisory in L2.
+    #[serde(default)]
+    pub expected_seen_hash: Option<String>,
+}
+
+/// Response payload for `write_file_text`.
+#[derive(Debug, Clone, Serialize)]
+pub struct WriteFileTextResponse {
+    /// SHA-256 of the bytes just written (lowercase hex). The editor
+    /// stashes this as its `last_written_hash` so the round-trip
+    /// `vault:file-changed` event can be hash-gated away (§2.8).
+    pub new_content_hash: String,
+    /// Unix seconds of the file's mtime after the write.
+    pub new_mtime_unix: i64,
+}
+
 // -- close_vault ---------------------------------------------------------
 
 /// Request payload for `close_vault`.

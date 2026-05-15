@@ -9,7 +9,7 @@
 //!
 //! See `docs/layer-0-spec.md` §8.
 
-use cubical_core::{start_watcher, Vault, WatchEvent};
+use cubical_core::{atomic_write, sha256_bytes_hex, start_watcher, Vault, WatchEvent};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
@@ -17,7 +17,8 @@ use crate::api::types::{
     CancelVaultScanRequest, CloseVaultRequest, FileEntry, FrontmatterEntry, GetCanonicalAstRequest,
     GetCanonicalAstResponse, GetFrontmatterRequest, GetFrontmatterResponse, GetVaultInfoRequest,
     GetVaultInfoResponse, ListFilesRequest, ListFilesResponse, OpenVaultRequest, OpenVaultResponse,
-    ReadFileTextRequest, ReadFileTextResponse, ScanStatus,
+    ReadFileTextRequest, ReadFileTextResponse, ScanStatus, WriteFileTextRequest,
+    WriteFileTextResponse,
 };
 use crate::error::CubicalError;
 use crate::events::{spawn_scan_dispatcher, spawn_watcher_dispatcher, AppHandle};
@@ -317,6 +318,180 @@ pub async fn read_file_text(
         .map_err(|e| CubicalError::Io(e.to_string()))?;
 
     Ok(ReadFileTextResponse { content })
+}
+
+/// Write a markdown file's UTF-8 text contents to disk atomically.
+///
+/// Coarse-grained "overwrite this file's body." Per `docs/layer-2-spec.md`
+/// §2.1 + §3.1:
+///
+/// - Markdown-only: rejected with `InvalidRequest` if the indexed
+///   `type_id` isn't `"markdown"`.
+/// - Atomic: writes through `cubical_core::atomic_write` (temp-file +
+///   fsync + rename) inside `spawn_blocking` so the async executor
+///   isn't stalled by `fsync`.
+/// - Hash returned: the SHA-256 of `req.content` is recomputed, stored
+///   in the `files` row, and returned so the editor can populate
+///   `last_written_hash` for hash-gating (§2.8).
+/// - `expected_seen_hash` is advisory in L2: if it's `Some` and doesn't
+///   match the current on-disk hash, the write still proceeds (the
+///   user's "Keep my edits" choice from §2.7) but an `audit_log` row
+///   is written at level `warn` with category `external_edit_override`
+///   carrying both the expected and actual hashes.
+///
+/// Side effects: writes one of two `audit_log` rows.
+/// - On success: category `autosave`, level `info`,
+///   `{ path, bytes, new_content_hash }`.
+/// - On override: an additional category `external_edit_override`,
+///   level `warn`, `{ path, expected, actual }` row written before
+///   the autosave row.
+///
+/// Returns:
+/// - `VaultNotOpen` if `vault_id` is unknown.
+/// - `FileNotFound` if `path` is not in `files`.
+/// - `InvalidRequest` if the file's `type_id` is not `"markdown"`.
+/// - `Io` if the atomic write or post-write metadata read fails.
+pub async fn write_file_text(
+    state: &AppState,
+    req: WriteFileTextRequest,
+) -> Result<WriteFileTextResponse, CubicalError> {
+    // Look up + type-check + capture abs path while holding the read
+    // lock, then drop the lock for the (blocking) write.
+    let (abs_path, current_hash) = {
+        let guard = state.vaults().read().await;
+        let open = guard
+            .get(&req.vault_id)
+            .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
+        let conn = open.vault.index().connection();
+
+        let mut rows = conn
+            .query(
+                "SELECT type_id, content_hash FROM files WHERE path = ?1",
+                libsql::params![req.path.clone()],
+            )
+            .await?;
+        let row = rows
+            .next()
+            .await?
+            .ok_or_else(|| CubicalError::FileNotFound(req.path.clone()))?;
+        let type_id: String = row.get(0)?;
+        if type_id != "markdown" {
+            return Err(CubicalError::InvalidRequest(format!(
+                "write_file_text only supports markdown files (path '{}' has type_id '{}')",
+                req.path, type_id,
+            )));
+        }
+        let current_hash: String = row.get(1)?;
+        (open.vault.root().join(&req.path), current_hash)
+    };
+
+    let new_hash = sha256_bytes_hex(req.content.as_bytes());
+    let bytes_len = req.content.len();
+
+    // Atomic write off the async executor. `atomic_write` is sync (sync
+    // I/O + sync rename + retry loop); pushing it through
+    // spawn_blocking keeps the runtime responsive.
+    let abs_for_write = abs_path.clone();
+    let content_for_write = req.content.into_bytes();
+    tokio::task::spawn_blocking(move || atomic_write(&abs_for_write, &content_for_write))
+        .await
+        .map_err(|e| CubicalError::Io(format!("write task join error: {e}")))??;
+
+    // Post-write metadata: the watcher will eventually fire and refresh
+    // the files row independently. We update it eagerly here so the
+    // editor's response carries the right mtime and the row stays in
+    // sync even if the watcher event is racing or filtered.
+    let new_mtime = std::fs::metadata(&abs_path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::SystemTime::UNIX_EPOCH).ok())
+        .map(|d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
+        .unwrap_or(0);
+    let new_size = i64::try_from(bytes_len).unwrap_or(i64::MAX);
+
+    let now = unix_now_secs();
+    {
+        let guard = state.vaults().read().await;
+        let open = guard
+            .get(&req.vault_id)
+            .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
+        let conn = open.vault.index().connection();
+
+        // External-edit override audit row first: if the editor handed
+        // us a seen_hash and the on-disk hash diverged from it, the
+        // user clicked "Keep my edits" knowing they were overwriting.
+        // Audit before mutating the row so the breadcrumb survives even
+        // if the upsert below fails.
+        if let Some(expected) = &req.expected_seen_hash {
+            if expected != &current_hash {
+                let detail = serde_json::json!({
+                    "path": req.path,
+                    "expected": expected,
+                    "actual": current_hash,
+                })
+                .to_string();
+                if let Err(e) = conn
+                    .execute(
+                        "INSERT INTO audit_log (timestamp, level, category, message, detail)
+                         VALUES (?1, 'warn', 'external_edit_override', ?2, ?3)",
+                        libsql::params![
+                            now,
+                            format!("override external edit on {}", req.path),
+                            detail,
+                        ],
+                    )
+                    .await
+                {
+                    tracing::warn!(error = %e, "write_file_text: external_edit_override audit insert failed");
+                }
+            }
+        }
+
+        if let Err(e) = conn
+            .execute(
+                "UPDATE files
+                 SET size_bytes = ?1,
+                     mtime_unix = ?2,
+                     content_hash = ?3,
+                     last_seen = ?4,
+                     updated_at = ?4
+                 WHERE path = ?5",
+                libsql::params![new_size, new_mtime, new_hash.clone(), now, req.path.clone()],
+            )
+            .await
+        {
+            tracing::warn!(path = %req.path, error = %e, "write_file_text: files row update failed");
+        }
+
+        let detail = serde_json::json!({
+            "path": req.path,
+            "bytes": bytes_len,
+            "new_content_hash": new_hash,
+        })
+        .to_string();
+        if let Err(e) = conn
+            .execute(
+                "INSERT INTO audit_log (timestamp, level, category, message, detail)
+                 VALUES (?1, 'info', 'autosave', ?2, ?3)",
+                libsql::params![now, format!("autosave {}", req.path), detail],
+            )
+            .await
+        {
+            tracing::warn!(error = %e, "write_file_text: autosave audit insert failed");
+        }
+    }
+
+    Ok(WriteFileTextResponse {
+        new_content_hash: new_hash,
+        new_mtime_unix: new_mtime,
+    })
+}
+
+fn unix_now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .map(|d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
+        .unwrap_or(0)
 }
 
 /// Read a markdown file from disk and parse it into the canonical AST.
@@ -662,6 +837,284 @@ mod tests {
         .await
         .expect_err("should be InvalidRequest");
         assert!(matches!(err, CubicalError::InvalidRequest(_)));
+    }
+
+    // -- write_file_text --------------------------------------------------
+
+    /// Fetch the most recent audit_log row for inspection.
+    async fn last_audit_row(vault: &Vault) -> Option<(String, String, String, String)> {
+        let conn = vault.index().connection();
+        let mut rows = conn
+            .query(
+                "SELECT level, category, message, detail
+                 FROM audit_log ORDER BY id DESC LIMIT 1",
+                (),
+            )
+            .await
+            .unwrap();
+        let row = rows.next().await.unwrap()?;
+        Some((
+            row.get(0).unwrap(),
+            row.get(1).unwrap(),
+            row.get(2).unwrap(),
+            row.get(3).unwrap(),
+        ))
+    }
+
+    #[tokio::test]
+    async fn write_file_text_writes_content_and_returns_matching_hash() {
+        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        seed_file_on_disk(&vault, "note.md", "original\n", "markdown").await;
+
+        let new = "rewritten body\n";
+        let resp = write_file_text(
+            &state,
+            WriteFileTextRequest {
+                vault_id: "v1".into(),
+                path: "note.md".into(),
+                content: new.into(),
+                expected_seen_hash: None,
+            },
+        )
+        .await
+        .expect("ok");
+
+        // On-disk content matches buffer byte-for-byte.
+        let on_disk = std::fs::read_to_string(vault.root().join("note.md")).unwrap();
+        assert_eq!(on_disk, new);
+
+        // Returned hash matches SHA-256 of the buffer.
+        assert_eq!(
+            resp.new_content_hash,
+            cubical_core::sha256_bytes_hex(new.as_bytes())
+        );
+
+        // files row is updated with the new hash.
+        let conn = vault.index().connection();
+        let mut rows = conn
+            .query(
+                "SELECT content_hash, size_bytes FROM files WHERE path = 'note.md'",
+                (),
+            )
+            .await
+            .unwrap();
+        let row = rows.next().await.unwrap().expect("row");
+        let stored_hash: String = row.get(0).unwrap();
+        let stored_size: i64 = row.get(1).unwrap();
+        assert_eq!(stored_hash, resp.new_content_hash);
+        assert_eq!(stored_size, new.len() as i64);
+    }
+
+    #[tokio::test]
+    async fn write_file_text_writes_autosave_audit_row() {
+        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        seed_file_on_disk(&vault, "note.md", "x\n", "markdown").await;
+
+        write_file_text(
+            &state,
+            WriteFileTextRequest {
+                vault_id: "v1".into(),
+                path: "note.md".into(),
+                content: "y\n".into(),
+                expected_seen_hash: None,
+            },
+        )
+        .await
+        .expect("ok");
+
+        let (level, category, message, detail) = last_audit_row(&vault).await.expect("audit row");
+        assert_eq!(level, "info");
+        assert_eq!(category, "autosave");
+        assert!(message.contains("note.md"), "{message}");
+        let parsed: serde_json::Value = serde_json::from_str(&detail).unwrap();
+        assert_eq!(parsed["path"], "note.md");
+        assert_eq!(parsed["bytes"], 2);
+        assert!(parsed["new_content_hash"].is_string());
+    }
+
+    #[tokio::test]
+    async fn write_file_text_writes_external_edit_override_audit_on_hash_mismatch() {
+        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        // Seed with a row but a content_hash that won't match the
+        // editor's expected_seen_hash.
+        seed_file_on_disk(&vault, "note.md", "current\n", "markdown").await;
+        // Force a non-empty current hash so the mismatch is meaningful.
+        vault
+            .index()
+            .connection()
+            .execute(
+                "UPDATE files SET content_hash = 'CURRENT_HASH' WHERE path = 'note.md'",
+                (),
+            )
+            .await
+            .unwrap();
+
+        write_file_text(
+            &state,
+            WriteFileTextRequest {
+                vault_id: "v1".into(),
+                path: "note.md".into(),
+                content: "user buffer\n".into(),
+                expected_seen_hash: Some("STALE_HASH".into()),
+            },
+        )
+        .await
+        .expect("ok");
+
+        // Both rows should exist — query each category separately so
+        // the assertion doesn't depend on rowid ordering.
+        let conn = vault.index().connection();
+
+        // Autosave row.
+        let mut rows = conn
+            .query(
+                "SELECT level, detail FROM audit_log WHERE category = 'autosave'",
+                (),
+            )
+            .await
+            .unwrap();
+        let row = rows.next().await.unwrap().expect("autosave row");
+        let level: String = row.get(0).unwrap();
+        assert_eq!(level, "info");
+
+        // Override row.
+        let mut rows = conn
+            .query(
+                "SELECT level, detail FROM audit_log
+                 WHERE category = 'external_edit_override'",
+                (),
+            )
+            .await
+            .unwrap();
+        let row = rows.next().await.unwrap().expect("override row");
+        let level: String = row.get(0).unwrap();
+        let detail: String = row.get(1).unwrap();
+        assert_eq!(level, "warn");
+        let parsed: serde_json::Value = serde_json::from_str(&detail).unwrap();
+        assert_eq!(parsed["expected"], "STALE_HASH");
+        assert_eq!(parsed["actual"], "CURRENT_HASH");
+    }
+
+    #[tokio::test]
+    async fn write_file_text_no_override_audit_when_hashes_match() {
+        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        seed_file_on_disk(&vault, "note.md", "x\n", "markdown").await;
+        vault
+            .index()
+            .connection()
+            .execute(
+                "UPDATE files SET content_hash = 'KNOWN_HASH' WHERE path = 'note.md'",
+                (),
+            )
+            .await
+            .unwrap();
+
+        write_file_text(
+            &state,
+            WriteFileTextRequest {
+                vault_id: "v1".into(),
+                path: "note.md".into(),
+                content: "y\n".into(),
+                expected_seen_hash: Some("KNOWN_HASH".into()),
+            },
+        )
+        .await
+        .expect("ok");
+
+        // Only the autosave row should land — no override row.
+        let conn = vault.index().connection();
+        let mut rows = conn
+            .query(
+                "SELECT category FROM audit_log
+                 WHERE category = 'external_edit_override'",
+                (),
+            )
+            .await
+            .unwrap();
+        assert!(rows.next().await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn write_file_text_rejects_binary() {
+        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        seed_file_on_disk(&vault, "icon.png", "fake bytes", "binary").await;
+
+        let err = write_file_text(
+            &state,
+            WriteFileTextRequest {
+                vault_id: "v1".into(),
+                path: "icon.png".into(),
+                content: "uh oh".into(),
+                expected_seen_hash: None,
+            },
+        )
+        .await
+        .expect_err("should be InvalidRequest");
+        assert!(matches!(err, CubicalError::InvalidRequest(_)));
+    }
+
+    #[tokio::test]
+    async fn write_file_text_errors_for_unknown_path() {
+        let (_dir, _vault, state) = fresh_state_with_vault("v1").await;
+
+        let err = write_file_text(
+            &state,
+            WriteFileTextRequest {
+                vault_id: "v1".into(),
+                path: "ghost.md".into(),
+                content: "nope".into(),
+                expected_seen_hash: None,
+            },
+        )
+        .await
+        .expect_err("should be FileNotFound");
+        assert!(matches!(err, CubicalError::FileNotFound(p) if p == "ghost.md"));
+    }
+
+    #[tokio::test]
+    async fn write_file_text_errors_for_unknown_vault() {
+        let (_dir, _vault, state) = fresh_state_with_vault("v1").await;
+        let err = write_file_text(
+            &state,
+            WriteFileTextRequest {
+                vault_id: "v999".into(),
+                path: "note.md".into(),
+                content: "x".into(),
+                expected_seen_hash: None,
+            },
+        )
+        .await
+        .expect_err("should be VaultNotOpen");
+        assert!(matches!(err, CubicalError::VaultNotOpen(v) if v == "v999"));
+    }
+
+    #[tokio::test]
+    async fn write_file_text_round_trips_with_subsequent_read() {
+        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        seed_file_on_disk(&vault, "note.md", "v0\n", "markdown").await;
+
+        write_file_text(
+            &state,
+            WriteFileTextRequest {
+                vault_id: "v1".into(),
+                path: "note.md".into(),
+                content: "v1 body\n".into(),
+                expected_seen_hash: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let resp = read_file_text(
+            &state,
+            ReadFileTextRequest {
+                vault_id: "v1".into(),
+                path: "note.md".into(),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(resp.content, "v1 body\n");
     }
 
     #[tokio::test]
