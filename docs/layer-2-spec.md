@@ -567,7 +567,7 @@ Session A adding `writeFileText` without new TS units).
 
 ### 9.4 Session D — Theme mechanism + CM6 theme generator
 
-*Pending.*
+Session D complete — see the `feat(ui): light/dark theming + CM6 theme generator` commit series. Full write-up is Session G's closeout job. Summary: `tokens.css` audited + dark values tuned, `--editor-caret`/`--editor-selection-bg` added; `ui/src/styles/theme.ts` ships `applyTheme` + the pure `resolveTheme` + a `matchMedia` subscription; `ui/src/editor/cm-theme.ts` builds the CM6 chrome theme from computed tokens; `Editor.tsx` carries a theme `Compartment` alongside Session B's decoration compartment; `App.tsx` gains the `system→light→dark` header cycle button persisting `appearance.theme_mode`. 4 new vitest cases (theme-resolution).
 
 ### 9.5 Session E — Raw Source toggle
 

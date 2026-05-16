@@ -105,8 +105,8 @@ Crates without Tauri deps (`cubical-core`, `cubical-ast`, `cubical-index`, `cubi
 
 ## Project state
 
-Current layer: 2 — Editing · L2 Sessions A+B+C complete 2026-05-16. A: write-path (`write_file_text` IPC, `atomic_write`, 300ms autosave, own-write hash-gating, external-edit conflict banner). B: Lezer-driven Live Preview decorations (`ui/src/editor/decorations.ts`, composed into `Editor.tsx` via a CM6 `Compartment` for Session E). C: vault-local settings IPC — `get_setting`/`set_setting` over the L0 `config` table (JSON-encoded values, upsert, absent→None, corrupt-JSON→InvalidRequest), typed `Setting` union + generic `getSetting`/`setSetting` wrappers in `ipc.ts`. No UI in C.
-Tests: 121 Rust (+10 settings) + 37 vitest. L0 closed 2026-05-13 (`l0` tag); L1 closed 2026-05-09 (`l1` tag).
-Sessions D–G pending: D theme + CM6 theme generator · E raw-source toggle · F Properties UI · G interactive smoke + `l2` tag.
-Next: L2 Session D — theme mechanism + CM6 theme generator. Depends on B (decoration tokens) + C (stores `appearance.theme_mode`).
-Layer specs: `docs/layer-0-spec.md` (closed) · `docs/layer-1-spec.md` (closed) · `docs/layer-2-spec.md` (Sessions A+B+C closed; §9.1+§9.3 filled, §9.2 marker, §9.4-9.7 pending)
+Current layer: 2 — Editing · L2 Sessions A+B+C+D complete 2026-05-16. A: write-path (`write_file_text` IPC, `atomic_write`, 300ms autosave, hash-gating, conflict banner). B: Lezer-driven Live Preview decorations (`ui/src/editor/decorations.ts`, CM6 `Compartment`). C: vault-local settings IPC (`get_setting`/`set_setting`, typed `Setting` union). D: real theming — audited+tuned light/dark `tokens.css`, `ui/src/styles/theme.ts` (`applyTheme` + pure `resolveTheme` + `matchMedia` subscription), `ui/src/editor/cm-theme.ts` (CM6 theme from computed tokens), a theme `Compartment` in `Editor.tsx`, and a header cycle button (`system→light→dark`) reading/writing `appearance.theme_mode`.
+Tests: 121 Rust + 41 vitest (+4 theme-resolution). L0 closed 2026-05-13 (`l0` tag); L1 closed 2026-05-09 (`l1` tag).
+Sessions E–G pending: E raw-source toggle · F Properties UI · G interactive smoke + `l2` tag.
+Next: L2 Session E — raw-source toggle + `Cmd/Ctrl+E`. Depends on B (decoration compartment to swap) + C (`editor.raw_source_default`); nicer after D so the toggle looks right in dark.
+Layer specs: `docs/layer-0-spec.md` (closed) · `docs/layer-1-spec.md` (closed) · `docs/layer-2-spec.md` (Sessions A+B+C+D closed; §9.1+§9.3 filled, §9.2+§9.4 markers, §9.5-9.7 pending)
