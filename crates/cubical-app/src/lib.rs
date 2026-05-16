@@ -32,9 +32,10 @@ pub mod state;
 
 use api::types::{
     CancelVaultScanRequest, CloseVaultRequest, GetCanonicalAstRequest, GetCanonicalAstResponse,
-    GetFrontmatterRequest, GetFrontmatterResponse, GetVaultInfoRequest, GetVaultInfoResponse,
-    ListFilesRequest, ListFilesResponse, OpenVaultRequest, OpenVaultResponse, ReadFileTextRequest,
-    ReadFileTextResponse, WriteFileTextRequest, WriteFileTextResponse,
+    GetFrontmatterRequest, GetFrontmatterResponse, GetSettingRequest, GetSettingResponse,
+    GetVaultInfoRequest, GetVaultInfoResponse, ListFilesRequest, ListFilesResponse,
+    OpenVaultRequest, OpenVaultResponse, ReadFileTextRequest, ReadFileTextResponse,
+    SetSettingRequest, SetSettingResponse, WriteFileTextRequest, WriteFileTextResponse,
 };
 use error::CubicalError;
 use state::AppState;
@@ -72,6 +73,8 @@ pub fn run() {
             get_frontmatter,
             read_file_text,
             write_file_text,
+            get_setting,
+            set_setting,
             get_canonical_ast,
             close_vault,
         ])
@@ -147,6 +150,24 @@ async fn write_file_text(
     req: WriteFileTextRequest,
 ) -> Result<WriteFileTextResponse, CubicalError> {
     commands::vault::write_file_text(state.inner(), req).await
+}
+
+/// Tauri shim — see [`commands::vault::get_setting`].
+#[tauri::command]
+async fn get_setting(
+    state: tauri::State<'_, AppState>,
+    req: GetSettingRequest,
+) -> Result<GetSettingResponse, CubicalError> {
+    commands::vault::get_setting(state.inner(), req).await
+}
+
+/// Tauri shim — see [`commands::vault::set_setting`].
+#[tauri::command]
+async fn set_setting(
+    state: tauri::State<'_, AppState>,
+    req: SetSettingRequest,
+) -> Result<SetSettingResponse, CubicalError> {
+    commands::vault::set_setting(state.inner(), req).await
 }
 
 /// Tauri shim — see [`commands::vault::get_canonical_ast`].

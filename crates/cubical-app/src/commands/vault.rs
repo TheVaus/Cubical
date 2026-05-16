@@ -15,9 +15,10 @@ use tokio_util::sync::CancellationToken;
 
 use crate::api::types::{
     CancelVaultScanRequest, CloseVaultRequest, FileEntry, FrontmatterEntry, GetCanonicalAstRequest,
-    GetCanonicalAstResponse, GetFrontmatterRequest, GetFrontmatterResponse, GetVaultInfoRequest,
-    GetVaultInfoResponse, ListFilesRequest, ListFilesResponse, OpenVaultRequest, OpenVaultResponse,
-    ReadFileTextRequest, ReadFileTextResponse, ScanStatus, WriteFileTextRequest,
+    GetCanonicalAstResponse, GetFrontmatterRequest, GetFrontmatterResponse, GetSettingRequest,
+    GetSettingResponse, GetVaultInfoRequest, GetVaultInfoResponse, ListFilesRequest,
+    ListFilesResponse, OpenVaultRequest, OpenVaultResponse, ReadFileTextRequest,
+    ReadFileTextResponse, ScanStatus, SetSettingRequest, SetSettingResponse, WriteFileTextRequest,
     WriteFileTextResponse,
 };
 use crate::error::CubicalError;
@@ -492,6 +493,85 @@ fn unix_now_secs() -> i64 {
         .duration_since(std::time::SystemTime::UNIX_EPOCH)
         .map(|d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
         .unwrap_or(0)
+}
+
+/// Read one vault-local setting from the `config` table.
+///
+/// Per `docs/layer-2-spec.md` §2.6 + §3.2: the `config` table is a
+/// generic `key TEXT PRIMARY KEY, value TEXT NOT NULL` store created by
+/// the L0 migration. Values are JSON-encoded so non-string types
+/// round-trip; this handler `serde_json::from_str`s on the way out.
+///
+/// Returns:
+/// - `value: None` when the key is absent from the table. A stored
+///   JSON `null` is `value: Some(Value::Null)` — distinct from missing.
+/// - [`CubicalError::VaultNotOpen`] if `vault_id` is unknown.
+/// - [`CubicalError::InvalidRequest`] if the stored value is not valid
+///   JSON (a corrupt row — surfaced rather than panicked on).
+pub async fn get_setting(
+    state: &AppState,
+    req: GetSettingRequest,
+) -> Result<GetSettingResponse, CubicalError> {
+    let guard = state.vaults().read().await;
+    let open = guard
+        .get(&req.vault_id)
+        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
+    let conn = open.vault.index().connection();
+
+    let mut rows = conn
+        .query(
+            "SELECT value FROM config WHERE key = ?1",
+            libsql::params![req.key.clone()],
+        )
+        .await?;
+    let value = match rows.next().await? {
+        None => None,
+        Some(row) => {
+            let raw: String = row.get(0)?;
+            let parsed = serde_json::from_str(&raw).map_err(|e| {
+                CubicalError::InvalidRequest(format!(
+                    "setting '{}' holds a corrupt (non-JSON) value: {e}",
+                    req.key,
+                ))
+            })?;
+            Some(parsed)
+        }
+    };
+    Ok(GetSettingResponse { value })
+}
+
+/// Write one vault-local setting into the `config` table.
+///
+/// Per `docs/layer-2-spec.md` §3.3: upserts `config(key, value)`,
+/// always JSON-encoding `req.value` first so the read side can decode
+/// it back. An existing key is overwritten.
+///
+/// Returns:
+/// - [`CubicalError::VaultNotOpen`] if `vault_id` is unknown.
+/// - [`CubicalError::Db`] if the upsert fails.
+pub async fn set_setting(
+    state: &AppState,
+    req: SetSettingRequest,
+) -> Result<SetSettingResponse, CubicalError> {
+    let guard = state.vaults().read().await;
+    let open = guard
+        .get(&req.vault_id)
+        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
+    let conn = open.vault.index().connection();
+
+    // `serde_json::Value` always serializes, so this never fails in
+    // practice — the `?` keeps it honest without an `expect`.
+    let encoded = serde_json::to_string(&req.value)
+        .map_err(|e| CubicalError::InvalidRequest(format!("setting value not encodable: {e}")))?;
+
+    conn.execute(
+        "INSERT INTO config (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        libsql::params![req.key, encoded],
+    )
+    .await?;
+
+    Ok(SetSettingResponse {})
 }
 
 /// Read a markdown file from disk and parse it into the canonical AST.
@@ -1135,5 +1215,279 @@ mod tests {
             CubicalError::VaultNotOpen(v) => assert_eq!(v, "v999"),
             other => panic!("expected VaultNotOpen, got {other:?}"),
         }
+    }
+
+    // -- get_setting / set_setting ---------------------------------------
+
+    #[tokio::test]
+    async fn set_then_get_setting_round_trips_boolean() {
+        let (_dir, _vault, state) = fresh_state_with_vault("v1").await;
+        set_setting(
+            &state,
+            SetSettingRequest {
+                vault_id: "v1".into(),
+                key: "editor.raw_source_default".into(),
+                value: serde_json::json!(true),
+            },
+        )
+        .await
+        .expect("set ok");
+
+        let resp = get_setting(
+            &state,
+            GetSettingRequest {
+                vault_id: "v1".into(),
+                key: "editor.raw_source_default".into(),
+            },
+        )
+        .await
+        .expect("get ok");
+        assert_eq!(resp.value, Some(serde_json::json!(true)));
+    }
+
+    #[tokio::test]
+    async fn set_then_get_setting_round_trips_string() {
+        let (_dir, _vault, state) = fresh_state_with_vault("v1").await;
+        set_setting(
+            &state,
+            SetSettingRequest {
+                vault_id: "v1".into(),
+                key: "appearance.theme_mode".into(),
+                value: serde_json::json!("dark"),
+            },
+        )
+        .await
+        .expect("set ok");
+
+        let resp = get_setting(
+            &state,
+            GetSettingRequest {
+                vault_id: "v1".into(),
+                key: "appearance.theme_mode".into(),
+            },
+        )
+        .await
+        .expect("get ok");
+        assert_eq!(resp.value, Some(serde_json::json!("dark")));
+    }
+
+    #[tokio::test]
+    async fn set_then_get_setting_round_trips_number() {
+        let (_dir, _vault, state) = fresh_state_with_vault("v1").await;
+        set_setting(
+            &state,
+            SetSettingRequest {
+                vault_id: "v1".into(),
+                key: "editor.autosave_debounce_ms".into(),
+                value: serde_json::json!(300),
+            },
+        )
+        .await
+        .expect("set ok");
+
+        let resp = get_setting(
+            &state,
+            GetSettingRequest {
+                vault_id: "v1".into(),
+                key: "editor.autosave_debounce_ms".into(),
+            },
+        )
+        .await
+        .expect("get ok");
+        assert_eq!(resp.value, Some(serde_json::json!(300)));
+    }
+
+    #[tokio::test]
+    async fn set_then_get_setting_round_trips_null() {
+        let (_dir, _vault, state) = fresh_state_with_vault("v1").await;
+        set_setting(
+            &state,
+            SetSettingRequest {
+                vault_id: "v1".into(),
+                key: "some.key".into(),
+                value: serde_json::Value::Null,
+            },
+        )
+        .await
+        .expect("set ok");
+
+        let resp = get_setting(
+            &state,
+            GetSettingRequest {
+                vault_id: "v1".into(),
+                key: "some.key".into(),
+            },
+        )
+        .await
+        .expect("get ok");
+        // A stored JSON null is `Some(Null)` — distinct from an absent
+        // key, which returns `None`.
+        assert_eq!(resp.value, Some(serde_json::Value::Null));
+    }
+
+    #[tokio::test]
+    async fn get_setting_returns_none_for_absent_key() {
+        let (_dir, _vault, state) = fresh_state_with_vault("v1").await;
+        let resp = get_setting(
+            &state,
+            GetSettingRequest {
+                vault_id: "v1".into(),
+                key: "never.written".into(),
+            },
+        )
+        .await
+        .expect("get ok");
+        assert_eq!(resp.value, None);
+    }
+
+    #[tokio::test]
+    async fn get_setting_returns_invalid_request_for_corrupt_json() {
+        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        // Write a row directly with a non-JSON value, bypassing
+        // `set_setting`'s JSON encoding.
+        vault
+            .index()
+            .connection()
+            .execute(
+                "INSERT INTO config (key, value) VALUES ('bad.key', 'not json{')",
+                (),
+            )
+            .await
+            .unwrap();
+
+        let err = get_setting(
+            &state,
+            GetSettingRequest {
+                vault_id: "v1".into(),
+                key: "bad.key".into(),
+            },
+        )
+        .await
+        .expect_err("should be InvalidRequest");
+        assert!(matches!(err, CubicalError::InvalidRequest(_)));
+    }
+
+    #[tokio::test]
+    async fn set_setting_upsert_overwrites_existing_key() {
+        let (_dir, _vault, state) = fresh_state_with_vault("v1").await;
+        set_setting(
+            &state,
+            SetSettingRequest {
+                vault_id: "v1".into(),
+                key: "appearance.theme_mode".into(),
+                value: serde_json::json!("light"),
+            },
+        )
+        .await
+        .expect("first set");
+        set_setting(
+            &state,
+            SetSettingRequest {
+                vault_id: "v1".into(),
+                key: "appearance.theme_mode".into(),
+                value: serde_json::json!("dark"),
+            },
+        )
+        .await
+        .expect("second set");
+
+        let resp = get_setting(
+            &state,
+            GetSettingRequest {
+                vault_id: "v1".into(),
+                key: "appearance.theme_mode".into(),
+            },
+        )
+        .await
+        .expect("get ok");
+        assert_eq!(resp.value, Some(serde_json::json!("dark")));
+    }
+
+    #[tokio::test]
+    async fn get_setting_errors_for_unknown_vault() {
+        let (_dir, _vault, state) = fresh_state_with_vault("v1").await;
+        let err = get_setting(
+            &state,
+            GetSettingRequest {
+                vault_id: "v999".into(),
+                key: "k".into(),
+            },
+        )
+        .await
+        .expect_err("should be VaultNotOpen");
+        assert!(matches!(err, CubicalError::VaultNotOpen(v) if v == "v999"));
+    }
+
+    #[tokio::test]
+    async fn set_setting_errors_for_unknown_vault() {
+        let (_dir, _vault, state) = fresh_state_with_vault("v1").await;
+        let err = set_setting(
+            &state,
+            SetSettingRequest {
+                vault_id: "v999".into(),
+                key: "k".into(),
+                value: serde_json::json!(1),
+            },
+        )
+        .await
+        .expect_err("should be VaultNotOpen");
+        assert!(matches!(err, CubicalError::VaultNotOpen(v) if v == "v999"));
+    }
+
+    #[tokio::test]
+    async fn set_setting_persists_across_vault_reopen() {
+        let dir = tempdir().unwrap();
+
+        // First open: write a setting, then drop the whole state so
+        // the libSQL connection closes — `index.db` on disk is the
+        // only thing that survives into the second open.
+        {
+            let vault = Vault::open(dir.path()).await.expect("first open");
+            let state = AppState::new();
+            state.vaults().write().await.insert(
+                "v1".into(),
+                OpenVault {
+                    vault,
+                    cancel: tokio_util::sync::CancellationToken::new(),
+                    scan_status: ScanStatusBackend::Complete,
+                    watcher: None,
+                },
+            );
+            set_setting(
+                &state,
+                SetSettingRequest {
+                    vault_id: "v1".into(),
+                    key: "appearance.theme_mode".into(),
+                    value: serde_json::json!("dark"),
+                },
+            )
+            .await
+            .expect("set ok");
+        }
+
+        // Second open against the same path: fresh AppState, fresh
+        // Vault, fresh libSQL connection.
+        let vault = Vault::open(dir.path()).await.expect("reopen");
+        let state = AppState::new();
+        state.vaults().write().await.insert(
+            "v1".into(),
+            OpenVault {
+                vault,
+                cancel: tokio_util::sync::CancellationToken::new(),
+                scan_status: ScanStatusBackend::Complete,
+                watcher: None,
+            },
+        );
+
+        let resp = get_setting(
+            &state,
+            GetSettingRequest {
+                vault_id: "v1".into(),
+                key: "appearance.theme_mode".into(),
+            },
+        )
+        .await
+        .expect("get ok");
+        assert_eq!(resp.value, Some(serde_json::json!("dark")));
     }
 }

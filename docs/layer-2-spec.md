@@ -510,7 +510,60 @@ Session B complete — see the `feat(ui): Lezer-driven Live Preview decorations`
 
 ### 9.3 Session C — Vault-local settings infrastructure
 
-*Pending.*
+Two pure-handler-plus-shim Tauri commands over the L0 `config` table
+(`key TEXT PRIMARY KEY, value TEXT NOT NULL`). No schema migration —
+the table has existed since L0 migration `001_initial.sql`.
+
+#### Rust IPC
+
+`get_setting` / `set_setting` land in
+[`crates/cubical-app/src/commands/vault.rs`](../crates/cubical-app/src/commands/vault.rs)
+following the §8 pure-handler / thin-shim pattern.
+
+- `get_setting` reads `config.value` for the key. Absent key →
+  `value: None`; a stored JSON `null` → `value: Some(Value::Null)` (the
+  two are deliberately distinct). A row whose value is not valid JSON
+  is surfaced as `InvalidRequest` — never a panic.
+- `set_setting` upserts via `INSERT … ON CONFLICT(key) DO UPDATE`,
+  always `serde_json::to_string`-encoding the value first so non-string
+  types round-trip. An existing key is overwritten.
+
+Wire types in [`crates/cubical-app/src/api/types.rs`](../crates/cubical-app/src/api/types.rs)
+(`GetSettingRequest`/`Response`, `SetSettingRequest`/`Response`);
+Tauri shims in [`crates/cubical-app/src/lib.rs`](../crates/cubical-app/src/lib.rs);
+`invoke_handler` updated.
+
+#### Frontend wire layer
+
+[`ui/src/api/ipc.ts`](../ui/src/api/ipc.ts) gains the typed `Setting`
+discriminated union (§3.4) plus a `SettingValue<K>` helper. `getSetting`
+and `setSetting` are generic over the key, so a misspelled or
+wrong-typed key fails to compile. `getSetting` is `async` (not a
+`.then()` chain) — TypeScript cannot narrow the `SettingValue<K>`
+conditional type through `Promise.prototype.then`'s `PromiseLike`
+union, but `await` sidesteps that.
+
+#### Test counts (cumulative)
+
+**Rust:** cubical-ast 26 + 1 parity · cubical-core 49 · cubical-index 6 ·
+cubical-app 39 (was 29; +10 settings tests: boolean/string/number/null
+round-trips, absent-key `None`, corrupt-JSON `InvalidRequest`, upsert
+overwrite, unknown-vault for both handlers, and a close-then-reopen
+test proving values survive on disk in `index.db`) = **121 Rust tests
+across the workspace, all green**.
+
+**UI:** 37 vitest tests (unchanged — the typed wrapper is plumbing;
+the `Setting` union is verified by `tsc --noEmit`, consistent with
+Session A adding `writeFileText` without new TS units).
+
+#### Architectural notes
+
+- **No UI this session.** The raw-source toggle (E) and theme button
+  (D) are the consumers; C ships only the plumbing.
+- **`config` is generic; the typed union lives only in TS.** Rust
+  stores any key / any JSON value. `ipc.ts`'s `Setting` union is the
+  frontend's typed view — later layers extend the union without
+  touching Rust.
 
 ### 9.4 Session D — Theme mechanism + CM6 theme generator
 
