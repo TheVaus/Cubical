@@ -506,7 +506,7 @@ Race-on-banner caveat: with manual terminal `printf`, the 300ms debounce is usua
 
 ### 9.2 Session B — Live Preview decorations
 
-*Pending.*
+Session B complete — see the `feat(ui): Lezer-driven Live Preview decorations` commit. Full write-up is Session G's closeout job. Summary: `ui/src/editor/decorations.ts` ships a Lezer-driven CM6 `ViewPlugin` covering the §2.2 table; composed into `Editor.tsx` via a `Compartment` (the seam Session E reconfigures); two editor tokens added to `tokens.css`. 14 new vitest cases.
 
 ### 9.3 Session C — Vault-local settings infrastructure
 

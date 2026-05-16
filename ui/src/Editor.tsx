@@ -6,12 +6,22 @@ import {
   type Component,
 } from "solid-js";
 import { EditorView, keymap } from "@codemirror/view";
-import { EditorState } from "@codemirror/state";
+import { Compartment, EditorState } from "@codemirror/state";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
 
 import { normalize } from "./ast/normalize";
 import type { CanonicalDocument } from "./ast/types";
+import { livePreviewDecorations } from "./editor/decorations";
+
+/**
+ * Holds the Live Preview decoration extension. L2 Session E (raw-source
+ * toggle) reconfigures this compartment to a no-op extension (`[]`) to
+ * reveal the raw markdown; Lezer parsing keeps running either way. This
+ * is the seam — Session B only installs the compartment, it does not
+ * build the toggle.
+ */
+const decorationCompartment = new Compartment();
 
 /**
  * CodeMirror 6 markdown editor surface.
@@ -92,6 +102,7 @@ const Editor: Component<EditorProps> = (props) => {
           history(),
           keymap.of([...defaultKeymap, ...historyKeymap]),
           markdown(),
+          decorationCompartment.of(livePreviewDecorations),
           updateListener,
           focusListener,
           EditorView.theme({
