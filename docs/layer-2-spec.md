@@ -546,10 +546,11 @@ union, but `await` sidesteps that.
 #### Test counts (cumulative)
 
 **Rust:** cubical-ast 26 + 1 parity · cubical-core 49 · cubical-index 6 ·
-cubical-app 38 (was 29; +9 settings tests: boolean/string/number/null
+cubical-app 39 (was 29; +10 settings tests: boolean/string/number/null
 round-trips, absent-key `None`, corrupt-JSON `InvalidRequest`, upsert
-overwrite, unknown-vault for both handlers) = **120 Rust tests across
-the workspace, all green**.
+overwrite, unknown-vault for both handlers, and a close-then-reopen
+test proving values survive on disk in `index.db`) = **121 Rust tests
+across the workspace, all green**.
 
 **UI:** 37 vitest tests (unchanged — the typed wrapper is plumbing;
 the `Setting` union is verified by `tsc --noEmit`, consistent with

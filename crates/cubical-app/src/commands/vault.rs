@@ -1433,4 +1433,61 @@ mod tests {
         .expect_err("should be VaultNotOpen");
         assert!(matches!(err, CubicalError::VaultNotOpen(v) if v == "v999"));
     }
+
+    #[tokio::test]
+    async fn set_setting_persists_across_vault_reopen() {
+        let dir = tempdir().unwrap();
+
+        // First open: write a setting, then drop the whole state so
+        // the libSQL connection closes — `index.db` on disk is the
+        // only thing that survives into the second open.
+        {
+            let vault = Vault::open(dir.path()).await.expect("first open");
+            let state = AppState::new();
+            state.vaults().write().await.insert(
+                "v1".into(),
+                OpenVault {
+                    vault,
+                    cancel: tokio_util::sync::CancellationToken::new(),
+                    scan_status: ScanStatusBackend::Complete,
+                    watcher: None,
+                },
+            );
+            set_setting(
+                &state,
+                SetSettingRequest {
+                    vault_id: "v1".into(),
+                    key: "appearance.theme_mode".into(),
+                    value: serde_json::json!("dark"),
+                },
+            )
+            .await
+            .expect("set ok");
+        }
+
+        // Second open against the same path: fresh AppState, fresh
+        // Vault, fresh libSQL connection.
+        let vault = Vault::open(dir.path()).await.expect("reopen");
+        let state = AppState::new();
+        state.vaults().write().await.insert(
+            "v1".into(),
+            OpenVault {
+                vault,
+                cancel: tokio_util::sync::CancellationToken::new(),
+                scan_status: ScanStatusBackend::Complete,
+                watcher: None,
+            },
+        );
+
+        let resp = get_setting(
+            &state,
+            GetSettingRequest {
+                vault_id: "v1".into(),
+                key: "appearance.theme_mode".into(),
+            },
+        )
+        .await
+        .expect("get ok");
+        assert_eq!(resp.value, Some(serde_json::json!("dark")));
+    }
 }
