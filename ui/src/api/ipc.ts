@@ -131,6 +131,44 @@ export interface WriteFileTextResponse {
 }
 
 /**
+ * Known vault-local settings, as a discriminated union of
+ * `{ key, value }` pairs. The backend `config` table is generic
+ * (any key, any JSON value); this union is the frontend's typed view
+ * of it so a typo like `editor.raw_source_devault` fails to compile.
+ *
+ * Later layers extend this union with their own keys
+ * (`editor.autosave_debounce_ms`, `properties.show_unknown`, ...).
+ * Mirrors `docs/layer-2-spec.md` §3.4.
+ */
+export type Setting =
+  | { key: "editor.raw_source_default"; value: boolean }
+  | { key: "appearance.theme_mode"; value: "light" | "dark" | "system" };
+
+/** Narrows a `Setting` key to its corresponding value type. */
+export type SettingValue<K extends Setting["key"]> = Extract<
+  Setting,
+  { key: K }
+>["value"];
+
+export interface GetSettingRequest {
+  vault_id: string;
+  key: string;
+}
+
+export interface GetSettingResponse {
+  /** Decoded JSON value, or `null` when the key is absent. */
+  value: unknown;
+}
+
+export interface SetSettingRequest {
+  vault_id: string;
+  key: string;
+  value: unknown;
+}
+
+// `set_setting` returns an empty object; no response interface needed.
+
+/**
  * Stable error shape from the backend. `code` matches a `CubicalError`
  * variant and is safe to switch on; `message` is for human-facing UI.
  */
@@ -187,6 +225,34 @@ export function writeFileText(
   req: WriteFileTextRequest,
 ): Promise<WriteFileTextResponse> {
   return invoke("write_file_text", { req });
+}
+
+/**
+ * Read a vault-local setting. The generic `K` narrows the result to
+ * the value type declared for that key in {@link Setting}; an absent
+ * key resolves to `null`.
+ */
+export async function getSetting<K extends Setting["key"]>(
+  vaultId: string,
+  key: K,
+): Promise<SettingValue<K> | null> {
+  const resp = await invoke<GetSettingResponse>("get_setting", {
+    req: { vault_id: vaultId, key },
+  });
+  return (resp.value ?? null) as SettingValue<K> | null;
+}
+
+/**
+ * Write a vault-local setting. The generic `K` constrains `value` to
+ * the type declared for that key in {@link Setting}, so a wrong-typed
+ * or misspelled key fails to compile.
+ */
+export function setSetting<K extends Setting["key"]>(
+  vaultId: string,
+  key: K,
+  value: SettingValue<K>,
+): Promise<void> {
+  return invoke("set_setting", { req: { vault_id: vaultId, key, value } });
 }
 
 // ---------------------------------------------------------------------------

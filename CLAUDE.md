@@ -105,8 +105,8 @@ Crates without Tauri deps (`cubical-core`, `cubical-ast`, `cubical-index`, `cubi
 
 ## Project state
 
-Current layer: 2 — Editing · L2 Sessions A+B complete 2026-05-16. A: write-path (`write_file_text` IPC, `atomic_write`, 300ms autosave, own-write hash-gating, external-edit conflict banner). B: Lezer-driven Live Preview decorations (`ui/src/editor/decorations.ts` — ATX/Setext headings, emphasis/strong, inline + fenced code, lists, blockquote, plain links; markers hidden off the cursor line, revealed on it; composed into `Editor.tsx` via a CM6 `Compartment` for Session E).
-Tests: 111 Rust + 37 vitest (Rust unchanged by B). L0 closed 2026-05-13 (`l0` tag); L1 closed 2026-05-09 (`l1` tag).
-Sessions C–G pending: C settings IPC · D theme + CM6 theme generator · E raw-source toggle · F Properties UI · G interactive smoke + `l2` tag.
-Next: L2 Session C — vault-local settings IPC (`get_setting`/`set_setting`). Independent of the D–F UI work; D depends on B+C.
-Layer specs: `docs/layer-0-spec.md` (closed) · `docs/layer-1-spec.md` (closed) · `docs/layer-2-spec.md` (Sessions A+B closed; §9.1 filled, §9.2 marker, §9.3-9.7 pending)
+Current layer: 2 — Editing · L2 Sessions A+B+C complete 2026-05-16. A: write-path (`write_file_text` IPC, `atomic_write`, 300ms autosave, own-write hash-gating, external-edit conflict banner). B: Lezer-driven Live Preview decorations (`ui/src/editor/decorations.ts`, composed into `Editor.tsx` via a CM6 `Compartment` for Session E). C: vault-local settings IPC — `get_setting`/`set_setting` over the L0 `config` table (JSON-encoded values, upsert, absent→None, corrupt-JSON→InvalidRequest), typed `Setting` union + generic `getSetting`/`setSetting` wrappers in `ipc.ts`. No UI in C.
+Tests: 120 Rust (+9 settings) + 37 vitest. L0 closed 2026-05-13 (`l0` tag); L1 closed 2026-05-09 (`l1` tag).
+Sessions D–G pending: D theme + CM6 theme generator · E raw-source toggle · F Properties UI · G interactive smoke + `l2` tag.
+Next: L2 Session D — theme mechanism + CM6 theme generator. Depends on B (decoration tokens) + C (stores `appearance.theme_mode`).
+Layer specs: `docs/layer-0-spec.md` (closed) · `docs/layer-1-spec.md` (closed) · `docs/layer-2-spec.md` (Sessions A+B+C closed; §9.1+§9.3 filled, §9.2 marker, §9.4-9.7 pending)

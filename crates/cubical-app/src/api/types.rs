@@ -227,6 +227,45 @@ pub struct WriteFileTextResponse {
     pub new_mtime_unix: i64,
 }
 
+// -- get_setting ---------------------------------------------------------
+
+/// Request payload for `get_setting`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct GetSettingRequest {
+    /// Vault whose `config` table to read.
+    pub vault_id: String,
+    /// Setting key (e.g. `editor.raw_source_default`).
+    pub key: String,
+}
+
+/// Response payload for `get_setting`.
+#[derive(Debug, Clone, Serialize)]
+pub struct GetSettingResponse {
+    /// Decoded JSON value, or `None` when the key is absent from the
+    /// `config` table. A stored JSON `null` is `Some(Value::Null)` —
+    /// distinct from a missing key.
+    pub value: Option<serde_json::Value>,
+}
+
+// -- set_setting ---------------------------------------------------------
+
+/// Request payload for `set_setting`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SetSettingRequest {
+    /// Vault whose `config` table to write.
+    pub vault_id: String,
+    /// Setting key (e.g. `appearance.theme_mode`).
+    pub key: String,
+    /// Value to store. JSON-encoded on the way in so non-string types
+    /// round-trip cleanly.
+    pub value: serde_json::Value,
+}
+
+/// Response payload for `set_setting`. Empty — the upsert either
+/// succeeds or returns an error.
+#[derive(Debug, Clone, Serialize)]
+pub struct SetSettingResponse {}
+
 // -- close_vault ---------------------------------------------------------
 
 /// Request payload for `close_vault`.
