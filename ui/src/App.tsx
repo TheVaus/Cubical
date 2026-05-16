@@ -12,6 +12,7 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import Editor, { type EditorApi } from "./Editor";
 import type { CanonicalDocument } from "./ast/types";
 import {
+  getSetting,
   listFiles,
   onVaultFileChanged,
   onVaultScanCancelled,
@@ -19,10 +20,17 @@ import {
   onVaultScanProgress,
   openVault,
   readFileText,
+  setSetting,
   writeFileText,
   type FileEntry,
   type ScanStatus,
 } from "./api/ipc";
+import {
+  applyTheme,
+  watchSystemTheme,
+  type ResolvedTheme,
+  type ThemeMode,
+} from "./styles/theme";
 
 /**
  * L2 Session A surface.
@@ -44,6 +52,19 @@ import {
  */
 const AUTOSAVE_DEBOUNCE_MS = 300;
 
+/** Header theme button cycle order (spec §2.5 / DoD §6). */
+const NEXT_THEME_MODE: Record<ThemeMode, ThemeMode> = {
+  system: "light",
+  light: "dark",
+  dark: "system",
+};
+
+const THEME_ICON: Record<ThemeMode, string> = {
+  system: "⚙",
+  light: "☀",
+  dark: "☾",
+};
+
 const App: Component = () => {
   const [vaultId, setVaultId] = createSignal<string | null>(null);
   const [vaultPath, setVaultPath] = createSignal<string | null>(null);
@@ -58,6 +79,16 @@ const App: Component = () => {
     null,
   );
   const [astSummary, setAstSummary] = createSignal<string>("");
+
+  // Theme state. `themeMode` is the user's preference (persisted per
+  // vault as `appearance.theme_mode`); `resolvedTheme` is the concrete
+  // light/dark applied to `<html>` and handed to the editor. The
+  // initial `applyTheme` runs at render so the app honors the OS
+  // preference from first paint, before any vault is open.
+  const [themeMode, setThemeMode] = createSignal<ThemeMode>("system");
+  const [resolvedTheme, setResolvedTheme] = createSignal<ResolvedTheme>(
+    applyTheme("system"),
+  );
 
   // Conflict banner state — surfaces when an external edit lands on a
   // dirty buffer (spec §2.7). `externalHash` holds the most recent
@@ -191,6 +222,24 @@ const App: Component = () => {
           ? `, frontmatter: ${doc.frontmatter.entries.length} key${doc.frontmatter.entries.length === 1 ? "" : "s"}`
           : ""),
     );
+  };
+
+  /**
+   * Advance the theme one step (`system → light → dark → system`),
+   * apply it, and persist the new mode to the open vault. With no
+   * vault open the change is in-memory only — `appearance.theme_mode`
+   * is vault-local, so there is nowhere to persist it yet.
+   */
+  const cycleTheme = () => {
+    const next = NEXT_THEME_MODE[themeMode()];
+    setThemeMode(next);
+    setResolvedTheme(applyTheme(next));
+    const id = vaultId();
+    if (id) {
+      setSetting(id, "appearance.theme_mode", next).catch((e) => {
+        console.error("persisting theme_mode failed", e);
+      });
+    }
   };
 
   const handleSelectFile = async (file: FileEntry) => {
@@ -341,6 +390,14 @@ const App: Component = () => {
     };
     window.addEventListener("beforeunload", onBeforeUnload);
     onCleanup(() => window.removeEventListener("beforeunload", onBeforeUnload));
+
+    // Re-resolve the theme when the OS appearance changes — but only
+    // while the user is in `system` mode (an explicit light/dark
+    // choice ignores the OS).
+    const unwatchTheme = watchSystemTheme(() => {
+      if (themeMode() === "system") setResolvedTheme(applyTheme("system"));
+    });
+    onCleanup(unwatchTheme);
   });
 
   onCleanup(() => {
@@ -378,6 +435,18 @@ const App: Component = () => {
       setVaultId(resp.vault_id);
       setScanStatus(resp.scan_status);
       scheduleRefresh();
+
+      // Apply this vault's stored theme preference, if any. Absent
+      // key → keep the current (OS-default `system`) mode.
+      try {
+        const stored = await getSetting(resp.vault_id, "appearance.theme_mode");
+        if (stored !== null) {
+          setThemeMode(stored);
+          setResolvedTheme(applyTheme(stored));
+        }
+      } catch (e) {
+        console.error("loading theme_mode failed", e);
+      }
     } catch (e) {
       const message =
         typeof e === "object" && e !== null && "message" in e
@@ -422,24 +491,56 @@ const App: Component = () => {
             Layer 2 — Editing
           </p>
         </div>
-        <button
-          type="button"
-          onClick={handleOpen}
-          disabled={busy()}
+        <div
           style={{
-            padding: "var(--space-2) var(--space-4)",
-            "font-size": "var(--text-sm)",
-            "font-family": "var(--font-body)",
-            color: "var(--c-fg-inverse)",
-            background: "var(--c-accent)",
-            border: "none",
-            "border-radius": "var(--radius-md)",
-            cursor: busy() ? "wait" : "pointer",
-            transition: "background var(--transition-fast)",
+            display: "flex",
+            "align-items": "center",
+            gap: "var(--space-3)",
           }}
         >
-          Open Vault
-        </button>
+          <button
+            type="button"
+            onClick={cycleTheme}
+            aria-label={`Cycle theme (current: ${themeMode()})`}
+            title={`Theme: ${themeMode()}`}
+            style={{
+              display: "flex",
+              "align-items": "center",
+              "justify-content": "center",
+              width: "2.25rem",
+              height: "2.25rem",
+              "font-size": "var(--text-base)",
+              "line-height": "1",
+              color: "var(--c-fg-secondary)",
+              background: "var(--c-bg-secondary)",
+              border: "1px solid var(--c-border-subtle)",
+              "border-radius": "var(--radius-md)",
+              cursor: "pointer",
+              transition:
+                "color var(--transition-fast), border-color var(--transition-fast)",
+            }}
+          >
+            {THEME_ICON[themeMode()]}
+          </button>
+          <button
+            type="button"
+            onClick={handleOpen}
+            disabled={busy()}
+            style={{
+              padding: "var(--space-2) var(--space-4)",
+              "font-size": "var(--text-sm)",
+              "font-family": "var(--font-body)",
+              color: "var(--c-fg-inverse)",
+              background: "var(--c-accent)",
+              border: "none",
+              "border-radius": "var(--radius-md)",
+              cursor: busy() ? "wait" : "pointer",
+              transition: "background var(--transition-fast)",
+            }}
+          >
+            Open Vault
+          </button>
+        </div>
       </header>
 
       <Show when={error()}>
@@ -646,6 +747,7 @@ const App: Component = () => {
                 </Show>
                 <Editor
                   value={selectedContent() ?? ""}
+                  resolvedTheme={resolvedTheme()}
                   onAstChange={handleAstChange}
                   onContentChange={handleContentChange}
                   onBlur={() => void flushAutosave()}
