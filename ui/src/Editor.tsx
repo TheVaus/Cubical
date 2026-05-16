@@ -13,6 +13,8 @@ import { markdown } from "@codemirror/lang-markdown";
 import { normalize } from "./ast/normalize";
 import type { CanonicalDocument } from "./ast/types";
 import { livePreviewDecorations } from "./editor/decorations";
+import { buildCmTheme } from "./editor/cm-theme";
+import type { ResolvedTheme } from "./styles/theme";
 
 /**
  * Holds the Live Preview decoration extension. L2 Session E (raw-source
@@ -22,6 +24,14 @@ import { livePreviewDecorations } from "./editor/decorations";
  * build the toggle.
  */
 const decorationCompartment = new Compartment();
+
+/**
+ * Holds the editor-chrome CM6 theme (L2 Session D). Rebuilt from the
+ * design tokens and reconfigured whenever the resolved theme flips, so
+ * the editor switches light/dark in lockstep with the surrounding UI.
+ * Coexists with `decorationCompartment` — the two are independent.
+ */
+const themeCompartment = new Compartment();
 
 /**
  * CodeMirror 6 markdown editor surface.
@@ -53,6 +63,13 @@ export interface EditorApi {
 export interface EditorProps {
   /** Initial document content; replacing it via prop swaps the doc. */
   value: string;
+  /**
+   * The resolved theme (`light` / `dark`). Changing it rebuilds the
+   * CM6 chrome theme from the now-current design tokens. The parent
+   * must write `<html data-theme>` *before* updating this prop so the
+   * rebuilt theme reads the correct token values.
+   */
+  resolvedTheme: ResolvedTheme;
   onAstChange?: (doc: CanonicalDocument) => void;
   onContentChange?: (content: string) => void;
   onBlur?: () => void;
@@ -103,20 +120,9 @@ const Editor: Component<EditorProps> = (props) => {
           keymap.of([...defaultKeymap, ...historyKeymap]),
           markdown(),
           decorationCompartment.of(livePreviewDecorations),
+          themeCompartment.of(buildCmTheme()),
           updateListener,
           focusListener,
-          EditorView.theme({
-            // Placeholder; L2 wires the real CSS-variable token surface.
-            "&": {
-              height: "100%",
-              fontFamily: "var(--font-mono)",
-              fontSize: "var(--text-sm)",
-              color: "var(--c-fg-primary)",
-              background: "var(--c-bg-primary)",
-            },
-            ".cm-scroller": { overflow: "auto" },
-            ".cm-content": { padding: "var(--space-3)" },
-          }),
         ],
       }),
     });
@@ -152,6 +158,21 @@ const Editor: Component<EditorProps> = (props) => {
           changes: { from: 0, to: current.length, insert: next },
         });
         // The updateListener above will schedule the AST + onContentChange.
+      },
+      { defer: true },
+    ),
+  );
+
+  // Rebuild the CM6 chrome theme when the resolved theme flips. The
+  // parent has already written `<html data-theme>`, so `buildCmTheme`
+  // reads the correct token values.
+  createEffect(
+    on(
+      () => props.resolvedTheme,
+      () => {
+        view?.dispatch({
+          effects: themeCompartment.reconfigure(buildCmTheme()),
+        });
       },
       { defer: true },
     ),
