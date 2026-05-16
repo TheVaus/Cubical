@@ -105,8 +105,8 @@ Crates without Tauri deps (`cubical-core`, `cubical-ast`, `cubical-index`, `cubi
 
 ## Project state
 
-Current layer: 2 — Editing · L2 Session A complete 2026-05-15 (`write_file_text` IPC + `atomic_write` helper + watcher `new_content_hash` plumbing + 300ms autosave with blur / file-change / app-quit flushes + own-write hash-gating + external-edit conflict banner with Reload / Keep-my-edits). Tests: 111 Rust + 23 vitest.
-L0 closed 2026-05-13 (`l0` tag); L1 closed 2026-05-09 (`l1` tag).
-Sessions B–G pending: B decorations · C settings IPC · D theme + CM6 theme generator · E raw-source toggle · F Properties UI · G interactive smoke + `l2` tag.
-Next: L2 Session B — Lezer-driven Live Preview decorations (`ui/src/editor/decorations.ts`). Session C (settings IPC) is independent and can run in parallel.
-Layer specs: `docs/layer-0-spec.md` (closed) · `docs/layer-1-spec.md` (closed) · `docs/layer-2-spec.md` (Session A closed; §9.1 filled, §9.2-9.7 pending)
+Current layer: 2 — Editing · L2 Sessions A+B complete 2026-05-16. A: write-path (`write_file_text` IPC, `atomic_write`, 300ms autosave, own-write hash-gating, external-edit conflict banner). B: Lezer-driven Live Preview decorations (`ui/src/editor/decorations.ts` — ATX/Setext headings, emphasis/strong, inline + fenced code, lists, blockquote, plain links; markers hidden off the cursor line, revealed on it; composed into `Editor.tsx` via a CM6 `Compartment` for Session E).
+Tests: 111 Rust + 37 vitest (Rust unchanged by B). L0 closed 2026-05-13 (`l0` tag); L1 closed 2026-05-09 (`l1` tag).
+Sessions C–G pending: C settings IPC · D theme + CM6 theme generator · E raw-source toggle · F Properties UI · G interactive smoke + `l2` tag.
+Next: L2 Session C — vault-local settings IPC (`get_setting`/`set_setting`). Independent of the D–F UI work; D depends on B+C.
+Layer specs: `docs/layer-0-spec.md` (closed) · `docs/layer-1-spec.md` (closed) · `docs/layer-2-spec.md` (Sessions A+B closed; §9.1 filled, §9.2 marker, §9.3-9.7 pending)
