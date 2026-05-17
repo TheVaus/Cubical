@@ -1,4 +1,5 @@
 import {
+  createMemo,
   createSignal,
   For,
   onCleanup,
@@ -25,6 +26,7 @@ import {
   type FileEntry,
   type ScanStatus,
 } from "./api/ipc";
+import { computeWindow } from "./virtualList";
 import {
   applyTheme,
   watchSystemTheme,
@@ -51,6 +53,15 @@ import {
  * file selection change, app quit.
  */
 const AUTOSAVE_DEBOUNCE_MS = 300;
+
+/**
+ * File-list virtualization. A vault can hold tens of thousands of
+ * files; rendering one DOM node each freezes the webview. The list
+ * renders only the rows in the viewport (plus `FILE_LIST_OVERSCAN`
+ * rows of margin), every row a fixed `FILE_ROW_HEIGHT` px tall.
+ */
+const FILE_ROW_HEIGHT = 32;
+const FILE_LIST_OVERSCAN = 8;
 
 /** Header theme button cycle order (spec §2.5 / DoD §6). */
 const NEXT_THEME_MODE: Record<ThemeMode, ThemeMode> = {
@@ -79,6 +90,25 @@ const App: Component = () => {
     null,
   );
   const [astSummary, setAstSummary] = createSignal<string>("");
+
+  // File-list virtualization state. `scrollTop`/`viewportHeight` track
+  // the scroll container; `fileWindow` derives the slice of rows to
+  // mount, and `visibleFiles` is that slice. Only ~viewport-many rows
+  // are ever in the DOM, so a 30k-file vault stays responsive.
+  const [scrollTop, setScrollTop] = createSignal(0);
+  const [viewportHeight, setViewportHeight] = createSignal(600);
+  const fileWindow = createMemo(() =>
+    computeWindow(
+      scrollTop(),
+      viewportHeight(),
+      FILE_ROW_HEIGHT,
+      files().length,
+      FILE_LIST_OVERSCAN,
+    ),
+  );
+  const visibleFiles = createMemo(() =>
+    files().slice(fileWindow().startIndex, fileWindow().endIndex),
+  );
 
   // Theme state. `themeMode` is the user's preference (persisted per
   // vault as `appearance.theme_mode`); `resolvedTheme` is the concrete
@@ -599,22 +629,27 @@ const App: Component = () => {
               "min-height": 0,
             }}
           >
-            <ul
+            <div
+              role="listbox"
+              aria-label="Vault files"
+              ref={(el) => setViewportHeight(el.clientHeight || 600)}
+              onScroll={(e) => {
+                setScrollTop(e.currentTarget.scrollTop);
+                setViewportHeight(e.currentTarget.clientHeight);
+              }}
               style={{
-                "list-style": "none",
-                padding: 0,
-                margin: 0,
                 "overflow-y": "auto",
+                position: "relative",
                 flex: "0 0 18rem",
                 border: "1px solid var(--c-border-subtle)",
                 "border-radius": "var(--radius-md)",
                 background: "var(--c-bg-secondary)",
               }}
             >
-              <For
-                each={files()}
+              <Show
+                when={files().length > 0}
                 fallback={
-                  <li
+                  <div
                     style={{
                       padding: "var(--space-3)",
                       "font-size": "var(--text-sm)",
@@ -622,48 +657,78 @@ const App: Component = () => {
                     }}
                   >
                     No files yet…
-                  </li>
+                  </div>
                 }
               >
-                {(file) => {
-                  const isMarkdown = file.type_id === "markdown";
-                  const isSelected = () => selectedPath() === file.path;
-                  return (
-                    <li
-                      onClick={() => handleSelectFile(file)}
-                      style={{
-                        padding: "var(--space-2) var(--space-3)",
-                        "font-family": "var(--font-mono)",
-                        "font-size": "var(--text-xs)",
-                        "border-bottom": "1px solid var(--c-border-subtle)",
-                        display: "flex",
-                        "justify-content": "space-between",
-                        gap: "var(--space-3)",
-                        cursor: isMarkdown ? "pointer" : "default",
-                        background: isSelected()
-                          ? "var(--c-bg-tertiary)"
-                          : "transparent",
-                        color: isMarkdown
-                          ? "var(--c-fg-primary)"
-                          : "var(--c-fg-muted)",
+                {/* Spacer sized to the full list so the scrollbar is
+                    accurate; only the windowed slice is mounted. */}
+                <div
+                  style={{
+                    height: `${fileWindow().totalHeight}px`,
+                    position: "relative",
+                  }}
+                >
+                  <div
+                    style={{
+                      transform: `translateY(${fileWindow().offsetY}px)`,
+                    }}
+                  >
+                    <For each={visibleFiles()}>
+                      {(file) => {
+                        const isMarkdown = file.type_id === "markdown";
+                        const isSelected = () =>
+                          selectedPath() === file.path;
+                        return (
+                          <div
+                            role="option"
+                            aria-selected={isSelected()}
+                            onClick={() => handleSelectFile(file)}
+                            style={{
+                              height: `${FILE_ROW_HEIGHT}px`,
+                              "box-sizing": "border-box",
+                              padding: "0 var(--space-3)",
+                              "font-family": "var(--font-mono)",
+                              "font-size": "var(--text-xs)",
+                              "border-bottom":
+                                "1px solid var(--c-border-subtle)",
+                              display: "flex",
+                              "align-items": "center",
+                              "justify-content": "space-between",
+                              gap: "var(--space-3)",
+                              cursor: isMarkdown ? "pointer" : "default",
+                              background: isSelected()
+                                ? "var(--c-bg-tertiary)"
+                                : "transparent",
+                              color: isMarkdown
+                                ? "var(--c-fg-primary)"
+                                : "var(--c-fg-muted)",
+                            }}
+                          >
+                            <span
+                              style={{
+                                overflow: "hidden",
+                                "text-overflow": "ellipsis",
+                                "white-space": "nowrap",
+                              }}
+                            >
+                              {file.path}
+                            </span>
+                            <span
+                              style={{
+                                color: "var(--c-fg-muted)",
+                                "flex-shrink": 0,
+                              }}
+                            >
+                              {file.type_id}
+                            </span>
+                          </div>
+                        );
                       }}
-                    >
-                      <span
-                        style={{
-                          overflow: "hidden",
-                          "text-overflow": "ellipsis",
-                        }}
-                      >
-                        {file.path}
-                      </span>
-                      <span style={{ color: "var(--c-fg-muted)" }}>
-                        {file.type_id}
-                      </span>
-                    </li>
-                  );
-                }}
-              </For>
-            </ul>
+                    </For>
+                  </div>
+                </div>
+              </Show>
+            </div>
             <div
               style={{
                 flex: 1,
