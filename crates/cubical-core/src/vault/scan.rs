@@ -11,12 +11,22 @@
 
 use std::time::SystemTime;
 
+use cubical_index::IndexError;
 use libsql::params;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use walkdir::WalkDir;
 
 use crate::vault::{frontmatter::refresh_frontmatter, Vault, VaultError};
+
+/// Number of files persisted per index transaction.
+///
+/// Autocommitting every file means one `fsync` per file — tens of
+/// thousands of them on a large vault, which is the difference between
+/// a scan that finishes in seconds and one that grinds for minutes.
+/// Batching collapses that to one `fsync` per batch. A re-scan resumes
+/// cleanly from the last committed batch.
+const SCAN_BATCH_SIZE: u32 = 500;
 
 /// Progress update streamed from an in-flight scan.
 ///
@@ -53,6 +63,13 @@ pub async fn scan(
     let mut files_processed: u32 = 0;
     let mut files_total_estimate: u32 = 0;
 
+    // Persist files in batched transactions rather than autocommitting
+    // each one — see `SCAN_BATCH_SIZE`. `conn` is hoisted so the
+    // transaction handle and the per-file upserts share it.
+    let conn = vault.index().connection();
+    let mut tx = conn.transaction().await.map_err(IndexError::from)?;
+    let mut batch_count: u32 = 0;
+
     let walker = WalkDir::new(&root).follow_links(false).into_iter();
     let walker = walker.filter_entry(|entry| {
         if entry.depth() == 0 {
@@ -72,6 +89,8 @@ pub async fn scan(
 
     for entry_result in walker {
         if cancel.is_cancelled() {
+            // Commit work done so far so a re-scan resumes cleanly.
+            tx.commit().await.map_err(IndexError::from)?;
             tracing::info!(processed = files_processed, "scan cancelled mid-walk");
             return Err(VaultError::ScanCancelled);
         }
@@ -165,7 +184,6 @@ pub async fn scan(
                 last_seen    = excluded.last_seen,
                 updated_at   = excluded.last_seen
         ";
-        let conn = vault.index().connection();
         if let Err(e) = conn
             .execute(
                 upsert,
@@ -199,6 +217,15 @@ pub async fn scan(
 
         files_processed = files_processed.saturating_add(1);
 
+        // Commit and reopen once the batch fills, so the work lands on
+        // disk incrementally rather than in one transaction at the end.
+        batch_count += 1;
+        if batch_count >= SCAN_BATCH_SIZE {
+            tx.commit().await.map_err(IndexError::from)?;
+            tx = conn.transaction().await.map_err(IndexError::from)?;
+            batch_count = 0;
+        }
+
         let _ = progress
             .send(ScanProgress {
                 files_processed,
@@ -206,6 +233,9 @@ pub async fn scan(
             })
             .await;
     }
+
+    // Commit the trailing partial batch.
+    tx.commit().await.map_err(IndexError::from)?;
 
     tracing::info!(processed = files_processed, "scan complete");
     Ok(files_processed)
