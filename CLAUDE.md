@@ -105,9 +105,9 @@ Crates without Tauri deps (`cubical-core`, `cubical-ast`, `cubical-index`, `cubi
 
 ## Project state
 
-Current layer: 2 — Editing · L2 Sessions A+B+C+D complete 2026-05-16. A: write-path (`write_file_text` IPC, `atomic_write`, 300ms autosave, hash-gating, conflict banner). B: Lezer-driven Live Preview decorations (`ui/src/editor/decorations.ts`, CM6 `Compartment`). C: vault-local settings IPC (`get_setting`/`set_setting`, typed `Setting` union). D: real theming — audited+tuned light/dark `tokens.css`, `ui/src/styles/theme.ts` (`applyTheme` + pure `resolveTheme` + `matchMedia` subscription), `ui/src/editor/cm-theme.ts` (CM6 theme from computed tokens), a theme `Compartment` in `Editor.tsx`, and a header cycle button (`system→light→dark`) reading/writing `appearance.theme_mode`.
+Current layer: 2 — Editing · L2 Sessions A+B+C+D+E complete. A: write-path (`write_file_text` IPC, `atomic_write`, 300ms autosave, hash-gating, conflict banner). B: Lezer-driven Live Preview decorations (`ui/src/editor/decorations.ts`, CM6 `Compartment`). C: vault-local settings IPC (`get_setting`/`set_setting`, typed `Setting` union). D: real theming (`tokens.css`, `ui/src/styles/theme.ts`, `ui/src/editor/cm-theme.ts`, theme `Compartment`, header cycle button). E (2026-05-18): raw-source toggle — pure `resolveRawState` (`ui/src/editor/rawSource.ts`), per-doc `rawOverride` + app-level `rawDefault` in `App.tsx`, header `</>` button (naked click flips per-doc, Shift-click persists `editor.raw_source_default`), `Cmd/Ctrl+E` keymap, decoration compartment swapped to no-op in raw mode.
 Post-D: `fix-large-vault-perf` merged — virtualized file list (`ui/src/virtualList.ts`) + batched scan-write transactions for large vaults.
-Tests: 121 Rust + 46 vitest. L0 closed 2026-05-13 (`l0` tag); L1 closed 2026-05-09 (`l1` tag).
-Sessions E–G pending: E raw-source toggle · F Properties UI · G interactive smoke + `l2` tag.
-Next: L2 Session E — raw-source toggle + `Cmd/Ctrl+E`. Depends on B (decoration compartment to swap) + C (`editor.raw_source_default`); nicer after D so the toggle looks right in dark.
-Layer specs: `docs/layer-0-spec.md` (closed) · `docs/layer-1-spec.md` (closed) · `docs/layer-2-spec.md` (Sessions A+B+C+D closed; §9.1+§9.3 filled, §9.2+§9.4 markers, §9.5-9.7 pending)
+Tests: 121 Rust + 50 vitest (+4 `resolveRawState`). L0 closed 2026-05-13 (`l0` tag); L1 closed 2026-05-09 (`l1` tag).
+Sessions F–G pending: F Properties UI · G interactive smoke + `l2` tag.
+Next: L2 Session F — Properties UI (inline frontmatter editor). Depends on A (`write_file_text` commit path) + D (theme tokens style the cells).
+Layer specs: `docs/layer-0-spec.md` (closed) · `docs/layer-1-spec.md` (closed) · `docs/layer-2-spec.md` (Sessions A+B+C+D+E closed; §9.1+§9.3+§9.5 filled, §9.2+§9.4 markers, §9.6-9.7 pending)
