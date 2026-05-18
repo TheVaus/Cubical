@@ -27,6 +27,7 @@ import {
   type ScanStatus,
 } from "./api/ipc";
 import { computeWindow } from "./virtualList";
+import { resolveRawState } from "./editor/rawSource";
 import {
   applyTheme,
   watchSystemTheme,
@@ -118,6 +119,18 @@ const App: Component = () => {
   const [themeMode, setThemeMode] = createSignal<ThemeMode>("system");
   const [resolvedTheme, setResolvedTheme] = createSignal<ResolvedTheme>(
     applyTheme("system"),
+  );
+
+  // Raw-source state (spec §2.3). `rawDefault` is the app-level
+  // `editor.raw_source_default` setting, seeded on vault open; absent
+  // → `false` (Live Preview out of the box). `rawOverride` is the
+  // per-doc transient choice — `null` means "defer to the default" and
+  // it resets to `null` on every file-selection change. `effectiveRaw`
+  // collapses the two into the boolean the editor acts on.
+  const [rawDefault, setRawDefault] = createSignal(false);
+  const [rawOverride, setRawOverride] = createSignal<boolean | null>(null);
+  const effectiveRaw = createMemo(() =>
+    resolveRawState(rawOverride(), rawDefault()),
   );
 
   // Conflict banner state — surfaces when an external edit lands on a
@@ -272,6 +285,34 @@ const App: Component = () => {
     }
   };
 
+  /**
+   * Flip the raw-source state for the current document only (naked
+   * `</>` click, or the `Cmd/Ctrl+E` keybind). Sets the per-doc
+   * override against the *current* effective state — no setting is
+   * written.
+   */
+  const toggleRawSource = () => {
+    setRawOverride(!effectiveRaw());
+  };
+
+  /**
+   * Promote the current effective state to the app-level default
+   * (`Shift`-click on `</>`). Persists `editor.raw_source_default` and
+   * clears the per-doc override so the new default takes effect
+   * immediately for the open document.
+   */
+  const setRawAsDefault = () => {
+    const next = !effectiveRaw();
+    setRawDefault(next);
+    setRawOverride(null);
+    const id = vaultId();
+    if (id) {
+      setSetting(id, "editor.raw_source_default", next).catch((e) => {
+        console.error("persisting raw_source_default failed", e);
+      });
+    }
+  };
+
   const handleSelectFile = async (file: FileEntry) => {
     if (file.type_id !== "markdown") return;
     const id = vaultId();
@@ -288,6 +329,9 @@ const App: Component = () => {
     setError(null);
     setConflictExternalHash(null);
     setSelectedPath(file.path);
+    // Per §2.3: the per-doc raw override is transient — a freshly
+    // opened file starts from the current app default.
+    setRawOverride(null);
     // Reset per-file hash bookkeeping. seenHash will be repopulated
     // below once the read response gets us a hash to anchor on.
     seenHash = null;
@@ -457,6 +501,7 @@ const App: Component = () => {
       setSelectedContent(null);
       setAstSummary("");
       setConflictExternalHash(null);
+      setRawOverride(null);
       seenHash = null;
       lastWrittenHash = null;
       dirty = false;
@@ -476,6 +521,18 @@ const App: Component = () => {
         }
       } catch (e) {
         console.error("loading theme_mode failed", e);
+      }
+
+      // Seed the raw-source default from this vault's settings. Absent
+      // key → `false` (Live Preview is the out-of-the-box experience).
+      try {
+        const stored = await getSetting(
+          resp.vault_id,
+          "editor.raw_source_default",
+        );
+        setRawDefault(stored ?? false);
+      } catch (e) {
+        console.error("loading raw_source_default failed", e);
       }
     } catch (e) {
       const message =
@@ -551,6 +608,42 @@ const App: Component = () => {
             }}
           >
             {THEME_ICON[themeMode()]}
+          </button>
+          <button
+            type="button"
+            onClick={(e) => (e.shiftKey ? setRawAsDefault() : toggleRawSource())}
+            aria-label="Toggle raw source"
+            aria-pressed={effectiveRaw()}
+            title={
+              effectiveRaw()
+                ? "Raw source (Cmd/Ctrl+E · Shift-click sets default)"
+                : "Live preview (Cmd/Ctrl+E · Shift-click sets default)"
+            }
+            style={{
+              display: "flex",
+              "align-items": "center",
+              "justify-content": "center",
+              width: "2.25rem",
+              height: "2.25rem",
+              "font-family": "var(--font-mono)",
+              "font-size": "var(--text-sm)",
+              "line-height": "1",
+              color: effectiveRaw()
+                ? "var(--c-fg-inverse)"
+                : "var(--c-fg-secondary)",
+              background: effectiveRaw()
+                ? "var(--c-accent)"
+                : "var(--c-bg-secondary)",
+              border: effectiveRaw()
+                ? "1px solid var(--c-accent)"
+                : "1px solid var(--c-border-subtle)",
+              "border-radius": "var(--radius-md)",
+              cursor: "pointer",
+              transition:
+                "color var(--transition-fast), background var(--transition-fast), border-color var(--transition-fast)",
+            }}
+          >
+            &lt;/&gt;
           </button>
           <button
             type="button"
@@ -813,6 +906,8 @@ const App: Component = () => {
                 <Editor
                   value={selectedContent() ?? ""}
                   resolvedTheme={resolvedTheme()}
+                  rawSource={effectiveRaw()}
+                  onToggleRawSource={toggleRawSource}
                   onAstChange={handleAstChange}
                   onContentChange={handleContentChange}
                   onBlur={() => void flushAutosave()}

@@ -266,6 +266,8 @@ Captured here so they're reviewable as architecture decisions rather than buried
 
 5. **Theme `system` resolution lives in the frontend.** Rust does not know whether the user is in light or dark mode; it just stores the `"light" | "dark" | "system"` string. `theme.ts` resolves it via `matchMedia` and subscribes to changes. Plugins (L6) that want to render in a Cubical-appropriate theme will receive resolved-mode information via the plugin host API.
 
+6. **Raw-source toggle button lives in the header chrome strip, not next to the vault path.** §2.3 specified the `</>` button "in the header next to the vault path." The vault path actually renders inside the content section (a mono `<p>` above the file list / editor split), while Session D established the header's right side as the chrome-button strip (theme cycle button). Session E placed the `</>` button there, next to the theme button, rather than next to the vault path. Reason: co-locating the two app-chrome toggles is more discoverable and consistent than splitting them; the vault-path line is content, not chrome. Cosmetic — no behavioral impact.
+
 No `docs/architecture/` files are modified by L2. If any of the above turns out to be a load-bearing architectural call (most likely #2 — decorations bypassing canonical AST), promote it to `docs/architecture/document-model.md` at the L2-close step.
 
 ---
@@ -571,7 +573,80 @@ Session D complete — see the `feat(ui): light/dark theming + CM6 theme generat
 
 ### 9.5 Session E — Raw Source toggle
 
-*Pending.*
+Frontend-only — no Rust, no new IPC. Consumes Session C's
+`getSetting`/`setSetting` and reconfigures Session B's decoration
+`Compartment`.
+
+#### Effective-state resolver
+
+[`ui/src/editor/rawSource.ts`](../ui/src/editor/rawSource.ts) ships the
+pure `resolveRawState(override: boolean | null, appDefault: boolean)`.
+The toggle has two layers of state:
+
+- **App default** — `editor.raw_source_default`, seeded on vault open;
+  absent key → `false` (Live Preview out of the box).
+- **Per-doc override** — a transient in-memory choice; `null` means
+  "defer to the default." It resets to `null` on every file-selection
+  change, so a freshly opened file always starts from the app default,
+  never the previous file's override.
+
+`resolveRawState` collapses the two (`override ?? appDefault`). Unit
+tested in [`rawSource.test.ts`](../ui/src/editor/rawSource.test.ts) —
+4 cases: default fallback, override-true-over-false-default,
+override-false-over-true-default, and the reset-to-null case proving a
+fresh file resolves to the default.
+
+#### `App.tsx`
+
+`rawDefault` (signal) + `rawOverride` (signal, `boolean | null`) feed
+the `effectiveRaw` memo. A `</>` button joins the header chrome strip
+next to Session D's theme button (`aria-label="Toggle raw source"`,
+`aria-pressed` bound to `effectiveRaw()`, accent styling when raw is
+on):
+
+- **Naked click** → `toggleRawSource()` flips the per-doc override
+  against the current effective state. No setting written.
+- **Shift-click** → `setRawAsDefault()` persists
+  `editor.raw_source_default` via `setSetting` and clears the per-doc
+  override so the new default takes effect immediately for the open
+  document.
+
+`handleSelectFile` resets the override to `null`; vault open both
+resets the override and seeds `rawDefault` from the stored setting.
+
+#### `Editor.tsx`
+
+Two new props: `rawSource: boolean` and `onToggleRawSource?: () =>
+void`. The decoration `Compartment` (Session B's seam) is initialized
+to `[]` when `rawSource` is true and reconfigured by a `createEffect`
+on `props.rawSource` — raw mode swaps the Live Preview plugin for a
+no-op so the hidden marker spans reappear. Lezer parsing is untouched,
+so `onAstChange` keeps firing in raw mode (Session F's Properties UI
+stays live). A `Cmd/Ctrl+E` (`Mod-e`) entry leads the CM6 `keymap`,
+calling `onToggleRawSource` (same effect as the button's naked click).
+
+#### Deviation
+
+§5 #6: the `</>` button sits in the header chrome strip next to the
+theme button, not next to the vault path as §2.3 worded it. Cosmetic.
+
+#### Test counts (cumulative)
+
+**Rust:** unchanged — 121 tests (Session E is frontend-only).
+
+**UI:** 50 vitest tests (was 46; +4 `resolveRawState` cases).
+
+#### Verification
+
+- `npm run typecheck`, `npm run build`, `npx vitest run` — all clean
+  (50/50 green).
+- `cargo tauri dev` — Rust + Vite compile clean, app boots.
+- Browser smoke (`localhost:5173`, pre-vault state): `</>` button
+  renders next to the theme button; naked click flips it to the accent
+  raw-on state; no console errors.
+- Editor decoration swap, `Cmd/Ctrl+E`, file-switch override reset, and
+  Shift-click persistence need the native app + an open vault — left to
+  the Session G interactive closeout.
 
 ### 9.6 Session F — Properties UI
 

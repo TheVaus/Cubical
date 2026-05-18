@@ -70,9 +70,22 @@ export interface EditorProps {
    * rebuilt theme reads the correct token values.
    */
   resolvedTheme: ResolvedTheme;
+  /**
+   * When `true`, the Live Preview decoration plugin is swapped for a
+   * no-op so the raw markdown shows through (L2 Session E, spec §2.3).
+   * Lezer parsing keeps running either way, so `onAstChange` is
+   * unaffected.
+   */
+  rawSource: boolean;
   onAstChange?: (doc: CanonicalDocument) => void;
   onContentChange?: (content: string) => void;
   onBlur?: () => void;
+  /**
+   * Fired by the `Cmd/Ctrl+E` keybind so the parent can flip the
+   * per-doc raw-source override (the same effect as the header `</>`
+   * button's naked click).
+   */
+  onToggleRawSource?: () => void;
   /** Imperative handle, set on mount. */
   ref?: (api: EditorApi) => void;
 }
@@ -117,9 +130,21 @@ const Editor: Component<EditorProps> = (props) => {
         doc: props.value,
         extensions: [
           history(),
-          keymap.of([...defaultKeymap, ...historyKeymap]),
+          keymap.of([
+            {
+              key: "Mod-e",
+              run: () => {
+                props.onToggleRawSource?.();
+                return true;
+              },
+            },
+            ...defaultKeymap,
+            ...historyKeymap,
+          ]),
           markdown(),
-          decorationCompartment.of(livePreviewDecorations),
+          decorationCompartment.of(
+            props.rawSource ? [] : livePreviewDecorations,
+          ),
           themeCompartment.of(buildCmTheme()),
           updateListener,
           focusListener,
@@ -158,6 +183,24 @@ const Editor: Component<EditorProps> = (props) => {
           changes: { from: 0, to: current.length, insert: next },
         });
         // The updateListener above will schedule the AST + onContentChange.
+      },
+      { defer: true },
+    ),
+  );
+
+  // Swap the decoration plugin in/out when the raw-source state flips
+  // (L2 Session E). Raw mode reconfigures the compartment to a no-op
+  // extension so the hidden marker spans reappear; Lezer parsing is
+  // untouched, so `onAstChange` keeps firing.
+  createEffect(
+    on(
+      () => props.rawSource,
+      (raw) => {
+        view?.dispatch({
+          effects: decorationCompartment.reconfigure(
+            raw ? [] : livePreviewDecorations,
+          ),
+        });
       },
       { defer: true },
     ),
