@@ -650,7 +650,113 @@ theme button, not next to the vault path as §2.3 worded it. Cosmetic.
 
 ### 9.6 Session F — Properties UI
 
-*Pending.*
+Frontend-only — no Rust, no new IPC. Properties commits ride Session A's
+autosave path; the frontend owns frontmatter serialization (spec §5 #1).
+
+#### Brainstorming decisions
+
+Four open §2.4 design questions were settled before implementation:
+
+- **(a) Round-trip fidelity.** `parseFrontmatterYaml` uses the `yaml`
+  package's plain `parse()`, which drops comments, anchors, and aliases
+  at parse time — reserializing from `entries` cannot reproduce them.
+  Decision: `hasUnmodelableYaml` (in
+  [`serializeFrontmatter.ts`](../ui/src/properties/serializeFrontmatter.ts))
+  inspects the raw frontmatter text via `yaml`'s `parseDocument`/`visit`;
+  if comments, anchors, aliases, or a parse error are present the whole
+  Properties panel renders **read-only** with a banner + raw dump +
+  "Open as raw". The serializer therefore only ever runs on fully
+  modelable frontmatter — the entries→`stringify` round-trip is provably
+  lossless. Per-row nested/unknown values still render raw read-only.
+- **(b) Lossy type-coercion.** `coerceValue`
+  ([`coerce.ts`](../ui/src/properties/coerce.ts)) always yields a
+  *valid* value of the target kind (number-parse failure → `0`, bad
+  date → `""`, bad boolean → `false`), so cell-kind and value never
+  disagree. When the conversion loses information the row shows a
+  **non-dismissable** warning chip carrying the pre-coercion value;
+  one click reverts both type and value. The chip persists until the
+  row is next edited — it is the only on-disk-safety net for a lossy
+  change in an autosave-first app.
+- **(c) Write-path integration.** Surgical, not whole-doc. A new
+  `EditorApi.replaceRange(from, to, text)` replaces only the frontmatter
+  span, leaving the body cursor put (whole-doc `replaceContent` jumps it
+  to EOF). The `replaceRange` dispatch surfaces as an ordinary
+  `docChanged` → `onContentChange` → Session A `dirty`/`scheduleAutosave`
+  — Properties never calls `writeFileText` itself.
+- **(d) Raw-mode-vs-Properties race.** Rows are keyed by key-name (a
+  `<For>` over a stable key-string array), so an `onAstChange` tick does
+  not remount rows. Every cell holds a focus-guarded local draft and,
+  while focused, ignores incoming `value` prop changes. Raw-mode
+  frontmatter edits flow back through unfocused cells with no flicker;
+  an in-progress Properties edit is never clobbered.
+
+#### Deviation — `aliases` is not a tag list
+
+Spec §2.4 and the Session F task brief both said a string array under
+`aliases` should render as `list-of-tags` (`#`-prefixed, accent). The
+locked architecture (`document-model.md` §5.6) only ever defines `tags:`
+as a tag source — `aliases` are alternate note *names*, not tags, and
+L3 would wrongly autocomplete them against the tag index. Confirmed with
+the operator: **only `tags` → `list-of-tags`; `aliases` → plain
+`list-of-strings` chips.** `inferType`'s `TAG_LIST_KEYS` set holds
+`tags` alone.
+
+#### What was built
+
+New `ui/src/properties/`:
+
+- `inferType.ts` — pure `(key, value) → CellKind`
+  (`string`/`number`/`boolean`/`date`/`list-of-strings`/`list-of-tags`/`raw`).
+- `serializeFrontmatter.ts` — `serializeFrontmatter` (entries → `---`
+  block), `spliceFrontmatter` (block → source helper), `hasUnmodelableYaml`.
+- `coerce.ts` — `coerceValue` for the type-override menu (decision (b)).
+- Seven cell components: `StringCell`, `NumberCell`, `BooleanCell`,
+  `DateCell`, `StringListCell`, `TagListCell`, `RawCell`.
+- Three internal helpers (not in the §4 file list, noted here):
+  `ChipList.tsx` (shared chip-row primitive behind the two list cells),
+  `styles.ts` (token-only inline-style helpers), and `coerce.ts` above.
+
+[`Properties.tsx`](../ui/src/Properties.tsx) — the panel: one keyed row
+per top-level key (internal `PropertyRow`), empty/populated states with
+a `+ Add property` affordance, click-to-rename keys, a per-row type
+chevron menu, and the modelable read-only fallback. Mounted above the
+editor in [`App.tsx`](../ui/src/App.tsx) for the selected markdown file,
+fed `frontmatter` from a new `propertiesFrontmatter` signal set on each
+`onAstChange` tick. [`Editor.tsx`](../ui/src/Editor.tsx) gained
+`EditorApi.replaceRange` (decision (c)).
+
+#### Test counts (cumulative)
+
+**Rust:** unchanged — **121 tests** (Session F is frontend-only).
+
+**UI:** **99 vitest tests** (was 50; +49 — `inferType` 15, `coerce` 14,
+`serializeFrontmatter` 20: serialize/splice/`hasUnmodelableYaml`, the
+serialize→split→parse round-trip, and the parse→edit→serialize→re-parse
+round-trip).
+
+#### Verification
+
+- `cargo test --workspace` — 121 green (no Rust touched).
+- `npx tsc --noEmit`, `npm run build` — clean (strict mode, no `any`).
+- `npx vitest run` — 99/99 green.
+- Prettier — clean (repo has no eslint config; `tsc` strict + Prettier
+  are the enforced gates).
+- No hardcoded colors/fonts in any Properties component (grep verified);
+  spacing uses `--space-*` tokens, only fixed widget geometry uses rem
+  literals — consistent with `App.tsx`'s header-button sizing.
+- Browser smoke (`localhost:5173`, pre-vault): app boots, no console
+  errors — confirms the Properties module graph compiles and loads.
+
+#### Smoke status — deferred to Session G
+
+The Properties UI only mounts after a vault is open and a markdown file
+selected, which requires the Tauri IPC backend (`open_vault`,
+`read_file_text`). As in Session E, native-window interaction —
+the six-row demo doc, per-cell edit + on-disk round-trip, frontmatter-less
+add, the raw-mode flow-back — is left to the Session G interactive
+closeout (`cargo tauri dev`). All logic underneath those flows is unit-
+tested (the 49 new cases) and the round-trip is proven losslessly at the
+`serializeFrontmatter` level.
 
 ### 9.7 Session G — Interactive smoke + L2 closeout
 
