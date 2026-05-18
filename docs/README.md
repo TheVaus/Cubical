@@ -21,5 +21,4 @@ Check your task brief for which layer you're on. Then:
 - `docs/vault-gitignore.md` — recommended `.gitignore` for user vaults
 
 ## Design specs
-- `docs/superpowers/specs/` — design documents from planning sessions
 - `docs/superpowers/plans/` — implementation plans
