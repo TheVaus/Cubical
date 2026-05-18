@@ -354,11 +354,11 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) -> O
                 .execute(
                     upsert,
                     params![
-                        path_str.as_str(),
-                        type_id.as_str(),
+                        path_str.clone(),
+                        type_id.clone(),
                         size,
                         mtime,
-                        hash.as_str(),
+                        hash.clone(),
                         now
                     ],
                 )
@@ -392,7 +392,7 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) -> O
             if let Err(e) = conn
                 .execute(
                     "UPDATE files SET last_seen = ?1 WHERE path = ?2",
-                    params![now, path_str.as_str()],
+                    params![now, path_str.clone()],
                 )
                 .await
             {
@@ -411,7 +411,7 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) -> O
             if let Err(e) = conn
                 .execute(
                     "UPDATE files SET last_seen = ?1 WHERE path = ?2",
-                    params![now, from_str.as_str()],
+                    params![now, from_str.clone()],
                 )
                 .await
             {
