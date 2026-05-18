@@ -188,7 +188,7 @@ pub async fn scan(
             .execute(
                 upsert,
                 params![
-                    path_str.clone(),
+                    path_str.as_str(),
                     type_id,
                     size_bytes,
                     mtime_unix,
