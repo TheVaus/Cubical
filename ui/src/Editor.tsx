@@ -1,10 +1,4 @@
-import {
-  createEffect,
-  on,
-  onCleanup,
-  onMount,
-  type Component,
-} from "solid-js";
+import { createEffect, on, onCleanup, onMount, type Component } from "solid-js";
 import { EditorView, keymap } from "@codemirror/view";
 import { Compartment, EditorState } from "@codemirror/state";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
@@ -54,10 +48,15 @@ const themeCompartment = new Compartment();
  *   file-change before reading the new file.
  * - `replaceContent(next)` — drop in new bytes (used by the conflict
  *   banner's "Reload from disk" action).
+ * - `replaceRange(from, to, text)` — surgical range replace (used by
+ *   the L2 Session F Properties UI to splice a reserialized frontmatter
+ *   block in without moving the body cursor). The dispatch surfaces as
+ *   an ordinary `docChanged`, so Session A's autosave persists it.
  */
 export interface EditorApi {
   getContent: () => string;
   replaceContent: (next: string) => void;
+  replaceRange: (from: number, to: number, text: string) => void;
 }
 
 export interface EditorProps {
@@ -119,10 +118,12 @@ const Editor: Component<EditorProps> = (props) => {
       props.onContentChange?.(source);
     });
 
-    const focusListener = EditorView.focusChangeEffect.of((_state, focusing) => {
-      if (!focusing) props.onBlur?.();
-      return null;
-    });
+    const focusListener = EditorView.focusChangeEffect.of(
+      (_state, focusing) => {
+        if (!focusing) props.onBlur?.();
+        return null;
+      },
+    );
 
     view = new EditorView({
       parent: host,
@@ -165,6 +166,10 @@ const Editor: Component<EditorProps> = (props) => {
         view.dispatch({
           changes: { from: 0, to: current.length, insert: next },
         });
+      },
+      replaceRange: (from, to, text) => {
+        if (!view) return;
+        view.dispatch({ changes: { from, to, insert: text } });
       },
     });
   });

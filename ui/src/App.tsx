@@ -11,7 +11,8 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
 import Editor, { type EditorApi } from "./Editor";
-import type { CanonicalDocument } from "./ast/types";
+import Properties from "./Properties";
+import type { CanonicalDocument, Frontmatter } from "./ast/types";
 import {
   getSetting,
   listFiles,
@@ -91,6 +92,11 @@ const App: Component = () => {
     null,
   );
   const [astSummary, setAstSummary] = createSignal<string>("");
+  // Parsed frontmatter from the latest AST tick, fed to the Properties
+  // UI (L2 Session F). Reset on file selection so a freshly opened doc
+  // never briefly shows the previous file's rows before the first tick.
+  const [propertiesFrontmatter, setPropertiesFrontmatter] =
+    createSignal<Frontmatter | null>(null);
 
   // File-list virtualization state. `scrollTop`/`viewportHeight` track
   // the scroll container; `fileWindow` derives the slice of rows to
@@ -258,6 +264,7 @@ const App: Component = () => {
   };
 
   const handleAstChange = (doc: CanonicalDocument) => {
+    setPropertiesFrontmatter(doc.frontmatter);
     setAstSummary(
       `${doc.blocks.length} block${doc.blocks.length === 1 ? "" : "s"}, ` +
         `${doc.source_len} byte${doc.source_len === 1 ? "" : "s"}` +
@@ -332,6 +339,7 @@ const App: Component = () => {
     // Per §2.3: the per-doc raw override is transient — a freshly
     // opened file starts from the current app default.
     setRawOverride(null);
+    setPropertiesFrontmatter(null);
     // Reset per-file hash bookkeeping. seenHash will be repopulated
     // below once the read response gets us a hash to anchor on.
     seenHash = null;
@@ -500,6 +508,7 @@ const App: Component = () => {
       setSelectedPath(null);
       setSelectedContent(null);
       setAstSummary("");
+      setPropertiesFrontmatter(null);
       setConflictExternalHash(null);
       setRawOverride(null);
       seenHash = null;
@@ -611,7 +620,9 @@ const App: Component = () => {
           </button>
           <button
             type="button"
-            onClick={(e) => (e.shiftKey ? setRawAsDefault() : toggleRawSource())}
+            onClick={(e) =>
+              e.shiftKey ? setRawAsDefault() : toggleRawSource()
+            }
             aria-label="Toggle raw source"
             aria-pressed={effectiveRaw()}
             title={
@@ -769,8 +780,7 @@ const App: Component = () => {
                     <For each={visibleFiles()}>
                       {(file) => {
                         const isMarkdown = file.type_id === "markdown";
-                        const isSelected = () =>
-                          selectedPath() === file.path;
+                        const isSelected = () => selectedPath() === file.path;
                         return (
                           <div
                             role="option"
@@ -859,8 +869,10 @@ const App: Component = () => {
                       "justify-content": "space-between",
                       gap: "var(--space-3)",
                       padding: "var(--space-2) var(--space-3)",
-                      border: "1px solid var(--c-warning, var(--c-border-subtle))",
-                      "border-left": "var(--space-1) solid var(--c-warning, var(--c-accent))",
+                      border:
+                        "1px solid var(--c-warning, var(--c-border-subtle))",
+                      "border-left":
+                        "var(--space-1) solid var(--c-warning, var(--c-accent))",
                       "border-radius": "var(--radius-md)",
                       background: "var(--c-bg-secondary)",
                       "font-size": "var(--text-sm)",
@@ -903,6 +915,15 @@ const App: Component = () => {
                     </span>
                   </div>
                 </Show>
+                <Properties
+                  frontmatter={propertiesFrontmatter()}
+                  path={selectedPath() ?? ""}
+                  getSource={() => editorApi?.getContent() ?? ""}
+                  applyEdit={(from, to, text) =>
+                    editorApi?.replaceRange(from, to, text)
+                  }
+                  onOpenRaw={() => setRawOverride(true)}
+                />
                 <Editor
                   value={selectedContent() ?? ""}
                   resolvedTheme={resolvedTheme()}
