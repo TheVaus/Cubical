@@ -758,6 +758,39 @@ closeout (`cargo tauri dev`). All logic underneath those flows is unit-
 tested (the 49 new cases) and the round-trip is proven losslessly at the
 `serializeFrontmatter` level.
 
+#### Post-merge fixes (2026-05-20)
+
+The operator's first interactive smoke on the merged Session F caught
+two bugs.
+
+- **Properties showed in raw mode.** Spec §2.4 had Properties stay
+  visible in raw mode (so raw-typed frontmatter would "flow back"). In
+  practice the operator expected raw mode to mean "see the file as-is"
+  — the parallel Properties panel was redundant with the raw YAML now
+  showing in the editor itself. The `<Properties>` mount in
+  [`App.tsx`](../ui/src/App.tsx) is now wrapped in
+  `<Show when={!effectiveRaw()}>`. This is a deliberate spec deviation
+  beyond the §5 set: the §2.4 "raw-mode flow-back" still applies when
+  the user toggles *back* to live preview (Properties remounts from the
+  current frontmatter), but no longer in real-time while raw is active.
+- **Renaming a freshly-added property reverted to the default name.**
+  Cause: the focus-guarded `createEffect` in `PropertyRow` (and the
+  string/number/date/chip cells) re-ran on every focus change because
+  it read `keyFocused()` reactively. On blur, the effect fired with
+  the *old* `props.keyName` ("property") before the 150ms AST tick
+  could update it, resetting the draft to the stale name. The rename
+  *had* committed to the buffer — the new row arrived 150ms later —
+  but the old row's display flickered back to "property" inside that
+  window, which read to the operator as "it reverted." Fix: all five
+  focus-guarded effects are now `createEffect(on(() => props.value,
+  (v) => { if (!focused()) setDraft(v); }))` — `on()` makes them
+  re-run *only* on actual prop changes, never on focus alone. Same
+  latent flicker existed in the value cells but was less visible
+  because those rows stay mounted; fixed pre-emptively.
+
+Tests, types, build, prettier all still clean — fixes are pure
+reactivity reshape, no logic surface change.
+
 ### 9.7 Session G — Interactive smoke + L2 closeout
 
 *Pending.*
