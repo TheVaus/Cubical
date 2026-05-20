@@ -11,21 +11,22 @@ the hands-on verification pass and the `l2` tag. Do NOT start any L3 work.
 Working directory: `/Users/user/Developer/Cubical`
 
 1. Read these files in full:
-   - `CLAUDE.md` — session primer, non-negotiables, conventions, "Project state" block.
-   - `docs/layer-2-spec.md` — especially §6 (Definition of Done — the full L2 checklist), §8 Session G, and §9.1–§9.6 (what every L2 session built). Note §9.2 (Session B) and §9.4 (Session D) are abbreviated stubs that say "Full write-up is Session G's closeout job."
+   - `CLAUDE.md` — session primer, non-negotiables, "Project state" block.
+   - `docs/README.md` — docs index; orientation to the rest of the tree.
+   - `docs/layer-2-spec.md` — especially §6 (Definition of Done — the full L2 checklist), §8 Session G, and §9.1–§9.6 (what every L2 session built, including the §9.6 post-merge fixes from the first hands-on smoke). Note §9.2 (Session B) and §9.4 (Session D) are abbreviated stubs that say "Full write-up is Session G's closeout job."
    - `docs/architecture/README.md` and `docs/architecture/document-model.md` — for STEP 2 item 4 (architecture-deviation promotion).
+   - `docs/conventions.md` — only if a smoke-pass bug forces a code fix.
 
 2. Git checks (STOP and report if any fails):
    - `git -C /Users/user/Developer/Cubical status` → working tree clean.
    - `git -C /Users/user/Developer/Cubical branch --show-current` → `main`.
-   - `git -C /Users/user/Developer/Cubical log --oneline -4` → top commit is `f754477 docs: mark L2 Session F complete`, preceded by `0559e06`, `f21ddf3`, `2e2ba42`.
    - `git -C /Users/user/Developer/Cubical tag --list` → contains `l0` and `l1`, does NOT contain `l2`.
-   - Prerequisites: Sessions A–F all complete per the "Project state" block. If not, STOP.
+   - CLAUDE.md "Project state" reports Sessions A–F closed and L2 Session G pending. If not, STOP.
 
-3. Baseline test counts to confirm before starting:
+3. Baseline test counts to confirm before starting (match the counts in CLAUDE.md "Project state"; update both numbers here if Project state has moved since this prompt was written):
    - `cd /Users/user/Developer/Cubical && cargo test --workspace` → 121 Rust tests green.
-   - `cd ui && npx vitest run` → 99 vitest tests green.
-   If either differs, STOP and report.
+   - `cd ui && npx vitest run` → 103 vitest tests green.
+   If either differs from Project state, STOP and report.
 
 4. Create the working branch from `main`:
    `git -C /Users/user/Developer/Cubical checkout -b l2-session-g-closeout`
@@ -72,15 +73,15 @@ No new feature code. The deliverables:
 
 ## VERIFICATION (evidence required — never "should work")
 
-Run and paste actual output:
+Run and paste actual output (match the counts in CLAUDE.md "Project state"):
 - `cd /Users/user/Developer/Cubical && cargo test --workspace` → 121 green.
 - `cd ui && npx tsc --noEmit` → clean.
 - `cd ui && npm run build` → clean.
-- `cd ui && npx vitest run` → 99 green.
-- `cargo clippy --workspace --all-targets -- -D warnings` and `cargo fmt --check` → clean (§6 DoD lines).
+- `cd ui && npx vitest run` → 103 green.
+- `cargo clippy --workspace --all-targets -- -D warnings` and `cargo fmt --check` → clean (per `docs/conventions.md`).
 - The interactive smoke pass itself — recorded in §9.7 with observed values.
 
-This session changes only docs, so the test counts must be unchanged (121 / 99). If a smoke-pass bug forces a code fix, the fix needs a TDD regression test and the counts will rise — document why.
+This session changes only docs, so the test counts must be unchanged from Project state. If a smoke-pass bug forces a code fix, the fix needs a TDD regression test and the counts will rise — document why.
 
 ---
 
@@ -92,7 +93,7 @@ This session changes only docs, so the test counts must be unchanged (121 / 99).
 - [ ] §9.7 filled; §9.2 and §9.4 expanded from stubs into full write-ups.
 - [ ] Load-bearing L2 architecture deviations promoted into `docs/architecture/document-model.md`.
 - [ ] CLAUDE.md "Project state" rewritten to L2 closed / L3 next.
-- [ ] `cargo test --workspace` 121 green; `tsc`, `build`, `vitest` 99, `clippy`, `fmt` all clean.
+- [ ] `cargo test --workspace`, `tsc`, `build`, `vitest`, `clippy`, `fmt` all clean and the counts match CLAUDE.md "Project state" (currently 121 Rust + 103 vitest).
 - [ ] `l2` git tag applied on the closeout commit.
 
 ---
