@@ -16,7 +16,11 @@ import { describe, expect, it } from "vitest";
 import { parser } from "@lezer/markdown";
 import { Text } from "@codemirror/state";
 
-import { collectDecorations, type DecoEntry, type DecoKind } from "./decorations";
+import {
+  collectDecorations,
+  type DecoEntry,
+  type DecoKind,
+} from "./decorations";
 
 function run(src: string, activeLine: number): DecoEntry[] {
   const tree = parser.parse(src);
@@ -151,14 +155,17 @@ describe("collectDecorations — links", () => {
     const src = "see [docs](http://x) now\n";
     const entries = run(src, 2);
     expect(slice(src, one(ofKind(entries, "mark-link")))).toBe("docs");
-    const hidden = ofKind(entries, "hide").map((e) => slice(src, e)).join("");
+    const hidden = ofKind(entries, "hide")
+      .map((e) => slice(src, e))
+      .join("");
     expect(hidden).toBe("[]" + "(http://x)");
   });
 });
 
 describe("collectDecorations — out of scope nodes stay raw", () => {
   it("leaves images, wiki-links, thematic breaks and tags undecorated", () => {
-    const src = "![alt](http://x)\n\n[[WikiPage]]\n\n---\n\n#tag is not a heading\n\nend";
+    const src =
+      "![alt](http://x)\n\n[[WikiPage]]\n\n---\n\n#tag is not a heading\n\nend";
     const entries = run(src, 9);
     // The only decoration for an all-out-of-scope document is the
     // active-line background.
@@ -173,5 +180,38 @@ describe("collectDecorations — active line", () => {
     const active = one(ofKind(entries, "line-active"));
     expect(active.from).toBe(6); // start of line 2
     expect(active.to).toBe(6);
+  });
+});
+
+describe("collectDecorations — frontmatter", () => {
+  it("hides the entire frontmatter block in live preview", () => {
+    // `---\ntitle: foo\n---\nbody\n` — block-replace must end at a
+    // line boundary, so the range covers through the closer's newline
+    // (body line begins at byte 19).
+    const src = "---\ntitle: foo\n---\nbody\n";
+    const entries = run(src, 4); // cursor on body line
+    const hide = one(ofKind(entries, "hide-block"));
+    expect(hide.from).toBe(0);
+    expect(hide.to).toBe(19);
+  });
+
+  it("covers a frontmatter block that runs to EOF", () => {
+    const src = "---\ntitle: foo\n---";
+    const entries = run(src, 1);
+    const hide = one(ofKind(entries, "hide-block"));
+    expect(hide.from).toBe(0);
+    expect(hide.to).toBe(src.length);
+  });
+
+  it("emits no hide-block entry when the file has no frontmatter", () => {
+    const src = "# Heading\n\nbody\n";
+    const entries = run(src, 3);
+    expect(ofKind(entries, "hide-block")).toHaveLength(0);
+  });
+
+  it("does not treat a mid-document --- as frontmatter", () => {
+    const src = "intro\n\n---\nnot frontmatter\n---\n";
+    const entries = run(src, 1);
+    expect(ofKind(entries, "hide-block")).toHaveLength(0);
   });
 });

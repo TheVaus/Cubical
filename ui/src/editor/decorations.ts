@@ -51,6 +51,7 @@ export type DecoKind =
   | "mark-link"
   | "mark-marker-muted"
   | "hide"
+  | "hide-block"
   | "bullet";
 
 export interface DecoEntry {
@@ -67,6 +68,30 @@ interface Marker {
   to: number;
   /** Bullet-list dashes render as a `•` glyph rather than vanishing. */
   bullet: boolean;
+}
+
+/**
+ * Locate a YAML frontmatter block at the very top of the document.
+ * Matches the byte-for-byte rules of `ui/src/ast/frontmatter.ts` (and
+ * the Rust side): opener `---` on line 1, closer `---` on its own
+ * line. Returns the range covering the entire block including the
+ * trailing newline after the closer, so a block-replace decoration
+ * collapses the lines cleanly.
+ */
+function findFrontmatter(doc: Text): { from: number; to: number } | null {
+  if (doc.lines < 2) return null;
+  if (doc.line(1).text !== "---") return null;
+  for (let ln = 2; ln <= doc.lines; ln++) {
+    const line = doc.line(ln);
+    if (line.text === "---") {
+      // Include the trailing newline after the closer (start of the
+      // next line) so the line vanishes entirely. If the closer is the
+      // last line, end at doc.length.
+      const to = ln < doc.lines ? doc.line(ln + 1).from : doc.length;
+      return { from: 0, to };
+    }
+  }
+  return null;
 }
 
 /** Advance past run-of-spaces immediately after `from`, within its line. */
@@ -216,6 +241,15 @@ export function collectDecorations(
 
   const out: DecoEntry[] = [...visible];
 
+  // Hide YAML frontmatter entirely in live preview — the Properties UI
+  // is the editor for it, raw mode is the way to see/edit it directly.
+  // Detected outside the Lezer walk because the markdown grammar parses
+  // a YAML preamble as a thematic break + text + thematic break.
+  const fm = findFrontmatter(doc);
+  if (fm) {
+    out.push({ from: fm.from, to: fm.to, kind: "hide-block" });
+  }
+
   if (activeLine >= 1 && activeLine <= doc.lines) {
     const from = doc.line(activeLine).from;
     out.push({ from, to: from, kind: "line-active" });
@@ -259,6 +293,7 @@ const inlineCodeMarkDeco = Decoration.mark({ class: "cm-md-inline-code" });
 const linkMarkDeco = Decoration.mark({ class: "cm-md-link" });
 const mutedMarkDeco = Decoration.mark({ class: "cm-md-mark-muted" });
 const hideDeco = Decoration.replace({});
+const hideBlockDeco = Decoration.replace({ block: true });
 const bulletDeco = Decoration.replace({ widget: new BulletWidget() });
 
 /** Turn the flat entry list into a sorted CM6 `DecorationSet`. */
@@ -302,6 +337,9 @@ function buildDecorationSet(entries: DecoEntry[]): DecorationSet {
         break;
       case "hide":
         ranges.push(hideDeco.range(e.from, e.to));
+        break;
+      case "hide-block":
+        ranges.push(hideBlockDeco.range(e.from, e.to));
         break;
       case "bullet":
         ranges.push(bulletDeco.range(e.from, e.to));
