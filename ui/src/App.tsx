@@ -915,15 +915,17 @@ const App: Component = () => {
                     </span>
                   </div>
                 </Show>
-                <Properties
-                  frontmatter={propertiesFrontmatter()}
-                  path={selectedPath() ?? ""}
-                  getSource={() => editorApi?.getContent() ?? ""}
-                  applyEdit={(from, to, text) =>
-                    editorApi?.replaceRange(from, to, text)
-                  }
-                  onOpenRaw={() => setRawOverride(true)}
-                />
+                <Show when={!effectiveRaw()}>
+                  <Properties
+                    frontmatter={propertiesFrontmatter()}
+                    path={selectedPath() ?? ""}
+                    getSource={() => editorApi?.getContent() ?? ""}
+                    applyEdit={(from, to, text) =>
+                      editorApi?.replaceRange(from, to, text)
+                    }
+                    onOpenRaw={() => setRawOverride(true)}
+                  />
+                </Show>
                 <Editor
                   value={selectedContent() ?? ""}
                   resolvedTheme={resolvedTheme()}
