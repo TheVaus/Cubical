@@ -2,6 +2,7 @@ import {
   createEffect,
   createSignal,
   For,
+  on,
   Show,
   type Component,
 } from "solid-js";
@@ -36,10 +37,17 @@ const ChipList: Component<ChipListProps> = (props) => {
   const [editing, setEditing] = createSignal(-1);
   const [draft, setDraft] = createSignal("");
 
-  createEffect(() => {
-    const v = props.value;
-    if (editing() < 0) setChips([...v]);
-  });
+  // Adopt external value changes only — must NOT re-run on `editing`
+  // alone, or blurring a chip edit would revert the local chips to
+  // stale props during the 150ms AST-tick window.
+  createEffect(
+    on(
+      () => props.value,
+      (v) => {
+        if (editing() < 0) setChips([...v]);
+      },
+    ),
+  );
 
   const commitArray = (next: string[]) => {
     setChips(next);

@@ -89,10 +89,17 @@ const PropertyRow: Component<RowProps> = (props) => {
   const [keyDraft, setKeyDraft] = createSignal(props.keyName);
   const [keyFocused, setKeyFocused] = createSignal(false);
 
-  createEffect(() => {
-    const k = props.keyName;
-    if (!keyFocused()) setKeyDraft(k);
-  });
+  // Adopt external key changes only — must NOT re-run when keyFocused
+  // alone flips, or blurring after a rename would revert the draft to
+  // props.keyName before the row unmounts (150ms AST-tick window).
+  createEffect(
+    on(
+      () => props.keyName,
+      (k) => {
+        if (!keyFocused()) setKeyDraft(k);
+      },
+    ),
+  );
 
   let keyInput!: HTMLInputElement;
   onMount(() => {

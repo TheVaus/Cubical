@@ -1,4 +1,4 @@
-import { createEffect, createSignal, type Component } from "solid-js";
+import { createEffect, createSignal, on, type Component } from "solid-js";
 
 import { inputStyle } from "./styles";
 
@@ -18,10 +18,16 @@ const NumberCell: Component<NumberCellProps> = (props) => {
   const [draft, setDraft] = createSignal(String(props.value));
   const [focused, setFocused] = createSignal(false);
 
-  createEffect(() => {
-    const v = props.value;
-    if (!focused()) setDraft(String(v));
-  });
+  // Adopt external value changes only — see StringCell for the
+  // rationale (the focus-change re-run would revert the draft).
+  createEffect(
+    on(
+      () => props.value,
+      (v) => {
+        if (!focused()) setDraft(String(v));
+      },
+    ),
+  );
 
   const commit = () => {
     const text = draft().trim();

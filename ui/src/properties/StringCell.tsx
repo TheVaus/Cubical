@@ -1,4 +1,10 @@
-import { createEffect, createSignal, onMount, type Component } from "solid-js";
+import {
+  createEffect,
+  createSignal,
+  on,
+  onMount,
+  type Component,
+} from "solid-js";
 
 import { inputStyle } from "./styles";
 
@@ -20,10 +26,17 @@ const StringCell: Component<StringCellProps> = (props) => {
   const [draft, setDraft] = createSignal(props.value);
   const [focused, setFocused] = createSignal(false);
 
-  createEffect(() => {
-    const v = props.value;
-    if (!focused()) setDraft(v);
-  });
+  // Adopt external value changes only — must NOT re-run on focus
+  // changes alone, or blurring after an edit would revert the draft
+  // to the stale prop during the 150ms AST-tick window.
+  createEffect(
+    on(
+      () => props.value,
+      (v) => {
+        if (!focused()) setDraft(v);
+      },
+    ),
+  );
 
   let input!: HTMLInputElement;
   onMount(() => {
