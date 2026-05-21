@@ -8,9 +8,11 @@ This is the session primer. Read it before starting any work. For deep detail, f
 
 ## Docs
 
+- **Index:** `docs/README.md` — map of every doc, organized by the question you're trying to answer
 - **Architecture:** `docs/architecture/README.md` — locked design decisions, split by domain
-- **Layer specs:** `docs/layer-N-spec.md` — intent + what landed per layer
-- **Full index:** `docs/README.md` — map of every doc in the project
+- **Layer specs:** `docs/layer-N-spec.md` — one per active or closed layer; intent + what landed
+- **Conventions:** `docs/conventions.md` — Rust + TS code style, commits, tests
+- **Build order:** `docs/build-order.md` — full layer ladder + v1.0 cut explanation
 
 ---
 
@@ -26,35 +28,17 @@ These are load-bearing decisions. Not up for debate in a working session. Surfac
 - Desktop only for v1. Mobile is deferred but the architecture must not preclude it.
 - No file-identity UUIDs injected into any `.md` file before Layer 7. The vault is the user's vault, byte-for-byte, until sync onboarding.
 
+For non-features explicitly cut from scope, see [`docs/architecture/constraints.md`](docs/architecture/constraints.md).
+
 ---
 
 ## Session protocol
 
-**Start:** Read this file. If the task touches design, load `docs/architecture/README.md` and the relevant sub-file.
+**Loading:** This file is auto-loaded every session. If the task touches design, load `docs/architecture/README.md` and the relevant sub-file. If editing code, load `docs/conventions.md`. If touching IPC / Tauri, load `docs/migration-touchpoints.md`.
 
-**During:** As work lands, update the current layer spec's in-progress section.
+**During work:** Update the current layer spec's in-progress section as things land.
 
-**End:** Rewrite the Project state block below (4-6 lines max). Never append to it — rewrite it.
-
----
-
-## Build order
-
-**v1.0 cut at end of L5.**
-
-0. **Bedrock.** Workspace, Tauri, libSQL, file watcher, vault scan, file-type registry, frontmatter I/O, token surface. **No UUID injection.**
-1. **Document Model.** Canonical Markdown AST in Rust, Lezer in CodeMirror, `get_canonical_ast` IPC, frontmatter into libSQL.
-2. **Editing.** CodeMirror + Live Preview decorations, raw-source toggle, properties UI, light + dark themes. *First demo-able milestone.*
-3. **Knowledge Graph.** Wiki-links, embeds, lazy block refs, backlinks, unlinked mentions, link/tag autocomplete, nested tags + virtual tag pages, rename → Pending Rewrites Cache.
-4. **Search.** Tantivy full-text, Dataview-style libSQL queries, persistent search panel, Cmd/Ctrl+K Omni-Bar.
-5. **Daily-Driver Polish.** Theme picker, export sanitization, perf pass, keyboard shortcuts. **Public v1.0 cut.**
-6. **Plugins.** WASI host, manifest format, Web Worker runtime, Javy/QuickJS-WASM toolchain, plugin themes, ABI deprecation framework. *(Ships before sync — the plugin ABI is a one-way door once third parties depend on it; earn a stable core first.)*
-7. **Sync.** Loro CRDT; frontmatter `cubical_id` UUIDs minted at onboarding; WebRTC P2P; optional E2EE relay.
-8. **Time Machine.** Sync-clean-state snapshots, version history UI, 3-way merge UI. *(Post-v1.0)*
-9. **Graph View.** WebGPU-rendered knowledge graph. *(Post-v1.0)*
-10. **Long tail.** Canvas, mobile, anything else. *(Post-v1.0)*
-
-**Cut features (no for v1.x):** EOF HTML-comment UUIDs, recovery waterfall (4-tier), cross-app importers, local AI / RAG / llama.cpp as a core feature, `.cubical/quarantine/` directory.
+**At session end:** Rewrite the Project state block below (4-6 lines max). Never append — rewrite.
 
 ---
 
@@ -70,14 +54,7 @@ cubical/
 │   ├── cubical-sync/       # CrdtBackend trait + Loro impl (Loro lands at L7)
 │   └── cubical-app/        # Tauri app, depends on the above
 ├── ui/                     # Solid + TypeScript + Vite frontend
-├── docs/
-│   ├── README.md           # docs index — start here if unsure where to look
-│   ├── architecture/       # locked architectural decisions (README.md is the overview)
-│   ├── layer-0-spec.md     # Bedrock (complete)
-│   ├── layer-1-spec.md     # Document Model (in progress)
-│   ├── migration-touchpoints.md
-│   ├── vault-gitignore.md
-│   └── superpowers/        # planning artifacts (plans)
+├── docs/                   # see docs/README.md for the full index
 ├── CLAUDE.md
 ├── Cargo.toml
 └── README.md
@@ -87,27 +64,8 @@ Crates without Tauri deps (`cubical-core`, `cubical-ast`, `cubical-index`, `cubi
 
 ---
 
-## Conventions
-
-**Rust.** Edition 2021. `cargo fmt` and `cargo clippy -- -D warnings` clean before any commit. Errors via `thiserror` for libraries, `anyhow` for the app crate. No `unwrap()` or `expect()` outside tests and `main`.
-
-**TypeScript.** Strict mode on. No `any`. Prettier + ESLint. Solid idioms: signals for fine-grained state, stores for structured state, `createResource` for async Tauri data.
-
-**Tauri commands.** Coarse-grained, named as verb-noun. Every command takes a typed request struct and returns a typed response struct.
-
-**Tests.** `cubical-core`, `cubical-ast`, `cubical-index` have unit tests. The app crate has integration tests against a temp vault. UI tests deferred until L3+.
-
-**Commits.** Conventional Commits (`feat:`, `fix:`, `refactor:`, etc.). One logical change per commit. Layer transitions get a tag.
-
-**Documentation.** Every public Rust item has rustdoc. Every Tauri command has a doc comment. The architecture docs in `docs/architecture/` and layer specs in `docs/layer-N-spec.md` are the canonical reference; if code disagrees, the spec wins until explicitly updated.
-
----
-
 ## Project state
 
-Current layer: 2 — Editing · L2 Sessions A+B+C+D+E+F complete. A: write-path (`write_file_text` IPC, `atomic_write`, 300ms autosave, hash-gating, conflict banner). B: Lezer-driven Live Preview decorations (`ui/src/editor/decorations.ts`, CM6 `Compartment`). C: vault-local settings IPC (`get_setting`/`set_setting`, typed `Setting` union). D: real theming (`tokens.css`, `ui/src/styles/theme.ts`, `ui/src/editor/cm-theme.ts`, theme `Compartment`, header cycle button). E: raw-source toggle — pure `resolveRawState`, header `</>` button, `Cmd/Ctrl+E` keymap. F (2026-05-19): Properties UI — inline frontmatter editor (`ui/src/Properties.tsx` + `ui/src/properties/*`: `inferType`, `serializeFrontmatter`, `coerce`, 7 cell components, `ChipList`); commits route through Session A autosave via new `EditorApi.replaceRange`; frontmatter with comments/anchors degrades the panel to read-only.
-Post-D: `fix-large-vault-perf` merged — virtualized file list (`ui/src/virtualList.ts`) + batched scan-write transactions for large vaults.
-Tests: 121 Rust + 99 vitest (+49 properties: `inferType`/`coerce`/`serializeFrontmatter` round-trips). L0 closed 2026-05-13 (`l0` tag); L1 closed 2026-05-09 (`l1` tag).
-Session G pending: interactive smoke + `l2` tag.
-Next: L2 Session G — Interactive smoke + L2 closeout. Exercise all six L2 surfaces against `cargo tauri dev` (incl. the Session F native Properties smoke), fill §9.7, apply the `l2` tag.
-Layer specs: `docs/layer-0-spec.md` (closed) · `docs/layer-1-spec.md` (closed) · `docs/layer-2-spec.md` (Sessions A–F closed; §9.1+§9.3+§9.5+§9.6 filled, §9.2+§9.4 markers, §9.7 pending)
+Current layer: 2 — Editing. L2 Sessions A–F complete (write-path, Live Preview decorations, settings IPC, theming, raw-source toggle, Properties UI). Post-D `fix-large-vault-perf` merged (virtualized file list + batched scan writes). Post-F smoke landed three Properties fixes (raw mode hides the panel, focus-guard preserves edited drafts across the AST-tick gap, live preview hides the frontmatter YAML) — recorded in `docs/layer-2-spec.md` §9.6.
+Tests: 121 Rust + 103 vitest. L0 closed 2026-05-13 (`l0` tag); L1 closed 2026-05-09 (`l1` tag); L2 Sessions A–F closed, `l2` pending Session G.
+Next: L2 Session G — Interactive smoke + L2 closeout. Exercise all six L2 surfaces against `cargo tauri dev`, fill `docs/layer-2-spec.md` §9.7, apply the `l2` tag. Per-session detail in `docs/layer-2-spec.md` §9.
