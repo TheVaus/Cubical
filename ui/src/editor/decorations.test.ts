@@ -18,6 +18,7 @@ import { Text } from "@codemirror/state";
 
 import {
   collectDecorations,
+  findFrontmatter,
   type DecoEntry,
   type DecoKind,
 } from "./decorations";
@@ -183,35 +184,28 @@ describe("collectDecorations — active line", () => {
   });
 });
 
-describe("collectDecorations — frontmatter", () => {
-  it("hides the entire frontmatter block in live preview", () => {
-    // `---\ntitle: foo\n---\nbody\n` — block-replace must end at a
-    // line boundary, so the range covers through the closer's newline
-    // (body line begins at byte 19).
-    const src = "---\ntitle: foo\n---\nbody\n";
-    const entries = run(src, 4); // cursor on body line
-    const hide = one(ofKind(entries, "hide-block"));
-    expect(hide.from).toBe(0);
-    expect(hide.to).toBe(19);
+describe("findFrontmatter", () => {
+  function fm(src: string) {
+    return findFrontmatter(Text.of(src.split("\n")));
+  }
+
+  it("spans the block through the closer's trailing newline", () => {
+    // `---\ntitle: foo\n---\nbody\n` — block-replace must end at a line
+    // boundary, so the range covers through the closer's newline (the
+    // body line begins at byte 19).
+    expect(fm("---\ntitle: foo\n---\nbody\n")).toEqual({ from: 0, to: 19 });
   });
 
-  it("covers a frontmatter block that runs to EOF", () => {
+  it("covers a block that runs to EOF", () => {
     const src = "---\ntitle: foo\n---";
-    const entries = run(src, 1);
-    const hide = one(ofKind(entries, "hide-block"));
-    expect(hide.from).toBe(0);
-    expect(hide.to).toBe(src.length);
+    expect(fm(src)).toEqual({ from: 0, to: src.length });
   });
 
-  it("emits no hide-block entry when the file has no frontmatter", () => {
-    const src = "# Heading\n\nbody\n";
-    const entries = run(src, 3);
-    expect(ofKind(entries, "hide-block")).toHaveLength(0);
+  it("returns null when the file has no frontmatter", () => {
+    expect(fm("# Heading\n\nbody\n")).toBeNull();
   });
 
   it("does not treat a mid-document --- as frontmatter", () => {
-    const src = "intro\n\n---\nnot frontmatter\n---\n";
-    const entries = run(src, 1);
-    expect(ofKind(entries, "hide-block")).toHaveLength(0);
+    expect(fm("intro\n\n---\nnot frontmatter\n---\n")).toBeNull();
   });
 });

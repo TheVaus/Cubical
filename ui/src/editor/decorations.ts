@@ -18,6 +18,13 @@
  * recomputes the entry list on every relevant update and turns it into
  * a `DecorationSet`.
  *
+ * One decoration — hiding a top-of-file YAML frontmatter block — is the
+ * exception: it is a *block* decoration, which CodeMirror forbids from
+ * a `ViewPlugin`, so it is supplied by a separate `StateField`
+ * (`frontmatterHideField`). It is also not Lezer-sourced — the markdown
+ * grammar does not model frontmatter — so `findFrontmatter` scans the
+ * document directly.
+ *
  * Out of scope (left raw, no decoration — L3+ territory): tables,
  * images, HTML blocks, thematic breaks, task-list checkboxes, math,
  * callouts, wiki-links `[[…]]`, embeds `![[…]]`, block IDs, tags.
@@ -30,7 +37,12 @@ import {
   type DecorationSet,
   type ViewUpdate,
 } from "@codemirror/view";
-import { type Extension, type Range, type Text } from "@codemirror/state";
+import {
+  type Extension,
+  type Range,
+  StateField,
+  type Text,
+} from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
 import { type Tree } from "@lezer/common";
 
@@ -51,7 +63,6 @@ export type DecoKind =
   | "mark-link"
   | "mark-marker-muted"
   | "hide"
-  | "hide-block"
   | "bullet";
 
 export interface DecoEntry {
@@ -78,7 +89,9 @@ interface Marker {
  * trailing newline after the closer, so a block-replace decoration
  * collapses the lines cleanly.
  */
-function findFrontmatter(doc: Text): { from: number; to: number } | null {
+export function findFrontmatter(
+  doc: Text,
+): { from: number; to: number } | null {
   if (doc.lines < 2) return null;
   if (doc.line(1).text !== "---") return null;
   for (let ln = 2; ln <= doc.lines; ln++) {
@@ -241,15 +254,6 @@ export function collectDecorations(
 
   const out: DecoEntry[] = [...visible];
 
-  // Hide YAML frontmatter entirely in live preview — the Properties UI
-  // is the editor for it, raw mode is the way to see/edit it directly.
-  // Detected outside the Lezer walk because the markdown grammar parses
-  // a YAML preamble as a thematic break + text + thematic break.
-  const fm = findFrontmatter(doc);
-  if (fm) {
-    out.push({ from: fm.from, to: fm.to, kind: "hide-block" });
-  }
-
   if (activeLine >= 1 && activeLine <= doc.lines) {
     const from = doc.line(activeLine).from;
     out.push({ from, to: from, kind: "line-active" });
@@ -338,9 +342,6 @@ function buildDecorationSet(entries: DecoEntry[]): DecorationSet {
       case "hide":
         ranges.push(hideDeco.range(e.from, e.to));
         break;
-      case "hide-block":
-        ranges.push(hideBlockDeco.range(e.from, e.to));
-        break;
       case "bullet":
         ranges.push(bulletDeco.range(e.from, e.to));
         break;
@@ -380,6 +381,32 @@ const livePreviewPlugin = ViewPlugin.fromClass(
   },
   { decorations: (plugin) => plugin.decorations },
 );
+
+/**
+ * Build the block-replace decoration that hides a top-of-file YAML
+ * frontmatter block. Empty set when the document has none.
+ */
+function frontmatterHideSet(doc: Text): DecorationSet {
+  const fm = findFrontmatter(doc);
+  if (!fm) return Decoration.none;
+  return Decoration.set([hideBlockDeco.range(fm.from, fm.to)]);
+}
+
+/**
+ * Frontmatter hiding lives in a `StateField`, NOT the `ViewPlugin`:
+ * CodeMirror rejects block decorations supplied by plugins ("Block
+ * decorations may not be specified via plugins") because they change
+ * the document layout, which is derived from `EditorState` before
+ * plugins run. Kept inside the `livePreviewDecorations` bundle so the
+ * raw-source compartment swap reveals the YAML along with everything
+ * else. Detected outside the Lezer walk because the markdown grammar
+ * reads a YAML preamble as `thematic break + text + thematic break`.
+ */
+const frontmatterHideField = StateField.define<DecorationSet>({
+  create: (state) => frontmatterHideSet(state.doc),
+  update: (deco, tr) => (tr.docChanged ? frontmatterHideSet(tr.newDoc) : deco),
+  provide: (f) => EditorView.decorations.from(f),
+});
 
 const decorationBaseTheme = EditorView.baseTheme({
   ".cm-md-line-h1": {
@@ -437,5 +464,6 @@ const decorationBaseTheme = EditorView.baseTheme({
  */
 export const livePreviewDecorations: Extension = [
   livePreviewPlugin,
+  frontmatterHideField,
   decorationBaseTheme,
 ];
