@@ -793,16 +793,31 @@ reactivity reshape, no logic surface change.
 
 A third bug followed on the same smoke pass: the frontmatter YAML
 rendered twice in live preview — once as raw text at the top of the
-editor, and once as the Properties panel above. The decoration plugin
-[`decorations.ts`](../ui/src/editor/decorations.ts) now emits a
-`hide-block` entry covering the frontmatter range; `buildDecorationSet`
-maps it to `Decoration.replace({block: true})`, collapsing the YAML
-out of the live-preview layout entirely. Cursor navigation skips the
-hidden block. Detection lives outside the Lezer walk because the
-markdown grammar reads a YAML preamble as `thematic break + text +
-thematic break`; a small `findFrontmatter(doc: Text)` walker mirrors
-the byte-for-byte rules of `ui/src/ast/frontmatter.ts`. 4 new vitest
-cases (103 total).
+editor, once as the Properties panel above.
+[`decorations.ts`](../ui/src/editor/decorations.ts) now hides the
+frontmatter block with `Decoration.replace({block: true})`, collapsing
+the YAML out of the live-preview layout entirely. Detection lives
+outside the Lezer walk because the markdown grammar reads a YAML
+preamble as `thematic break + text + thematic break`; a small
+`findFrontmatter(doc: Text)` walker mirrors the byte-for-byte rules of
+`ui/src/ast/frontmatter.ts`.
+
+**Fourth bug — and a regression caught by the operator's next smoke:**
+the first cut of the frontmatter-hide emitted the block decoration
+from the Live Preview `ViewPlugin`. CodeMirror rejects that — *"Block
+decorations may not be specified via plugins"* — because block
+decorations change layout, which is derived from `EditorState` before
+plugins run. The result: every file *with* frontmatter failed to open.
+It slipped through because the unit tests exercise only the pure
+`collectDecorations`, and the browser preview cannot open a vault to
+render a real editor. Reproduced and then re-verified fixed by
+constructing a real `EditorView` in the dev-server page via
+`preview_eval`. Fix: the block decoration moved into a dedicated
+`StateField` (`frontmatterHideField`) provided through
+`EditorView.decorations.from` — the documented CM6 mechanism for
+block decorations — kept inside the `livePreviewDecorations` bundle so
+the raw-source compartment swap still reveals the YAML. 4 new vitest
+cases now target the pure `findFrontmatter` walker (103 total).
 
 ### 9.7 Session G — Interactive smoke + L2 closeout
 
