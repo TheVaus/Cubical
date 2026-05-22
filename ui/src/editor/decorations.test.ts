@@ -189,11 +189,26 @@ describe("findFrontmatter", () => {
     return findFrontmatter(Text.of(src.split("\n")));
   }
 
-  it("spans the block through the closer's trailing newline", () => {
-    // `---\ntitle: foo\n---\nbody\n` — block-replace must end at a line
-    // boundary, so the range covers through the closer's newline (the
-    // body line begins at byte 19).
-    expect(fm("---\ntitle: foo\n---\nbody\n")).toEqual({ from: 0, to: 19 });
+  it("ends the hide range at the closer line, not the first content line", () => {
+    // `---\ntitle: foo\n---\nbody\n` — the closer `---` ends at byte 18
+    // (its trailing newline). The hide range must stop there: a
+    // block-replace decoration whose `to` lands on the body line's
+    // start (byte 19) makes CodeMirror drop that line's
+    // `Decoration.line`, so a heading / code block / blockquote
+    // immediately after the frontmatter loses its decoration.
+    // Regression guard for the §9.6 frontmatter-hide fix.
+    expect(fm("---\ntitle: foo\n---\nbody\n")).toEqual({ from: 0, to: 18 });
+  });
+
+  it("stops before a heading that immediately follows the frontmatter", () => {
+    // No blank line between the closer and `# H`. The hide range must
+    // end strictly before the heading line's start, else CodeMirror
+    // swallows the heading's line decoration (size/weight scaling).
+    const src = "---\nt: 1\n---\n# H\n";
+    const headingFrom = src.indexOf("# H");
+    const result = fm(src);
+    expect(result).not.toBeNull();
+    expect(result!.to).toBe(headingFrom - 1);
   });
 
   it("covers a block that runs to EOF", () => {
