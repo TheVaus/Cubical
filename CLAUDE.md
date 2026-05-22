@@ -66,6 +66,6 @@ Crates without Tauri deps (`cubical-core`, `cubical-ast`, `cubical-index`, `cubi
 
 ## Project state
 
-Current layer: 2 — Editing. L2 Sessions A–F complete (write-path, Live Preview decorations, settings IPC, theming, raw-source toggle, Properties UI). Post-D `fix-large-vault-perf` merged (virtualized file list + batched scan writes). Post-F smoke landed three Properties fixes (raw mode hides the panel, focus-guard preserves edited drafts across the AST-tick gap, live preview hides the frontmatter YAML) — recorded in `docs/layer-2-spec.md` §9.6.
-Tests: 121 Rust + 103 vitest. L0 closed 2026-05-13 (`l0` tag); L1 closed 2026-05-09 (`l1` tag); L2 Sessions A–F closed, `l2` pending Session G.
-Next: L2 Session G — Interactive smoke + L2 closeout. Exercise all six L2 surfaces against `cargo tauri dev`, fill `docs/layer-2-spec.md` §9.7, apply the `l2` tag. Per-session detail in `docs/layer-2-spec.md` §9.
+Current layer: 3 — Knowledge Graph (not yet started). L2 — Editing is **closed**: Sessions A–G done — write-path + autosave, Lezer Live Preview decorations, vault-local settings IPC, light/dark theming, raw-source toggle, inline Properties UI. Session G's closeout smoke found and fixed one decoration bug (frontmatter-hide swallowed the first content line's line decoration) and promoted §5 deviation #2 (decorations bypass the canonical AST) into `docs/architecture/document-model.md` §5.5.
+Tests: 121 Rust + 104 vitest. L0 closed 2026-05-13 (`l0`); L1 closed 2026-05-09 (`l1`); L2 closed 2026-05-22 (`l2`).
+Next: open Layer 3 — Knowledge Graph (build-order §3: wiki-links, embeds, lazy block refs, backlinks, unlinked mentions, link/tag autocomplete, nested tags, Pending Rewrites Cache). First step: author `docs/layer-3-spec.md` (layer plan + session slicing), then the first feature session — wiki-link parsing + resolution.

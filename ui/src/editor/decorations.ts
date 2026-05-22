@@ -85,9 +85,9 @@ interface Marker {
  * Locate a YAML frontmatter block at the very top of the document.
  * Matches the byte-for-byte rules of `ui/src/ast/frontmatter.ts` (and
  * the Rust side): opener `---` on line 1, closer `---` on its own
- * line. Returns the range covering the entire block including the
- * trailing newline after the closer, so a block-replace decoration
- * collapses the lines cleanly.
+ * line. Returns the range from document start through the closer
+ * line's end — fed straight to a block-replace decoration, which
+ * collapses those lines cleanly with no leftover blank line.
  */
 export function findFrontmatter(
   doc: Text,
@@ -97,11 +97,14 @@ export function findFrontmatter(
   for (let ln = 2; ln <= doc.lines; ln++) {
     const line = doc.line(ln);
     if (line.text === "---") {
-      // Include the trailing newline after the closer (start of the
-      // next line) so the line vanishes entirely. If the closer is the
-      // last line, end at doc.length.
-      const to = ln < doc.lines ? doc.line(ln + 1).from : doc.length;
-      return { from: 0, to };
+      // End at the closer line's own end: its trailing newline, or the
+      // document end when the closer is the last line (`line.to` gives
+      // both). The range must NOT extend to the next line's start — a
+      // `block: true` replace decoration whose `to` coincides with a
+      // line start makes CodeMirror drop that line's `Decoration.line`,
+      // which would strip the decoration off a heading / code block /
+      // blockquote sitting immediately after the frontmatter.
+      return { from: 0, to: line.to };
     }
   }
   return null;

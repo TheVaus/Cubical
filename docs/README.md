@@ -21,7 +21,7 @@ This is the docs index. The session primer is [`CLAUDE.md`](../CLAUDE.md) — st
 
 - `layer-0-spec.md` — Bedrock (closed 2026-05-13, `l0` tag)
 - `layer-1-spec.md` — Document Model (closed 2026-05-09, `l1` tag)
-- `layer-2-spec.md` — Editing (Sessions A–F closed; Session G pending — interactive smoke + `l2` tag)
+- `layer-2-spec.md` — Editing (closed 2026-05-22, `l2` tag)
 - *(later layer specs added when each layer becomes active)*
 
 ## Other content

@@ -71,6 +71,8 @@ The exact shape is finalized during Layer 1. The point is: this AST is the lingu
 
 The AST is intentionally slim — it represents only the markdown subset Cubical itself produces and renders. Cross-app importers (Obsidian, Logseq, Notion) are out of v1 scope, so the AST does not carry math, mermaid, callout, footnote, or other extension nodes.
 
+**Editor decorations are a sanctioned exception (promoted from L2).** The editor's Live Preview decoration layer does *not* consume the canonical AST — it reads the editor's Lezer syntax tree (`syntaxTree(state)`) directly. Live Preview hides and reveals individual marker tokens (`#`, `*`, backticks, list dashes, link brackets) at byte precision, and the canonical AST deliberately abstracts those positions away. This is a parallel consumer, not a replacement: the in-process `onAstChange` path still normalizes Lezer into `cubical_ast::Document`, so the L1 parity contract is unaffected. The rule: anything that **indexes, exports, or crosses the plugin (Layer 6) boundary** consumes the canonical AST; only the editor's own rendering may read Lezer directly.
+
 ### 5.6 Tags
 
 Two declaration sources, one logical concept.
