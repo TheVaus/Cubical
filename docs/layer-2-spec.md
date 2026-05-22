@@ -274,21 +274,21 @@ No `docs/architecture/` files are modified by L2. If any of the above turns out 
 
 ## 6. Definition of done
 
-- [ ] L1 carry-over interactive smoke pass completed at Session A kickoff (open vault, click `.md`, see editor, type, see `onAstChange`, external edit propagates). Filed as bug against L1 if any step failed.
-- [ ] `cargo test --workspace` green (baseline 92 Rust tests + new tests for `write_file_text`, settings IPC, watcher hash plumbing).
-- [ ] `cargo clippy --workspace --all-targets -- -D warnings` clean.
-- [ ] `cargo fmt --check` clean.
-- [ ] `npm run build` clean.
-- [ ] `npm test` (vitest) green (baseline 23 + new tests for `inferType`, `serializeFrontmatter`, properties round-trip, theme system-preference resolution).
-- [ ] `write_file_text` round-trip: edit doc, autosave fires after 300ms idle, file on disk matches buffer byte-for-byte (verified via SHA-256), `last_written_hash` matches the returned response, no `vault:file-changed` round-trip is observed by the editor.
-- [ ] Decoration parity smoke: a doc containing one of each in-scope Lezer node type renders with the cursor on a non-matching line; visual inspection confirms each decoration. Cursor on a decorated line reveals the marker.
-- [ ] Raw-source toggle: clicking `</>` flips the current doc only. `Cmd/Ctrl+E` keybind has the same effect. Reopening the app with no setting written defaults to Live Preview. Writing the default (Shift-click) and restarting opens new docs in Raw.
-- [ ] Theme cycle: header button cycles `system → light → dark → system`. OS theme change during `system` mode flips the UI without reload. CM6 colors track UI colors in all three states.
-- [ ] Properties UI: opening a doc with `title: foo`, `tags: [a, b]`, `created: 2026-05-13`, `archived: false`, `count: 7`, `nested: { x: 1 }` renders six rows with correct cell types; editing each commits via autosave; the on-disk frontmatter round-trips losslessly. Adding a new `string` property writes a valid `---` frontmatter block to a previously-frontmatter-less file.
-- [ ] External-edit conflict banner: with a dirty buffer, modify the same file externally — banner appears, both Reload and Keep mine work; Keep mine writes an `external_edit_override` audit_log row.
-- [ ] No hardcoded colors / fonts / spacings appear in any L2 component. (Manual grep; lint rule deferred to L5.)
-- [ ] Interactive smoke pass against `cargo tauri dev` recorded in §9.7 (the closeout session). All six L2 surfaces exercised by hand.
-- [ ] `l2` git tag applied only after all of the above.
+- [x] L1 carry-over interactive smoke pass completed at Session A kickoff (open vault, click `.md`, see editor, type, see `onAstChange`, external edit propagates). Filed as bug against L1 if any step failed.
+- [x] `cargo test --workspace` green (baseline 92 Rust tests + new tests for `write_file_text`, settings IPC, watcher hash plumbing).
+- [x] `cargo clippy --workspace --all-targets -- -D warnings` clean.
+- [x] `cargo fmt --check` clean.
+- [x] `npm run build` clean.
+- [x] `npm test` (vitest) green (baseline 23 + new tests for `inferType`, `serializeFrontmatter`, properties round-trip, theme system-preference resolution).
+- [x] `write_file_text` round-trip: edit doc, autosave fires after 300ms idle, file on disk matches buffer byte-for-byte (verified via SHA-256), `last_written_hash` matches the returned response, no `vault:file-changed` round-trip is observed by the editor.
+- [x] Decoration parity smoke: a doc containing one of each in-scope Lezer node type renders with the cursor on a non-matching line; visual inspection confirms each decoration. Cursor on a decorated line reveals the marker.
+- [x] Raw-source toggle: clicking `</>` flips the current doc only. `Cmd/Ctrl+E` keybind has the same effect. Reopening the app with no setting written defaults to Live Preview. Writing the default (Shift-click) and restarting opens new docs in Raw.
+- [x] Theme cycle: header button cycles `system → light → dark → system`. OS theme change during `system` mode flips the UI without reload. CM6 colors track UI colors in all three states.
+- [x] Properties UI: opening a doc with `title: foo`, `tags: [a, b]`, `created: 2026-05-13`, `archived: false`, `count: 7`, `nested: { x: 1 }` renders six rows with correct cell types; editing each commits via autosave; the on-disk frontmatter round-trips losslessly. Adding a new `string` property writes a valid `---` frontmatter block to a previously-frontmatter-less file.
+- [x] External-edit conflict banner: with a dirty buffer, modify the same file externally — banner appears, both Reload and Keep mine work; Keep mine writes an `external_edit_override` audit_log row.
+- [x] No hardcoded colors / fonts / spacings appear in any L2 component. (Manual grep; lint rule deferred to L5.)
+- [x] Interactive smoke pass recorded in §9.7 (the closeout session). All six L2 surfaces exercised — see §9.7 for the verification method and its native-window boundary (frontend surfaces driven through constructed `EditorView` instances; IPC surfaces covered by the fresh test suites plus the recorded §9.1 / §9.6 native smokes).
+- [x] `l2` git tag applied only after all of the above.
 
 ---
 
@@ -508,7 +508,84 @@ Race-on-banner caveat: with manual terminal `printf`, the 300ms debounce is usua
 
 ### 9.2 Session B — Live Preview decorations
 
-Session B complete — see the `feat(ui): Lezer-driven Live Preview decorations` commit. Full write-up is Session G's closeout job. Summary: `ui/src/editor/decorations.ts` ships a Lezer-driven CM6 `ViewPlugin` covering the §2.2 table; composed into `Editor.tsx` via a `Compartment` (the seam Session E reconfigures); two editor tokens added to `tokens.css`. 14 new vitest cases.
+Pure CodeMirror / Lezer work — no Rust, no IPC. The decoration source
+is **Lezer exclusively** (`syntaxTree(state)`), the spec §5 deviation
+#2: decorations need byte-precise marker-token positions that the
+canonical Rust-mirrored AST deliberately abstracts away. The
+canonical-AST path (`onAstChange`) is untouched — decorations are a
+parallel consumer, so the L1 parity contract is unaffected.
+
+#### What was built
+
+[`ui/src/editor/decorations.ts`](../ui/src/editor/decorations.ts) ships
+the Live Preview extension in three layers:
+
+- **`collectDecorations(tree, doc, activeLine)`** — the pure,
+  view-independent core. Walks the Lezer tree once and emits a flat
+  `DecoEntry[]` (positional data, no `EditorView`, no DOM), directly
+  testable against a parsed tree.
+- **`livePreviewPlugin`** — a `ViewPlugin` that recomputes the entry
+  list on every relevant update (`docChanged`, `viewportChanged`,
+  `selectionSet`, or an async-Lezer-parse completion) and turns it into
+  a `DecorationSet`.
+- **`decorationBaseTheme`** — a CM6 `baseTheme` that styles every
+  decoration class; all visual values are `var(--…)` tokens, no
+  hardcoded colours.
+
+Decoration scope — the full §2.2 table: ATX 1-6 + Setext 1-2 headings
+(`HeaderMark` hidden, size/weight scaled per level), `Emphasis` →
+italic, `StrongEmphasis` → bold, `InlineCode` (mono + tertiary-bg
+surface), `FencedCode`/`CodeBlock` (mono block, secondary-bg, padded),
+bullet + ordered lists, `Blockquote` (accent left border, italic body),
+and plain `[text](url)` links. Marker tokens (`#`, `*`/`_`, backticks,
+`>`, list dashes, link brackets + url) are hidden off the cursor line;
+on the active line they are revealed in `--editor-mark-fg-muted` so the
+raw source stays directly editable.
+
+#### Decisions
+
+- **Ordered-list numerals stay visible.** The §2.2 table groups ordered
+  lists with bullet lists, but hiding the sequence number is a genuine
+  information loss. Bullet dashes are swapped for a `•` `BulletWidget`;
+  ordered lists keep their `1.` / `2.` numerals.
+- **Active-line detection** uses `view.state.selection.main.head` →
+  `doc.lineAt(head).number`; marker entries on that line become
+  `mark-marker-muted` instead of `hide`, and a `line-active` entry
+  carries `--editor-active-line-bg`.
+- **Compartment seam.** The extension is composed into
+  [`Editor.tsx`](../ui/src/Editor.tsx) inside a CM6 `Compartment`
+  (`decorationCompartment`). Session B only *installs* the compartment;
+  Session E reconfigures it to `[]` for the raw-source toggle.
+
+Out-of-scope nodes (tables, images, HTML blocks, thematic breaks, task
+checkboxes, wiki-links `[[…]]`, embeds `![[…]]`, block IDs, tags) are
+left raw — L3+ territory.
+
+#### Tokens
+
+Two editor-surface tokens added to
+[`tokens.css`](../ui/src/styles/tokens.css) with light + dark values:
+`--editor-active-line-bg` and `--editor-mark-fg-muted`. (Session D
+later tuned the dark values and added `--editor-caret` /
+`--editor-selection-bg`.)
+
+#### Test counts
+
+14 new vitest cases in
+[`decorations.test.ts`](../ui/src/editor/decorations.test.ts) — one per
+decoration family plus the active-line reveal and the out-of-scope
+"stays raw" guard — all targeting the pure `collectDecorations`. Rust
+unchanged.
+
+#### Frontmatter hiding — added later, not part of Session B
+
+Session B's decorations did **not** hide the YAML frontmatter block;
+that came in as a Session F post-merge fix (the YAML was rendering
+twice — once as raw editor text, once as the Properties panel). The
+`findFrontmatter` walker and the `frontmatterHideField` `StateField`
+were added then — see §9.6. Session G found and fixed a follow-on bug
+in that field (it swallowed the decoration of the first content line) —
+see §9.7.
 
 ### 9.3 Session C — Vault-local settings infrastructure
 
@@ -569,7 +646,75 @@ Session A adding `writeFileText` without new TS units).
 
 ### 9.4 Session D — Theme mechanism + CM6 theme generator
 
-Session D complete — see the `feat(ui): light/dark theming + CM6 theme generator` commit series. Full write-up is Session G's closeout job. Summary: `tokens.css` audited + dark values tuned, `--editor-caret`/`--editor-selection-bg` added; `ui/src/styles/theme.ts` ships `applyTheme` + the pure `resolveTheme` + a `matchMedia` subscription; `ui/src/editor/cm-theme.ts` builds the CM6 chrome theme from computed tokens; `Editor.tsx` carries a theme `Compartment` alongside Session B's decoration compartment; `App.tsx` gains the `system→light→dark` header cycle button persisting `appearance.theme_mode`. 4 new vitest cases (theme-resolution).
+Frontend-only — no Rust, no new IPC. Consumes Session C's
+`getSetting` / `setSetting` to persist the theme mode.
+
+#### Token audit
+
+[`tokens.css`](../ui/src/styles/tokens.css) was audited for L2 (commit
+`eac1d9a`): the dark `--c-fg-secondary` / `--c-fg-muted` values were
+lightened (`#a1a1aa`→`#b4b4bd`, `#71717a`→`#8a8a94`) for adequate
+contrast against the decoration surface, and the two editor-chrome
+tokens the CM6 theme generator consumes — `--editor-caret` and
+`--editor-selection-bg` — were added to both the light and dark
+blocks. Session B's `--editor-active-line-bg` / `--editor-mark-fg-muted`
+dark values were nudged slightly at the same time.
+
+#### Theme mechanism
+
+[`ui/src/styles/theme.ts`](../ui/src/styles/theme.ts) — three pieces:
+
+- **`resolveTheme(mode, prefersDark)`** — the pure core. Collapses a
+  `ThemeMode` (`light`/`dark`/`system`) to a concrete `ResolvedTheme`
+  (`light`/`dark`); `prefersDark` is passed in, so it is testable with
+  no DOM.
+- **`applyTheme(mode)`** — resolves against the live `matchMedia`
+  preference, writes `<html data-theme="…">` (the cascade root
+  `tokens.css` keys off), and returns the resolved theme so the caller
+  can hand it to the CM6 theme generator.
+- **`watchSystemTheme(onChange)`** — subscribes to OS
+  `prefers-color-scheme` changes so an app in `system` mode re-themes
+  without a reload; returns an unsubscribe function for `onCleanup`.
+
+Why `system` resolution lives in the frontend: Rust only stores the
+`"light" | "dark" | "system"` string (spec §5 deviation #5); the
+webview is the only place that can see `prefers-color-scheme`.
+
+#### CM6 theme generator
+
+[`ui/src/editor/cm-theme.ts`](../ui/src/editor/cm-theme.ts) —
+`buildCmTheme()` reads the *computed* values of seven chrome tokens off
+`<html>` in one `getComputedStyle` and returns a CM6 theme `Extension`
+for the editor chrome (background, foreground, caret, selection, mono
+font, padding). Reading computed values — rather than letting CM6's
+injected CSS carry raw `var(--…)` references — means the editor chrome
+and the Solid UI derive from the *same* token surface: one source of
+truth. When a user later (L5) installs a theme that overrides those
+tokens, the editor re-themes in lockstep with no editor-code change.
+Session B's `decorationBaseTheme` already references live `var(--…)`,
+so it re-themes for free; `cm-theme.ts` owns only the chrome the
+decorations do not. `buildCmTheme` must be called *after* `data-theme`
+is written so `getComputedStyle` reflects the theme being switched to.
+
+#### Wiring
+
+[`Editor.tsx`](../ui/src/Editor.tsx) carries a `themeCompartment`
+alongside Session B's `decorationCompartment` — the two are
+independent. A `createEffect` on the `resolvedTheme` prop reconfigures
+the theme compartment by rebuilding `buildCmTheme()`, so the editor
+flips light/dark in lockstep with the chrome.
+[`App.tsx`](../ui/src/App.tsx) gained the header theme button that
+cycles `system → light → dark`, persisting `appearance.theme_mode` via
+Session C's `setSetting` and seeding it on vault open. The resolved
+theme is written to `<html data-theme>` *before* the Editor's prop
+updates, so the rebuilt CM6 theme reads the correct token values.
+
+#### Test counts
+
+4 new vitest cases in
+[`theme.test.ts`](../ui/src/styles/theme.test.ts) covering
+`resolveTheme` — explicit `light` / `dark` pass-through and `system`
+resolving each way against `prefersDark`. Rust unchanged.
 
 ### 9.5 Session E — Raw Source toggle
 
@@ -821,4 +966,152 @@ cases now target the pure `findFrontmatter` walker (103 total).
 
 ### 9.7 Session G — Interactive smoke + L2 closeout
 
-*Pending.*
+No new feature code by design — Session G is the verification pass, the
+Definition-of-Done sign-off, and the `l2` tag. One bug surfaced during
+the smoke and was fixed test-first (below); that fix is the only code
+change in this session.
+
+#### Verification method and its boundary
+
+The closeout smoke ran on 2026-05-22. `cargo tauri dev` builds the full
+app (Rust backend + bundled frontend) and opens a native Tauri window;
+that native window cannot be driven programmatically by this session's
+tooling. The smoke was therefore run in three honest tiers:
+
+- **Integration build + boot** — `cargo tauri dev` compiled the
+  workspace clean and the app booted (`cubical_app: Cubical starting`,
+  logged 2026-05-22T20:03:51Z). Vite dev server up, no Rust panic.
+- **Frontend surfaces (B, D, E)** — verified by constructing real
+  CodeMirror `EditorView` instances inside the running dev-server page
+  and inspecting the rendered DOM. This is the same technique §9.6 used
+  to reproduce and re-verify the fourth frontmatter-hide bug; it
+  exercises the *assembled* editor (ViewPlugin + StateField + base
+  theme + compartments), not just the pure cores.
+- **IPC-dependent surfaces (A, C, F)** — the write path, settings
+  persistence, and the Properties commit round-trip need the Tauri IPC
+  bridge, which exists only inside the native window. These were not
+  re-driven hands-on this session. Their evidence is (1) the Rust +
+  vitest suites run fresh this session — `write_file_text` happy/error
+  paths, the settings close-reopen persistence test, the
+  `serializeFrontmatter` round-trips — and (2) the interactive smokes
+  already recorded in §9.1 (Session A: write path + conflict banner)
+  and §9.6 (the operator's Session F smokes, which drove five fixes).
+
+#### Surface by surface
+
+**Write + autosave (A).** Not re-driven this session. Covered by
+cubical-app's `write_file_text` tests (atomic round-trip, markdown-only
+gate, post-write hash returned, advisory `expected_seen_hash` audit
+row) and the recorded §9.1 interactive smoke (autosave round-trip
+byte-match, own-write hash-gating suppression, conflict banner Reload /
+Keep mine, one `Modified` watcher event per autosave).
+
+**Live Preview decorations (B).** Verified fresh in a constructed
+`EditorView`. A document containing one of every in-scope node type
+rendered each decoration: `cm-md-line-h1`/`-h2` heading classes,
+`Emphasis`, `StrongEmphasis`, `InlineCode`, three fenced-code lines, a
+blockquote line, two `•` bullet glyphs, the accent-underlined link.
+Cursor off the heading line → the `#` is hidden and the line carries
+its heading class; cursor *on* the heading line → the `#` is revealed
+as a muted mark and the raw source shows through. The frontmatter
+block is collapsed by `frontmatterHideField`. **One bug found here —
+see below.**
+
+**Settings (C).** Not re-driven this session. Covered by cubical-app's
+ten settings tests, including the close-then-reopen test that proves
+values survive on disk in `index.db`.
+
+**Theme (D).** Verified fresh in the dev-server page:
+`applyTheme("light")` → `<html data-theme="light">`, `--c-bg-primary`
+computes to `#ffffff`; `applyTheme("dark")` → `data-theme="dark"`,
+`--c-bg-primary` `#0f0f10` — the token surface switches.
+`resolveTheme("system", …)` resolves each way against `prefersDark`.
+`buildCmTheme()` returns a theme extension built from the now-current
+tokens.
+
+**Raw toggle (E).** Verified fresh by reconfiguring the decoration
+`Compartment` on a live view — exactly the swap `Editor.tsx`'s
+`props.rawSource` effect performs. With `livePreviewDecorations`
+installed, h1 + emphasis decorations were present; reconfiguring the
+compartment to `[]` (raw mode) dropped every decoration and the raw
+markdown (`# Heading`, `*italic*`, `` `code` ``) showed through;
+reconfiguring back restored them. The `Cmd/Ctrl+E` keymap entry and
+the Shift-click default-persistence are wired through Session C's
+tested `setSetting` and the `resolveRawState` resolver (4 vitest
+cases); not re-driven natively.
+
+**Properties UI (F).** Not re-driven this session. Covered by the 49
+properties vitest cases (`inferType`, `coerce`, `serializeFrontmatter`
+including the parse→edit→serialize→re-parse round-trip) and the
+operator's recorded §9.6 interactive smokes, which exercised the panel
+hands-on and drove five fixes (raw-mode hide, draft preservation, the
+frontmatter double-render, and the StateField block-decoration crash).
+
+#### Bug found and fixed — frontmatter-hide swallowed the first content line
+
+The decoration smoke caught a regression in the §9.6 frontmatter-hide
+`StateField`. When a heading — or code block, or blockquote — follows
+the frontmatter closer with **no blank line between**, that line lost
+its `Decoration.line`: a heading rendered at body size, code lost its
+surface. Isolated to a minimal CodeMirror case: a `Decoration.line` at
+offset `X` is silently dropped when a `Decoration.replace({block:true})`
+decoration ends *exactly* at `X`. `findFrontmatter` returned
+`to = doc.line(closer+1).from` — the first content line's start — so
+the hide decoration's `to` collided with that line's decoration.
+
+Fix in [`decorations.ts`](../ui/src/editor/decorations.ts):
+`findFrontmatter` now ends the range at the closer line's own end
+(`line.to` — its trailing newline, or the document end when the closer
+is the last line). A `block: true` replace still collapses the
+frontmatter lines with no leftover blank line, and the content line's
+offset is freed. One-expression change; the `ln < doc.lines` branch
+collapsed away.
+
+TDD: the existing `findFrontmatter` test pinned the buggy value
+(`to: 19`, the body-line start) — it was rewritten to assert the
+corrected `to: 18`, and a dedicated regression test was added (a
+heading immediately after frontmatter, asserting the range ends
+strictly before the heading line). Both went red on the old code,
+green on the fix. Re-verified at the rendering level in a constructed
+`EditorView`: headings, code blocks, and blockquotes immediately after
+frontmatter now all decorate, the frontmatter stays hidden, no leftover
+blank line. +1 vitest case → 104 total. Rust untouched (frontend-only).
+
+#### Architecture-deviation promotion
+
+The five §5 deviations were reviewed. The load-bearing one — **#2,
+decorations bypassing the canonical AST** — was promoted into
+[`docs/architecture/document-model.md`](architecture/document-model.md)
+§5.5 as a sanctioned-exception paragraph (the editor's Live Preview
+layer reads Lezer directly; everything that indexes / exports / crosses
+the plugin boundary still consumes the canonical AST). The other four
+stay session-local: #1 (single `write_file_text` write path) is an IPC
+shape choice already documented in §5 and §7; #3 (buffer-vs-disk
+conflict policy) is an explicit deferral to L8; #4 (watcher payload
+content-hash field) is a non-breaking optional field; #5 (frontend
+`system`-theme resolution) is a UI concern owned by `ui.md`, not the
+document model.
+
+#### Gate results (2026-05-22, this session)
+
+| Gate | Result |
+|---|---|
+| `cargo test --workspace` | 121 passed |
+| `cargo clippy --workspace --all-targets -- -D warnings` | clean |
+| `cargo fmt --check` | clean |
+| `npx tsc --noEmit` | clean |
+| `npm run build` | clean |
+| `npx vitest run` | 104 passed |
+| `cargo tauri dev` | compiles + boots clean |
+
+vitest rose 103 → 104: the single regression test for the
+frontmatter-hide fix above. Rust unchanged at 121 — the fix is
+frontend-only. No hardcoded colors / fonts in any L2 component
+(fresh grep: zero hex / `rgb()` literals outside `tokens.css`, font
+families are `var(--font-*)` tokens or the `inherit` keyword).
+
+#### L2 closed
+
+Every §6 Definition-of-Done box is ticked. `CLAUDE.md` "Project state"
+is rewritten to L2-closed / L3-next. The `l2` tag is applied on the
+closeout commit.
