@@ -1,6 +1,6 @@
 -- Layer 1 frontmatter table. See docs/layer-0-spec.md §7 ("frontmatter
 -- (parsed YAML keys for Dataview-style queries) — Layer 1") and
--- docs/architecture.md §5.1.
+-- docs/architecture/document-model.md §5.1.
 --
 -- Holds the parsed frontmatter of every tracked file as (key, value)
 -- pairs. `value` is JSON-encoded so the column shape is stable
