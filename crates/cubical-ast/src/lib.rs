@@ -107,6 +107,56 @@ mod tests {
     /// were tuple variants on an internally tagged enum — a shape
     /// `serde_json` panics on at serialization time.
     #[test]
+    fn wikilink_in_paragraph_is_extracted() {
+        use crate::types::{Block, Inline};
+        let doc = parse("see [[Other Note]] for more\n");
+        assert_eq!(doc.blocks.len(), 1);
+        let Block::Paragraph { inlines, .. } = &doc.blocks[0] else {
+            panic!("expected paragraph, got {:?}", doc.blocks[0]);
+        };
+        assert_eq!(inlines.len(), 3);
+        assert!(matches!(&inlines[0], Inline::Text { value } if value == "see "));
+        assert!(matches!(
+            &inlines[1],
+            Inline::WikiLink { target, display: None, anchor: None, embed: false }
+                if target == "Other Note"
+        ));
+        assert!(matches!(&inlines[2], Inline::Text { value } if value == " for more"));
+    }
+
+    #[test]
+    fn embed_wikilink_in_paragraph() {
+        use crate::types::{Block, Inline};
+        let doc = parse("![[diagram]]\n");
+        let Block::Paragraph { inlines, .. } = &doc.blocks[0] else {
+            panic!("expected paragraph")
+        };
+        assert_eq!(inlines.len(), 1);
+        assert!(matches!(&inlines[0], Inline::WikiLink { embed: true, .. }));
+    }
+
+    #[test]
+    fn inline_code_text_is_not_scanned_for_wikilinks() {
+        use crate::types::{Block, Inline};
+        let doc = parse("see `[[not a link]]` here\n");
+        let Block::Paragraph { inlines, .. } = &doc.blocks[0] else {
+            panic!("expected paragraph")
+        };
+        assert!(
+            inlines
+                .iter()
+                .any(|n| matches!(n, Inline::Code { value } if value == "[[not a link]]")),
+            "code span content must be preserved: {:?}",
+            inlines
+        );
+        assert!(
+            !inlines.iter().any(|n| matches!(n, Inline::WikiLink { .. })),
+            "no WikiLink should be produced from inline-code content: {:?}",
+            inlines
+        );
+    }
+
+    #[test]
     fn wikilink_round_trips_through_serde_json() {
         use crate::types::{Anchor, Inline};
         let wl = Inline::WikiLink {
