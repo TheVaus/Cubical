@@ -397,5 +397,149 @@
       "frontmatter": null,
       "source_len": 33
     }
+  },
+  {
+    "name": "wikilink_simple",
+    "input": "see [[note]] for context\n",
+    "expected": {
+      "blocks": [
+        {
+          "inlines": [
+            {
+              "kind": "text",
+              "value": "see "
+            },
+            {
+              "anchor": null,
+              "display": null,
+              "embed": false,
+              "kind": "wiki_link",
+              "target": "note"
+            },
+            {
+              "kind": "text",
+              "value": " for context"
+            }
+          ],
+          "kind": "paragraph",
+          "span": {
+            "end": 25,
+            "start": 0
+          }
+        }
+      ],
+      "frontmatter": null,
+      "source_len": 25
+    }
+  },
+  {
+    "name": "wikilink_with_display",
+    "input": "[[note|see here]]\n",
+    "expected": {
+      "blocks": [
+        {
+          "inlines": [
+            {
+              "anchor": null,
+              "display": "see here",
+              "embed": false,
+              "kind": "wiki_link",
+              "target": "note"
+            }
+          ],
+          "kind": "paragraph",
+          "span": {
+            "end": 18,
+            "start": 0
+          }
+        }
+      ],
+      "frontmatter": null,
+      "source_len": 18
+    }
+  },
+  {
+    "name": "wikilink_heading_anchor",
+    "input": "[[note#heading]]\n",
+    "expected": {
+      "blocks": [
+        {
+          "inlines": [
+            {
+              "anchor": {
+                "kind": "heading",
+                "value": "heading"
+              },
+              "display": null,
+              "embed": false,
+              "kind": "wiki_link",
+              "target": "note"
+            }
+          ],
+          "kind": "paragraph",
+          "span": {
+            "end": 17,
+            "start": 0
+          }
+        }
+      ],
+      "frontmatter": null,
+      "source_len": 17
+    }
+  },
+  {
+    "name": "wikilink_block_anchor_with_display",
+    "input": "[[note#^intro|see intro]]\n",
+    "expected": {
+      "blocks": [
+        {
+          "inlines": [
+            {
+              "anchor": {
+                "kind": "block",
+                "value": "intro"
+              },
+              "display": "see intro",
+              "embed": false,
+              "kind": "wiki_link",
+              "target": "note"
+            }
+          ],
+          "kind": "paragraph",
+          "span": {
+            "end": 26,
+            "start": 0
+          }
+        }
+      ],
+      "frontmatter": null,
+      "source_len": 26
+    }
+  },
+  {
+    "name": "wikilink_embed",
+    "input": "![[diagram]]\n",
+    "expected": {
+      "blocks": [
+        {
+          "inlines": [
+            {
+              "anchor": null,
+              "display": null,
+              "embed": true,
+              "kind": "wiki_link",
+              "target": "diagram"
+            }
+          ],
+          "kind": "paragraph",
+          "span": {
+            "end": 13,
+            "start": 0
+          }
+        }
+      ],
+      "frontmatter": null,
+      "source_len": 13
+    }
   }
 ]
