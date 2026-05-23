@@ -174,7 +174,7 @@ ui/src/
 
 Modified: `ui/src/editor/decorations.ts` (wiki-link + tag decorations), `ui/src/Editor.tsx`, `ui/src/App.tsx` (sidebar slot, tag-page route, navigation), `ui/src/ast/normalize.ts` (parity for the new nodes), `ui/src/api/ipc.ts` (new commands + events).
 
-New Rust: **incremental `crates/cubical-index` migrations** — each table-introducing session ships its own (`002` `links` in Session A, then further numbered migrations as `tags`, `blocks` / `block_refs`, and `pending_rewrites` land in D, G, J) plus query modules; link/tag extraction in `crates/cubical-core`; the wiki-link/tag parser rules in `crates/cubical-ast`; the §3 commands in `crates/cubical-app`. No new crates; the crate dependency graph is unchanged.
+New Rust: **incremental `crates/cubical-index` migrations** — each table-introducing session ships its own. `001_initial.sql` and `002_frontmatter.sql` already exist (L0 and L1); L3's first migration is `003` for `links` in Session A, then further numbered migrations as `tags`, `blocks` / `block_refs`, and `pending_rewrites` land in D, G, J. Plus query modules; link/tag extraction in `crates/cubical-core`; the wiki-link/tag parser rules in `crates/cubical-ast`; the §3 commands in `crates/cubical-app`. No new crates; the crate dependency graph is unchanged.
 
 ---
 
@@ -229,7 +229,7 @@ Eleven sessions, dependency-ordered. One feature surface per session; each is in
 
 ### Session A — Wiki-link parsing + link index
 
-- **Scope:** extend the Rust `cubical-ast` parser to emit `WikiLink` nodes for every wiki-link form incl. `![[…]]`; TS normalizer parity; the `links` table via the first L3 migration (`002`); link extraction during vault scan and on file-change; link resolution (§2.1); the `resolve_link` IPC.
+- **Scope:** extend the Rust `cubical-ast` parser to emit `WikiLink` nodes for every wiki-link form incl. `![[…]]`; TS normalizer parity; the `links` table via the first L3 migration (`003_links.sql` — `002_frontmatter.sql` already exists from L1); link extraction during vault scan and on file-change; link resolution (§2.1); the `resolve_link` IPC.
 - **Key files:** `crates/cubical-ast/*`, `crates/cubical-index/` (migration + queries), `crates/cubical-core/src/vault/{scan,watcher}.rs`, `crates/cubical-app/src/{api/types.rs,commands,lib.rs}`, `ui/src/ast/normalize.ts`.
 - **DoD:** parse fixtures cover every form; `parity_fixtures` green; `links` rows created on scan and updated on edit; `resolve_link` handles exact / case-insensitive / suffix matches; unresolved → `NULL`.
 - **Prereqs:** L2 closed.
