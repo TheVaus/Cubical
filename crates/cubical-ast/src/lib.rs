@@ -34,6 +34,7 @@ mod error;
 mod frontmatter;
 mod normalize;
 mod types;
+mod wikilink;
 
 pub use error::AstError;
 pub use frontmatter::split_frontmatter;
