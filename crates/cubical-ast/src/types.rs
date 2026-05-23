@@ -142,6 +142,23 @@ pub struct ListItem {
     pub span: Span,
 }
 
+/// A wiki-link anchor: a heading reference or a block-id reference.
+/// `^block` distinguishes block from heading at parse time.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Anchor {
+    /// `[[note#heading]]`.
+    Heading {
+        /// The heading text after `#`, trimmed.
+        value: String,
+    },
+    /// `[[note#^block-id]]`.
+    Block {
+        /// The block id after `#^`, trimmed.
+        value: String,
+    },
+}
+
 /// An inline-level AST node. Inlines do not carry spans in L1.
 ///
 /// All variants are struct-shaped (named fields) rather than tuple
@@ -198,4 +215,21 @@ pub enum Inline {
     /// Soft breaks are not represented — they fold into the
     /// surrounding [`Inline::Text`].
     LineBreak,
+    /// `[[target]]` / `[[target|display]]` / `[[target#heading]]` /
+    /// `[[target#^block-id]]`, optionally prefixed `!` for an embed
+    /// (`![[…]]`). Recognised by L3 — until L3 the parser emits these
+    /// runs as `Inline::Text`. See `docs/layer-3-spec.md` §2.1 and
+    /// `docs/architecture/document-model.md` §5.2.
+    WikiLink {
+        /// The bracketed target as written, with surrounding whitespace
+        /// trimmed. Resolved to a vault path through the libSQL `links`
+        /// index — not by this AST node.
+        target: String,
+        /// The optional `|display` text.
+        display: Option<String>,
+        /// The optional `#heading` or `#^block-id` anchor.
+        anchor: Option<Anchor>,
+        /// `true` when the link was written `![[…]]` (an embed).
+        embed: bool,
+    },
 }

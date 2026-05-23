@@ -37,7 +37,7 @@ mod types;
 
 pub use error::AstError;
 pub use frontmatter::split_frontmatter;
-pub use types::{Block, Document, Frontmatter, Inline, ListItem, Span};
+pub use types::{Anchor, Block, Document, Frontmatter, Inline, ListItem, Span};
 
 /// Parse `source` into a canonical [`Document`].
 ///
@@ -105,6 +105,22 @@ mod tests {
     /// against a regression where `Inline::Text` / `Inline::Code`
     /// were tuple variants on an internally tagged enum — a shape
     /// `serde_json` panics on at serialization time.
+    #[test]
+    fn wikilink_round_trips_through_serde_json() {
+        use crate::types::{Anchor, Inline};
+        let wl = Inline::WikiLink {
+            target: "Some Note".into(),
+            display: Some("see here".into()),
+            anchor: Some(Anchor::Block { value: "intro".into() }),
+            embed: false,
+        };
+        let s = serde_json::to_string(&wl).expect("serialize");
+        let back: Inline = serde_json::from_str(&s).expect("deserialize");
+        assert_eq!(wl, back);
+        // Wire shape must be tagged with kind="wiki_link".
+        assert!(s.contains("\"kind\":\"wiki_link\""));
+    }
+
     #[test]
     fn document_round_trips_through_serde_json() {
         let src = "---\ntitle: x\n---\n\n# Heading `code` *emph*\n\n[label](u) ![alt](p)\n";

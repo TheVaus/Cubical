@@ -78,6 +78,14 @@ export interface ListItem {
   span: Span;
 }
 
+/**
+ * Wiki-link anchor — a heading reference or a block-id reference.
+ * The `kind` discriminator mirrors `cubical_ast::Anchor`.
+ */
+export type Anchor =
+  | { kind: "heading"; value: string }
+  | { kind: "block"; value: string };
+
 /** Inline-level AST node. Discriminated on `kind`. */
 export type Inline =
   | { kind: "text"; value: string }
@@ -86,4 +94,11 @@ export type Inline =
   | { kind: "code"; value: string }
   | { kind: "link"; dest: string; title: string | null; children: Inline[] }
   | { kind: "image"; dest: string; title: string | null; alt: Inline[] }
-  | { kind: "line_break" };
+  | { kind: "line_break" }
+  | {
+      kind: "wiki_link";
+      target: string;
+      display: string | null;
+      anchor: Anchor | null;
+      embed: boolean;
+    };

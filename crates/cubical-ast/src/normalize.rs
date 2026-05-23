@@ -627,6 +627,7 @@ mod tests {
                 Inline::Link { .. } => "link",
                 Inline::Image { .. } => "image",
                 Inline::LineBreak => "break",
+                Inline::WikiLink { .. } => "wiki_link",
             })
             .collect();
         assert!(kinds.contains(&"emph"));
