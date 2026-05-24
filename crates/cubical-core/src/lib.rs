@@ -18,6 +18,6 @@ pub use file_type::{
     MarkdownHandler,
 };
 pub use vault::{
-    atomic_write, refresh_frontmatter, scan, start_watcher, ScanProgress, Vault, VaultError,
-    WatchEvent, WatcherHandle,
+    atomic_write, refresh_frontmatter, refresh_links, scan, start_watcher, ScanProgress, Vault,
+    VaultError, WatchEvent, WatcherHandle,
 };

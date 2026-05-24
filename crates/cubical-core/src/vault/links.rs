@@ -1,11 +1,23 @@
-//! Extract wiki-link occurrences from a parsed `cubical_ast::Document`.
+//! Extract wiki-link occurrences from a parsed `cubical_ast::Document`
+//! and refresh the libSQL `links` index for a single file.
 //!
-//! Pure: takes only the parsed document; emits one `LinkExtraction`
-//! per `Inline::WikiLink` in source order. Resolution to a vault path
-//! happens in the caller (the scan/watcher pipeline), which has the
-//! file-list context the extractor lacks.
+//! [`extract_links`] is the pure walker — `Document` in, `Vec<LinkExtraction>`
+//! out, no I/O. [`resolve_target`] is the pure resolver — wiki-link
+//! target string + known file list in, vault-relative path out (or `None`).
+//! [`refresh_links`] is the side-effecting helper that the scan + watcher
+//! write paths call after they UPSERT the matching `files` row — it parses
+//! the markdown off the runtime, runs `extract_links`, resolves each
+//! occurrence against the live `files.path` set, and atomically replaces
+//! the file's rows in the `links` table. The shape and resilience policy
+//! mirror `refresh_frontmatter` (delete-then-insert, errors logged at the
+//! caller).
 
-use cubical_ast::{Anchor, Block, Document, Inline, ListItem};
+use std::path::Path;
+
+use cubical_ast::{parse, Anchor, Block, Document, Inline, ListItem};
+use cubical_index::{replace_links_for_file, LinkRow};
+
+use crate::vault::Vault;
 
 /// One wiki-link occurrence extracted from a `Document`.
 #[derive(Debug, Clone, PartialEq)]
@@ -137,10 +149,119 @@ pub fn resolve_target(target_raw: &str, files: &[String]) -> Option<String> {
     None
 }
 
+/// Parse `abs_path`'s markdown, extract wiki-links, resolve each one
+/// against the current `files.path` snapshot, and replace this file's
+/// rows in the `links` table.
+///
+/// `rel_path_str` is the path key used in `files.path` and
+/// `links.source_path`. The caller is responsible for ensuring the
+/// matching `files` row exists before this is invoked so the FK has a
+/// parent to point at.
+///
+/// On read or parse failure, the file's link rows are wiped (treated
+/// as "no wiki-links") rather than left stale. SQL errors propagate so
+/// the caller can decide whether to retry; the scan + watcher write
+/// paths log and continue, mirroring `refresh_frontmatter`.
+pub async fn refresh_links(
+    vault: &Vault,
+    abs_path: &Path,
+    rel_path_str: &str,
+) -> Result<u32, libsql::Error> {
+    let extractions = match parse_off_executor(abs_path).await {
+        Some(doc) => extract_links(&doc),
+        None => Vec::new(),
+    };
+
+    let files = list_known_paths(vault).await?;
+    let rows: Vec<LinkRow> = extractions
+        .into_iter()
+        .map(|e| {
+            let target_path = resolve_target(&e.target_raw, &files);
+            let (anchor_kind, anchor_value) = match e.anchor {
+                Some(Anchor::Heading { value }) => (Some("heading".to_string()), Some(value)),
+                Some(Anchor::Block { value }) => (Some("block".to_string()), Some(value)),
+                None => (None, None),
+            };
+            LinkRow {
+                target_raw: e.target_raw,
+                target_path,
+                anchor_kind,
+                anchor_value,
+                display_text: e.display,
+                is_embed: e.is_embed,
+                position: e.position,
+            }
+        })
+        .collect();
+
+    let inserted = rows.len() as u32;
+    replace_links_for_file(vault.index(), rel_path_str, &rows)
+        .await
+        .map_err(map_index_err)?;
+    Ok(inserted)
+}
+
+/// Snapshot the current `files.path` column. The list is sorted so
+/// resolution behaviour is deterministic regardless of insertion order.
+async fn list_known_paths(vault: &Vault) -> Result<Vec<String>, libsql::Error> {
+    let mut rows = vault
+        .index()
+        .connection()
+        .query("SELECT path FROM files ORDER BY path", ())
+        .await?;
+    let mut out = Vec::new();
+    while let Some(row) = rows.next().await? {
+        let s: String = row.get(0)?;
+        out.push(s);
+    }
+    Ok(out)
+}
+
+/// Read + parse the file off the runtime. Returns `None` if the file
+/// can't be read — every failure is logged at `debug` / `warn` and
+/// treated as "no wiki-links to record" (the existing rows are wiped
+/// by [`refresh_links`]). Mirrors the policy in
+/// `vault::frontmatter::parse_off_executor`.
+async fn parse_off_executor(abs_path: &Path) -> Option<Document> {
+    let path_buf = abs_path.to_path_buf();
+    let result = tokio::task::spawn_blocking(move || {
+        let bytes = match std::fs::read(&path_buf) {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::debug!(path = %path_buf.display(), error = %e, "links: read failed");
+                return None;
+            }
+        };
+        let source = String::from_utf8_lossy(&bytes).into_owned();
+        Some(parse(&source))
+    })
+    .await;
+    match result {
+        Ok(doc) => doc,
+        Err(join_err) => {
+            tracing::warn!(path = %abs_path.display(), error = %join_err, "links: parse task join failed");
+            None
+        }
+    }
+}
+
+/// Translate a `cubical_index::IndexError` into a `libsql::Error` so the
+/// scan + watcher write paths can keep treating index failures the same
+/// way they treat any other libSQL error.
+fn map_index_err(e: cubical_index::IndexError) -> libsql::Error {
+    match e {
+        cubical_index::IndexError::LibSql(inner) => inner,
+        // Other variants don't surface on the link-refresh hot path
+        // (no SchemaTooNew once the runner has finished, no I/O error
+        // — the connection is already open). Fall through to a libSQL
+        // misuse error to keep the signature uniform.
+        other => libsql::Error::Misuse(other.to_string()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cubical_ast::parse;
 
     #[test]
     fn extracts_simple_wikilink() {

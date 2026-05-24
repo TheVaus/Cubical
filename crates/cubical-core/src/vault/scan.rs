@@ -17,7 +17,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use walkdir::WalkDir;
 
-use crate::vault::{frontmatter::refresh_frontmatter, Vault, VaultError};
+use crate::vault::{frontmatter::refresh_frontmatter, links::refresh_links, Vault, VaultError};
 
 /// Number of files persisted per index transaction.
 ///
@@ -212,6 +212,12 @@ pub async fn scan(
         if type_id == "markdown" {
             if let Err(e) = refresh_frontmatter(&vault, &abs_path, &path_str).await {
                 tracing::warn!(path = %abs_path.display(), error = %e, "frontmatter refresh failed");
+            }
+            // L3: refresh the `links` rows. Same resilience policy as
+            // frontmatter — log and continue on failure so one bad file
+            // doesn't abort the scan.
+            if let Err(e) = refresh_links(&vault, &abs_path, &path_str).await {
+                tracing::warn!(path = %abs_path.display(), error = %e, "links refresh failed");
             }
         }
 
@@ -702,5 +708,34 @@ mod tests {
         // On Unix this is Some(_); on other platforms Null. Both are valid.
         let v = row.get_value(0).unwrap();
         assert!(matches!(v, Value::Integer(_) | Value::Null));
+    }
+
+    #[tokio::test]
+    async fn scan_populates_links_table_and_resolves_targets() {
+        use cubical_index::links_from;
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join("a.md"),
+            "see [[b]] for more and [[c]] too\n",
+        )
+        .unwrap();
+        fs::write(dir.path().join("b.md"), "body\n").unwrap();
+        // c.md intentionally missing so we can prove the unresolved row
+        // still lands with target_path = NULL.
+        let vault = Vault::open(dir.path()).await.expect("open");
+
+        let (tx, _rx) = mpsc::channel::<ScanProgress>(64);
+        let cancel = CancellationToken::new();
+        scan(vault.clone(), cancel, tx).await.expect("scan");
+
+        let rows = links_from(vault.index(), "a.md").await.expect("query");
+        assert_eq!(rows.len(), 2);
+        // Resolved match for b.md.
+        let to_b = rows.iter().find(|r| r.target_raw == "b").expect("b row");
+        assert_eq!(to_b.target_path.as_deref(), Some("b.md"));
+        // Unresolved row for missing c — kept with NULL target_path so a
+        // future scan / rename can re-resolve it.
+        let to_c = rows.iter().find(|r| r.target_raw == "c").expect("c row");
+        assert!(to_c.target_path.is_none());
     }
 }

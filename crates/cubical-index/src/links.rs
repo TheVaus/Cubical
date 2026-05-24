@@ -38,23 +38,29 @@ pub struct LinkRow {
 
 /// Replace the entire set of link rows for `source_path`.
 ///
-/// Atomic per file: deletes the old rows then inserts the new ones in a
-/// single transaction so a reader never sees a half-updated set.
-/// `rows` may be empty — in that case the call simply clears the file's
-/// link rows.
+/// "Delete-then-insert" semantics keyed on `source_path`: any prior
+/// rows for the file are removed, then `rows` is inserted in order.
+/// `rows` may be empty — in that case the call simply clears the
+/// file's link rows.
+///
+/// The DELETE and INSERTs are not wrapped in their own transaction —
+/// they execute directly on the caller's connection so they participate
+/// in any outer transaction the caller has open (the scan + watcher
+/// hot paths run them inside a per-batch tx for atomicity). This
+/// mirrors `cubical_core::vault::refresh_frontmatter`.
 pub async fn replace_links_for_file(
     conn: &IndexConn,
     source_path: &str,
     rows: &[LinkRow],
 ) -> Result<(), IndexError> {
-    let tx = conn.connection().transaction().await?;
-    tx.execute(
+    let c = conn.connection();
+    c.execute(
         "DELETE FROM links WHERE source_path = ?1",
         params![source_path],
     )
     .await?;
     for r in rows {
-        tx.execute(
+        c.execute(
             "INSERT INTO links \
              (source_path, target_raw, target_path, anchor_kind, anchor_value, \
               display_text, is_embed, position) \
@@ -72,7 +78,6 @@ pub async fn replace_links_for_file(
         )
         .await?;
     }
-    tx.commit().await?;
     Ok(())
 }
 

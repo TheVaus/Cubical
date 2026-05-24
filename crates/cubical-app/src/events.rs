@@ -14,7 +14,9 @@ use serde::Serialize;
 use tauri::Emitter;
 use tokio::sync::{mpsc, RwLock};
 
-use cubical_core::{refresh_frontmatter, scan, ScanProgress, Vault, VaultError, WatchEvent};
+use cubical_core::{
+    refresh_frontmatter, refresh_links, scan, ScanProgress, Vault, VaultError, WatchEvent,
+};
 use libsql::params;
 use tokio_util::sync::CancellationToken;
 
@@ -374,6 +376,16 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) -> O
             if type_id == "markdown" {
                 if let Err(e) = refresh_frontmatter(vault, &abs, &path_str).await {
                     tracing::warn!(path = %path_str, error = %e, "watcher: frontmatter refresh failed");
+                }
+                // L3: refresh `links` rows. Best effort — same policy
+                // as frontmatter; a read or SQL failure must not take
+                // the dispatcher down. Removed/Renamed events skip:
+                // `Removed` leaves the row alone (FK cascade will fire
+                // when the eventual cleanup-rewrite session ships);
+                // `Renamed` is handled by the future pending-rewrites
+                // work along with the rest of the rename pipeline.
+                if let Err(e) = refresh_links(vault, &abs, &path_str).await {
+                    tracing::warn!(path = %path_str, error = %e, "watcher: links refresh failed");
                 }
             }
 
