@@ -13,7 +13,7 @@
  * configures for the editor) so node names match exactly.
  */
 import { describe, expect, it } from "vitest";
-import { parser } from "@lezer/markdown";
+import { parser as defaultParser } from "@lezer/markdown";
 import { Text } from "@codemirror/state";
 
 import {
@@ -22,11 +22,19 @@ import {
   type DecoEntry,
   type DecoKind,
 } from "./decorations";
+import { wikilinkExtension } from "./wikilink";
+import type { WikiLinkResolution } from "./wikilinkResolver";
 
-function run(src: string, activeLine: number): DecoEntry[] {
+const parser = defaultParser.configure([wikilinkExtension]);
+
+function run(
+  src: string,
+  activeLine: number,
+  resolverLookup?: (targetRaw: string) => WikiLinkResolution | undefined,
+): DecoEntry[] {
   const tree = parser.parse(src);
   const doc = Text.of(src.split("\n"));
-  return collectDecorations(tree, doc, activeLine);
+  return collectDecorations(tree, doc, activeLine, resolverLookup);
 }
 
 function kinds(entries: DecoEntry[]): DecoKind[] {
@@ -164,13 +172,104 @@ describe("collectDecorations — links", () => {
 });
 
 describe("collectDecorations — out of scope nodes stay raw", () => {
-  it("leaves images, wiki-links, thematic breaks and tags undecorated", () => {
-    const src =
-      "![alt](http://x)\n\n[[WikiPage]]\n\n---\n\n#tag is not a heading\n\nend";
-    const entries = run(src, 9);
-    // The only decoration for an all-out-of-scope document is the
-    // active-line background.
+  it("leaves images, thematic breaks and tags undecorated", () => {
+    // Wiki-links used to live here too (L2). They were promoted to a
+    // decorated node in L3 Session B; see the wiki-link describe block
+    // below for the new contract.
+    const src = "![alt](http://x)\n\n---\n\n#tag is not a heading\n\nend";
+    const entries = run(src, 7);
     expect(kinds(entries)).toEqual(["line-active"]);
+  });
+});
+
+describe("collectDecorations — wiki-links (L3 Session B)", () => {
+  const resolvedAll: (t: string) => WikiLinkResolution = () => ({
+    target_path: "note.md",
+    anchor: null,
+  });
+  const unresolvedAll: (t: string) => WikiLinkResolution = () => ({
+    target_path: null,
+    anchor: null,
+  });
+
+  it("[[note]] off-cursor: hide [[ and ]], visible target as mark-wikilink", () => {
+    const src = "see [[note]] here\n";
+    const entries = run(src, 99, resolvedAll);
+    expect(slice(src, one(ofKind(entries, "mark-wikilink")))).toBe("note");
+    const hidden = ofKind(entries, "hide").map((e) => slice(src, e));
+    expect(hidden).toEqual(["[[", "]]"]);
+  });
+
+  it("[[note|display]] off-cursor: hide [[note|, show display as mark-wikilink", () => {
+    const src = "[[note|display]]\n";
+    const entries = run(src, 99, resolvedAll);
+    expect(slice(src, one(ofKind(entries, "mark-wikilink")))).toBe("display");
+    const hidden = ofKind(entries, "hide").map((e) => slice(src, e));
+    expect(hidden).toEqual(["[[note|", "]]"]);
+  });
+
+  it("[[note#heading]] off-cursor: visible target, hide [[ and #heading]]", () => {
+    const src = "[[note#heading]]\n";
+    const entries = run(src, 99, resolvedAll);
+    expect(slice(src, one(ofKind(entries, "mark-wikilink")))).toBe("note");
+    const hidden = ofKind(entries, "hide").map((e) => slice(src, e));
+    expect(hidden).toEqual(["[[", "#heading]]"]);
+  });
+
+  it("[[note#^id]] off-cursor: visible target, hide [[ and #^id]]", () => {
+    const src = "[[note#^id]]\n";
+    const entries = run(src, 99, resolvedAll);
+    expect(slice(src, one(ofKind(entries, "mark-wikilink")))).toBe("note");
+    const hidden = ofKind(entries, "hide").map((e) => slice(src, e));
+    expect(hidden).toEqual(["[[", "#^id]]"]);
+  });
+
+  it("![[diagram]] off-cursor: embed indicator + visible target", () => {
+    const src = "![[diagram]]\n";
+    const entries = run(src, 99, resolvedAll);
+    expect(slice(src, one(ofKind(entries, "mark-wikilink")))).toBe("diagram");
+    expect(ofKind(entries, "mark-wikilink-embed")).toHaveLength(1);
+    const hidden = ofKind(entries, "hide").map((e) => slice(src, e));
+    expect(hidden).toEqual(["![[", "]]"]);
+  });
+
+  it("unresolved target gets mark-wikilink-unresolved instead of mark-wikilink", () => {
+    const src = "[[missing]]\n";
+    const entries = run(src, 99, unresolvedAll);
+    expect(slice(src, one(ofKind(entries, "mark-wikilink-unresolved")))).toBe(
+      "missing",
+    );
+    expect(ofKind(entries, "mark-wikilink")).toHaveLength(0);
+  });
+
+  it("pending resolution (resolver returns undefined) renders as resolved-style", () => {
+    // Don't paint the warning state on tokens we haven't checked yet
+    // — that flashes warnings the user has no reason to see. The next
+    // decoration rebuild after the IPC returns will repaint correctly.
+    const src = "[[note]]\n";
+    const entries = run(src, 99, () => undefined);
+    expect(slice(src, one(ofKind(entries, "mark-wikilink")))).toBe("note");
+    expect(ofKind(entries, "mark-wikilink-unresolved")).toHaveLength(0);
+  });
+
+  it("on the cursor line, the wiki-link token becomes mark-marker-muted", () => {
+    const src = "[[note|display]]\n";
+    const entries = run(src, 1, unresolvedAll);
+    expect(ofKind(entries, "mark-wikilink")).toHaveLength(0);
+    expect(ofKind(entries, "mark-wikilink-unresolved")).toHaveLength(0);
+    expect(ofKind(entries, "mark-wikilink-embed")).toHaveLength(0);
+    expect(ofKind(entries, "hide")).toHaveLength(0);
+    // Brackets + content all muted. We don't assert exact substring
+    // splits here — the cursor-line behaviour is "reveal raw source",
+    // exact range boundaries are an implementation detail.
+    expect(ofKind(entries, "mark-marker-muted").length).toBeGreaterThan(0);
+  });
+
+  it("multiple wiki-links in one paragraph each get their own decoration", () => {
+    const src = "[[a]] and [[b]]\n";
+    const entries = run(src, 99, resolvedAll);
+    const visible = ofKind(entries, "mark-wikilink").map((e) => slice(src, e));
+    expect(visible.sort()).toEqual(["a", "b"]);
   });
 });
 

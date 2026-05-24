@@ -38,13 +38,18 @@ import {
   type ViewUpdate,
 } from "@codemirror/view";
 import {
+  Facet,
+  StateEffect,
+  StateField,
   type Extension,
   type Range,
-  StateField,
   type Text,
 } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
 import { type Tree } from "@lezer/common";
+
+import { scanWikilinks, type TokenizedRun } from "../ast/wikilink";
+import type { WikiLinkResolution } from "./wikilinkResolver";
 
 /** A decoration the plugin should apply, as flat positional data. */
 export type DecoKind =
@@ -61,9 +66,45 @@ export type DecoKind =
   | "mark-strong"
   | "mark-code"
   | "mark-link"
+  | "mark-wikilink"
+  | "mark-wikilink-unresolved"
+  | "mark-wikilink-embed"
   | "mark-marker-muted"
   | "hide"
   | "bullet";
+
+/**
+ * Per-editor wiki-link resolver supplied via {@link wikilinkResolverFacet}.
+ * `null` when no vault is open (everything renders as resolved-style).
+ *
+ * The decoration plugin reads `get` for sync lookup and calls `fetch`
+ * for cache misses; both are pure functions on the resolver object. We
+ * pass only what the plugin needs — not the whole `WikiLinkResolver`
+ * interface — so test stubs stay minimal.
+ */
+export interface WikiLinkResolverFacetValue {
+  get(targetRaw: string): WikiLinkResolution | undefined;
+  fetch(targetRaw: string): void;
+}
+
+/**
+ * Facet that supplies the per-editor wiki-link resolver to extensions.
+ * `Editor.tsx` writes the current resolver into a Compartment that
+ * `.reconfigure`s this facet whenever the vault changes.
+ */
+export const wikilinkResolverFacet = Facet.define<
+  WikiLinkResolverFacetValue | null,
+  WikiLinkResolverFacetValue | null
+>({
+  combine: (values) => values[0] ?? null,
+});
+
+/**
+ * StateEffect dispatched by `Editor.tsx` whenever the resolver's cache
+ * changes (a fetch completed or an `invalidate()` was called). The
+ * decoration plugin watches transactions for this effect and rebuilds.
+ */
+export const wikilinkResolverUpdated = StateEffect.define<null>();
 
 export interface DecoEntry {
   /** Document offset where the decoration starts. */
@@ -119,14 +160,32 @@ function extendSpaces(doc: Text, from: number): number {
 }
 
 /**
+ * Wiki-link cache key: the wiki-link target as written including any
+ * `#anchor`. Matches the `target_raw` input shape that the
+ * `resolve_link` IPC accepts.
+ */
+function resolverKey(
+  tok: Extract<TokenizedRun, { kind: "wiki_link" }>,
+): string {
+  if (tok.anchor === null) return tok.target;
+  const prefix = tok.anchor.kind === "block" ? "#^" : "#";
+  return `${tok.target}${prefix}${tok.anchor.value}`;
+}
+
+/**
  * Walk the Lezer tree and produce the decoration entry list for the
  * current cursor line. Pure: no `EditorView`, no DOM — directly
  * testable against a parsed tree.
+ *
+ * `resolverLookup`, when supplied, supplies wiki-link resolution
+ * status per target. A return of `undefined` means "not yet checked"
+ * and paints as resolved-style pending the next rebuild.
  */
 export function collectDecorations(
   tree: Tree,
   doc: Text,
   activeLine: number,
+  resolverLookup?: (targetRaw: string) => WikiLinkResolution | undefined,
 ): DecoEntry[] {
   const visible: DecoEntry[] = [];
   const markers: Marker[] = [];
@@ -252,6 +311,78 @@ export function collectDecorations(
         }
         return;
       }
+
+      if (name === "WikiLink") {
+        const raw = doc.sliceString(node.from, node.to);
+        const tok = scanWikilinks(raw).find((t) => t.kind === "wiki_link");
+        if (!tok || tok.kind !== "wiki_link") return;
+
+        const onActiveLine = doc.lineAt(node.from).number === activeLine;
+        if (onActiveLine) {
+          // Reveal the whole token muted — mirrors how Link / Emphasis
+          // behave on the cursor line. Exact sub-range styling is an
+          // implementation detail when editing is in progress.
+          visible.push({
+            from: node.from,
+            to: node.to,
+            kind: "mark-marker-muted",
+          });
+          return;
+        }
+
+        const openerLen = tok.embed ? 3 : 2; // "![[" or "[["
+        const closerLen = 2; // "]]"
+        const contentEnd = node.to - closerLen;
+
+        // Visible range inside the body: display takes precedence over
+        // target. Find boundaries within the absolute byte offsets.
+        let visibleFrom: number;
+        let visibleTo: number;
+        if (tok.display !== null) {
+          // `display` sits after the body's `|`. The pipe lives inside
+          // `[[…]]` past the opener; locate it in absolute coords.
+          const pipeRel = raw.indexOf("|", openerLen);
+          visibleFrom = node.from + pipeRel + 1;
+          visibleTo = contentEnd;
+        } else {
+          // No display — visible range is the target. Walk from the
+          // body start to the first `#` (anchor) or `|` (which can't
+          // appear here without a display branch).
+          let i = node.from + openerLen;
+          while (i < contentEnd) {
+            const ch = raw.charCodeAt(i - node.from);
+            if (ch === 0x23 /* # */ || ch === 0x7c /* | */) break;
+            i++;
+          }
+          visibleFrom = node.from + openerLen;
+          visibleTo = i;
+        }
+
+        // Off-cursor: hide everything except the visible range; mark
+        // the visible range as resolved / unresolved; add an embed
+        // indicator widget for `![[…]]`.
+        if (visibleFrom > node.from) {
+          visible.push({ from: node.from, to: visibleFrom, kind: "hide" });
+        }
+        const resolution = resolverLookup?.(resolverKey(tok));
+        const visibleKind: DecoKind =
+          resolution && resolution.target_path === null
+            ? "mark-wikilink-unresolved"
+            : "mark-wikilink";
+        visible.push({ from: visibleFrom, to: visibleTo, kind: visibleKind });
+        if (visibleTo < node.to) {
+          visible.push({ from: visibleTo, to: node.to, kind: "hide" });
+        }
+        if (tok.embed) {
+          // Zero-width widget at the token start.
+          visible.push({
+            from: node.from,
+            to: node.from,
+            kind: "mark-wikilink-embed",
+          });
+        }
+        return;
+      }
     },
   });
 
@@ -298,10 +429,32 @@ const emMarkDeco = Decoration.mark({ class: "cm-md-em" });
 const strongMarkDeco = Decoration.mark({ class: "cm-md-strong" });
 const inlineCodeMarkDeco = Decoration.mark({ class: "cm-md-inline-code" });
 const linkMarkDeco = Decoration.mark({ class: "cm-md-link" });
+const wikilinkMarkDeco = Decoration.mark({ class: "cm-md-wikilink" });
+const wikilinkUnresolvedDeco = Decoration.mark({
+  class: "cm-md-wikilink-unresolved",
+});
 const mutedMarkDeco = Decoration.mark({ class: "cm-md-mark-muted" });
 const hideDeco = Decoration.replace({});
 const hideBlockDeco = Decoration.replace({ block: true });
 const bulletDeco = Decoration.replace({ widget: new BulletWidget() });
+
+/** Small icon glyph standing in for an `![[…]]` embed marker. */
+class EmbedIndicatorWidget extends WidgetType {
+  override toDOM(): HTMLElement {
+    const span = document.createElement("span");
+    span.className = "cm-md-wikilink-embed";
+    span.textContent = "⎘";
+    span.setAttribute("aria-hidden", "true");
+    return span;
+  }
+  override eq(): boolean {
+    return true;
+  }
+}
+const wikilinkEmbedDeco = Decoration.widget({
+  widget: new EmbedIndicatorWidget(),
+  side: -1,
+});
 
 /** Turn the flat entry list into a sorted CM6 `DecorationSet`. */
 function buildDecorationSet(entries: DecoEntry[]): DecorationSet {
@@ -339,6 +492,15 @@ function buildDecorationSet(entries: DecoEntry[]): DecorationSet {
       case "mark-link":
         ranges.push(linkMarkDeco.range(e.from, e.to));
         break;
+      case "mark-wikilink":
+        ranges.push(wikilinkMarkDeco.range(e.from, e.to));
+        break;
+      case "mark-wikilink-unresolved":
+        ranges.push(wikilinkUnresolvedDeco.range(e.from, e.to));
+        break;
+      case "mark-wikilink-embed":
+        ranges.push(wikilinkEmbedDeco.range(e.from));
+        break;
       case "mark-marker-muted":
         ranges.push(mutedMarkDeco.range(e.from, e.to));
         break;
@@ -357,9 +519,41 @@ function buildFor(view: EditorView): DecorationSet {
   const tree = syntaxTree(view.state);
   const head = view.state.selection.main.head;
   const activeLine = view.state.doc.lineAt(head).number;
+  const resolver = view.state.facet(wikilinkResolverFacet);
   return buildDecorationSet(
-    collectDecorations(tree, view.state.doc, activeLine),
+    collectDecorations(
+      tree,
+      view.state.doc,
+      activeLine,
+      resolver ? (t) => resolver.get(t) : undefined,
+    ),
   );
+}
+
+/**
+ * Walk the tree and ask the resolver to fetch any uncached targets.
+ * The plugin runs this after every rebuild; the resolver dedupes
+ * concurrent fetches and notifies via `wikilinkResolverUpdated` when
+ * results arrive (which triggers another rebuild that will then paint
+ * unresolved warnings).
+ */
+function kickResolverFetches(view: EditorView): void {
+  const resolver = view.state.facet(wikilinkResolverFacet);
+  if (!resolver) return;
+  const tree = syntaxTree(view.state);
+  const seen = new Set<string>();
+  tree.iterate({
+    enter: (node) => {
+      if (node.name !== "WikiLink") return;
+      const raw = view.state.doc.sliceString(node.from, node.to);
+      const tok = scanWikilinks(raw).find((t) => t.kind === "wiki_link");
+      if (!tok || tok.kind !== "wiki_link") return;
+      const key = resolverKey(tok);
+      if (seen.has(key)) return;
+      seen.add(key);
+      if (resolver.get(key) === undefined) resolver.fetch(key);
+    },
+  });
 }
 
 const livePreviewPlugin = ViewPlugin.fromClass(
@@ -368,17 +562,23 @@ const livePreviewPlugin = ViewPlugin.fromClass(
 
     constructor(view: EditorView) {
       this.decorations = buildFor(view);
+      kickResolverFetches(view);
     }
 
     update(update: ViewUpdate): void {
+      const resolverChanged = update.transactions.some((tr) =>
+        tr.effects.some((e) => e.is(wikilinkResolverUpdated)),
+      );
       if (
         update.docChanged ||
         update.viewportChanged ||
         update.selectionSet ||
         // Async Lezer parsing can finish after the doc settled.
-        syntaxTree(update.startState) !== syntaxTree(update.state)
+        syntaxTree(update.startState) !== syntaxTree(update.state) ||
+        resolverChanged
       ) {
         this.decorations = buildFor(update.view);
+        kickResolverFetches(update.view);
       }
     }
   },
@@ -455,6 +655,21 @@ const decorationBaseTheme = EditorView.baseTheme({
     paddingRight: "var(--space-1)",
   },
   ".cm-md-link": { color: "var(--c-accent)", textDecoration: "underline" },
+  ".cm-md-wikilink": {
+    color: "var(--c-accent)",
+    textDecoration: "underline",
+    cursor: "pointer",
+  },
+  ".cm-md-wikilink-unresolved": {
+    color: "var(--c-warning, var(--c-accent))",
+    textDecoration: "underline dashed",
+    cursor: "pointer",
+  },
+  ".cm-md-wikilink-embed": {
+    color: "var(--c-accent)",
+    marginRight: "var(--space-1)",
+    fontSize: "0.85em",
+  },
   ".cm-md-mark-muted": { color: "var(--editor-mark-fg-muted)" },
   ".cm-md-bullet": { color: "var(--c-accent)" },
 });
