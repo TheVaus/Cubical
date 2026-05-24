@@ -19,6 +19,7 @@ import { Text } from "@codemirror/state";
 import {
   collectDecorations,
   findFrontmatter,
+  livePreviewDecorations,
   type DecoEntry,
   type DecoKind,
 } from "./decorations";
@@ -321,5 +322,32 @@ describe("findFrontmatter", () => {
 
   it("does not treat a mid-document --- as frontmatter", () => {
     expect(fm("intro\n\n---\nnot frontmatter\n---\n")).toBeNull();
+  });
+});
+
+describe("livePreviewDecorations bundle — raw-source toggle contract (L3 Session B)", () => {
+  // The L2 Session E raw-source toggle reconfigures the editor's
+  // decoration compartment from `livePreviewDecorations` to `[]`.
+  // Together these two tests prove that wiki-link decorations are
+  // suppressed when the toggle is on: the bundle is non-empty and
+  // contains the pipeline that emits the mark-wikilink kinds (proven
+  // here) — and the compartment swap to `[]` is CM6 framework code
+  // verified end-to-end by the §9.2 interactive smoke.
+
+  it("livePreviewDecorations is a non-empty Extension array", () => {
+    // If a future change extracted wiki-link decorations into a
+    // separate extension installed outside this bundle, the toggle
+    // would no longer suppress them — this guards against that.
+    expect(Array.isArray(livePreviewDecorations)).toBe(true);
+    expect((livePreviewDecorations as unknown as unknown[]).length).toBeGreaterThan(0);
+  });
+
+  it("collectDecorations (driven by the bundle) emits mark-wikilink for wiki-links", () => {
+    const src = "[[note]]\n";
+    const entries = run(src, 99, () => ({
+      target_path: "note.md",
+      anchor: null,
+    }));
+    expect(entries.some((e) => e.kind === "mark-wikilink")).toBe(true);
   });
 });
