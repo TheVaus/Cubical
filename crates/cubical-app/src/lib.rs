@@ -35,7 +35,8 @@ use api::types::{
     GetFrontmatterRequest, GetFrontmatterResponse, GetSettingRequest, GetSettingResponse,
     GetVaultInfoRequest, GetVaultInfoResponse, ListFilesRequest, ListFilesResponse,
     OpenVaultRequest, OpenVaultResponse, ReadFileTextRequest, ReadFileTextResponse,
-    SetSettingRequest, SetSettingResponse, WriteFileTextRequest, WriteFileTextResponse,
+    ResolveLinkRequest, ResolveLinkResponse, SetSettingRequest, SetSettingResponse,
+    WriteFileTextRequest, WriteFileTextResponse,
 };
 use error::CubicalError;
 use state::AppState;
@@ -76,6 +77,7 @@ pub fn run() {
             get_setting,
             set_setting,
             get_canonical_ast,
+            resolve_link,
             close_vault,
         ])
         .run(tauri::generate_context!())
@@ -177,6 +179,15 @@ async fn get_canonical_ast(
     req: GetCanonicalAstRequest,
 ) -> Result<GetCanonicalAstResponse, CubicalError> {
     commands::vault::get_canonical_ast(state.inner(), req).await
+}
+
+/// Tauri shim — see [`commands::links::resolve_link`].
+#[tauri::command]
+async fn resolve_link(
+    state: tauri::State<'_, AppState>,
+    req: ResolveLinkRequest,
+) -> Result<ResolveLinkResponse, CubicalError> {
+    commands::links::resolve_link(state.inner(), req).await
 }
 
 /// Tauri shim — see [`commands::vault::close_vault`].
