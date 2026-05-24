@@ -83,6 +83,60 @@ fn walk_inlines(inlines: &[Inline], pos: u64, out: &mut Vec<LinkExtraction>) {
     }
 }
 
+/// Resolve a wiki-link `target_raw` against the known vault file list.
+///
+/// Resolution order:
+/// 1. Exact vault-relative path match (with or without `.md`).
+/// 2. Unique basename match, case-insensitive (basename = last path
+///    segment, with or without the `.md` suffix).
+/// 3. Unique path-suffix match (case-insensitive `ends_with`).
+///
+/// Returns `None` for no match or for ambiguous matches at levels 2/3.
+/// The file list is borrowed; the caller owns it (typically a snapshot
+/// from the `files` table).
+pub fn resolve_target(target_raw: &str, files: &[String]) -> Option<String> {
+    let target = target_raw.trim();
+    if target.is_empty() {
+        return None;
+    }
+    // 1) exact (with or without .md)
+    for f in files {
+        if f == target {
+            return Some(f.clone());
+        }
+        if let Some(stem) = f.strip_suffix(".md") {
+            if stem == target {
+                return Some(f.clone());
+            }
+        }
+    }
+    let target_lower = target.to_lowercase();
+    // 2) unique basename match, case-insensitive
+    let mut basename_matches: Vec<&String> = files
+        .iter()
+        .filter(|f| {
+            let base = f.rsplit('/').next().unwrap_or(f);
+            let base_no_ext = base.strip_suffix(".md").unwrap_or(base);
+            base_no_ext.to_lowercase() == target_lower
+                || base.to_lowercase() == target_lower
+        })
+        .collect();
+    if basename_matches.len() == 1 {
+        return Some(basename_matches.remove(0).clone());
+    } else if basename_matches.len() > 1 {
+        return None;
+    }
+    // 3) unique path-suffix match, case-insensitive
+    let mut suffix_matches: Vec<&String> = files
+        .iter()
+        .filter(|f| f.to_lowercase().ends_with(&target_lower))
+        .collect();
+    if suffix_matches.len() == 1 {
+        return Some(suffix_matches.remove(0).clone());
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -127,5 +181,66 @@ mod tests {
         let links = extract_links(&doc);
         let targets: Vec<&str> = links.iter().map(|l| l.target_raw.as_str()).collect();
         assert_eq!(targets, vec!["a", "b"]);
+    }
+
+    #[test]
+    fn resolve_exact_match() {
+        let files = vec!["notes/Other Note.md".to_string()];
+        assert_eq!(
+            resolve_target("notes/Other Note.md", &files).as_deref(),
+            Some("notes/Other Note.md"),
+        );
+    }
+
+    #[test]
+    fn resolve_exact_without_extension() {
+        let files = vec!["notes/Other Note.md".to_string()];
+        assert_eq!(
+            resolve_target("notes/Other Note", &files).as_deref(),
+            Some("notes/Other Note.md"),
+        );
+    }
+
+    #[test]
+    fn resolve_basename_case_insensitive() {
+        let files = vec!["notes/other-note.md".to_string()];
+        assert_eq!(
+            resolve_target("Other-Note", &files).as_deref(),
+            Some("notes/other-note.md"),
+        );
+    }
+
+    #[test]
+    fn resolve_unique_suffix() {
+        let files = vec![
+            "deeply/nested/path/foo.md".to_string(),
+            "bar.md".to_string(),
+        ];
+        assert_eq!(
+            resolve_target("path/foo.md", &files).as_deref(),
+            Some("deeply/nested/path/foo.md"),
+        );
+    }
+
+    #[test]
+    fn resolve_ambiguous_returns_none() {
+        let files = vec!["a/note.md".to_string(), "b/note.md".to_string()];
+        assert!(
+            resolve_target("note", &files).is_none(),
+            "ambiguous basename match must not resolve"
+        );
+    }
+
+    #[test]
+    fn resolve_missing_returns_none() {
+        let files = vec!["a.md".to_string()];
+        assert!(resolve_target("nope", &files).is_none());
+    }
+
+    #[test]
+    fn resolve_empty_target_is_none() {
+        let files = vec!["a.md".to_string()];
+        assert!(resolve_target("", &files).is_none());
+        assert!(resolve_target("   ", &files).is_none());
     }
 }
