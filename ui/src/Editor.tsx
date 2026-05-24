@@ -3,11 +3,22 @@ import { EditorView, keymap } from "@codemirror/view";
 import { Compartment, EditorState } from "@codemirror/state";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
+import { syntaxTree } from "@codemirror/language";
 
 import { normalize } from "./ast/normalize";
+import { scanWikilinks } from "./ast/wikilink";
 import type { CanonicalDocument } from "./ast/types";
-import { livePreviewDecorations } from "./editor/decorations";
+import {
+  livePreviewDecorations,
+  wikilinkResolverFacet,
+  wikilinkResolverUpdated,
+  type WikiLinkResolverFacetValue,
+} from "./editor/decorations";
+import { wikilinkExtension } from "./editor/wikilink";
+import { handleWikiLinkClick } from "./editor/wikilinkClick";
+import type { WikiLinkResolver } from "./editor/wikilinkResolver";
 import { buildCmTheme } from "./editor/cm-theme";
+import type { ResolvedAnchor } from "./api/ipc";
 import type { ResolvedTheme } from "./styles/theme";
 
 /**
@@ -26,6 +37,24 @@ const decorationCompartment = new Compartment();
  * Coexists with `decorationCompartment` — the two are independent.
  */
 const themeCompartment = new Compartment();
+
+/**
+ * Holds the per-editor wiki-link resolver supplied to extensions via
+ * {@link wikilinkResolverFacet}. Reconfigured whenever the parent's
+ * `wikilinkResolver` prop changes (i.e. a different vault is open).
+ */
+const wikilinkResolverCompartment = new Compartment();
+
+/** Translate the `WikiLinkResolver` object into the slimmer facet shape. */
+const facetValueFor = (
+  resolver: WikiLinkResolver | null | undefined,
+): WikiLinkResolverFacetValue | null =>
+  resolver
+    ? {
+        get: (t) => resolver.get(t),
+        fetch: (t) => resolver.fetch(t),
+      }
+    : null;
 
 /**
  * CodeMirror 6 markdown editor surface.
@@ -57,6 +86,13 @@ export interface EditorApi {
   getContent: () => string;
   replaceContent: (next: string) => void;
   replaceRange: (from: number, to: number, text: string) => void;
+  /**
+   * Scroll the viewport to the first heading whose plain-text content
+   * matches `value` (trimmed). No-op when not found. Used by the
+   * wiki-link click handler after navigating with a `Heading{value}`
+   * anchor (L3 Session B, spec §2.2).
+   */
+  scrollToHeading: (value: string) => void;
 }
 
 export interface EditorProps {
@@ -76,6 +112,16 @@ export interface EditorProps {
    * unaffected.
    */
   rawSource: boolean;
+  /**
+   * Per-vault resolver for wiki-link targets (L3 Session B). `null`
+   * when no vault is open — every wiki-link renders as resolved-style
+   * pending future targets, and clicks no-op.
+   */
+  wikilinkResolver?: WikiLinkResolver | null;
+  /** Called when a click lands on a resolved wiki-link. */
+  onNavigateWikilink?: (path: string, anchor: ResolvedAnchor | null) => void;
+  /** Called when a click lands on an unresolved wiki-link. */
+  onOfferCreateWikilink?: (path: string) => void;
   onAstChange?: (doc: CanonicalDocument) => void;
   onContentChange?: (content: string) => void;
   onBlur?: () => void;
@@ -110,6 +156,58 @@ const Editor: Component<EditorProps> = (props) => {
     }, AST_DEBOUNCE_MS);
   };
 
+  // Unsubscribe handle for the resolver's onUpdate notifications.
+  // Re-bound whenever the `wikilinkResolver` prop changes.
+  let unsubResolver: (() => void) | undefined;
+
+  const subscribeResolver = (
+    resolver: WikiLinkResolver | null | undefined,
+    targetView: EditorView | undefined,
+  ) => {
+    unsubResolver?.();
+    unsubResolver = undefined;
+    if (resolver && targetView) {
+      unsubResolver = resolver.onUpdate(() => {
+        targetView.dispatch({ effects: wikilinkResolverUpdated.of(null) });
+      });
+    }
+  };
+
+  /** Click handler: route `WikiLink` Lezer-node clicks to the parent. */
+  const handleClickAtPos = (clickView: EditorView, pos: number): boolean => {
+    const tree = syntaxTree(clickView.state);
+    let hit: { from: number; to: number } | null = null;
+    tree.iterate({
+      from: pos,
+      to: pos,
+      enter: (node) => {
+        if (node.name === "WikiLink" && node.from <= pos && pos <= node.to) {
+          hit = { from: node.from, to: node.to };
+        }
+      },
+    });
+    if (!hit) return false;
+    const region = hit as { from: number; to: number };
+    const raw = clickView.state.sliceDoc(region.from, region.to);
+    const tok = scanWikilinks(raw).find((t) => t.kind === "wiki_link");
+    if (!tok || tok.kind !== "wiki_link") return false;
+    const targetWithAnchor =
+      tok.anchor === null
+        ? tok.target
+        : `${tok.target}${tok.anchor.kind === "block" ? "#^" : "#"}${tok.anchor.value}`;
+
+    const resolverObj = props.wikilinkResolver ?? null;
+    if (!resolverObj) return false;
+
+    handleWikiLinkClick(targetWithAnchor, {
+      resolver: resolverObj,
+      onNavigate: (path, anchor) =>
+        props.onNavigateWikilink?.(path, anchor),
+      onOfferCreate: (path) => props.onOfferCreateWikilink?.(path),
+    });
+    return true;
+  };
+
   onMount(() => {
     const updateListener = EditorView.updateListener.of((update) => {
       if (!update.docChanged) return;
@@ -124,6 +222,23 @@ const Editor: Component<EditorProps> = (props) => {
         return null;
       },
     );
+
+    const clickHandler = EditorView.domEventHandlers({
+      click(event, clickView) {
+        if (event.button !== 0) return false;
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+          return false;
+        }
+        const target = event.target as Node | null;
+        if (!target) return false;
+        const pos = clickView.posAtDOM(target);
+        if (handleClickAtPos(clickView, pos)) {
+          event.preventDefault();
+          return true;
+        }
+        return false;
+      },
+    });
 
     view = new EditorView({
       parent: host,
@@ -142,16 +257,22 @@ const Editor: Component<EditorProps> = (props) => {
             ...defaultKeymap,
             ...historyKeymap,
           ]),
-          markdown(),
+          markdown({ extensions: [wikilinkExtension] }),
           decorationCompartment.of(
             props.rawSource ? [] : livePreviewDecorations,
           ),
+          wikilinkResolverCompartment.of(
+            wikilinkResolverFacet.of(facetValueFor(props.wikilinkResolver)),
+          ),
           themeCompartment.of(buildCmTheme()),
+          clickHandler,
           updateListener,
           focusListener,
         ],
       }),
     });
+
+    subscribeResolver(props.wikilinkResolver, view);
 
     // Fire the initial AST synchronously so consumers don't have to
     // wait for the first keystroke to know what's loaded.
@@ -170,6 +291,36 @@ const Editor: Component<EditorProps> = (props) => {
       replaceRange: (from, to, text) => {
         if (!view) return;
         view.dispatch({ changes: { from, to, insert: text } });
+      },
+      scrollToHeading: (value) => {
+        if (!view) return;
+        const target = value.trim();
+        if (target.length === 0) return;
+        const tree = syntaxTree(view.state);
+        let found: { from: number } | null = null;
+        tree.iterate({
+          enter: (node) => {
+            if (found) return false;
+            if (!/^(ATX|Setext)Heading[1-6]$/.test(node.name)) return;
+            // Read the heading content. ATX: strip leading `#`s and
+            // trailing optional `#`s; Setext: the first line is the
+            // content, the underline is on the next line.
+            const line = view!.state.doc.lineAt(node.from);
+            const raw = line.text;
+            const atx = raw.match(/^#{1,6}\s+(.*?)\s*#*\s*$/);
+            const text = (atx?.[1] ?? raw).trim();
+            if (text === target) {
+              found = { from: line.from };
+              return false;
+            }
+            return;
+          },
+        });
+        if (!found) return;
+        const hit = found as { from: number };
+        view.dispatch({
+          effects: EditorView.scrollIntoView(hit.from, { y: "start" }),
+        });
       },
     });
   });
@@ -226,7 +377,27 @@ const Editor: Component<EditorProps> = (props) => {
     ),
   );
 
+  // Swap the wiki-link resolver when the parent's prop changes (a
+  // different vault is open). Reconfigure the facet via the
+  // compartment and re-bind the onUpdate subscription so cache
+  // notifications dispatch into the right view.
+  createEffect(
+    on(
+      () => props.wikilinkResolver,
+      (resolver) => {
+        view?.dispatch({
+          effects: wikilinkResolverCompartment.reconfigure(
+            wikilinkResolverFacet.of(facetValueFor(resolver)),
+          ),
+        });
+        subscribeResolver(resolver, view);
+      },
+      { defer: true },
+    ),
+  );
+
   onCleanup(() => {
+    unsubResolver?.();
     if (astPending !== undefined) clearTimeout(astPending);
     view?.destroy();
     view = undefined;
