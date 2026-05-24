@@ -345,3 +345,67 @@ Eleven sessions, dependency-ordered. One feature surface per session; each is in
 **Tests:** 170 Rust passing (was 121 + 49 new across the layer), 127 vitest passing (was 104 + 23 new). `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --check`, `npx tsc --noEmit`, and `npm run build` all clean.
 
 **What's left for L3.** Sessions B–K — Live Preview + click-to-navigate, backlinks panel, tags, virtual tag pages, link/tag autocomplete, block references, embeds, unlinked mentions, pending-rewrites cache, and the layer closeout. The index this session built is the substrate they consume.
+
+### 9.2 Session B — Wiki-link Live Preview + click-to-navigate
+
+**Done 2026-05-25.** Wiki-links are now first-class citizens of the editor surface: every shape decorates in Live Preview (brackets + anchor + display markup hidden off-cursor, raw source revealed on-cursor, embeds carry an indicator widget), unresolved targets render with a dashed-warning style backed by a per-vault cache, clicks on resolved links open the target file (with heading-anchor scroll), and clicks on unresolved links raise a centered modal offering to create the missing note at the resolved-by-convention path.
+
+**Editor Lezer rule.** `ui/src/editor/wikilink.ts` introduces a tiny `MarkdownConfig` extension that emits a single `WikiLink` node spanning the entire `[[…]]` or `![[…]]` token. The rule registers `before: "Link"` so the default Lezer shortcut-Link parser no longer claims `[[X]]` as a `Link` with empty `dest`. It rejects empty / whitespace-only targets and refuses to nest, matching the Session A `scan_wikilinks` grammar exactly. No sub-nodes are emitted — the decoration plugin re-tokenises the body with `scanWikilinks` (already in `ui/src/ast/wikilink.ts`) to find the visible-text range and the hide ranges. The rule is installed **only** in the editor's `markdown({ extensions: [...] })` configuration; `ui/src/ast/normalize.ts` is untouched, so the L1 cross-language parity contract still rides on the Session A re-flatten workaround — the editor's syntax tree and the canonical AST stay deliberately divergent here, sanctioned by `document-model.md` §5.5.
+
+**Resolver: per-vault cache.** `ui/src/editor/wikilinkResolver.ts` exposes `createWikiLinkResolver(vault_id, ipc?)`. The resolver owns a `Map<targetKey, WikiLinkResolution>` keyed on the target-as-written (target plus any `#anchor`, mirroring `resolve_link`'s input shape), dedupes concurrent fetches, and caches failures as `{ target_path: null, anchor: null }` so a flaky IPC doesn't loop. Subscribers register via `onUpdate(handler)` and get notified on every fetch completion and on `invalidate()`. `invalidate()` clears the cache but leaves in-flight promises alone (they overwrite stale entries harmlessly when they settle).
+
+**Decoration mapping.** `collectDecorations` gained a `WikiLink` case (and a new `resolverLookup?: (k) => WikiLinkResolution | undefined` parameter). For each token it:
+
+| Shape | Visible range | Hide ranges | Extra |
+|---|---|---|---|
+| `[[note]]` | `note` | `[[`, `]]` | — |
+| `[[note\|display]]` | `display` | `[[note\|`, `]]` | — |
+| `[[note#heading]]` | `note` | `[[`, `#heading]]` | — |
+| `[[note#^id]]` | `note` | `[[`, `#^id]]` | — |
+| `![[diagram]]` | `diagram` | `![[`, `]]` | `mark-wikilink-embed` widget at token start |
+
+The visible range gets `mark-wikilink` (resolved or pending) or `mark-wikilink-unresolved` (target known-missing — dashed underline + `--c-warning`). On the cursor line all per-token ranges collapse into a single `mark-marker-muted` mark covering the whole token, mirroring how `Link` / `Emphasis` reveal raw source on the active line. Three new `DecoKind` values landed: `mark-wikilink`, `mark-wikilink-unresolved`, `mark-wikilink-embed`. The base theme adds three matching CSS rules.
+
+**Resolver Facet + StateEffect.** `wikilinkResolverFacet: Facet<{get, fetch} | null>` flows the resolver into the decoration plugin without prop-drilling. `Editor.tsx` reconfigures a `Compartment` carrying this facet whenever the parent's `wikilinkResolver` prop changes (different vault). The decoration plugin reads `view.state.facet(wikilinkResolverFacet)` in `buildFor` for sync lookup. A separate `wikilinkResolverUpdated = StateEffect.define<null>()` is fired by `Editor.tsx`'s `onUpdate` subscription so the plugin can rebuild when the cache changes; the plugin watches `update.transactions.some(tr => tr.effects.some(e => e.is(...)))` in its `update()` method.
+
+**Async fetches.** After every rebuild, `kickResolverFetches` walks the tree, asks the resolver for every unique target it sees, and calls `.fetch()` on the ones with no cached entry. The resolver dedupes; pending tokens render as resolved-style. When the IPC returns, the plugin gets a `wikilinkResolverUpdated` effect and repaints — unresolved targets flip to the warning style at that moment. Brief flicker; acceptable per the plan.
+
+**Click router.** `ui/src/editor/wikilinkClick.ts` exports a pure `handleWikiLinkClick(target, ctx)` that returns `"navigated" | "offered" | "pending"`. `Editor.tsx` attaches a `domEventHandlers({ click })` extension that maps the DOM target via `view.posAtDOM`, walks the Lezer tree for a containing `WikiLink` node, re-tokenises the raw text to extract `target + anchor`, and dispatches through the pure router. Modifier-key clicks (Cmd/Ctrl/Shift/Alt) bypass the handler so default text-selection behaviour stays intact.
+
+**Heading anchor scroll.** `EditorApi.scrollToHeading(value)` walks the syntax tree for an ATX or Setext heading whose plain text matches (`# ` stripping for ATX; trim for both); on match, `EditorView.scrollIntoView(line.from, { y: "start" })`. Block anchors are Session G territory — the navigation handler logs at `debug` level and no-ops.
+
+**Create-by-convention path.** `createPathForTarget(targetRaw)` strips any `#anchor` then appends `.md` if missing. Slashes in the target survive as path separators (`notes/sub/Idea` → `notes/sub/Idea.md`); a bare target lands at the vault root.
+
+**App wiring.** `App.tsx` owns one `WikiLinkResolver` per vault: created in `handleOpen` and reset to `null` between vaults. `vault:file-changed` invalidates it (so a freshly-created target flips from unresolved to resolved without a reload). The navigation handler reuses the existing `handleSelectFile` flow — autosave / `seenHash` / `dirty` plumbing stays correct — fabricating a minimal `FileEntry` when the target sits outside the rendered list window. The create-offer modal is a Solid `<Show>` panel mirroring the conflict-banner styling: centered, dimmed backdrop, two buttons (Cancel + Create note). Accept writes an empty file via `writeFileText` and then navigates to it.
+
+**Decisions worth noting.**
+- *Editor-only Lezer rule:* the wikilink extension lives only in `markdown({ extensions: [...] })`. The TS normalizer's re-flatten workaround stays as the L1-parity surface. Adding the extension to the normalizer's bare `parser` would change the parity fixtures; defer to L3 closeout if the deviation matures into a promotion.
+- *Cache key = target + anchor:* the resolver key matches the `target_raw` shape the IPC accepts. `[[note]]` and `[[note#heading]]` are *separate* cache entries — the backend's response carries an anchor field, but the path resolution may diverge if a future session adds anchor-aware backend lookup.
+- *Pending = resolved-style:* unchecked tokens render without the warning style so the user doesn't see a flash of warning for every newly-seen wiki-link. The next rebuild after the IPC returns paints unresolved targets correctly.
+- *Centered modal over native confirm:* `window.confirm()` works in the Tauri webview but looks foreign against the project's design tokens. The modal pattern matches the existing conflict banner — borders, radii, button shapes — so it feels native to the app.
+- *Block-anchor click is a no-op (debug log):* per spec §2.2 and the Session B prompt, block-ref *resolution* arrives in Session G. The router treats `Block{value}` anchors as "resolved file, no scroll" rather than failing the click.
+- *EditorApi.scrollToHeading exact-match:* heading lookup is `trim() ==` against the heading's plain text. A future session can soften this to case-insensitive / fuzzy if the spec calls for it; spec §2.2 doesn't specify.
+- *Click handler scope:* clicks with any modifier (Cmd/Ctrl/Shift/Alt) bypass the router entirely. Plain left-click only. Multi-pane / open-in-new-tab flows are deferred (no tab system yet — `ui.md` §11.4 + L3 spec §7).
+- *Resolver Facet shape:* the facet carries `{ get, fetch }` rather than the full `WikiLinkResolver`. The `invalidate` and `onUpdate` halves live with `App.tsx` and the `Editor.tsx` subscription respectively — the plugin only needs the two read/write operations.
+
+**Tests:** 170 Rust passing (unchanged — no Rust gap surfaced this session), 161 vitest passing (was 127 + 34 new: 7 inline-rule, 7 resolver, 9 click-router, 9 decoration shapes, 2 raw-source-toggle structural). `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --check`, `npx tsc --noEmit`, and `npm run build` all clean.
+
+**Interactive smoke status.** Hands-on `cargo tauri dev` smoke was not performed in this session — the native Tauri window can't be browser-driven and the session ran in an automated context with no operator at the keyboard. The unit-test coverage exercises every pure decision (decoration mapping for each shape; resolver cache hit/miss/invalidate/onUpdate; click router for resolved/unresolved/pending; create-by-convention path), plus the `livePreviewDecorations` bundle structural regression. End-to-end behaviour (heading-anchor scroll lands at the right pixel; modal dismissal on backdrop click; resolver invalidation flips a warning to accent without reload) needs a hands-on smoke at the next opportunity. Recommended smoke vault:
+
+```
+NoteA.md:
+  # NoteA
+  body linking to [[NoteB]] and [[NoteB#heading]] and [[NoteB|nice]]
+  Embed: ![[NoteB]]
+  Missing: [[NeverCreated]]
+
+NoteB.md:
+  # NoteB
+  body
+  ## heading
+  more
+```
+
+Confirm: off-cursor hides brackets, the cursor-line reveal works, `NeverCreated` carries the dashed-warning style, clicks navigate (`NoteB#heading` scrolls to `## heading`), the modal dismisses on backdrop click, creating `NeverCreated.md` flips its style without reload, and `Cmd/Ctrl+E` reveals literal source for every wiki-link.
+
+**What's left for L3.** Sessions C–K — backlinks panel + right-sidebar shell (C), tags (D), virtual tag pages (E), link/tag autocomplete (F), block references (G), embeds proper (H — Session B's embed indicator is purely visual; the inline render is H's territory), unlinked mentions (I), pending-rewrites cache (J), and the layer closeout (K).

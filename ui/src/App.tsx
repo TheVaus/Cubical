@@ -25,8 +25,13 @@ import {
   setSetting,
   writeFileText,
   type FileEntry,
+  type ResolvedAnchor,
   type ScanStatus,
 } from "./api/ipc";
+import {
+  createWikiLinkResolver,
+  type WikiLinkResolver,
+} from "./editor/wikilinkResolver";
 import { computeWindow } from "./virtualList";
 import { resolveRawState } from "./editor/rawSource";
 import {
@@ -145,6 +150,19 @@ const App: Component = () => {
   const [conflictExternalHash, setConflictExternalHash] = createSignal<
     string | null
   >(null);
+
+  // L3 Session B: per-vault wiki-link resolver (`null` when no vault
+  // is open). Reset on vault open; invalidated on every
+  // `vault:file-changed` so a freshly-created target flips from
+  // "unresolved" to "resolved" without a reload.
+  const [wikilinkResolver, setWikilinkResolver] =
+    createSignal<WikiLinkResolver | null>(null);
+
+  // L3 Session B: pending "create this note?" offer raised by a click
+  // on an unresolved wiki-link. `null` = no offer up.
+  const [createOffer, setCreateOffer] = createSignal<{ path: string } | null>(
+    null,
+  );
 
   // Per-file hash bookkeeping. Non-reactive (signals are overkill here
   // and would cause spurious re-renders when only the bookkeeping
@@ -396,6 +414,77 @@ const App: Component = () => {
     scheduleAutosave();
   };
 
+  // ---------------------------------------------------------------------
+  // L3 Session B — wiki-link navigation + create-offer handlers.
+  // ---------------------------------------------------------------------
+
+  /**
+   * Open the resolved target file. If the wiki-link carried a heading
+   * anchor, scroll the editor to the matching heading after the file
+   * has loaded. Block anchors are Session G territory — log + no-op.
+   */
+  const handleNavigateWikilink = async (
+    path: string,
+    anchor: ResolvedAnchor | null,
+  ) => {
+    const id = vaultId();
+    if (!id) return;
+    // Reuse the existing selection plumbing so autosave/seenHash/etc.
+    // stay correct. If the target is outside the rendered list window,
+    // fabricate a minimal FileEntry — handleSelectFile reads only
+    // `path` + `type_id`.
+    const existing = files().find((f) => f.path === path);
+    const file = existing ?? {
+      path,
+      type_id: "markdown",
+      size_bytes: 0,
+      mtime_unix: 0,
+    };
+    await handleSelectFile(file);
+    if (anchor === null) return;
+    if (anchor.kind === "heading") {
+      editorApi?.scrollToHeading(anchor.value);
+    } else {
+      // Block anchors arrive once Session G ships block-ref resolution
+      // through the index. Log and no-op until then.
+      console.debug(
+        "wiki-link block anchor navigation deferred to L3 Session G",
+        anchor.value,
+      );
+    }
+  };
+
+  const handleOfferCreateWikilink = (path: string) => {
+    setCreateOffer({ path });
+  };
+
+  const dismissCreateOffer = () => {
+    setCreateOffer(null);
+  };
+
+  const acceptCreateOffer = async () => {
+    const offer = createOffer();
+    const id = vaultId();
+    if (!offer || !id) return;
+    setCreateOffer(null);
+    try {
+      await writeFileText({
+        vault_id: id,
+        path: offer.path,
+        content: "",
+      });
+      // The newly-created file will land via `vault:file-changed`,
+      // which also invalidates the resolver. Navigate immediately.
+      await handleNavigateWikilink(offer.path, null);
+    } catch (e) {
+      const message =
+        typeof e === "object" && e !== null && "message" in e
+          ? String((e as { message: unknown }).message)
+          : String(e);
+      setError(message);
+    }
+  };
+
   onMount(async () => {
     unlistenProgress = await onVaultScanProgress((p) => {
       if (p.vault_id !== vaultId()) return;
@@ -417,6 +506,11 @@ const App: Component = () => {
     unlistenFileChanged = await onVaultFileChanged((p) => {
       if (p.vault_id !== vaultId()) return;
       scheduleRefresh();
+
+      // L3 Session B: any vault file change may have created or
+      // removed a wiki-link target. Drop the resolver cache so the
+      // next decoration rebuild re-resolves.
+      wikilinkResolver()?.invalidate();
 
       // L2 §2.7 + §2.8: external-edit detection vs. own-write
       // suppression. Only relevant when the changed file is the one
@@ -511,6 +605,8 @@ const App: Component = () => {
       setPropertiesFrontmatter(null);
       setConflictExternalHash(null);
       setRawOverride(null);
+      setCreateOffer(null);
+      setWikilinkResolver(null);
       seenHash = null;
       lastWrittenHash = null;
       dirty = false;
@@ -518,6 +614,7 @@ const App: Component = () => {
       const resp = await openVault({ path: picked });
       setVaultId(resp.vault_id);
       setScanStatus(resp.scan_status);
+      setWikilinkResolver(createWikiLinkResolver(resp.vault_id));
       scheduleRefresh();
 
       // Apply this vault's stored theme preference, if any. Absent
@@ -930,6 +1027,13 @@ const App: Component = () => {
                   value={selectedContent() ?? ""}
                   resolvedTheme={resolvedTheme()}
                   rawSource={effectiveRaw()}
+                  wikilinkResolver={wikilinkResolver()}
+                  onNavigateWikilink={(path, anchor) =>
+                    void handleNavigateWikilink(path, anchor)
+                  }
+                  onOfferCreateWikilink={(path) =>
+                    handleOfferCreateWikilink(path)
+                  }
                   onToggleRawSource={toggleRawSource}
                   onAstChange={handleAstChange}
                   onContentChange={handleContentChange}
@@ -952,6 +1056,98 @@ const App: Component = () => {
             </div>
           </div>
         </section>
+      </Show>
+
+      <Show when={createOffer() !== null}>
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            display: "flex",
+            "align-items": "center",
+            "justify-content": "center",
+            background: "rgba(0, 0, 0, 0.32)",
+            "z-index": 10,
+          }}
+          onClick={dismissCreateOffer}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "var(--c-bg-primary)",
+              border: "1px solid var(--c-border-subtle)",
+              "border-radius": "var(--radius-md)",
+              padding: "var(--space-4)",
+              "min-width": "20rem",
+              "max-width": "32rem",
+              display: "flex",
+              "flex-direction": "column",
+              gap: "var(--space-3)",
+              "box-shadow": "0 6px 24px rgba(0, 0, 0, 0.2)",
+            }}
+          >
+            <p
+              style={{
+                margin: 0,
+                "font-size": "var(--text-sm)",
+                color: "var(--c-fg-primary)",
+              }}
+            >
+              Create note{" "}
+              <code
+                style={{
+                  "font-family": "var(--font-mono)",
+                  "font-size": "var(--text-xs)",
+                }}
+              >
+                {createOffer()!.path}
+              </code>
+              ?
+            </p>
+            <div
+              style={{
+                display: "flex",
+                gap: "var(--space-2)",
+                "justify-content": "flex-end",
+              }}
+            >
+              <button
+                type="button"
+                onClick={dismissCreateOffer}
+                style={{
+                  padding: "var(--space-1) var(--space-3)",
+                  "font-size": "var(--text-xs)",
+                  "font-family": "var(--font-body)",
+                  color: "var(--c-fg-primary)",
+                  background: "var(--c-bg-tertiary)",
+                  border: "1px solid var(--c-border-subtle)",
+                  "border-radius": "var(--radius-sm, var(--radius-md))",
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void acceptCreateOffer()}
+                style={{
+                  padding: "var(--space-1) var(--space-3)",
+                  "font-size": "var(--text-xs)",
+                  "font-family": "var(--font-body)",
+                  color: "var(--c-fg-inverse)",
+                  background: "var(--c-accent)",
+                  border: "none",
+                  "border-radius": "var(--radius-sm, var(--radius-md))",
+                  cursor: "pointer",
+                }}
+              >
+                Create note
+              </button>
+            </div>
+          </div>
+        </div>
       </Show>
 
       <Show when={vaultId()}>
