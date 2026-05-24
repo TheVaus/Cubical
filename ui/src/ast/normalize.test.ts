@@ -145,3 +145,45 @@ describe("normalize() shape", () => {
     expect(doc.frontmatter!.span.start).toBe(0);
   });
 });
+
+describe("normalize — wiki-links", () => {
+  it("extracts a wiki-link from a paragraph", () => {
+    const doc = normalize("see [[Other Note]] for more\n");
+    expect(doc.blocks.length).toBe(1);
+    const p = doc.blocks[0]!;
+    if (p.kind !== "paragraph") throw new Error("expected paragraph");
+    expect(p.inlines).toEqual([
+      { kind: "text", value: "see " },
+      {
+        kind: "wiki_link",
+        target: "Other Note",
+        display: null,
+        anchor: null,
+        embed: false,
+      },
+      { kind: "text", value: " for more" },
+    ]);
+  });
+
+  it("emits an embed wiki-link", () => {
+    const doc = normalize("![[diagram]]\n");
+    const p = doc.blocks[0]!;
+    if (p.kind !== "paragraph") throw new Error("expected paragraph");
+    expect(p.inlines).toHaveLength(1);
+    const wl = p.inlines[0]!;
+    expect(wl.kind).toBe("wiki_link");
+    if (wl.kind !== "wiki_link") return;
+    expect(wl.embed).toBe(true);
+    expect(wl.target).toBe("diagram");
+  });
+
+  it("does not scan inline-code content for wiki-links", () => {
+    const doc = normalize("see `[[not a link]]` here\n");
+    const p = doc.blocks[0]!;
+    if (p.kind !== "paragraph") throw new Error("expected paragraph");
+    expect(
+      p.inlines.some((i) => i.kind === "code" && i.value === "[[not a link]]"),
+    ).toBe(true);
+    expect(p.inlines.some((i) => i.kind === "wiki_link")).toBe(false);
+  });
+});

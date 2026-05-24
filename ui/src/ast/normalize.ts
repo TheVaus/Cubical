@@ -37,6 +37,7 @@ import type {
   ListItem,
   Span,
 } from "./types";
+import { scanWikilinks } from "./wikilink";
 
 /** Parse `source` into the canonical AST. Mirrors `cubical_ast::parse`. */
 export function normalize(source: string): CanonicalDocument {
@@ -162,7 +163,7 @@ function readBlock(
     return {
       kind: "heading",
       level,
-      inlines,
+      inlines: splitWikilinks(inlines),
       span: shift(from, end, bodyOffset),
     };
   }
@@ -172,7 +173,7 @@ function readBlock(
     const end = extendOneNewline(body, to);
     return {
       kind: "paragraph",
-      inlines,
+      inlines: splitWikilinks(inlines),
       span: shift(from, end, bodyOffset),
     };
   }
@@ -592,4 +593,91 @@ function trimRight(body: string, from: number, end: number): number {
     }
   }
   return end;
+}
+
+/**
+ * Walk an inline sequence and split every text run through the
+ * wiki-link tokenizer. Mirrors `cubical_ast::normalize::split_wikilinks`.
+ *
+ * Lezer's @lezer/markdown grammar parses `[[X]]` as `[` + Link(dest="",
+ * children=[text "X"]) + `]` and `![[X]]` as an Image(dest="",
+ * alt=[Link(dest="", children=[text "X"])]). Both are reference/shortcut
+ * mis-parses with no link definition in scope. pulldown-cmark on the
+ * Rust side emits the same input as plain text (`[[X]]` literally), so
+ * to reach parity we first re-flatten those empty-dest Link/Image nodes
+ * back to raw bracketed text, then scan for wiki-links.
+ */
+function splitWikilinks(inlines: Inline[]): Inline[] {
+  const flat: Inline[] = [];
+  for (const inline of inlines) {
+    if (inline.kind === "text") {
+      mergeText(flat, inline.value);
+    } else if (inline.kind === "link" && inline.dest === "" && inline.title === null) {
+      mergeText(flat, "[" + serializeInlinesAsText(inline.children) + "]");
+    } else if (inline.kind === "image" && inline.dest === "" && inline.title === null) {
+      mergeText(flat, "![" + serializeInlinesAsText(inline.alt) + "]");
+    } else if (inline.kind === "emph") {
+      flat.push({ kind: "emph", children: splitWikilinks(inline.children) });
+    } else if (inline.kind === "strong") {
+      flat.push({ kind: "strong", children: splitWikilinks(inline.children) });
+    } else if (inline.kind === "link") {
+      flat.push({
+        kind: "link",
+        dest: inline.dest,
+        title: inline.title,
+        children: splitWikilinks(inline.children),
+      });
+    } else if (inline.kind === "image") {
+      flat.push({
+        kind: "image",
+        dest: inline.dest,
+        title: inline.title,
+        alt: splitWikilinks(inline.alt),
+      });
+    } else {
+      flat.push(inline);
+    }
+  }
+  const out: Inline[] = [];
+  for (const inline of flat) {
+    if (inline.kind === "text") {
+      for (const run of scanWikilinks(inline.value)) {
+        out.push(run as Inline);
+      }
+    } else {
+      out.push(inline);
+    }
+  }
+  return out;
+}
+
+/**
+ * Best-effort serialization of an inline subtree back to raw markdown
+ * text. Only used to re-flatten Lezer's empty-dest Link/Image
+ * mis-parses; other inline kinds inside such a subtree are degenerate
+ * (the mis-parse only nests Link/Image/Text) so a minimal handler is
+ * sufficient.
+ */
+function serializeInlinesAsText(inlines: Inline[]): string {
+  let s = "";
+  for (const inline of inlines) {
+    if (inline.kind === "text") {
+      s += inline.value;
+    } else if (inline.kind === "link" && inline.dest === "" && inline.title === null) {
+      s += "[" + serializeInlinesAsText(inline.children) + "]";
+    } else if (inline.kind === "image" && inline.dest === "" && inline.title === null) {
+      s += "![" + serializeInlinesAsText(inline.alt) + "]";
+    }
+  }
+  return s;
+}
+
+function mergeText(out: Inline[], value: string): void {
+  if (value.length === 0) return;
+  const last = out[out.length - 1];
+  if (last && last.kind === "text") {
+    out[out.length - 1] = { kind: "text", value: last.value + value };
+  } else {
+    out.push({ kind: "text", value });
+  }
 }

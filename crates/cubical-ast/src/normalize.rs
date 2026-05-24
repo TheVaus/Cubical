@@ -287,13 +287,13 @@ impl State {
             } => {
                 self.push_block(Block::Heading {
                     level,
-                    inlines,
+                    inlines: split_wikilinks(inlines),
                     span: self.shift(start..range.end),
                 });
             }
             Container::Paragraph { inlines, start } => {
                 self.push_block(Block::Paragraph {
-                    inlines,
+                    inlines: split_wikilinks(inlines),
                     span: self.shift(start..range.end),
                 });
             }
@@ -453,7 +453,7 @@ impl State {
         };
         if let Some(Container::Item { blocks, .. }) = self.stack.last_mut() {
             blocks.push(Block::Paragraph {
-                inlines,
+                inlines: split_wikilinks(inlines),
                 span: Span::new(item_start + self.body_offset, item_start + self.body_offset),
             });
         }
@@ -483,6 +483,61 @@ impl State {
             _ => Vec::new(),
         }
     }
+}
+
+/// Walk an `Inline` sequence and split every `Inline::Text` value
+/// through the wiki-link tokenizer. Other inline kinds (Code, Emph,
+/// Strong, Link, Image, LineBreak) are preserved as-is; Emph / Strong /
+/// Link / Image recurse into their children so nested text is tokenized.
+fn split_wikilinks(inlines: Vec<Inline>) -> Vec<Inline> {
+    use crate::wikilink::{scan_wikilinks, TokenizedRun};
+    let mut out: Vec<Inline> = Vec::with_capacity(inlines.len());
+    for inline in inlines {
+        match inline {
+            Inline::Text { value } => {
+                for run in scan_wikilinks(&value) {
+                    match run {
+                        TokenizedRun::Text(t) => out.push(Inline::Text { value: t }),
+                        TokenizedRun::WikiLink {
+                            target,
+                            display,
+                            anchor,
+                            embed,
+                        } => {
+                            out.push(Inline::WikiLink {
+                                target,
+                                display,
+                                anchor,
+                                embed,
+                            });
+                        }
+                    }
+                }
+            }
+            Inline::Emph { children } => out.push(Inline::Emph {
+                children: split_wikilinks(children),
+            }),
+            Inline::Strong { children } => out.push(Inline::Strong {
+                children: split_wikilinks(children),
+            }),
+            Inline::Link {
+                dest,
+                title,
+                children,
+            } => out.push(Inline::Link {
+                dest,
+                title,
+                children: split_wikilinks(children),
+            }),
+            Inline::Image { dest, title, alt } => out.push(Inline::Image {
+                dest,
+                title,
+                alt: split_wikilinks(alt),
+            }),
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 fn heading_level_to_u8(level: pulldown_cmark::HeadingLevel) -> u8 {
@@ -627,6 +682,7 @@ mod tests {
                 Inline::Link { .. } => "link",
                 Inline::Image { .. } => "image",
                 Inline::LineBreak => "break",
+                Inline::WikiLink { .. } => "wiki_link",
             })
             .collect();
         assert!(kinds.contains(&"emph"));

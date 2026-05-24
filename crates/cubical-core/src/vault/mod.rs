@@ -17,11 +17,13 @@ use crate::file_type::FileTypeRegistry;
 
 mod atomic;
 mod frontmatter;
+pub mod links;
 mod scan;
 mod watcher;
 
 pub use atomic::atomic_write;
 pub use frontmatter::refresh_frontmatter;
+pub use links::{extract_links, refresh_links, resolve_target, LinkExtraction};
 pub use scan::{scan, ScanProgress};
 pub use watcher::{start_watcher, WatchEvent, WatcherHandle};
 

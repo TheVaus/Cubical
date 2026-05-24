@@ -218,7 +218,7 @@ mod tests {
     /// The version the highest-numbered known migration applies. Use
     /// this rather than hard-coding so adding a new migration only
     /// requires updating the `MIGRATIONS` slice — not every test.
-    const HIGHEST_KNOWN_VERSION: i64 = 2;
+    const HIGHEST_KNOWN_VERSION: i64 = 3;
 
     #[tokio::test]
     async fn fresh_db_applies_all_known_migrations() {
@@ -242,6 +242,11 @@ mod tests {
         // L1's frontmatter table + index exist.
         assert!(table_exists(conn, "frontmatter").await);
         assert!(index_exists(conn, "idx_frontmatter_key").await);
+
+        // L3's links table + indexes exist.
+        assert!(table_exists(conn, "links").await);
+        assert!(index_exists(conn, "idx_links_source").await);
+        assert!(index_exists(conn, "idx_links_target").await);
 
         // schema_version == HIGHEST_KNOWN_VERSION, single row.
         assert_eq!(

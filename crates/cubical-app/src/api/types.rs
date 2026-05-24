@@ -266,6 +266,50 @@ pub struct SetSettingRequest {
 #[derive(Debug, Clone, Serialize)]
 pub struct SetSettingResponse {}
 
+// -- resolve_link --------------------------------------------------------
+
+/// Request payload for `resolve_link`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ResolveLinkRequest {
+    /// Vault whose link index + files table to resolve against.
+    pub vault_id: String,
+    /// The wiki-link target as written. Accepts the post-tokenizer
+    /// shape (e.g. `note`, `note#heading`, `note#^id`) — the leading
+    /// `[[` and trailing `]]` are stripped by the AST, and `!` (embed)
+    /// has already been split off.
+    pub target_raw: String,
+    /// Reserved for future relative resolution. Ignored in L3 Session A.
+    #[serde(default)]
+    pub source_path: Option<String>,
+}
+
+/// Response payload for `resolve_link`.
+#[derive(Debug, Clone, Serialize)]
+pub struct ResolveLinkResponse {
+    /// Resolved vault-relative path, or `None` when no unique match
+    /// exists (missing, ambiguous, or empty target).
+    pub target_path: Option<String>,
+    /// Parsed anchor if the target carried one. Heading / block kind
+    /// is preserved so the frontend can scroll to the right spot.
+    pub anchor: Option<ResolvedAnchor>,
+}
+
+/// IPC-shape mirror of `cubical_ast::Anchor`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ResolvedAnchor {
+    /// `[[note#heading]]` — anchor by heading text.
+    Heading {
+        /// Heading text after `#`, trimmed.
+        value: String,
+    },
+    /// `[[note#^id]]` — anchor by block id.
+    Block {
+        /// Block id after `#^`, trimmed.
+        value: String,
+    },
+}
+
 // -- close_vault ---------------------------------------------------------
 
 /// Request payload for `close_vault`.

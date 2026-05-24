@@ -66,6 +66,6 @@ Crates without Tauri deps (`cubical-core`, `cubical-ast`, `cubical-index`, `cubi
 
 ## Project state
 
-Current layer: 3 — Knowledge Graph (not yet started). L2 — Editing is **closed**: Sessions A–G done — write-path + autosave, Lezer Live Preview decorations, vault-local settings IPC, light/dark theming, raw-source toggle, inline Properties UI. Session G's closeout smoke found and fixed one decoration bug (frontmatter-hide swallowed the first content line's line decoration) and promoted §5 deviation #2 (decorations bypass the canonical AST) into `docs/architecture/document-model.md` §5.5.
-Tests: 121 Rust + 104 vitest. L0 closed 2026-05-13 (`l0`); L1 closed 2026-05-09 (`l1`); L2 closed 2026-05-22 (`l2`).
-Next: open Layer 3 — Knowledge Graph (build-order §3: wiki-links, embeds, lazy block refs, backlinks, unlinked mentions, link/tag autocomplete, nested tags, Pending Rewrites Cache). First step: author `docs/layer-3-spec.md` (layer plan + session slicing), then the first feature session — wiki-link parsing + resolution.
+Current layer: 3 — Knowledge Graph (Session A done, Sessions B–K pending). Session A landed `[[…]]` / `![[…]]` parsing on both sides (Rust pulldown-cmark + TS Lezer), the libSQL `links` table populated on scan + watcher with `target_raw → target_path` resolution (exact / basename-ci / unique-suffix), and the `resolve_link` IPC + TS wrapper. Five new parity fixtures extend the L1 cross-language contract; the TS normalizer re-flattens Lezer's empty-`dest` Link/Image mis-parses of `[[X]]` back to text before tokenizing (sanctioned §5.5 deviation).
+Tests: 170 Rust + 127 vitest. L0 closed 2026-05-13 (`l0`); L1 closed 2026-05-09 (`l1`); L2 closed 2026-05-22 (`l2`).
+Next: L3 Session B — Wiki-link Live Preview + click-to-navigate (build-order §3, layer spec §2.2 + §8 Session B). Decorations consume the new `Inline::WikiLink` nodes; navigation calls the `resolve_link` IPC that landed in Session A.

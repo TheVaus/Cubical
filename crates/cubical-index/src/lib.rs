@@ -22,9 +22,11 @@
 #![warn(missing_docs)]
 
 mod error;
+mod links;
 mod migrations;
 mod runner;
 
 pub use error::IndexError;
+pub use links::{links_from, links_to, replace_links_for_file, LinkRow};
 pub use migrations::{Migration, MIGRATIONS};
 pub use runner::{open_index, IndexConn};

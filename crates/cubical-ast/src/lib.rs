@@ -34,10 +34,11 @@ mod error;
 mod frontmatter;
 mod normalize;
 mod types;
+mod wikilink;
 
 pub use error::AstError;
 pub use frontmatter::split_frontmatter;
-pub use types::{Block, Document, Frontmatter, Inline, ListItem, Span};
+pub use types::{Anchor, Block, Document, Frontmatter, Inline, ListItem, Span};
 
 /// Parse `source` into a canonical [`Document`].
 ///
@@ -105,6 +106,74 @@ mod tests {
     /// against a regression where `Inline::Text` / `Inline::Code`
     /// were tuple variants on an internally tagged enum — a shape
     /// `serde_json` panics on at serialization time.
+    #[test]
+    fn wikilink_in_paragraph_is_extracted() {
+        use crate::types::{Block, Inline};
+        let doc = parse("see [[Other Note]] for more\n");
+        assert_eq!(doc.blocks.len(), 1);
+        let Block::Paragraph { inlines, .. } = &doc.blocks[0] else {
+            panic!("expected paragraph, got {:?}", doc.blocks[0]);
+        };
+        assert_eq!(inlines.len(), 3);
+        assert!(matches!(&inlines[0], Inline::Text { value } if value == "see "));
+        assert!(matches!(
+            &inlines[1],
+            Inline::WikiLink { target, display: None, anchor: None, embed: false }
+                if target == "Other Note"
+        ));
+        assert!(matches!(&inlines[2], Inline::Text { value } if value == " for more"));
+    }
+
+    #[test]
+    fn embed_wikilink_in_paragraph() {
+        use crate::types::{Block, Inline};
+        let doc = parse("![[diagram]]\n");
+        let Block::Paragraph { inlines, .. } = &doc.blocks[0] else {
+            panic!("expected paragraph")
+        };
+        assert_eq!(inlines.len(), 1);
+        assert!(matches!(&inlines[0], Inline::WikiLink { embed: true, .. }));
+    }
+
+    #[test]
+    fn inline_code_text_is_not_scanned_for_wikilinks() {
+        use crate::types::{Block, Inline};
+        let doc = parse("see `[[not a link]]` here\n");
+        let Block::Paragraph { inlines, .. } = &doc.blocks[0] else {
+            panic!("expected paragraph")
+        };
+        assert!(
+            inlines
+                .iter()
+                .any(|n| matches!(n, Inline::Code { value } if value == "[[not a link]]")),
+            "code span content must be preserved: {:?}",
+            inlines
+        );
+        assert!(
+            !inlines.iter().any(|n| matches!(n, Inline::WikiLink { .. })),
+            "no WikiLink should be produced from inline-code content: {:?}",
+            inlines
+        );
+    }
+
+    #[test]
+    fn wikilink_round_trips_through_serde_json() {
+        use crate::types::{Anchor, Inline};
+        let wl = Inline::WikiLink {
+            target: "Some Note".into(),
+            display: Some("see here".into()),
+            anchor: Some(Anchor::Block {
+                value: "intro".into(),
+            }),
+            embed: false,
+        };
+        let s = serde_json::to_string(&wl).expect("serialize");
+        let back: Inline = serde_json::from_str(&s).expect("deserialize");
+        assert_eq!(wl, back);
+        // Wire shape must be tagged with kind="wiki_link".
+        assert!(s.contains("\"kind\":\"wiki_link\""));
+    }
+
     #[test]
     fn document_round_trips_through_serde_json() {
         let src = "---\ntitle: x\n---\n\n# Heading `code` *emph*\n\n[label](u) ![alt](p)\n";
