@@ -44,4 +44,38 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 2,
         up: include_str!("../migrations/002_frontmatter.sql"),
     },
+    Migration {
+        version: 3,
+        up: include_str!("../migrations/003_links.sql"),
+    },
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn migration_003_creates_links_table() {
+        let m = MIGRATIONS
+            .iter()
+            .find(|m| m.version == 3)
+            .expect("003 migration must be registered");
+        let sql = m.up;
+        assert!(sql.contains("CREATE TABLE links"), "must create links table");
+        assert!(sql.contains("source_path"));
+        assert!(sql.contains("target_path"));
+        assert!(sql.contains("idx_links_source"));
+        assert!(sql.contains("idx_links_target"));
+    }
+
+    #[test]
+    fn migrations_are_in_strict_ascending_order() {
+        for pair in MIGRATIONS.windows(2) {
+            assert_eq!(
+                pair[1].version,
+                pair[0].version + 1,
+                "migration versions must be contiguous and ascending"
+            );
+        }
+    }
+}
