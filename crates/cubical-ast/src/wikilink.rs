@@ -114,14 +114,18 @@ fn parse_body(body: &str, is_embed: bool) -> Option<TokenizedRun> {
                 if v.is_empty() {
                     None
                 } else {
-                    Some(Anchor::Block { value: v.to_string() })
+                    Some(Anchor::Block {
+                        value: v.to_string(),
+                    })
                 }
             } else {
                 let v = rest.trim();
                 if v.is_empty() {
                     None
                 } else {
-                    Some(Anchor::Heading { value: v.to_string() })
+                    Some(Anchor::Heading {
+                        value: v.to_string(),
+                    })
                 }
             };
             (target, anchor)
@@ -192,7 +196,9 @@ mod tests {
             vec![TokenizedRun::WikiLink {
                 target: "note".into(),
                 display: None,
-                anchor: Some(Anchor::Heading { value: "heading".into() }),
+                anchor: Some(Anchor::Heading {
+                    value: "heading".into()
+                }),
                 embed: false,
             }]
         );
@@ -205,7 +211,9 @@ mod tests {
             vec![TokenizedRun::WikiLink {
                 target: "note".into(),
                 display: None,
-                anchor: Some(Anchor::Block { value: "intro".into() }),
+                anchor: Some(Anchor::Block {
+                    value: "intro".into()
+                }),
                 embed: false,
             }]
         );
@@ -218,7 +226,9 @@ mod tests {
             vec![TokenizedRun::WikiLink {
                 target: "note".into(),
                 display: Some("nice text".into()),
-                anchor: Some(Anchor::Heading { value: "heading".into() }),
+                anchor: Some(Anchor::Heading {
+                    value: "heading".into()
+                }),
                 embed: false,
             }]
         );

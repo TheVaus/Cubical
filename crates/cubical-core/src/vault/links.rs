@@ -129,8 +129,7 @@ pub fn resolve_target(target_raw: &str, files: &[String]) -> Option<String> {
         .filter(|f| {
             let base = f.rsplit('/').next().unwrap_or(f);
             let base_no_ext = base.strip_suffix(".md").unwrap_or(base);
-            base_no_ext.to_lowercase() == target_lower
-                || base.to_lowercase() == target_lower
+            base_no_ext.to_lowercase() == target_lower || base.to_lowercase() == target_lower
         })
         .collect();
     if basename_matches.len() == 1 {

@@ -498,8 +498,18 @@ fn split_wikilinks(inlines: Vec<Inline>) -> Vec<Inline> {
                 for run in scan_wikilinks(&value) {
                     match run {
                         TokenizedRun::Text(t) => out.push(Inline::Text { value: t }),
-                        TokenizedRun::WikiLink { target, display, anchor, embed } => {
-                            out.push(Inline::WikiLink { target, display, anchor, embed });
+                        TokenizedRun::WikiLink {
+                            target,
+                            display,
+                            anchor,
+                            embed,
+                        } => {
+                            out.push(Inline::WikiLink {
+                                target,
+                                display,
+                                anchor,
+                                embed,
+                            });
                         }
                     }
                 }
@@ -510,7 +520,11 @@ fn split_wikilinks(inlines: Vec<Inline>) -> Vec<Inline> {
             Inline::Strong { children } => out.push(Inline::Strong {
                 children: split_wikilinks(children),
             }),
-            Inline::Link { dest, title, children } => out.push(Inline::Link {
+            Inline::Link {
+                dest,
+                title,
+                children,
+            } => out.push(Inline::Link {
                 dest,
                 title,
                 children: split_wikilinks(children),

@@ -162,7 +162,9 @@ mod tests {
         let wl = Inline::WikiLink {
             target: "Some Note".into(),
             display: Some("see here".into()),
-            anchor: Some(Anchor::Block { value: "intro".into() }),
+            anchor: Some(Anchor::Block {
+                value: "intro".into(),
+            }),
             embed: false,
         };
         let s = serde_json::to_string(&wl).expect("serialize");

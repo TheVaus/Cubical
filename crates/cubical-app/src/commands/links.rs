@@ -287,9 +287,6 @@ mod tests {
         .expect("ok");
 
         assert!(resp.target_path.is_none());
-        assert!(matches!(
-            resp.anchor,
-            Some(ResolvedAnchor::Heading { .. })
-        ));
+        assert!(matches!(resp.anchor, Some(ResolvedAnchor::Heading { .. })));
     }
 }

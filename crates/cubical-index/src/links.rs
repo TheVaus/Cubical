@@ -83,10 +83,7 @@ pub async fn replace_links_for_file(
 
 /// All link rows whose `source_path` equals the argument, ordered by
 /// `position` (source order).
-pub async fn links_from(
-    conn: &IndexConn,
-    source_path: &str,
-) -> Result<Vec<LinkRow>, IndexError> {
+pub async fn links_from(conn: &IndexConn, source_path: &str) -> Result<Vec<LinkRow>, IndexError> {
     let mut rows = conn
         .connection()
         .query(
@@ -105,10 +102,7 @@ pub async fn links_from(
 
 /// All link rows whose `target_path` equals the argument (backlinks).
 /// Ordered by `(source_path, position)` so a per-file grouping is stable.
-pub async fn links_to(
-    conn: &IndexConn,
-    target_path: &str,
-) -> Result<Vec<LinkRow>, IndexError> {
+pub async fn links_to(conn: &IndexConn, target_path: &str) -> Result<Vec<LinkRow>, IndexError> {
     let mut rows = conn
         .connection()
         .query(

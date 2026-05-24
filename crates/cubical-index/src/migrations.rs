@@ -61,7 +61,10 @@ mod tests {
             .find(|m| m.version == 3)
             .expect("003 migration must be registered");
         let sql = m.up;
-        assert!(sql.contains("CREATE TABLE links"), "must create links table");
+        assert!(
+            sql.contains("CREATE TABLE links"),
+            "must create links table"
+        );
         assert!(sql.contains("source_path"));
         assert!(sql.contains("target_path"));
         assert!(sql.contains("idx_links_source"));
