@@ -130,6 +130,34 @@ export interface WriteFileTextResponse {
   new_mtime_unix: number;
 }
 
+/** Mirror of `cubical_app::api::types::ResolvedAnchor`. */
+export type ResolvedAnchor =
+  | { kind: "heading"; value: string }
+  | { kind: "block"; value: string };
+
+export interface ResolveLinkRequest {
+  vault_id: string;
+  /**
+   * The wiki-link target as written, post-tokenizer: no surrounding
+   * `[[…]]`, no leading `!` (embed), and with `|display` already split
+   * off. May still carry an `#anchor` (the backend will split it
+   * back out and return it in `anchor`).
+   */
+  target_raw: string;
+  /** Reserved for future relative resolution; ignored in L3 Session A. */
+  source_path?: string;
+}
+
+export interface ResolveLinkResponse {
+  /**
+   * Resolved vault-relative path, or `null` when no unique match
+   * exists (missing, ambiguous, or empty target).
+   */
+  target_path: string | null;
+  /** Parsed anchor if the target carried one. */
+  anchor: ResolvedAnchor | null;
+}
+
 /**
  * Known vault-local settings, as a discriminated union of
  * `{ key, value }` pairs. The backend `config` table is generic
@@ -225,6 +253,27 @@ export function writeFileText(
   req: WriteFileTextRequest,
 ): Promise<WriteFileTextResponse> {
   return invoke("write_file_text", { req });
+}
+
+/**
+ * Resolve a wiki-link target to a vault-relative path via the libSQL
+ * link index, with the anchor (if any) parsed out and echoed back.
+ * Returns `target_path: null` when no unique match exists.
+ */
+export function resolveLink(
+  req: ResolveLinkRequest,
+): Promise<ResolveLinkResponse> {
+  // Build the wire payload conditionally so `exactOptionalPropertyTypes`
+  // doesn't reject an explicit `undefined` source_path. (Same pattern
+  // as `writeFileText`'s expected_seen_hash.)
+  const payload: Record<string, unknown> = {
+    vault_id: req.vault_id,
+    target_raw: req.target_raw,
+  };
+  if (req.source_path != null) {
+    payload.source_path = req.source_path;
+  }
+  return invoke("resolve_link", { req: payload });
 }
 
 /**
