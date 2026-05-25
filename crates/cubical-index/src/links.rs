@@ -119,6 +119,63 @@ pub async fn links_to(conn: &IndexConn, target_path: &str) -> Result<Vec<LinkRow
     Ok(out)
 }
 
+/// Backlinks row — a `links` row enriched with `source_path`, the
+/// shape `get_backlinks` returns to the frontend. Distinct from
+/// [`LinkRow`] because backlinks need the *source* file, not just the
+/// columns `LinkRow` carries.
+///
+/// See `docs/layer-3-spec.md` §2.3.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BacklinkRow {
+    /// Vault-relative path of the file that contains the link.
+    pub source_path: String,
+    /// The wiki-link target as written, with anchor stripped.
+    pub target_raw: String,
+    /// `"heading"` or `"block"`, or `None`.
+    pub anchor_kind: Option<String>,
+    /// Heading text or block id, or `None`.
+    pub anchor_value: Option<String>,
+    /// The optional `|display` text.
+    pub display_text: Option<String>,
+    /// `true` when the link was written `![[…]]`.
+    pub is_embed: bool,
+    /// Byte offset of the link's opener within `source_path`.
+    pub position: u64,
+}
+
+/// All backlinks pointing at `target_path`, ordered by
+/// `(source_path, position)` so per-file grouping is stable.
+pub async fn backlinks_for(
+    conn: &IndexConn,
+    target_path: &str,
+) -> Result<Vec<BacklinkRow>, IndexError> {
+    let mut rows = conn
+        .connection()
+        .query(
+            "SELECT source_path, target_raw, anchor_kind, anchor_value, \
+                    display_text, is_embed, position \
+             FROM links WHERE target_path = ?1 \
+             ORDER BY source_path, position",
+            params![target_path],
+        )
+        .await?;
+    let mut out = Vec::new();
+    while let Some(row) = rows.next().await? {
+        let is_embed_int: i64 = row.get(5)?;
+        let position_int: i64 = row.get(6)?;
+        out.push(BacklinkRow {
+            source_path: row.get(0)?,
+            target_raw: row.get(1)?,
+            anchor_kind: row.get(2)?,
+            anchor_value: row.get(3)?,
+            display_text: row.get(4)?,
+            is_embed: is_embed_int != 0,
+            position: position_int.try_into().unwrap_or(0),
+        });
+    }
+    Ok(out)
+}
+
 fn row_to_link(row: &libsql::Row) -> Result<LinkRow, IndexError> {
     let is_embed_int: i64 = row.get(5)?;
     let position_int: i64 = row.get(6)?;
@@ -249,5 +306,47 @@ mod tests {
             .expect("delete file");
         let got = links_from(&conn, "a.md").await.expect("lookup");
         assert!(got.is_empty(), "link rows should cascade-delete");
+    }
+
+    #[tokio::test]
+    async fn backlinks_for_returns_source_path_and_orders_per_file() {
+        let (_dir, conn) = open_test_index().await;
+        seed_file(&conn, "a.md").await;
+        seed_file(&conn, "b.md").await;
+        seed_file(&conn, "target.md").await;
+
+        // Two links from b.md, ordered by position; one link from a.md.
+        let mut a_row = row("Target", Some("target.md"));
+        a_row.position = 50;
+        let mut b_row_1 = row("Target", Some("target.md"));
+        b_row_1.position = 200;
+        let mut b_row_2 = row("Target", Some("target.md"));
+        b_row_2.position = 10;
+
+        replace_links_for_file(&conn, "a.md", &[a_row])
+            .await
+            .unwrap();
+        replace_links_for_file(&conn, "b.md", &[b_row_2, b_row_1])
+            .await
+            .unwrap();
+
+        let got = backlinks_for(&conn, "target.md").await.expect("backlinks");
+        assert_eq!(got.len(), 3);
+        // Sorted by (source_path, position) — a.md first, then b.md's
+        // two rows in ascending position order.
+        assert_eq!(got[0].source_path, "a.md");
+        assert_eq!(got[0].position, 50);
+        assert_eq!(got[1].source_path, "b.md");
+        assert_eq!(got[1].position, 10);
+        assert_eq!(got[2].source_path, "b.md");
+        assert_eq!(got[2].position, 200);
+    }
+
+    #[tokio::test]
+    async fn backlinks_for_returns_empty_when_no_links_point_here() {
+        let (_dir, conn) = open_test_index().await;
+        seed_file(&conn, "lonely.md").await;
+        let got = backlinks_for(&conn, "lonely.md").await.expect("ok");
+        assert!(got.is_empty());
     }
 }

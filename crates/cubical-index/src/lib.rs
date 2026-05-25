@@ -27,6 +27,8 @@ mod migrations;
 mod runner;
 
 pub use error::IndexError;
-pub use links::{links_from, links_to, replace_links_for_file, LinkRow};
+pub use links::{
+    backlinks_for, links_from, links_to, replace_links_for_file, BacklinkRow, LinkRow,
+};
 pub use migrations::{Migration, MIGRATIONS};
 pub use runner::{open_index, IndexConn};
