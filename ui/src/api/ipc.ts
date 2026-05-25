@@ -158,6 +158,31 @@ export interface ResolveLinkResponse {
   anchor: ResolvedAnchor | null;
 }
 
+// ---------------------------------------------------------------------------
+// get_backlinks (L3 Session C)
+// ---------------------------------------------------------------------------
+
+export interface GetBacklinksRequest {
+  vault_id: string;
+  /** Vault-relative path of the note whose backlinks to list. */
+  path: string;
+}
+
+/** One backlink as surfaced to the frontend. */
+export interface Backlink {
+  /** Vault-relative path of the source note that links here. */
+  source_path: string;
+  /** Single-line context snippet (~120 chars). Empty when the source
+   *  file is unreadable or its enclosing block has no text. */
+  context: string;
+  /** Byte offset of the link's opener within `source_path`. */
+  position: number;
+}
+
+export interface GetBacklinksResponse {
+  backlinks: Backlink[];
+}
+
 /**
  * Known vault-local settings, as a discriminated union of
  * `{ key, value }` pairs. The backend `config` table is generic
@@ -170,7 +195,8 @@ export interface ResolveLinkResponse {
  */
 export type Setting =
   | { key: "editor.raw_source_default"; value: boolean }
-  | { key: "appearance.theme_mode"; value: "light" | "dark" | "system" };
+  | { key: "appearance.theme_mode"; value: "light" | "dark" | "system" }
+  | { key: "ui.right_sidebar_collapsed"; value: boolean };
 
 /** Narrows a `Setting` key to its corresponding value type. */
 export type SettingValue<K extends Setting["key"]> = Extract<
@@ -274,6 +300,17 @@ export function resolveLink(
     payload.source_path = req.source_path;
   }
   return invoke("resolve_link", { req: payload });
+}
+
+/**
+ * List every backlink for `path` — every note that links here, with
+ * a single-line context snippet drawn from the source. Backlinks are
+ * ordered `(source_path, position)`. Empty list when nothing links.
+ */
+export function getBacklinks(
+  req: GetBacklinksRequest,
+): Promise<GetBacklinksResponse> {
+  return invoke("get_backlinks", { req });
 }
 
 /**
