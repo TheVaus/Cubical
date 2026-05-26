@@ -15,7 +15,7 @@
 import type { ResolvedAnchor } from "../api/ipc";
 import type { WikiLinkResolver } from "./wikilinkResolver";
 
-export type WikiLinkClickResult = "navigated" | "offered" | "pending";
+export type WikiLinkClickResult = "navigated" | "offered";
 
 export interface WikiLinkClickContext {
   resolver: WikiLinkResolver;
@@ -43,21 +43,17 @@ function stripAnchor(targetRaw: string): string {
 }
 
 /**
- * Route a click on a wiki-link. The resolver is consulted
- * synchronously: a cache hit dispatches `onNavigate` (resolved) or
- * `onOfferCreate` (known-unresolved); a cache miss kicks off the
- * async fetch and returns `"pending"` so the caller can no-op until
- * the next decoration rebuild.
+ * Route a click on a wiki-link. Async because the resolver may need
+ * to fetch the target's resolution on a cold cache — the click
+ * router awaits it so a first-click on a not-yet-resolved wiki-link
+ * still navigates (rather than being thrown away as "pending"). A
+ * cache hit settles synchronously on the same microtask.
  */
-export function handleWikiLinkClick(
+export async function handleWikiLinkClick(
   targetRaw: string,
   ctx: WikiLinkClickContext,
-): WikiLinkClickResult {
-  const hit = ctx.resolver.get(targetRaw);
-  if (hit === undefined) {
-    ctx.resolver.fetch(targetRaw);
-    return "pending";
-  }
+): Promise<WikiLinkClickResult> {
+  const hit = await ctx.resolver.resolve(targetRaw);
   if (hit.target_path !== null) {
     ctx.onNavigate(hit.target_path, hit.anchor);
     return "navigated";

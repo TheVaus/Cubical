@@ -13,6 +13,12 @@ function resolverWith(
   return {
     get: (k) => entries[k],
     fetch: () => {},
+    resolve: (k) => {
+      const hit = entries[k];
+      return hit === undefined
+        ? Promise.reject(new Error(`no entry for ${k}`))
+        : Promise.resolve(hit);
+    },
     invalidate: () => {},
     onUpdate: () => () => {},
   };
@@ -42,10 +48,10 @@ describe("createPathForTarget", () => {
 });
 
 describe("handleWikiLinkClick", () => {
-  it("navigates when the target resolves", () => {
+  it("navigates when the target resolves", async () => {
     const onNavigate = vi.fn();
     const onOfferCreate = vi.fn();
-    const result: WikiLinkClickResult = handleWikiLinkClick("note", {
+    const result: WikiLinkClickResult = await handleWikiLinkClick("note", {
       resolver: resolverWith({
         note: { target_path: "note.md", anchor: null },
       }),
@@ -57,10 +63,10 @@ describe("handleWikiLinkClick", () => {
     expect(onOfferCreate).not.toHaveBeenCalled();
   });
 
-  it("offers create when the target is known-unresolved", () => {
+  it("offers create when the target is known-unresolved", async () => {
     const onNavigate = vi.fn();
     const onOfferCreate = vi.fn();
-    const result = handleWikiLinkClick("Missing", {
+    const result = await handleWikiLinkClick("Missing", {
       resolver: resolverWith({
         Missing: { target_path: null, anchor: null },
       }),
@@ -72,26 +78,41 @@ describe("handleWikiLinkClick", () => {
     expect(onNavigate).not.toHaveBeenCalled();
   });
 
-  it("returns 'pending' and kicks the fetch when the cache is cold", () => {
-    const fetch = vi.fn();
+  it("awaits the fetch and navigates once the resolver settles", async () => {
+    // Cold cache — `get` returns undefined, but `resolve` awaits and
+    // returns the eventual entry. The click handler should follow
+    // through to onNavigate rather than bailing as 'pending'.
+    let resolveLate: (v: WikiLinkResolution) => void = () => {};
+    const lateFetch = new Promise<WikiLinkResolution>((r) => {
+      resolveLate = r;
+    });
     const resolver: WikiLinkResolver = {
       get: () => undefined,
-      fetch,
+      fetch: vi.fn(),
+      resolve: () => lateFetch,
       invalidate: () => {},
       onUpdate: () => () => {},
     };
-    const result = handleWikiLinkClick("note", {
+    const onNavigate = vi.fn();
+    const onOfferCreate = vi.fn();
+    const pending = handleWikiLinkClick("note", {
       resolver,
-      onNavigate: vi.fn(),
-      onOfferCreate: vi.fn(),
+      onNavigate,
+      onOfferCreate,
     });
-    expect(result).toBe("pending");
-    expect(fetch).toHaveBeenCalledWith("note");
+    // Before the fetch settles, neither callback has fired.
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(onOfferCreate).not.toHaveBeenCalled();
+    // Fetch returns — click routes through.
+    resolveLate({ target_path: "note.md", anchor: null });
+    const result = await pending;
+    expect(result).toBe("navigated");
+    expect(onNavigate).toHaveBeenCalledWith("note.md", null);
   });
 
-  it("echoes the anchor through to onNavigate", () => {
+  it("echoes the anchor through to onNavigate", async () => {
     const onNavigate = vi.fn();
-    const result = handleWikiLinkClick("note#Heading One", {
+    const result = await handleWikiLinkClick("note#Heading One", {
       resolver: resolverWith({
         "note#Heading One": {
           target_path: "note.md",

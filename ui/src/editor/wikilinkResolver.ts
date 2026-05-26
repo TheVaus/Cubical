@@ -34,6 +34,13 @@ export interface WikiLinkResolver {
   get(targetRaw: string): WikiLinkResolution | undefined;
   /** Kick off (or skip if already pending/cached) an async fetch. */
   fetch(targetRaw: string): void;
+  /**
+   * Awaitable lookup. Resolves to the cached entry, kicking off a fetch
+   * first if the cache is cold and awaiting any in-flight fetch.
+   * Used by the click router so a first-click on a not-yet-resolved
+   * wiki-link still navigates (rather than being thrown away pending).
+   */
+  resolve(targetRaw: string): Promise<WikiLinkResolution>;
   /** Drop the entire cache and notify subscribers. */
   invalidate(): void;
   /** Subscribe to cache-change notifications. Returns unsubscribe. */
@@ -58,7 +65,7 @@ export function createWikiLinkResolver(
     for (const fn of subscribers) fn();
   };
 
-  return {
+  const resolver: WikiLinkResolver = {
     get(targetRaw) {
       return cache.get(targetRaw);
     },
@@ -81,6 +88,29 @@ export function createWikiLinkResolver(
           notify();
         });
     },
+    resolve(targetRaw) {
+      const hit = cache.get(targetRaw);
+      if (hit !== undefined) return Promise.resolve(hit);
+      // Kick the fetch if not already in flight, then await the next
+      // notify carrying our entry. `invalidate()` can land between
+      // notifies — the subscriber simply keeps waiting until the
+      // entry appears (the in-flight fetch, or the next one if we
+      // were invalidated mid-flight, will fill it).
+      resolver.fetch(targetRaw);
+      return new Promise((resolveFn) => {
+        const unsub = resolver.onUpdate(() => {
+          const got = cache.get(targetRaw);
+          if (got !== undefined) {
+            unsub();
+            resolveFn(got);
+          } else if (!inFlight.has(targetRaw)) {
+            // Cache miss AND no fetch in flight (an `invalidate()`
+            // cleared us). Kick a fresh one and keep waiting.
+            resolver.fetch(targetRaw);
+          }
+        });
+      });
+    },
     invalidate() {
       cache.clear();
       // Don't clear inFlight — those promises will overwrite stale
@@ -94,4 +124,5 @@ export function createWikiLinkResolver(
       };
     },
   };
+  return resolver;
 }

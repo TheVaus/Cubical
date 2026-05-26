@@ -106,4 +106,61 @@ describe("createWikiLinkResolver", () => {
     await settle();
     expect(r.get("note")).toEqual({ target_path: null, anchor: null });
   });
+
+  it("resolve() returns the cached entry synchronously on a warm cache", async () => {
+    const { fn } = stubIpc({
+      note: { target_path: "note.md", anchor: null },
+    });
+    const r = createWikiLinkResolver("v1", fn);
+    r.fetch("note");
+    await settle();
+    const got = await r.resolve("note");
+    expect(got).toEqual({ target_path: "note.md", anchor: null });
+  });
+
+  it("resolve() awaits the in-flight fetch on a cold cache", async () => {
+    const { fn, calls } = stubIpc({
+      note: { target_path: "note.md", anchor: null },
+    });
+    const r = createWikiLinkResolver("v1", fn);
+    // No prior fetch — resolve() should kick one off and await it.
+    const got = await r.resolve("note");
+    expect(got).toEqual({ target_path: "note.md", anchor: null });
+    expect(calls).toEqual([{ vault_id: "v1", target_raw: "note" }]);
+  });
+
+  it("resolve() joins an already-in-flight fetch without re-firing the IPC", async () => {
+    let resolveIpc: (v: ResolveLinkResponse) => void = () => {};
+    const fn = (_req: ResolveLinkRequest): Promise<ResolveLinkResponse> =>
+      new Promise((r) => {
+        resolveIpc = r;
+      });
+    const r = createWikiLinkResolver("v1", fn);
+    r.fetch("note"); // first fetch — in-flight
+    const pending = r.resolve("note"); // joins
+    resolveIpc({ target_path: "note.md", anchor: null });
+    const got = await pending;
+    expect(got).toEqual({ target_path: "note.md", anchor: null });
+  });
+
+  it("resolve() still settles when invalidate() lands mid-flight", async () => {
+    let resolveIpc: (v: ResolveLinkResponse) => void = () => {};
+    let calls = 0;
+    const fn = (_req: ResolveLinkRequest): Promise<ResolveLinkResponse> => {
+      calls += 1;
+      return new Promise((r) => {
+        resolveIpc = r;
+      });
+    };
+    const r = createWikiLinkResolver("v1", fn);
+    const pending = r.resolve("note");
+    // Invalidate mid-flight — cache is empty, the in-flight fetch
+    // is still pending. When it returns, resolve() should still
+    // settle on the eventual entry.
+    r.invalidate();
+    resolveIpc({ target_path: "note.md", anchor: null });
+    const got = await pending;
+    expect(got).toEqual({ target_path: "note.md", anchor: null });
+    expect(calls).toBe(1);
+  });
 });

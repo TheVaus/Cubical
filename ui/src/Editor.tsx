@@ -199,7 +199,11 @@ const Editor: Component<EditorProps> = (props) => {
     const resolverObj = props.wikilinkResolver ?? null;
     if (!resolverObj) return false;
 
-    handleWikiLinkClick(targetWithAnchor, {
+    // Fire-and-forget the async router. preventDefault() will run
+    // synchronously below (we return true), blocking CM's caret move
+    // before the resolver fetch settles; the navigation lands on the
+    // next microtask (cache hit) or shortly after (cold cache).
+    void handleWikiLinkClick(targetWithAnchor, {
       resolver: resolverObj,
       onNavigate: (path, anchor) =>
         props.onNavigateWikilink?.(path, anchor),
