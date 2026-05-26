@@ -40,6 +40,8 @@ import {
   type ResolvedTheme,
   type ThemeMode,
 } from "./styles/theme";
+import RightSidebar from "./RightSidebar";
+import Backlinks from "./sidebar/Backlinks";
 
 /**
  * L2 Session A surface.
@@ -164,6 +166,17 @@ const App: Component = () => {
     null,
   );
 
+  // L3 Session C: right-sidebar shell state + backlinks refresh tick.
+  // `rightSidebarCollapsed` mirrors the `ui.right_sidebar_collapsed`
+  // vault-local setting (seeded on vault open, persisted on toggle).
+  // `backlinksRefreshTick` is a monotonic counter that the Backlinks
+  // panel watches — every `vault:file-changed` event bumps it after
+  // a 200ms debounce so the panel refetches without polling.
+  const [rightSidebarCollapsed, setRightSidebarCollapsed] = createSignal(false);
+  const [backlinksRefreshTick, setBacklinksRefreshTick] = createSignal(0);
+  let backlinksRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+  const BACKLINKS_REFRESH_DEBOUNCE_MS = 200;
+
   // Per-file hash bookkeeping. Non-reactive (signals are overkill here
   // and would cause spurious re-renders when only the bookkeeping
   // changes). The active file's hashes are read directly from these
@@ -276,6 +289,21 @@ const App: Component = () => {
     }, AUTOSAVE_DEBOUNCE_MS);
   };
 
+  /**
+   * Bump the backlinks refresh tick after a 200ms debounce. Called
+   * from the `vault:file-changed` listener — any vault file change
+   * may have created or removed a link pointing at the open note.
+   */
+  const scheduleBacklinksRefresh = () => {
+    if (backlinksRefreshTimer !== undefined) {
+      clearTimeout(backlinksRefreshTimer);
+    }
+    backlinksRefreshTimer = setTimeout(() => {
+      backlinksRefreshTimer = undefined;
+      setBacklinksRefreshTick((n) => n + 1);
+    }, BACKLINKS_REFRESH_DEBOUNCE_MS);
+  };
+
   const handleContentChange = (_content: string) => {
     dirty = true;
     scheduleAutosave();
@@ -334,6 +362,22 @@ const App: Component = () => {
     if (id) {
       setSetting(id, "editor.raw_source_default", next).catch((e) => {
         console.error("persisting raw_source_default failed", e);
+      });
+    }
+  };
+
+  /**
+   * Toggle the right sidebar collapsed/expanded and persist the new
+   * value to the vault. With no vault open the change is in-memory
+   * only (the setting is vault-local — nowhere to persist yet).
+   */
+  const toggleRightSidebar = () => {
+    const next = !rightSidebarCollapsed();
+    setRightSidebarCollapsed(next);
+    const id = vaultId();
+    if (id) {
+      setSetting(id, "ui.right_sidebar_collapsed", next).catch((e) => {
+        console.error("persisting ui.right_sidebar_collapsed failed", e);
       });
     }
   };
@@ -512,6 +556,11 @@ const App: Component = () => {
       // next decoration rebuild re-resolves.
       wikilinkResolver()?.invalidate();
 
+      // L3 Session C: any vault file change may have added/removed
+      // a link pointing at the open note. Bump the backlinks tick
+      // after a 200ms debounce so the panel refetches.
+      scheduleBacklinksRefresh();
+
       // L2 §2.7 + §2.8: external-edit detection vs. own-write
       // suppression. Only relevant when the changed file is the one
       // currently open in the editor and a hash is present on the
@@ -582,6 +631,7 @@ const App: Component = () => {
     unlistenCancelled?.();
     unlistenFileChanged?.();
     if (autosaveTimer !== undefined) clearTimeout(autosaveTimer);
+    if (backlinksRefreshTimer !== undefined) clearTimeout(backlinksRefreshTimer);
   });
 
   const handleOpen = async () => {
@@ -606,6 +656,8 @@ const App: Component = () => {
       setConflictExternalHash(null);
       setRawOverride(null);
       setCreateOffer(null);
+      setBacklinksRefreshTick(0);
+      setRightSidebarCollapsed(false);
       setWikilinkResolver(null);
       seenHash = null;
       lastWrittenHash = null;
@@ -639,6 +691,20 @@ const App: Component = () => {
         setRawDefault(stored ?? false);
       } catch (e) {
         console.error("loading raw_source_default failed", e);
+      }
+
+      // Seed the right-sidebar collapsed state from this vault's
+      // settings. Absent key → expanded (false). The shell is the
+      // primary surface for backlinks/mentions; default-open is the
+      // right out-of-the-box experience.
+      try {
+        const stored = await getSetting(
+          resp.vault_id,
+          "ui.right_sidebar_collapsed",
+        );
+        setRightSidebarCollapsed(stored ?? false);
+      } catch (e) {
+        console.error("loading ui.right_sidebar_collapsed failed", e);
       }
     } catch (e) {
       const message =
@@ -1054,6 +1120,19 @@ const App: Component = () => {
                 </p>
               </Show>
             </div>
+            <RightSidebar
+              collapsed={rightSidebarCollapsed()}
+              onToggle={toggleRightSidebar}
+            >
+              <Backlinks
+                vaultId={vaultId()}
+                path={selectedPath()}
+                refreshSignal={backlinksRefreshTick()}
+                onRowClick={(path) =>
+                  void handleNavigateWikilink(path, null)
+                }
+              />
+            </RightSidebar>
           </div>
         </section>
       </Show>
