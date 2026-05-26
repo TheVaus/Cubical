@@ -409,3 +409,63 @@ NoteB.md:
 Confirm: off-cursor hides brackets, the cursor-line reveal works, `NeverCreated` carries the dashed-warning style, clicks navigate (`NoteB#heading` scrolls to `## heading`), the modal dismisses on backdrop click, creating `NeverCreated.md` flips its style without reload, and `Cmd/Ctrl+E` reveals literal source for every wiki-link.
 
 **What's left for L3.** Sessions C–K — backlinks panel + right-sidebar shell (C), tags (D), virtual tag pages (E), link/tag autocomplete (F), block references (G), embeds proper (H — Session B's embed indicator is purely visual; the inline render is H's territory), unlinked mentions (I), pending-rewrites cache (J), and the layer closeout (K).
+
+### 9.3 Session C — Backlinks panel + right-sidebar shell
+
+**Done 2026-05-26.** The right-sidebar shell now lives next to the editor and hosts its first occupant — the Backlinks panel — listing every note whose `links.target_path` resolves to the open file, each row carrying a single-line context snippet drawn from the source. The panel refreshes on a 200ms-debounced `vault:file-changed` tick, row clicks reuse the Session B navigation seam, and the collapsed state of the shell persists per-vault.
+
+**Index: `BacklinkRow` + `backlinks_for`.** `crates/cubical-index/src/links.rs` gained a dedicated query — `backlinks_for(target_path) -> Vec<BacklinkRow>` — surfacing `source_path` alongside the existing `LinkRow` columns. The choice between enriching `links_to` (which omits `source_path`) and adding a new query went to a new query: `links_to` has no production callers (its only uses are inside `links.rs`'s test module), so a clean dedicated shape was cheaper than dragging a tuple through both signatures. Ordering is `(source_path, position)` — same key Session A locked for `links_to` — so per-file grouping in the panel is stable. Two tests cover ordering across multiple sources and the empty case; both `LinkRow` and `BacklinkRow` are now re-exported from `cubical_index`.
+
+**IPC types + handler.** `crates/cubical-app/src/api/types.rs` adds `GetBacklinksRequest { vault_id, path }`, `GetBacklinksResponse { backlinks: Vec<Backlink> }`, and the row shape `Backlink { source_path, context, position }` — the wire mirror of `BacklinkRow` with a snippet baked in. The handler lives in a new `commands/backlinks.rs` module, registered alongside `links` and `vault` in `commands/mod.rs`. It pulls the open vault from `AppState`, calls `backlinks_for`, then per row reads the source file from disk and builds a snippet via `build_snippet`. A read failure (file deleted between extraction and the panel query) degrades to an empty `context` with a `tracing::debug!` line; the row still appears so the panel surfaces the stale link. Five tests cover empty, single source + snippet, multiple sources ordered, missing-source-file degrades-to-empty, and unknown-vault errors.
+
+**Snippet helper.** `build_snippet(source, position)` is a pure 120-byte window centred on `position`. Newlines collapse to single spaces; runs of whitespace collapse; word-boundary polish prefers breaking on whitespace within 16 chars of either edge, falling back to a hard cut + `…` when there is no nearby space; UTF-8 boundaries are respected via floor/ceil widening so the slice never lands mid-codepoint. Empty source returns the empty string. The helper is tested in isolation with 9 cases: empty, short-source-no-ellipses, near-start, near-end, middle-position, newline collapse, whitespace collapse, multibyte safety, and out-of-range position clamping.
+
+**Tauri shim.** `crates/cubical-app/src/lib.rs` adds `get_backlinks` to the `invoke_handler!` registration list (between `resolve_link` and `close_vault`) and the matching three-line shim. The `use api::types::{…}` block grew by two names; no other touchpoints.
+
+**Frontend: pure helpers.** `ui/src/sidebar/backlinksState.ts` holds the panel's data-shape logic — `backlinkKey(b)` (stable `source_path@position` row key), `basenameWithoutExtension(path)` (display label for a `.md` row), and a `reduceBacklinksState` reducer over a discriminated `BacklinksViewState` (`idle | loading | empty | loaded | error`). Same pattern as `properties/coerce.ts` and `properties/inferType.ts` — pure TS so it tests without a render harness. 11 vitest cases.
+
+**Frontend: panel + shell.** `ui/src/sidebar/Backlinks.tsx` is a thin Solid wrapper around the helpers: a `createEffect` watches `vaultId`, `path`, and `refreshSignal` (the parent's tick), runs `getBacklinks`, and folds the result through `reduceBacklinksState`. An incrementing in-flight `token` discards late responses so a slow fetch can never overwrite a newer fetch's state. The render emits four terminal text states (idle / loading / empty / error) and the populated `<ul>` of rows; each row shows the source file's basename + the context snippet (or a `—` placeholder when the snippet is empty). `ui/src/RightSidebar.tsx` is the collapsible shell — panel-agnostic by design (Session I adds Unlinked Mentions). It owns the toggle button, flex sizing (`18rem` expanded, `2rem` collapsed), and the children slot.
+
+**App.tsx wiring.** `App.tsx` gained: two new signals (`rightSidebarCollapsed`, `backlinksRefreshTick`) + a `scheduleBacklinksRefresh` debounce helper; a `toggleRightSidebar` that persists the flag via `setSetting("ui.right_sidebar_collapsed", …)`; one extra line in the `vault:file-changed` listener calling `scheduleBacklinksRefresh()` after the existing `wikilinkResolver()?.invalidate()`; cleanup of the debounce timer next to the autosave one; a vault-open block that seeds the collapsed state from settings; and a render block placing `<RightSidebar collapsed={…} onToggle={…}><Backlinks vaultId={…} path={…} refreshSignal={…} onRowClick={…} /></RightSidebar>` in the existing flex row, after the editor pane. Row clicks call into `handleNavigateWikilink(path, null)` so autosave / `seenHash` / `dirty` plumbing stays correct.
+
+**Setting: `ui.right_sidebar_collapsed`.** Vault-local boolean, mirroring `editor.raw_source_default` / `appearance.theme_mode`. Extends the `Setting` discriminated union in `ui/src/api/ipc.ts`; reads on vault open (absent → expanded), writes on every toggle.
+
+**Live refresh route.** Piggyback on `vault:file-changed` with a 200ms debounce. The spec's `vault:index-changed` event (§3.5) is *not* shipped this session — promote it when a second consumer appears (probably Session I unlinked mentions).
+
+**Decisions worth noting.**
+- *New `backlinks_for` over enriching `links_to`*: `links_to` has no production callers, so a dedicated `BacklinkRow` query was cheaper than dual-purposing the existing one. `links_to` stays where it is for future direct use.
+- *120-byte snippet width, single-line collapse, word-boundary polish*: 120 fits ~one terminal line of context in a 32px-tall row without truncation; word-boundary trimming within 16 chars of each edge avoids "…rd" mid-word ellipses while still respecting the size cap. UTF-8 boundary widening is the load-bearing safety property — slicing mid-codepoint would panic.
+- *Missing-source-file → empty snippet, not error*: a deleted source between extraction and the panel query yields an empty `context`. The row still appears so the panel can surface the stale link; the eventual file-removal cascade (and Session J pending-rewrites) is what cleans the row up properly.
+- *One row per link, no grouping*: faithful to the spec's singular "each row showing the source note". Optional grouping deferred — easy to layer on later because `backlinkKey` already provides per-link stability.
+- *Piggyback on `vault:file-changed` vs. ship `vault:index-changed`*: `(a)` won. The same listener already drives the Session B resolver invalidation, so adding one debounced bump is the minimum surface change. Promote to `(b)` when the second consumer appears.
+- *Vault-local `ui.right_sidebar_collapsed`*: matches `editor.raw_source_default` / `appearance.theme_mode`'s pattern. Process-local memory would feel discontinuous when a user reopens the same vault.
+- *Sidebar width hardcoded `18rem`*: matches the file-list pane's `flex: 0 0 18rem` so the layout reads balanced. No token minted yet — a future resizer would be the reason to introduce one.
+- *Token reuse over new editor variables*: every new surface consumes existing tokens (`--c-bg-secondary`, `--c-border-subtle`, `--space-*`, etc.). The shell and panel never hardcode colors, radii, or spacings.
+- *Case-collision fix*: `ui/src/sidebar/backlinks.ts` was renamed to `backlinksState.ts` (commit `96090dc`) because macOS's case-insensitive APFS collides it with `Backlinks.tsx`. The TS `forceConsistentCasingInFileNames` check rejected the original pairing; the rename + 2-line importer updates fixed it cleanly. Worth noting because Sessions D/I will introduce more panel components — keep helpers under non-PascalCase suffixes like `<thing>State.ts` to avoid the same collision.
+- *Reducer + token discipline for race safety*: every fetch increments a local `token`; the `.then` / `.catch` only commits its state mutation if its captured token still matches the latest. Cheap, no AbortController needed for L3 — backlinks fetches are short — and prevents a late slow response from overwriting an in-progress fast one.
+
+**Tests:** 186 Rust passing (was 170 + 16 new: 2 query + 9 snippet + 5 handler), 172 vitest passing (was 161 + 11 new — `backlinkKey` ×2, `basenameWithoutExtension` ×4, `reduceBacklinksState` ×5). `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --check`, `npx tsc --noEmit`, and `npm run build` all clean.
+
+**Interactive smoke status.** Hands-on `cargo tauri dev` smoke was not performed this session — the native Tauri window can't be browser-driven and the session ran in an automated context with no operator at the keyboard. Unit-test coverage exercises every pure decision (the query's ordering and source-path projection; the snippet helper across 9 grammatical cases including UTF-8 boundaries; the handler across empty / single / multiple / missing-source / unknown-vault paths; the view-state reducer across all 4 action transitions; the pure helpers for keying and display naming) plus the full build and type gates. End-to-end behaviour (the panel populating on selection, the 200ms debounce flipping a freshly-created backlink into view, the row click navigating through `handleSelectFile` without disturbing autosave, the collapsed state persisting across vault reopen, the empty-state copy when there are no backlinks) needs a hands-on smoke at the next opportunity. Recommended smoke vault:
+
+```
+NoteA.md:
+  # NoteA
+  Body referring to [[Target]] and trailing text.
+
+NoteB.md:
+  # NoteB
+  [[Target|the target]] is referenced here.
+
+NoteC.md:
+  # NoteC
+  No backlinks point here.
+
+Target.md:
+  # Target
+  body
+```
+
+Confirm: opening `Target.md` populates the panel with two rows (`NoteA`, `NoteB`); each row's snippet contains the surrounding context; clicking `NoteA` opens it and the editor's autosave / `seenHash` flow remains correct (write to it and confirm autosave fires); opening `NoteC.md` shows the "No backlinks yet." empty state; creating a new `NoteD.md` containing `[[Target]]` updates the panel within ~200ms without reload; collapsing the sidebar and reopening the vault remembers the collapsed state.
+
+**What's left for L3.** Sessions D–K — tags (D), virtual tag pages (E), link/tag autocomplete (F), block references (G), embeds proper (H), unlinked mentions (I — second occupant of the shell built this session), pending-rewrites cache (J), and the layer closeout (K).

@@ -11,5 +11,6 @@
 //!
 //! See `docs/migration-touchpoints.md` and `docs/layer-0-spec.md` §8.
 
+pub mod backlinks;
 pub mod links;
 pub mod vault;

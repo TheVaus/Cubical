@@ -310,6 +310,42 @@ pub enum ResolvedAnchor {
     },
 }
 
+// -- get_backlinks -------------------------------------------------------
+
+/// Request payload for `get_backlinks`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct GetBacklinksRequest {
+    /// Vault whose link index to query.
+    pub vault_id: String,
+    /// Vault-relative path of the note whose backlinks to list. The
+    /// handler matches `links.target_path` against this string.
+    pub path: String,
+}
+
+/// Response payload for `get_backlinks`.
+#[derive(Debug, Clone, Serialize)]
+pub struct GetBacklinksResponse {
+    /// Backlinks in `(source_path, position)` order. Empty when no
+    /// note links at `path`.
+    pub backlinks: Vec<Backlink>,
+}
+
+/// One backlink row surfaced to the frontend.
+///
+/// `context` is a single-line snippet (~120 chars) drawn from the
+/// source file's text around `position`. Empty only when the
+/// enclosing block has no readable text.
+#[derive(Debug, Clone, Serialize)]
+pub struct Backlink {
+    /// Vault-relative path of the source note that links here.
+    pub source_path: String,
+    /// Single-line context snippet, ~120 chars centred on `position`.
+    pub context: String,
+    /// Byte offset of the link's opener within `source_path`. Used by
+    /// the frontend as a stable key/sort tiebreaker.
+    pub position: u64,
+}
+
 // -- close_vault ---------------------------------------------------------
 
 /// Request payload for `close_vault`.

@@ -31,12 +31,12 @@ pub mod events;
 pub mod state;
 
 use api::types::{
-    CancelVaultScanRequest, CloseVaultRequest, GetCanonicalAstRequest, GetCanonicalAstResponse,
-    GetFrontmatterRequest, GetFrontmatterResponse, GetSettingRequest, GetSettingResponse,
-    GetVaultInfoRequest, GetVaultInfoResponse, ListFilesRequest, ListFilesResponse,
-    OpenVaultRequest, OpenVaultResponse, ReadFileTextRequest, ReadFileTextResponse,
-    ResolveLinkRequest, ResolveLinkResponse, SetSettingRequest, SetSettingResponse,
-    WriteFileTextRequest, WriteFileTextResponse,
+    CancelVaultScanRequest, CloseVaultRequest, GetBacklinksRequest, GetBacklinksResponse,
+    GetCanonicalAstRequest, GetCanonicalAstResponse, GetFrontmatterRequest, GetFrontmatterResponse,
+    GetSettingRequest, GetSettingResponse, GetVaultInfoRequest, GetVaultInfoResponse,
+    ListFilesRequest, ListFilesResponse, OpenVaultRequest, OpenVaultResponse, ReadFileTextRequest,
+    ReadFileTextResponse, ResolveLinkRequest, ResolveLinkResponse, SetSettingRequest,
+    SetSettingResponse, WriteFileTextRequest, WriteFileTextResponse,
 };
 use error::CubicalError;
 use state::AppState;
@@ -78,6 +78,7 @@ pub fn run() {
             set_setting,
             get_canonical_ast,
             resolve_link,
+            get_backlinks,
             close_vault,
         ])
         .run(tauri::generate_context!())
@@ -188,6 +189,15 @@ async fn resolve_link(
     req: ResolveLinkRequest,
 ) -> Result<ResolveLinkResponse, CubicalError> {
     commands::links::resolve_link(state.inner(), req).await
+}
+
+/// Tauri shim — see [`commands::backlinks::get_backlinks`].
+#[tauri::command]
+async fn get_backlinks(
+    state: tauri::State<'_, AppState>,
+    req: GetBacklinksRequest,
+) -> Result<GetBacklinksResponse, CubicalError> {
+    commands::backlinks::get_backlinks(state.inner(), req).await
 }
 
 /// Tauri shim — see [`commands::vault::close_vault`].
