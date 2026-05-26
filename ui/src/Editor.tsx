@@ -223,8 +223,13 @@ const Editor: Component<EditorProps> = (props) => {
       },
     );
 
+    // CodeMirror places the caret on `mousedown`, not `click`, so a
+    // `click` handler that calls `preventDefault()` is too late — the
+    // cursor has already moved. We listen on `mousedown` instead so
+    // the wiki-link route can intercept before CM's default selection
+    // logic runs. Same gating (left-button, no modifiers) applies.
     const clickHandler = EditorView.domEventHandlers({
-      click(event, clickView) {
+      mousedown(event, clickView) {
         if (event.button !== 0) return false;
         if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
           return false;
