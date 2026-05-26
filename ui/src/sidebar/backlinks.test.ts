@@ -6,7 +6,7 @@ import {
   basenameWithoutExtension,
   type BacklinksViewState,
   reduceBacklinksState,
-} from "./backlinks";
+} from "./backlinksState";
 
 const sample: Backlink = {
   source_path: "notes/foo.md",

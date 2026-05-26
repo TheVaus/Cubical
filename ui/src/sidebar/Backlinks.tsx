@@ -6,7 +6,7 @@ import {
   basenameWithoutExtension,
   reduceBacklinksState,
   type BacklinksViewState,
-} from "./backlinks";
+} from "./backlinksState";
 
 /**
  * Props for the Backlinks panel.
