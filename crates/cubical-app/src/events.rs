@@ -15,7 +15,8 @@ use tauri::Emitter;
 use tokio::sync::{mpsc, RwLock};
 
 use cubical_core::{
-    refresh_frontmatter, refresh_links, scan, ScanProgress, Vault, VaultError, WatchEvent,
+    refresh_frontmatter, refresh_links, refresh_tags, scan, ScanProgress, Vault, VaultError,
+    WatchEvent,
 };
 use libsql::params;
 use tokio_util::sync::CancellationToken;
@@ -386,6 +387,11 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) -> O
                 // work along with the rest of the rename pipeline.
                 if let Err(e) = refresh_links(vault, &abs, &path_str).await {
                     tracing::warn!(path = %path_str, error = %e, "watcher: links refresh failed");
+                }
+                // L3 Session D: refresh `tags` rows. Same best-effort
+                // policy as links + frontmatter.
+                if let Err(e) = refresh_tags(vault, &abs, &path_str).await {
+                    tracing::warn!(path = %path_str, error = %e, "watcher: tags refresh failed");
                 }
             }
 

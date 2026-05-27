@@ -69,6 +69,7 @@ export type DecoKind =
   | "mark-wikilink"
   | "mark-wikilink-unresolved"
   | "mark-wikilink-embed"
+  | "mark-tag"
   | "mark-marker-muted"
   | "hide"
   | "bullet";
@@ -312,6 +313,16 @@ export function collectDecorations(
         return;
       }
 
+      if (name === "Tag") {
+        const onActiveLine = doc.lineAt(node.from).number === activeLine;
+        visible.push({
+          from: node.from,
+          to: node.to,
+          kind: onActiveLine ? "mark-marker-muted" : "mark-tag",
+        });
+        return;
+      }
+
       if (name === "WikiLink") {
         const raw = doc.sliceString(node.from, node.to);
         const tok = scanWikilinks(raw).find((t) => t.kind === "wiki_link");
@@ -433,6 +444,7 @@ const wikilinkMarkDeco = Decoration.mark({ class: "cm-md-wikilink" });
 const wikilinkUnresolvedDeco = Decoration.mark({
   class: "cm-md-wikilink-unresolved",
 });
+const tagMarkDeco = Decoration.mark({ class: "cm-md-tag" });
 const mutedMarkDeco = Decoration.mark({ class: "cm-md-mark-muted" });
 const hideDeco = Decoration.replace({});
 const hideBlockDeco = Decoration.replace({ block: true });
@@ -500,6 +512,9 @@ function buildDecorationSet(entries: DecoEntry[]): DecorationSet {
         break;
       case "mark-wikilink-embed":
         ranges.push(wikilinkEmbedDeco.range(e.from));
+        break;
+      case "mark-tag":
+        ranges.push(tagMarkDeco.range(e.from, e.to));
         break;
       case "mark-marker-muted":
         ranges.push(mutedMarkDeco.range(e.from, e.to));
@@ -669,6 +684,14 @@ const decorationBaseTheme = EditorView.baseTheme({
     color: "var(--c-accent)",
     marginRight: "var(--space-1)",
     fontSize: "0.85em",
+  },
+  ".cm-md-tag": {
+    color: "var(--c-accent)",
+    background: "var(--c-bg-tertiary)",
+    borderRadius: "var(--radius-sm)",
+    paddingLeft: "var(--space-1)",
+    paddingRight: "var(--space-1)",
+    fontWeight: "500",
   },
   ".cm-md-mark-muted": { color: "var(--editor-mark-fg-muted)" },
   ".cm-md-bullet": { color: "var(--c-accent)" },

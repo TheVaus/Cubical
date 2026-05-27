@@ -23,10 +23,11 @@ import {
   type DecoEntry,
   type DecoKind,
 } from "./decorations";
+import { tagExtension } from "./tag";
 import { wikilinkExtension } from "./wikilink";
 import type { WikiLinkResolution } from "./wikilinkResolver";
 
-const parser = defaultParser.configure([wikilinkExtension]);
+const parser = defaultParser.configure([wikilinkExtension, tagExtension]);
 
 function run(
   src: string,
@@ -271,6 +272,39 @@ describe("collectDecorations — wiki-links (L3 Session B)", () => {
     const entries = run(src, 99, resolvedAll);
     const visible = ofKind(entries, "mark-wikilink").map((e) => slice(src, e));
     expect(visible.sort()).toEqual(["a", "b"]);
+  });
+});
+
+describe("collectDecorations — tags (L3 Session D)", () => {
+  it("emits mark-tag covering the whole token off the cursor line", () => {
+    const src = "see #todo here\n";
+    const entries = run(src, 99);
+    const tags = ofKind(entries, "mark-tag");
+    expect(tags).toHaveLength(1);
+    expect(slice(src, tags[0]!)).toBe("#todo");
+  });
+
+  it("emits a nested tag as one token", () => {
+    const src = "#project/cubical/l3\n";
+    const entries = run(src, 99);
+    const tags = ofKind(entries, "mark-tag");
+    expect(tags).toHaveLength(1);
+    expect(slice(src, tags[0]!)).toBe("#project/cubical/l3");
+  });
+
+  it("emits multiple tag marks for multiple tags", () => {
+    const src = "#one #two #three\n";
+    const entries = run(src, 99);
+    const tags = ofKind(entries, "mark-tag");
+    expect(tags.map((t) => slice(src, t))).toEqual(["#one", "#two", "#three"]);
+  });
+
+  it("flips to muted on the cursor line (no mark-tag emitted)", () => {
+    const src = "#todo\n";
+    const entries = run(src, 1);
+    expect(ofKind(entries, "mark-tag")).toHaveLength(0);
+    const muted = ofKind(entries, "mark-marker-muted");
+    expect(muted.some((e) => slice(src, e) === "#todo")).toBe(true);
   });
 });
 

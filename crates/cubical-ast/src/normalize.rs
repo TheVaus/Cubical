@@ -287,13 +287,13 @@ impl State {
             } => {
                 self.push_block(Block::Heading {
                     level,
-                    inlines: split_wikilinks(inlines),
+                    inlines: split_inlines(inlines),
                     span: self.shift(start..range.end),
                 });
             }
             Container::Paragraph { inlines, start } => {
                 self.push_block(Block::Paragraph {
-                    inlines: split_wikilinks(inlines),
+                    inlines: split_inlines(inlines),
                     span: self.shift(start..range.end),
                 });
             }
@@ -453,7 +453,7 @@ impl State {
         };
         if let Some(Container::Item { blocks, .. }) = self.stack.last_mut() {
             blocks.push(Block::Paragraph {
-                inlines: split_wikilinks(inlines),
+                inlines: split_inlines(inlines),
                 span: Span::new(item_start + self.body_offset, item_start + self.body_offset),
             });
         }
@@ -486,19 +486,34 @@ impl State {
 }
 
 /// Walk an `Inline` sequence and split every `Inline::Text` value
-/// through the wiki-link tokenizer. Other inline kinds (Code, Emph,
-/// Strong, Link, Image, LineBreak) are preserved as-is; Emph / Strong /
-/// Link / Image recurse into their children so nested text is tokenized.
-fn split_wikilinks(inlines: Vec<Inline>) -> Vec<Inline> {
-    use crate::wikilink::{scan_wikilinks, TokenizedRun};
+/// through the wiki-link tokenizer, then through the tag tokenizer.
+/// Other inline kinds (Code, Emph, Strong, Link, Image, LineBreak) are
+/// preserved as-is; Emph / Strong / Link / Image recurse into their
+/// children so nested text is tokenized.
+///
+/// Wiki-link splitting runs first so a `#tag` inside a wiki-link
+/// target (`[[note#tag]]` would be parsed as a heading anchor, but
+/// `[[note]]#tag` is two tokens — the wiki-link plus a tag) stays out
+/// of the tag pass.
+fn split_inlines(inlines: Vec<Inline>) -> Vec<Inline> {
+    use crate::tag::{scan_tags, TokenizedRun as TagRun};
+    use crate::wikilink::{scan_wikilinks, TokenizedRun as WikiRun};
     let mut out: Vec<Inline> = Vec::with_capacity(inlines.len());
+    let push_text_split_by_tags = |out: &mut Vec<Inline>, text: String| {
+        for run in scan_tags(&text) {
+            match run {
+                TagRun::Text(t) => out.push(Inline::Text { value: t }),
+                TagRun::Tag { path } => out.push(Inline::Tag { path }),
+            }
+        }
+    };
     for inline in inlines {
         match inline {
             Inline::Text { value } => {
                 for run in scan_wikilinks(&value) {
                     match run {
-                        TokenizedRun::Text(t) => out.push(Inline::Text { value: t }),
-                        TokenizedRun::WikiLink {
+                        WikiRun::Text(t) => push_text_split_by_tags(&mut out, t),
+                        WikiRun::WikiLink {
                             target,
                             display,
                             anchor,
@@ -515,10 +530,10 @@ fn split_wikilinks(inlines: Vec<Inline>) -> Vec<Inline> {
                 }
             }
             Inline::Emph { children } => out.push(Inline::Emph {
-                children: split_wikilinks(children),
+                children: split_inlines(children),
             }),
             Inline::Strong { children } => out.push(Inline::Strong {
-                children: split_wikilinks(children),
+                children: split_inlines(children),
             }),
             Inline::Link {
                 dest,
@@ -527,12 +542,12 @@ fn split_wikilinks(inlines: Vec<Inline>) -> Vec<Inline> {
             } => out.push(Inline::Link {
                 dest,
                 title,
-                children: split_wikilinks(children),
+                children: split_inlines(children),
             }),
             Inline::Image { dest, title, alt } => out.push(Inline::Image {
                 dest,
                 title,
-                alt: split_wikilinks(alt),
+                alt: split_inlines(alt),
             }),
             other => out.push(other),
         }
@@ -683,6 +698,7 @@ mod tests {
                 Inline::Image { .. } => "image",
                 Inline::LineBreak => "break",
                 Inline::WikiLink { .. } => "wiki_link",
+                Inline::Tag { .. } => "tag",
             })
             .collect();
         assert!(kinds.contains(&"emph"));

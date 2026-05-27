@@ -14,6 +14,7 @@ import {
   wikilinkResolverUpdated,
   type WikiLinkResolverFacetValue,
 } from "./editor/decorations";
+import { tagExtension } from "./editor/tag";
 import { wikilinkExtension } from "./editor/wikilink";
 import { handleWikiLinkClick } from "./editor/wikilinkClick";
 import {
@@ -248,7 +249,7 @@ const Editor: Component<EditorProps> = (props) => {
             ...defaultKeymap,
             ...historyKeymap,
           ]),
-          markdown({ extensions: [wikilinkExtension] }),
+          markdown({ extensions: [wikilinkExtension, tagExtension] }),
           decorationCompartment.of(
             props.rawSource ? [] : livePreviewDecorations,
           ),

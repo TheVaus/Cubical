@@ -37,6 +37,7 @@ import type {
   ListItem,
   Span,
 } from "./types";
+import { scanTags } from "./tag";
 import { scanWikilinks } from "./wikilink";
 
 /** Parse `source` into the canonical AST. Mirrors `cubical_ast::parse`. */
@@ -163,7 +164,7 @@ function readBlock(
     return {
       kind: "heading",
       level,
-      inlines: splitWikilinks(inlines),
+      inlines: splitInlines(inlines),
       span: shift(from, end, bodyOffset),
     };
   }
@@ -173,7 +174,7 @@ function readBlock(
     const end = extendOneNewline(body, to);
     return {
       kind: "paragraph",
-      inlines: splitWikilinks(inlines),
+      inlines: splitInlines(inlines),
       span: shift(from, end, bodyOffset),
     };
   }
@@ -607,7 +608,7 @@ function trimRight(body: string, from: number, end: number): number {
  * to reach parity we first re-flatten those empty-dest Link/Image nodes
  * back to raw bracketed text, then scan for wiki-links.
  */
-function splitWikilinks(inlines: Inline[]): Inline[] {
+function splitInlines(inlines: Inline[]): Inline[] {
   const flat: Inline[] = [];
   for (const inline of inlines) {
     if (inline.kind === "text") {
@@ -617,22 +618,22 @@ function splitWikilinks(inlines: Inline[]): Inline[] {
     } else if (inline.kind === "image" && inline.dest === "" && inline.title === null) {
       mergeText(flat, "![" + serializeInlinesAsText(inline.alt) + "]");
     } else if (inline.kind === "emph") {
-      flat.push({ kind: "emph", children: splitWikilinks(inline.children) });
+      flat.push({ kind: "emph", children: splitInlines(inline.children) });
     } else if (inline.kind === "strong") {
-      flat.push({ kind: "strong", children: splitWikilinks(inline.children) });
+      flat.push({ kind: "strong", children: splitInlines(inline.children) });
     } else if (inline.kind === "link") {
       flat.push({
         kind: "link",
         dest: inline.dest,
         title: inline.title,
-        children: splitWikilinks(inline.children),
+        children: splitInlines(inline.children),
       });
     } else if (inline.kind === "image") {
       flat.push({
         kind: "image",
         dest: inline.dest,
         title: inline.title,
-        alt: splitWikilinks(inline.alt),
+        alt: splitInlines(inline.alt),
       });
     } else {
       flat.push(inline);
@@ -641,8 +642,14 @@ function splitWikilinks(inlines: Inline[]): Inline[] {
   const out: Inline[] = [];
   for (const inline of flat) {
     if (inline.kind === "text") {
-      for (const run of scanWikilinks(inline.value)) {
-        out.push(run as Inline);
+      for (const wikiRun of scanWikilinks(inline.value)) {
+        if (wikiRun.kind === "text") {
+          for (const tagRun of scanTags(wikiRun.value)) {
+            out.push(tagRun as Inline);
+          }
+        } else {
+          out.push(wikiRun as Inline);
+        }
       }
     } else {
       out.push(inline);

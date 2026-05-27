@@ -25,6 +25,7 @@ mod error;
 mod links;
 mod migrations;
 mod runner;
+mod tags;
 
 pub use error::IndexError;
 pub use links::{
@@ -32,3 +33,4 @@ pub use links::{
 };
 pub use migrations::{Migration, MIGRATIONS};
 pub use runner::{open_index, IndexConn};
+pub use tags::{replace_tags_for_file, tags_for_file, TagRow, TagSource};

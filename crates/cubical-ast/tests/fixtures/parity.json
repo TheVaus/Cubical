@@ -541,5 +541,188 @@
       "frontmatter": null,
       "source_len": 13
     }
+  },
+  {
+    "name": "tag_simple",
+    "input": "see #todo for context\n",
+    "expected": {
+      "blocks": [
+        {
+          "inlines": [
+            {
+              "kind": "text",
+              "value": "see "
+            },
+            {
+              "kind": "tag",
+              "path": "todo"
+            },
+            {
+              "kind": "text",
+              "value": " for context"
+            }
+          ],
+          "kind": "paragraph",
+          "span": {
+            "end": 22,
+            "start": 0
+          }
+        }
+      ],
+      "frontmatter": null,
+      "source_len": 22
+    }
+  },
+  {
+    "name": "tag_nested",
+    "input": "tracked under #project/cubical/l3\n",
+    "expected": {
+      "blocks": [
+        {
+          "inlines": [
+            {
+              "kind": "text",
+              "value": "tracked under "
+            },
+            {
+              "kind": "tag",
+              "path": "project/cubical/l3"
+            }
+          ],
+          "kind": "paragraph",
+          "span": {
+            "end": 34,
+            "start": 0
+          }
+        }
+      ],
+      "frontmatter": null,
+      "source_len": 34
+    }
+  },
+  {
+    "name": "tag_multiple",
+    "input": "#one #two #three\n",
+    "expected": {
+      "blocks": [
+        {
+          "inlines": [
+            {
+              "kind": "tag",
+              "path": "one"
+            },
+            {
+              "kind": "text",
+              "value": " "
+            },
+            {
+              "kind": "tag",
+              "path": "two"
+            },
+            {
+              "kind": "text",
+              "value": " "
+            },
+            {
+              "kind": "tag",
+              "path": "three"
+            }
+          ],
+          "kind": "paragraph",
+          "span": {
+            "end": 17,
+            "start": 0
+          }
+        }
+      ],
+      "frontmatter": null,
+      "source_len": 17
+    }
+  },
+  {
+    "name": "tag_in_heading",
+    "input": "# Heading with #inline tag\n",
+    "expected": {
+      "blocks": [
+        {
+          "inlines": [
+            {
+              "kind": "text",
+              "value": "Heading with "
+            },
+            {
+              "kind": "tag",
+              "path": "inline"
+            },
+            {
+              "kind": "text",
+              "value": " tag"
+            }
+          ],
+          "kind": "heading",
+          "level": 1,
+          "span": {
+            "end": 27,
+            "start": 0
+          }
+        }
+      ],
+      "frontmatter": null,
+      "source_len": 27
+    }
+  },
+  {
+    "name": "tag_inside_code_span_stays_text",
+    "input": "literal `#notatag` here\n",
+    "expected": {
+      "blocks": [
+        {
+          "inlines": [
+            {
+              "kind": "text",
+              "value": "literal "
+            },
+            {
+              "kind": "code",
+              "value": "#notatag"
+            },
+            {
+              "kind": "text",
+              "value": " here"
+            }
+          ],
+          "kind": "paragraph",
+          "span": {
+            "end": 24,
+            "start": 0
+          }
+        }
+      ],
+      "frontmatter": null,
+      "source_len": 24
+    }
+  },
+  {
+    "name": "tag_after_word_is_text",
+    "input": "issue#42 stays text\n",
+    "expected": {
+      "blocks": [
+        {
+          "inlines": [
+            {
+              "kind": "text",
+              "value": "issue#42 stays text"
+            }
+          ],
+          "kind": "paragraph",
+          "span": {
+            "end": 20,
+            "start": 0
+          }
+        }
+      ],
+      "frontmatter": null,
+      "source_len": 20
+    }
   }
 ]

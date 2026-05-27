@@ -33,6 +33,9 @@ pub struct Migration {
 ///   `audit_log` — and their indexes.
 /// - `v2` (L1): the `frontmatter` table for parsed YAML keys, keyed
 ///   on `(file_path, key)` with JSON-encoded values.
+/// - `v3` (L3 Session A): the `links` table for wiki-link occurrences.
+/// - `v4` (L3 Session D): the `tags` table for inline + frontmatter
+///   tag occurrences.
 ///
 /// Subsequent layers append entries here.
 pub const MIGRATIONS: &[Migration] = &[
@@ -48,11 +51,29 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 3,
         up: include_str!("../migrations/003_links.sql"),
     },
+    Migration {
+        version: 4,
+        up: include_str!("../migrations/004_tags.sql"),
+    },
 ];
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn migration_004_creates_tags_table() {
+        let m = MIGRATIONS
+            .iter()
+            .find(|m| m.version == 4)
+            .expect("004 migration must be registered");
+        let sql = m.up;
+        assert!(sql.contains("CREATE TABLE tags"), "must create tags table");
+        assert!(sql.contains("file_path"));
+        assert!(sql.contains("tag_path"));
+        assert!(sql.contains("source"));
+        assert!(sql.contains("idx_tags_path"));
+    }
 
     #[test]
     fn migration_003_creates_links_table() {

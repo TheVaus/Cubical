@@ -19,12 +19,14 @@ mod atomic;
 mod frontmatter;
 pub mod links;
 mod scan;
+pub mod tags;
 mod watcher;
 
 pub use atomic::atomic_write;
 pub use frontmatter::refresh_frontmatter;
 pub use links::{extract_links, refresh_links, resolve_target, LinkExtraction};
 pub use scan::{scan, ScanProgress};
+pub use tags::{extract_tags, refresh_tags, TagExtraction};
 pub use watcher::{start_watcher, WatchEvent, WatcherHandle};
 
 /// Errors produced by vault operations.

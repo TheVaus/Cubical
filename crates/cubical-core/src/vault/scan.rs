@@ -17,7 +17,9 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use walkdir::WalkDir;
 
-use crate::vault::{frontmatter::refresh_frontmatter, links::refresh_links, Vault, VaultError};
+use crate::vault::{
+    frontmatter::refresh_frontmatter, links::refresh_links, tags::refresh_tags, Vault, VaultError,
+};
 
 /// Number of files persisted per index transaction.
 ///
@@ -218,6 +220,11 @@ pub async fn scan(
             // doesn't abort the scan.
             if let Err(e) = refresh_links(&vault, &abs_path, &path_str).await {
                 tracing::warn!(path = %abs_path.display(), error = %e, "links refresh failed");
+            }
+            // L3 Session D: refresh the `tags` rows. Same resilience
+            // policy — inline + frontmatter tags feed one table.
+            if let Err(e) = refresh_tags(&vault, &abs_path, &path_str).await {
+                tracing::warn!(path = %abs_path.display(), error = %e, "tags refresh failed");
             }
         }
 
@@ -708,6 +715,36 @@ mod tests {
         // On Unix this is Some(_); on other platforms Null. Both are valid.
         let v = row.get_value(0).unwrap();
         assert!(matches!(v, Value::Integer(_) | Value::Null));
+    }
+
+    #[tokio::test]
+    async fn scan_populates_tags_table_from_inline_and_frontmatter() {
+        use cubical_index::{tags_for_file, TagSource};
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join("a.md"),
+            "---\ntags: [project/cubical, todo]\n---\n\nbody with #review tag\n",
+        )
+        .unwrap();
+        let vault = Vault::open(dir.path()).await.expect("open");
+
+        let (tx, _rx) = mpsc::channel::<ScanProgress>(64);
+        scan(vault.clone(), CancellationToken::new(), tx)
+            .await
+            .expect("scan");
+
+        let rows = tags_for_file(vault.index(), "a.md").await.expect("query");
+        // 1 inline + 2 frontmatter = 3 rows.
+        assert_eq!(rows.len(), 3);
+        assert!(rows
+            .iter()
+            .any(|r| r.tag_path == "review" && r.source == TagSource::Inline));
+        assert!(rows
+            .iter()
+            .any(|r| r.tag_path == "project/cubical" && r.source == TagSource::Frontmatter));
+        assert!(rows
+            .iter()
+            .any(|r| r.tag_path == "todo" && r.source == TagSource::Frontmatter));
     }
 
     #[tokio::test]

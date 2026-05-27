@@ -90,7 +90,7 @@ fn walk_inlines(inlines: &[Inline], pos: u64, out: &mut Vec<LinkExtraction>) {
             }
             Inline::Link { children, .. } => walk_inlines(children, pos, out),
             Inline::Image { alt, .. } => walk_inlines(alt, pos, out),
-            Inline::Text { .. } | Inline::Code { .. } | Inline::LineBreak => {}
+            Inline::Text { .. } | Inline::Code { .. } | Inline::LineBreak | Inline::Tag { .. } => {}
         }
     }
 }

@@ -33,6 +33,7 @@
 mod error;
 mod frontmatter;
 mod normalize;
+mod tag;
 mod types;
 mod wikilink;
 

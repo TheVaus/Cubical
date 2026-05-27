@@ -232,4 +232,13 @@ pub enum Inline {
         /// `true` when the link was written `![[…]]` (an embed).
         embed: bool,
     },
+    /// Inline `#tag` / `#parent/child` token. The `path` is the tag body
+    /// without the leading `#`, preserving the casing as written; the
+    /// libSQL `tags` index does the case-insensitive matching. See
+    /// `docs/layer-3-spec.md` §2.4 and `docs/architecture/document-model.md`
+    /// §5.6.
+    Tag {
+        /// The tag body without the leading `#`. Nested via `/`.
+        path: String,
+    },
 }

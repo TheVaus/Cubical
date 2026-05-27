@@ -101,4 +101,5 @@ export type Inline =
       display: string | null;
       anchor: Anchor | null;
       embed: boolean;
-    };
+    }
+  | { kind: "tag"; path: string };
