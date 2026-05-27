@@ -68,3 +68,32 @@ export function maybeInterceptWikiLinkMousedown(
   event.stopImmediatePropagation();
   return true;
 }
+
+/**
+ * Resolve a mousedown's `event.target` to the wiki-link span that
+ * contains the click, returning `null` for clicks outside any
+ * wiki-link mark.
+ *
+ * Production caller passes `(target) => closestWikiLinkSpan(target)`
+ * so this is the only place we encode the WebKit/Chromium difference:
+ * Chromium tends to dispatch mouse events on the visible `<span>` of
+ * a mark decoration, while WebKit/WKWebView dispatches on the Text
+ * node *inside* the span. `closest()` is only defined on `Element`,
+ * so a Text-node target must be lifted to its parent first or the
+ * lookup silently returns null and we never preventDefault — that
+ * was the root cause of the L3 Session B click bug staying alive
+ * through two prior fix attempts.
+ */
+export function closestWikiLinkSpan(
+  target: EventTarget | null,
+): Element | null {
+  const el =
+    target instanceof Element
+      ? target
+      : target instanceof Node
+        ? target.parentElement
+        : null;
+  return (
+    el?.closest(".cm-md-wikilink, .cm-md-wikilink-unresolved") ?? null
+  );
+}

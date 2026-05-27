@@ -16,7 +16,10 @@ import {
 } from "./editor/decorations";
 import { wikilinkExtension } from "./editor/wikilink";
 import { handleWikiLinkClick } from "./editor/wikilinkClick";
-import { maybeInterceptWikiLinkMousedown } from "./editor/wikilinkMousedown";
+import {
+  closestWikiLinkSpan,
+  maybeInterceptWikiLinkMousedown,
+} from "./editor/wikilinkMousedown";
 import type { WikiLinkResolver } from "./editor/wikilinkResolver";
 import { buildCmTheme } from "./editor/cm-theme";
 import type { ResolvedAnchor } from "./api/ipc";
@@ -287,10 +290,7 @@ const Editor: Component<EditorProps> = (props) => {
       if (!view) return;
       const v = view;
       maybeInterceptWikiLinkMousedown(event, {
-        findWikiLinkSpan: (t) =>
-          t instanceof Element
-            ? t.closest(".cm-md-wikilink, .cm-md-wikilink-unresolved")
-            : null,
+        findWikiLinkSpan: closestWikiLinkSpan,
         onWikiLinkHit: (e) => {
           const pos = v.posAtCoords({ x: e.clientX, y: e.clientY });
           if (pos == null) return false;
