@@ -1,4 +1,11 @@
-import { createEffect, createSignal, For, Show, type Component } from "solid-js";
+import {
+  createEffect,
+  createSignal,
+  For,
+  Show,
+  untrack,
+  type Component,
+} from "solid-js";
 
 import { getBacklinks, type Backlink } from "../api/ipc";
 import {
@@ -29,6 +36,13 @@ const Backlinks: Component<BacklinksProps> = (props) => {
   // Refetch whenever vault, path, or the refresh signal changes.
   // We capture the in-flight token in a closure so a late response
   // from a previous fetch never overwrites a newer one's state.
+  //
+  // Critical: every `state()` read goes through `untrack` so the effect
+  // does NOT subscribe to its own writes. `reduceBacklinksState` always
+  // returns a fresh object reference, so a tracked read here would form
+  // a self-trigger loop (synchronously: blow the JS stack; once a file
+  // is selected: spin on `fetch:start`, never reaching `loaded` because
+  // each iteration's token supersedes the previous fetch's `.then`).
   let token = 0;
   createEffect(() => {
     const vid = props.vaultId;
@@ -37,17 +51,17 @@ const Backlinks: Component<BacklinksProps> = (props) => {
     void props.refreshSignal;
 
     if (!vid || !p) {
-      setState(reduceBacklinksState(state(), { type: "file:cleared" }));
+      setState(reduceBacklinksState(untrack(state), { type: "file:cleared" }));
       return;
     }
 
     const my = ++token;
-    setState(reduceBacklinksState(state(), { type: "fetch:start" }));
+    setState(reduceBacklinksState(untrack(state), { type: "fetch:start" }));
     getBacklinks({ vault_id: vid, path: p })
       .then((resp) => {
         if (my !== token) return;
         setState(
-          reduceBacklinksState(state(), {
+          reduceBacklinksState(untrack(state), {
             type: "fetch:success",
             backlinks: resp.backlinks,
           }),
@@ -59,7 +73,9 @@ const Backlinks: Component<BacklinksProps> = (props) => {
           typeof e === "object" && e !== null && "message" in e
             ? String((e as { message: unknown }).message)
             : String(e);
-        setState(reduceBacklinksState(state(), { type: "fetch:error", message }));
+        setState(
+          reduceBacklinksState(untrack(state), { type: "fetch:error", message }),
+        );
       });
   });
 
