@@ -42,6 +42,7 @@ import {
 } from "./styles/theme";
 import RightSidebar from "./RightSidebar";
 import Backlinks from "./sidebar/Backlinks";
+import TagPage from "./TagPage";
 
 /**
  * L2 Session A surface.
@@ -165,6 +166,18 @@ const App: Component = () => {
   const [createOffer, setCreateOffer] = createSignal<{ path: string } | null>(
     null,
   );
+
+  // L3 Session E: the first non-file view in the app. `view` discriminates
+  // between the editor pane and the virtual tag page; the file list and
+  // sidebar persist across both. `tagRefreshTick` lets `vault:file-changed`
+  // re-query the tag listing (a new file with the tag should appear).
+  //
+  // Selecting a file always switches back to `{ kind: "file" }` — the
+  // user clicking a row in the file list expects the editor, not the
+  // tag page they were just on.
+  type View = { kind: "file" } | { kind: "tag"; tagPath: string };
+  const [view, setView] = createSignal<View>({ kind: "file" });
+  const [tagRefreshTick, setTagRefreshTick] = createSignal(0);
 
   // L3 Session C: right-sidebar shell state + backlinks refresh tick.
   // `rightSidebarCollapsed` mirrors the `ui.right_sidebar_collapsed`
@@ -386,6 +399,11 @@ const App: Component = () => {
     if (file.type_id !== "markdown") return;
     const id = vaultId();
     if (!id) return;
+    // Picking a file always exits the tag view back to the editor —
+    // even when the file is already selected. The user's expectation
+    // when they click a file row is "show me that file", regardless
+    // of where they were before.
+    setView({ kind: "file" });
     // Selecting the same file again is a no-op; don't flush and reload
     // a buffer that's already in front of the user.
     if (selectedPath() === file.path) return;
@@ -502,6 +520,22 @@ const App: Component = () => {
     setCreateOffer({ path });
   };
 
+  /**
+   * L3 Session E — open the virtual tag page for `tagPath`. Flushes
+   * the pending autosave before swapping the view so we don't leave
+   * the buffer-the-user-is-leaving with unsaved edits (same contract
+   * as `handleSelectFile`).
+   */
+  const handleNavigateTag = async (tagPath: string) => {
+    await flushAutosave();
+    setView({ kind: "tag", tagPath });
+  };
+
+  /** Exit the tag view back to the editor pane, with no file change. */
+  const handleExitTagView = () => {
+    setView({ kind: "file" });
+  };
+
   const dismissCreateOffer = () => {
     setCreateOffer(null);
   };
@@ -560,6 +594,15 @@ const App: Component = () => {
       // a link pointing at the open note. Bump the backlinks tick
       // after a 200ms debounce so the panel refetches.
       scheduleBacklinksRefresh();
+
+      // L3 Session E: any vault file change may have added/removed a
+      // file carrying the currently-open tag. Refresh on every change
+      // when the tag view is up; no debounce — `vault:file-changed`
+      // fires once per write and `refreshFileList` already debounces
+      // the more expensive file-list query.
+      if (view().kind === "tag") {
+        setTagRefreshTick((n) => n + 1);
+      }
 
       // L2 §2.7 + §2.8: external-edit detection vs. own-write
       // suppression. Only relevant when the changed file is the one
@@ -657,6 +700,8 @@ const App: Component = () => {
       setRawOverride(null);
       setCreateOffer(null);
       setBacklinksRefreshTick(0);
+      setTagRefreshTick(0);
+      setView({ kind: "file" });
       setRightSidebarCollapsed(false);
       setWikilinkResolver(null);
       seenHash = null;
@@ -1005,6 +1050,20 @@ const App: Component = () => {
               }}
             >
               <Show
+                when={view().kind === "file"}
+                fallback={
+                  <TagPage
+                    vaultId={vaultId()}
+                    tagPath={(view() as { kind: "tag"; tagPath: string }).tagPath}
+                    refreshSignal={tagRefreshTick()}
+                    onSelectFile={(path) =>
+                      void handleNavigateWikilink(path, null)
+                    }
+                    onBack={handleExitTagView}
+                  />
+                }
+              >
+              <Show
                 when={selectedContent() !== null}
                 fallback={
                   <div
@@ -1087,6 +1146,9 @@ const App: Component = () => {
                       editorApi?.replaceRange(from, to, text)
                     }
                     onOpenRaw={() => setRawOverride(true)}
+                    onNavigateTag={(tagPath) =>
+                      void handleNavigateTag(tagPath)
+                    }
                   />
                 </Show>
                 <Editor
@@ -1099,6 +1161,9 @@ const App: Component = () => {
                   }
                   onOfferCreateWikilink={(path) =>
                     handleOfferCreateWikilink(path)
+                  }
+                  onNavigateTag={(tagPath) =>
+                    void handleNavigateTag(tagPath)
                   }
                   onToggleRawSource={toggleRawSource}
                   onAstChange={handleAstChange}
@@ -1118,6 +1183,7 @@ const App: Component = () => {
                 >
                   AST: {astSummary()}
                 </p>
+              </Show>
               </Show>
             </div>
             <RightSidebar

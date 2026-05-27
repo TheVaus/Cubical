@@ -11,11 +11,22 @@ import ChipList from "./ChipList";
 export interface TagListCellProps {
   value: string[];
   onCommit: (next: string[]) => void;
+  /**
+   * Optional — when provided, clicking a tag chip opens that tag's
+   * virtual page (L3 Session E). Editing moves to a `✎` affordance
+   * next to `×`. When omitted, chip clicks start an inline edit.
+   */
+  onNavigateTag?: (tagPath: string) => void;
 }
 
 const TagListCell: Component<TagListCellProps> = (props) => {
   return (
-    <ChipList value={props.value} isTag={true} onCommit={props.onCommit} />
+    <ChipList
+      value={props.value}
+      isTag={true}
+      onCommit={props.onCommit}
+      {...(props.onNavigateTag ? { onChipClick: props.onNavigateTag } : {})}
+    />
   );
 };
 

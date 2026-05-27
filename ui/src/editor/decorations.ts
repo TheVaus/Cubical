@@ -692,6 +692,7 @@ const decorationBaseTheme = EditorView.baseTheme({
     paddingLeft: "var(--space-1)",
     paddingRight: "var(--space-1)",
     fontWeight: "500",
+    cursor: "pointer",
   },
   ".cm-md-mark-muted": { color: "var(--editor-mark-fg-muted)" },
   ".cm-md-bullet": { color: "var(--c-accent)" },

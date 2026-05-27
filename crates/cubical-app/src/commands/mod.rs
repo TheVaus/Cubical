@@ -13,4 +13,5 @@
 
 pub mod backlinks;
 pub mod links;
+pub mod tags;
 pub mod vault;

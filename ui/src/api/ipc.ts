@@ -183,6 +183,30 @@ export interface GetBacklinksResponse {
   backlinks: Backlink[];
 }
 
+// ---------------------------------------------------------------------------
+// query_tag_page (L3 Session E)
+// ---------------------------------------------------------------------------
+
+export interface QueryTagPageRequest {
+  vault_id: string;
+  /** Tag path without the leading `#`. Matched case-insensitively;
+   *  descendants (`tag_path/…`) are included. */
+  tag_path: string;
+}
+
+/** One file row in a virtual tag page. */
+export interface TagPageFile {
+  /** Vault-relative path to the file. */
+  path: string;
+  /** Display title — basename without the `.md` extension. */
+  title: string;
+}
+
+export interface QueryTagPageResponse {
+  /** Ordered by `path`; empty when no file matches. */
+  files: TagPageFile[];
+}
+
 /**
  * Known vault-local settings, as a discriminated union of
  * `{ key, value }` pairs. The backend `config` table is generic
@@ -311,6 +335,17 @@ export function getBacklinks(
   req: GetBacklinksRequest,
 ): Promise<GetBacklinksResponse> {
   return invoke("get_backlinks", { req });
+}
+
+/**
+ * List every file carrying `tag_path` or any of its descendants. Files
+ * are sorted by path; titles are derived from each file's basename.
+ * Empty list when nothing matches.
+ */
+export function queryTagPage(
+  req: QueryTagPageRequest,
+): Promise<QueryTagPageResponse> {
+  return invoke("query_tag_page", { req });
 }
 
 /**

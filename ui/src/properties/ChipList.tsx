@@ -26,6 +26,14 @@ export interface ChipListProps {
   value: string[];
   isTag: boolean;
   onCommit: (next: string[]) => void;
+  /**
+   * Optional click handler invoked when the chip body is clicked. When
+   * supplied, the chip body becomes a navigation gesture (used by the
+   * L3 Session E tag chip → tag-page wiring) and editing moves to a
+   * dedicated `✎` button shown beside `×`. When omitted, the chip body
+   * starts an inline edit (the original L2 Session F behaviour).
+   */
+  onChipClick?: (chip: string) => void;
 }
 
 function sameArray(a: string[], b: string[]): boolean {
@@ -102,8 +110,12 @@ const ChipList: Component<ChipListProps> = (props) => {
               <span style={chipStyle(props.isTag)}>
                 <button
                   type="button"
-                  onClick={() => startEdit(i())}
-                  title="Edit"
+                  onClick={() =>
+                    props.onChipClick
+                      ? props.onChipClick(chip)
+                      : startEdit(i())
+                  }
+                  title={props.onChipClick ? `Open #${chip}` : "Edit"}
                   style={{
                     ...miniButtonStyle(),
                     color: "inherit",
@@ -114,6 +126,17 @@ const ChipList: Component<ChipListProps> = (props) => {
                 >
                   {props.isTag ? `#${chip}` : chip}
                 </button>
+                <Show when={props.onChipClick}>
+                  <button
+                    type="button"
+                    onClick={() => startEdit(i())}
+                    aria-label={`Edit ${chip}`}
+                    title="Edit"
+                    style={miniButtonStyle()}
+                  >
+                    ✎
+                  </button>
+                </Show>
                 <button
                   type="button"
                   onClick={() => removeChip(i())}

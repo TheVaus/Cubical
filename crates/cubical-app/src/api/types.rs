@@ -346,6 +346,38 @@ pub struct Backlink {
     pub position: u64,
 }
 
+// -- query_tag_page ------------------------------------------------------
+
+/// Request payload for `query_tag_page`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct QueryTagPageRequest {
+    /// Vault whose tag index to query.
+    pub vault_id: String,
+    /// Tag path without the leading `#`. Matched case-insensitively
+    /// against `tags.tag_path`; the response includes every file whose
+    /// tag equals this path or descends from it (`tag/child`).
+    pub tag_path: String,
+}
+
+/// Response payload for `query_tag_page`.
+#[derive(Debug, Clone, Serialize)]
+pub struct QueryTagPageResponse {
+    /// One row per file carrying the tag (or any descendant). Ordered
+    /// by `path` for stable rendering; empty when no file matches.
+    pub files: Vec<TagPageFile>,
+}
+
+/// One file row in a virtual tag page.
+#[derive(Debug, Clone, Serialize)]
+pub struct TagPageFile {
+    /// Vault-relative path to the file.
+    pub path: String,
+    /// Display title — the basename minus the `.md` extension. Falls
+    /// back to the full path when the basename can't be derived (e.g.
+    /// an unusual path with no segment).
+    pub title: String,
+}
+
 // -- close_vault ---------------------------------------------------------
 
 /// Request payload for `close_vault`.

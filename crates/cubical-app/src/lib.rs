@@ -34,9 +34,10 @@ use api::types::{
     CancelVaultScanRequest, CloseVaultRequest, GetBacklinksRequest, GetBacklinksResponse,
     GetCanonicalAstRequest, GetCanonicalAstResponse, GetFrontmatterRequest, GetFrontmatterResponse,
     GetSettingRequest, GetSettingResponse, GetVaultInfoRequest, GetVaultInfoResponse,
-    ListFilesRequest, ListFilesResponse, OpenVaultRequest, OpenVaultResponse, ReadFileTextRequest,
-    ReadFileTextResponse, ResolveLinkRequest, ResolveLinkResponse, SetSettingRequest,
-    SetSettingResponse, WriteFileTextRequest, WriteFileTextResponse,
+    ListFilesRequest, ListFilesResponse, OpenVaultRequest, OpenVaultResponse, QueryTagPageRequest,
+    QueryTagPageResponse, ReadFileTextRequest, ReadFileTextResponse, ResolveLinkRequest,
+    ResolveLinkResponse, SetSettingRequest, SetSettingResponse, WriteFileTextRequest,
+    WriteFileTextResponse,
 };
 use error::CubicalError;
 use state::AppState;
@@ -79,6 +80,7 @@ pub fn run() {
             get_canonical_ast,
             resolve_link,
             get_backlinks,
+            query_tag_page,
             close_vault,
         ])
         .run(tauri::generate_context!())
@@ -198,6 +200,15 @@ async fn get_backlinks(
     req: GetBacklinksRequest,
 ) -> Result<GetBacklinksResponse, CubicalError> {
     commands::backlinks::get_backlinks(state.inner(), req).await
+}
+
+/// Tauri shim — see [`commands::tags::query_tag_page`].
+#[tauri::command]
+async fn query_tag_page(
+    state: tauri::State<'_, AppState>,
+    req: QueryTagPageRequest,
+) -> Result<QueryTagPageResponse, CubicalError> {
+    commands::tags::query_tag_page(state.inner(), req).await
 }
 
 /// Tauri shim — see [`commands::vault::close_vault`].

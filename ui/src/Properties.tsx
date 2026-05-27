@@ -66,6 +66,11 @@ export interface PropertiesProps {
   applyEdit: (from: number, to: number, text: string) => void;
   /** Flip the editor into raw mode (the RawCell "Open as raw" link). */
   onOpenRaw: () => void;
+  /**
+   * Optional — when set, clicking a tag chip opens that tag's virtual
+   * page (L3 Session E). Forwarded to `TagListCell`.
+   */
+  onNavigateTag?: (tagPath: string) => void;
 }
 
 interface RowProps {
@@ -82,6 +87,7 @@ interface RowProps {
   onRename: (next: string) => boolean;
   onRevertLossy: () => void;
   onOpenRaw: () => void;
+  onNavigateTag?: (tagPath: string) => void;
 }
 
 /** A single key/value frontmatter row. */
@@ -190,6 +196,9 @@ const PropertyRow: Component<RowProps> = (props) => {
           <TagListCell
             value={Array.isArray(props.value) ? (props.value as string[]) : []}
             onCommit={(v) => props.onCommitValue(v)}
+            {...(props.onNavigateTag
+              ? { onNavigateTag: props.onNavigateTag }
+              : {})}
           />
         </Show>
         <Show when={props.kind === "raw"}>
@@ -494,6 +503,9 @@ const Properties: Component<PropertiesProps> = (props) => {
               onRename={(next) => renameKey(key, next)}
               onRevertLossy={() => revertLossy(key)}
               onOpenRaw={() => props.onOpenRaw()}
+              {...(props.onNavigateTag
+                ? { onNavigateTag: props.onNavigateTag }
+                : {})}
             />
           )}
         </For>

@@ -15,6 +15,11 @@ import {
   type WikiLinkResolverFacetValue,
 } from "./editor/decorations";
 import { tagExtension } from "./editor/tag";
+import {
+  closestTagSpan,
+  maybeInterceptTagMousedown,
+  tagPathFromSlice,
+} from "./editor/tagMousedown";
 import { wikilinkExtension } from "./editor/wikilink";
 import { handleWikiLinkClick } from "./editor/wikilinkClick";
 import {
@@ -127,6 +132,12 @@ export interface EditorProps {
   onNavigateWikilink?: (path: string, anchor: ResolvedAnchor | null) => void;
   /** Called when a click lands on an unresolved wiki-link. */
   onOfferCreateWikilink?: (path: string) => void;
+  /**
+   * Called when a click lands on a tag decoration (L3 Session E).
+   * `tagPath` is the bare body without the leading `#`. Case is
+   * preserved as written in the document.
+   */
+  onNavigateTag?: (tagPath: string) => void;
   onAstChange?: (doc: CanonicalDocument) => void;
   onContentChange?: (content: string) => void;
   onBlur?: () => void;
@@ -217,6 +228,39 @@ const Editor: Component<EditorProps> = (props) => {
     return true;
   };
 
+  /**
+   * Click handler: route `Tag` Lezer-node clicks to the parent.
+   *
+   * Same mechanism as `handleClickAtPos` for wiki-links — pull the
+   * literal source for the node, strip the leading `#`, hand the tag
+   * path to the `onNavigateTag` callback.
+   *
+   * Returns `true` when the click was handled and the caller should
+   * `preventDefault`; `false` when no `Tag` node sits at `pos` (let CM
+   * do its default caret move).
+   */
+  const handleTagClickAtPos = (clickView: EditorView, pos: number): boolean => {
+    if (!props.onNavigateTag) return false;
+    const tree = syntaxTree(clickView.state);
+    let hit: { from: number; to: number } | null = null;
+    tree.iterate({
+      from: pos,
+      to: pos,
+      enter: (node) => {
+        if (node.name === "Tag" && node.from <= pos && pos <= node.to) {
+          hit = { from: node.from, to: node.to };
+        }
+      },
+    });
+    if (!hit) return false;
+    const region = hit as { from: number; to: number };
+    const raw = clickView.state.sliceDoc(region.from, region.to);
+    const path = tagPathFromSlice(raw);
+    if (path === null) return false;
+    props.onNavigateTag(path);
+    return true;
+  };
+
   onMount(() => {
     const updateListener = EditorView.updateListener.of((update) => {
       if (!update.docChanged) return;
@@ -300,6 +344,25 @@ const Editor: Component<EditorProps> = (props) => {
       });
     };
     view.contentDOM.addEventListener("mousedown", onContentMousedown, true);
+
+    // Tag click interceptor — same capture-phase pattern as wiki-links.
+    // Wiki-links run first; tags only see the event if the wiki-link
+    // path declined to handle it (a wiki-link span and a tag span can't
+    // overlap, so order here is incidental — but the wiki-link handler
+    // is registered first to preserve its claim on its own marks).
+    const onContentTagMousedown = (event: MouseEvent) => {
+      if (!view) return;
+      const v = view;
+      maybeInterceptTagMousedown(event, {
+        findTagSpan: closestTagSpan,
+        onTagHit: (e) => {
+          const pos = v.posAtCoords({ x: e.clientX, y: e.clientY });
+          if (pos == null) return false;
+          return handleTagClickAtPos(v, pos);
+        },
+      });
+    };
+    view.contentDOM.addEventListener("mousedown", onContentTagMousedown, true);
 
     subscribeResolver(props.wikilinkResolver, view);
 

@@ -75,6 +75,52 @@ pub async fn replace_tags_for_file(
     Ok(())
 }
 
+/// Escape LIKE-special bytes (`\`, `%`, `_`) in a literal so it can be
+/// used as a prefix in `LIKE … ESCAPE '\'`. Tag grammar allows `_`, so
+/// this is not optional — an unescaped `_` would match any single
+/// character and bleed siblings into the prefix match.
+fn escape_like_literal(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        if ch == '\\' || ch == '%' || ch == '_' {
+            out.push('\\');
+        }
+        out.push(ch);
+    }
+    out
+}
+
+/// Distinct file paths that carry `tag_path` or any of its descendants
+/// (`tag_path/…`). Matching is case-insensitive — the spec says
+/// "case-insensitive matching, case-preserving display", and L3 Session D
+/// stores `tag_path` with the case as written. Ordered by `file_path`
+/// for stable rendering.
+///
+/// Used by `query_tag_page` to back the virtual tag-page listing.
+pub async fn files_for_tag_prefix(
+    conn: &IndexConn,
+    tag_path: &str,
+) -> Result<Vec<String>, IndexError> {
+    let needle = tag_path.to_lowercase();
+    let prefix_like = format!("{}/%", escape_like_literal(&needle));
+    let mut rows = conn
+        .connection()
+        .query(
+            "SELECT DISTINCT file_path FROM tags \
+             WHERE LOWER(tag_path) = ?1 \
+                OR LOWER(tag_path) LIKE ?2 ESCAPE '\\' \
+             ORDER BY file_path",
+            params![needle, prefix_like],
+        )
+        .await?;
+    let mut out = Vec::new();
+    while let Some(row) = rows.next().await? {
+        let path: String = row.get(0)?;
+        out.push(path);
+    }
+    Ok(out)
+}
+
 /// All tag rows for a given file, ordered by `(source, tag_path)` so
 /// inline tags come before frontmatter ones and each group is
 /// lexicographic.
@@ -214,6 +260,126 @@ mod tests {
             .await
             .expect("clear");
         let got = tags_for_file(&conn, "a.md").await.expect("lookup");
+        assert!(got.is_empty());
+    }
+
+    #[tokio::test]
+    async fn files_for_tag_prefix_exact_match_returns_carriers() {
+        let (_dir, conn) = open_test_index().await;
+        seed_file(&conn, "a.md").await;
+        seed_file(&conn, "b.md").await;
+        seed_file(&conn, "c.md").await;
+        replace_tags_for_file(&conn, "a.md", &[row("todo", TagSource::Inline)])
+            .await
+            .expect("a");
+        replace_tags_for_file(&conn, "b.md", &[row("todo", TagSource::Frontmatter)])
+            .await
+            .expect("b");
+        replace_tags_for_file(&conn, "c.md", &[row("done", TagSource::Inline)])
+            .await
+            .expect("c");
+        let got = files_for_tag_prefix(&conn, "todo").await.expect("query");
+        assert_eq!(got, vec!["a.md".to_string(), "b.md".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn files_for_tag_prefix_includes_descendants() {
+        let (_dir, conn) = open_test_index().await;
+        seed_file(&conn, "parent.md").await;
+        seed_file(&conn, "child.md").await;
+        seed_file(&conn, "grand.md").await;
+        seed_file(&conn, "sibling.md").await;
+        replace_tags_for_file(&conn, "parent.md", &[row("project", TagSource::Inline)])
+            .await
+            .expect("parent");
+        replace_tags_for_file(
+            &conn,
+            "child.md",
+            &[row("project/cubical", TagSource::Inline)],
+        )
+        .await
+        .expect("child");
+        replace_tags_for_file(
+            &conn,
+            "grand.md",
+            &[row("project/cubical/l3", TagSource::Inline)],
+        )
+        .await
+        .expect("grand");
+        replace_tags_for_file(&conn, "sibling.md", &[row("projection", TagSource::Inline)])
+            .await
+            .expect("sibling");
+
+        let got = files_for_tag_prefix(&conn, "project").await.expect("query");
+        // sibling.md (tag "projection") must NOT match — prefix is
+        // segment-boundary, not character-prefix.
+        assert_eq!(
+            got,
+            vec![
+                "child.md".to_string(),
+                "grand.md".to_string(),
+                "parent.md".to_string(),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn files_for_tag_prefix_is_case_insensitive() {
+        let (_dir, conn) = open_test_index().await;
+        seed_file(&conn, "a.md").await;
+        seed_file(&conn, "b.md").await;
+        replace_tags_for_file(&conn, "a.md", &[row("ToDo", TagSource::Inline)])
+            .await
+            .expect("a");
+        replace_tags_for_file(&conn, "b.md", &[row("TODO/today", TagSource::Frontmatter)])
+            .await
+            .expect("b");
+        let got = files_for_tag_prefix(&conn, "todo").await.expect("lower");
+        assert_eq!(got, vec!["a.md".to_string(), "b.md".to_string()]);
+        let got = files_for_tag_prefix(&conn, "TODO").await.expect("upper");
+        assert_eq!(got, vec!["a.md".to_string(), "b.md".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn files_for_tag_prefix_dedupes_when_same_file_has_inline_and_frontmatter() {
+        let (_dir, conn) = open_test_index().await;
+        seed_file(&conn, "a.md").await;
+        // Same file carries the tag both inline AND via frontmatter —
+        // virtual tag pages list each file once, not once per source.
+        let rows = vec![
+            row("todo", TagSource::Inline),
+            row("todo", TagSource::Frontmatter),
+        ];
+        replace_tags_for_file(&conn, "a.md", &rows)
+            .await
+            .expect("replace");
+        let got = files_for_tag_prefix(&conn, "todo").await.expect("query");
+        assert_eq!(got, vec!["a.md".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn files_for_tag_prefix_escapes_like_underscores() {
+        let (_dir, conn) = open_test_index().await;
+        seed_file(&conn, "match.md").await;
+        seed_file(&conn, "wildcard.md").await;
+        replace_tags_for_file(&conn, "match.md", &[row("my_tag", TagSource::Inline)])
+            .await
+            .expect("match");
+        // A tag with a single-char-different body must NOT bleed through
+        // an unescaped LIKE `_`. (Body grammar doesn't actually allow a
+        // bare `/` straight after — but in case extraction ever loosens,
+        // the escape is still load-bearing.)
+        replace_tags_for_file(&conn, "wildcard.md", &[row("myXtag", TagSource::Inline)])
+            .await
+            .expect("wildcard");
+        let got = files_for_tag_prefix(&conn, "my_tag").await.expect("query");
+        assert_eq!(got, vec!["match.md".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn files_for_tag_prefix_unknown_returns_empty() {
+        let (_dir, conn) = open_test_index().await;
+        let got = files_for_tag_prefix(&conn, "nope").await.expect("query");
         assert!(got.is_empty());
     }
 
