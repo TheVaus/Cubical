@@ -16,6 +16,7 @@ import {
 } from "./editor/decorations";
 import { wikilinkExtension } from "./editor/wikilink";
 import { handleWikiLinkClick } from "./editor/wikilinkClick";
+import { maybeInterceptWikiLinkMousedown } from "./editor/wikilinkMousedown";
 import type { WikiLinkResolver } from "./editor/wikilinkResolver";
 import { buildCmTheme } from "./editor/cm-theme";
 import type { ResolvedAnchor } from "./api/ipc";
@@ -227,28 +228,6 @@ const Editor: Component<EditorProps> = (props) => {
       },
     );
 
-    // CodeMirror places the caret on `mousedown`, not `click`, so a
-    // `click` handler that calls `preventDefault()` is too late — the
-    // cursor has already moved. We listen on `mousedown` instead so
-    // the wiki-link route can intercept before CM's default selection
-    // logic runs. Same gating (left-button, no modifiers) applies.
-    const clickHandler = EditorView.domEventHandlers({
-      mousedown(event, clickView) {
-        if (event.button !== 0) return false;
-        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
-          return false;
-        }
-        const target = event.target as Node | null;
-        if (!target) return false;
-        const pos = clickView.posAtDOM(target);
-        if (handleClickAtPos(clickView, pos)) {
-          event.preventDefault();
-          return true;
-        }
-        return false;
-      },
-    });
-
     view = new EditorView({
       parent: host,
       state: EditorState.create({
@@ -274,12 +253,52 @@ const Editor: Component<EditorProps> = (props) => {
             wikilinkResolverFacet.of(facetValueFor(props.wikilinkResolver)),
           ),
           themeCompartment.of(buildCmTheme()),
-          clickHandler,
           updateListener,
           focusListener,
         ],
       }),
     });
+
+    // Wiki-link click interceptor.
+    //
+    // Previous attempts (`EditorView.domEventHandlers({ click })` and then
+    // `…({ mousedown })`) failed in production WKWebView even though they
+    // worked in Chromium: in WKWebView the contenteditable text-selection
+    // logic moves the caret on `mousedown` *before* CM6's bubble-phase
+    // listener fires, so `event.preventDefault()` is already too late.
+    // Additionally, `posAtDOM(event.target)` returned positions that were
+    // not always inside the WikiLink Lezer node when the target landed on
+    // a text node inside a Decoration.mark span surrounded by hidden
+    // Decoration.replace ranges.
+    //
+    // This handler avoids both problems:
+    //   • Capture phase on `view.contentDOM` so we run before CM6 *and*
+    //     before any default-selection logic dispatched from the same
+    //     event loop turn.
+    //   • DOM traversal (`closest('.cm-md-wikilink…')`) to detect a
+    //     wiki-link click directly — no reliance on Lezer position
+    //     matching DOM targets.
+    //   • `posAtCoords({x, y})` to derive the doc position from the
+    //     click's screen coordinates, which is more robust than
+    //     `posAtDOM(target)` across DOM shapes.
+    //   • `stopImmediatePropagation()` so no later handler (capture- or
+    //     bubble-phase) re-runs and re-dispatches selection.
+    const onContentMousedown = (event: MouseEvent) => {
+      if (!view) return;
+      const v = view;
+      maybeInterceptWikiLinkMousedown(event, {
+        findWikiLinkSpan: (t) =>
+          t instanceof Element
+            ? t.closest(".cm-md-wikilink, .cm-md-wikilink-unresolved")
+            : null,
+        onWikiLinkHit: (e) => {
+          const pos = v.posAtCoords({ x: e.clientX, y: e.clientY });
+          if (pos == null) return false;
+          return handleClickAtPos(v, pos);
+        },
+      });
+    };
+    view.contentDOM.addEventListener("mousedown", onContentMousedown, true);
 
     subscribeResolver(props.wikilinkResolver, view);
 
