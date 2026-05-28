@@ -34,10 +34,11 @@ use api::types::{
     CancelVaultScanRequest, CloseVaultRequest, GetBacklinksRequest, GetBacklinksResponse,
     GetCanonicalAstRequest, GetCanonicalAstResponse, GetFrontmatterRequest, GetFrontmatterResponse,
     GetSettingRequest, GetSettingResponse, GetVaultInfoRequest, GetVaultInfoResponse,
-    ListFilesRequest, ListFilesResponse, OpenVaultRequest, OpenVaultResponse, QueryTagPageRequest,
-    QueryTagPageResponse, ReadFileTextRequest, ReadFileTextResponse, ResolveLinkRequest,
-    ResolveLinkResponse, SetSettingRequest, SetSettingResponse, WriteFileTextRequest,
-    WriteFileTextResponse,
+    LinkAutocompleteRequest, LinkAutocompleteResponse, ListFilesRequest, ListFilesResponse,
+    OpenVaultRequest, OpenVaultResponse, QueryTagPageRequest, QueryTagPageResponse,
+    ReadFileTextRequest, ReadFileTextResponse, ResolveLinkRequest, ResolveLinkResponse,
+    SetSettingRequest, SetSettingResponse, TagAutocompleteRequest, TagAutocompleteResponse,
+    WriteFileTextRequest, WriteFileTextResponse,
 };
 use error::CubicalError;
 use state::AppState;
@@ -81,6 +82,8 @@ pub fn run() {
             resolve_link,
             get_backlinks,
             query_tag_page,
+            link_autocomplete,
+            tag_autocomplete,
             close_vault,
         ])
         .run(tauri::generate_context!())
@@ -209,6 +212,24 @@ async fn query_tag_page(
     req: QueryTagPageRequest,
 ) -> Result<QueryTagPageResponse, CubicalError> {
     commands::tags::query_tag_page(state.inner(), req).await
+}
+
+/// Tauri shim — see [`commands::autocomplete::link_autocomplete`].
+#[tauri::command]
+async fn link_autocomplete(
+    state: tauri::State<'_, AppState>,
+    req: LinkAutocompleteRequest,
+) -> Result<LinkAutocompleteResponse, CubicalError> {
+    commands::autocomplete::link_autocomplete(state.inner(), req).await
+}
+
+/// Tauri shim — see [`commands::autocomplete::tag_autocomplete`].
+#[tauri::command]
+async fn tag_autocomplete(
+    state: tauri::State<'_, AppState>,
+    req: TagAutocompleteRequest,
+) -> Result<TagAutocompleteResponse, CubicalError> {
+    commands::autocomplete::tag_autocomplete(state.inner(), req).await
 }
 
 /// Tauri shim — see [`commands::vault::close_vault`].
