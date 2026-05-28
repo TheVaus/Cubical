@@ -32,6 +32,10 @@ import {
   createWikiLinkResolver,
   type WikiLinkResolver,
 } from "./editor/wikilinkResolver";
+import {
+  createAutocompleteProvider,
+  type AutocompleteProvider,
+} from "./editor/autocompleteProvider";
 import { computeWindow } from "./virtualList";
 import { resolveRawState } from "./editor/rawSource";
 import {
@@ -160,6 +164,12 @@ const App: Component = () => {
   // "unresolved" to "resolved" without a reload.
   const [wikilinkResolver, setWikilinkResolver] =
     createSignal<WikiLinkResolver | null>(null);
+
+  // L3 Session F: per-vault autocomplete provider (`null` when no vault
+  // is open). Parallels `wikilinkResolver` — reset on vault open,
+  // cleared on vault close.
+  const [autocompleteProvider, setAutocompleteProvider] =
+    createSignal<AutocompleteProvider | null>(null);
 
   // L3 Session B: pending "create this note?" offer raised by a click
   // on an unresolved wiki-link. `null` = no offer up.
@@ -704,6 +714,7 @@ const App: Component = () => {
       setView({ kind: "file" });
       setRightSidebarCollapsed(false);
       setWikilinkResolver(null);
+      setAutocompleteProvider(null);
       seenHash = null;
       lastWrittenHash = null;
       dirty = false;
@@ -712,6 +723,7 @@ const App: Component = () => {
       setVaultId(resp.vault_id);
       setScanStatus(resp.scan_status);
       setWikilinkResolver(createWikiLinkResolver(resp.vault_id));
+      setAutocompleteProvider(createAutocompleteProvider(resp.vault_id));
       scheduleRefresh();
 
       // Apply this vault's stored theme preference, if any. Absent
@@ -1156,6 +1168,7 @@ const App: Component = () => {
                   resolvedTheme={resolvedTheme()}
                   rawSource={effectiveRaw()}
                   wikilinkResolver={wikilinkResolver()}
+                  autocompleteProvider={autocompleteProvider()}
                   onNavigateWikilink={(path, anchor) =>
                     void handleNavigateWikilink(path, anchor)
                   }

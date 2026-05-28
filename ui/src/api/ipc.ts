@@ -207,6 +207,39 @@ export interface QueryTagPageResponse {
   files: TagPageFile[];
 }
 
+// ---------------------------------------------------------------------------
+// link_autocomplete / tag_autocomplete (L3 Session F)
+// ---------------------------------------------------------------------------
+
+export interface LinkAutocompleteRequest {
+  vault_id: string;
+  /** Substring typed after `[[`. Empty lists the first page. */
+  query: string;
+}
+
+/** One link-autocomplete candidate. */
+export interface LinkCandidate {
+  /** Vault-relative path — inserted as the wiki-link target. */
+  path: string;
+  /** Basename minus `.md` — shown as the dropdown label. */
+  title: string;
+}
+
+export interface LinkAutocompleteResponse {
+  candidates: LinkCandidate[];
+}
+
+export interface TagAutocompleteRequest {
+  vault_id: string;
+  /** Prefix typed after `#`. Empty lists the first page. */
+  query: string;
+}
+
+export interface TagAutocompleteResponse {
+  /** Tag paths without the leading `#`. */
+  candidates: string[];
+}
+
 /**
  * Known vault-local settings, as a discriminated union of
  * `{ key, value }` pairs. The backend `config` table is generic
@@ -346,6 +379,28 @@ export function queryTagPage(
   req: QueryTagPageRequest,
 ): Promise<QueryTagPageResponse> {
   return invoke("query_tag_page", { req });
+}
+
+/**
+ * Candidate files for the `[[` link-autocomplete dropdown — markdown
+ * paths matching `query` as a case-insensitive substring. Empty list
+ * when nothing matches.
+ */
+export function linkAutocomplete(
+  req: LinkAutocompleteRequest,
+): Promise<LinkAutocompleteResponse> {
+  return invoke("link_autocomplete", { req });
+}
+
+/**
+ * Candidate tags for the `#` tag-autocomplete dropdown — distinct tag
+ * paths whose lowercased form starts with `query`. Empty list when
+ * nothing matches.
+ */
+export function tagAutocomplete(
+  req: TagAutocompleteRequest,
+): Promise<TagAutocompleteResponse> {
+  return invoke("tag_autocomplete", { req });
 }
 
 /**

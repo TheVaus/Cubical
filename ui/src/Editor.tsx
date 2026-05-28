@@ -27,6 +27,12 @@ import {
   maybeInterceptWikiLinkMousedown,
 } from "./editor/wikilinkMousedown";
 import type { WikiLinkResolver } from "./editor/wikilinkResolver";
+import { autocompletion } from "@codemirror/autocomplete";
+import {
+  linkCompletionSource,
+  tagCompletionSource,
+} from "./editor/autocomplete";
+import type { AutocompleteProvider } from "./editor/autocompleteProvider";
 import { buildCmTheme } from "./editor/cm-theme";
 import type { ResolvedAnchor } from "./api/ipc";
 import type { ResolvedTheme } from "./styles/theme";
@@ -55,6 +61,14 @@ const themeCompartment = new Compartment();
  */
 const wikilinkResolverCompartment = new Compartment();
 
+/**
+ * Holds the autocomplete extension. Reconfigured when the per-vault
+ * {@link AutocompleteProvider} prop changes (a different vault opens),
+ * so the `[[` / `#` completion sources always query the right vault.
+ * `null` provider → no-op (`[]`), so the editor works with no vault.
+ */
+const autocompleteCompartment = new Compartment();
+
 /** Translate the `WikiLinkResolver` object into the slimmer facet shape. */
 const facetValueFor = (
   resolver: WikiLinkResolver | null | undefined,
@@ -65,6 +79,19 @@ const facetValueFor = (
         fetch: (t) => resolver.fetch(t),
       }
     : null;
+
+/** Build the autocomplete extension for a provider, or a no-op when null. */
+const autocompleteExtensionFor = (
+  provider: AutocompleteProvider | null | undefined,
+) =>
+  provider
+    ? autocompletion({
+        override: [
+          linkCompletionSource(provider),
+          tagCompletionSource(provider),
+        ],
+      })
+    : [];
 
 /**
  * CodeMirror 6 markdown editor surface.
@@ -128,6 +155,11 @@ export interface EditorProps {
    * pending future targets, and clicks no-op.
    */
   wikilinkResolver?: WikiLinkResolver | null;
+  /**
+   * Per-vault autocomplete provider (L3 Session F). `null` when no
+   * vault is open — `[[` / `#` complete nothing.
+   */
+  autocompleteProvider?: AutocompleteProvider | null;
   /** Called when a click lands on a resolved wiki-link. */
   onNavigateWikilink?: (path: string, anchor: ResolvedAnchor | null) => void;
   /** Called when a click lands on an unresolved wiki-link. */
@@ -299,6 +331,9 @@ const Editor: Component<EditorProps> = (props) => {
           ),
           wikilinkResolverCompartment.of(
             wikilinkResolverFacet.of(facetValueFor(props.wikilinkResolver)),
+          ),
+          autocompleteCompartment.of(
+            autocompleteExtensionFor(props.autocompleteProvider),
           ),
           themeCompartment.of(buildCmTheme()),
           updateListener,
@@ -483,6 +518,23 @@ const Editor: Component<EditorProps> = (props) => {
           ),
         });
         subscribeResolver(resolver, view);
+      },
+      { defer: true },
+    ),
+  );
+
+  // Swap the autocomplete provider when the parent's prop changes (a
+  // different vault is open). Reconfigure the compartment so the
+  // completion sources close over the new vault id.
+  createEffect(
+    on(
+      () => props.autocompleteProvider,
+      (provider) => {
+        view?.dispatch({
+          effects: autocompleteCompartment.reconfigure(
+            autocompleteExtensionFor(provider),
+          ),
+        });
       },
       { defer: true },
     ),

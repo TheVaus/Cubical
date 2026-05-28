@@ -378,6 +378,49 @@ pub struct TagPageFile {
     pub title: String,
 }
 
+// -- link_autocomplete / tag_autocomplete (L3 Session F) -----------------
+
+/// Request payload for `link_autocomplete`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct LinkAutocompleteRequest {
+    /// Vault whose file index to query.
+    pub vault_id: String,
+    /// Substring typed after `[[`. Empty means "list the first page".
+    pub query: String,
+}
+
+/// Response payload for `link_autocomplete`.
+#[derive(Debug, Clone, Serialize)]
+pub struct LinkAutocompleteResponse {
+    /// Candidate files, ordered by path, capped server-side.
+    pub candidates: Vec<LinkCandidate>,
+}
+
+/// One link-autocomplete candidate.
+#[derive(Debug, Clone, Serialize)]
+pub struct LinkCandidate {
+    /// Vault-relative path — inserted as the wiki-link target.
+    pub path: String,
+    /// Display title — basename minus `.md`. Shown as the dropdown label.
+    pub title: String,
+}
+
+/// Request payload for `tag_autocomplete`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct TagAutocompleteRequest {
+    /// Vault whose tag index to query.
+    pub vault_id: String,
+    /// Prefix typed after `#`. Empty means "list the first page".
+    pub query: String,
+}
+
+/// Response payload for `tag_autocomplete`.
+#[derive(Debug, Clone, Serialize)]
+pub struct TagAutocompleteResponse {
+    /// Candidate tag paths (no leading `#`), ordered, capped server-side.
+    pub candidates: Vec<String>,
+}
+
 // -- close_vault ---------------------------------------------------------
 
 /// Request payload for `close_vault`.

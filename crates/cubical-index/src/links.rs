@@ -176,6 +176,51 @@ pub async fn backlinks_for(
     Ok(out)
 }
 
+/// Escape LIKE-special bytes (`\`, `%`, `_`) so a literal can be used
+/// inside `LIKE … ESCAPE '\'` without its specials acting as wildcards.
+/// Mirrors `crate::tags`'s identically-named private helper.
+fn escape_like_literal(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        if ch == '\\' || ch == '%' || ch == '_' {
+            out.push('\\');
+        }
+        out.push(ch);
+    }
+    out
+}
+
+/// Markdown file paths matching `query` as a case-insensitive substring
+/// of the vault-relative path, ordered by path, capped at `limit`. An
+/// empty `query` returns the first `limit` markdown paths. Non-markdown
+/// files are excluded — wiki-links target notes, not binaries.
+///
+/// Backs the `[[` link-autocomplete command (L3 Session F, spec §2.6).
+pub async fn files_for_link_query(
+    conn: &IndexConn,
+    query: &str,
+    limit: u32,
+) -> Result<Vec<String>, IndexError> {
+    let needle = query.to_lowercase();
+    let like = format!("%{}%", escape_like_literal(&needle));
+    let mut rows = conn
+        .connection()
+        .query(
+            "SELECT path FROM files \
+             WHERE type_id = 'markdown' \
+               AND (?1 = '' OR LOWER(path) LIKE ?2 ESCAPE '\\') \
+             ORDER BY path \
+             LIMIT ?3",
+            params![needle, like, i64::from(limit)],
+        )
+        .await?;
+    let mut out = Vec::new();
+    while let Some(row) = rows.next().await? {
+        out.push(row.get::<String>(0)?);
+    }
+    Ok(out)
+}
+
 fn row_to_link(row: &libsql::Row) -> Result<LinkRow, IndexError> {
     let is_embed_int: i64 = row.get(5)?;
     let position_int: i64 = row.get(6)?;
@@ -348,5 +393,65 @@ mod tests {
         seed_file(&conn, "lonely.md").await;
         let got = backlinks_for(&conn, "lonely.md").await.expect("ok");
         assert!(got.is_empty());
+    }
+
+    #[tokio::test]
+    async fn files_for_link_query_substring_case_insensitive() {
+        let (_dir, conn) = open_test_index().await;
+        seed_file(&conn, "Daily/2026-05-28.md").await;
+        seed_file(&conn, "notes/Project Cubical.md").await;
+        seed_file(&conn, "notes/cubical-ast.md").await;
+        seed_file(&conn, "archive/old.md").await;
+
+        // Case-insensitive substring over the whole path.
+        let got = files_for_link_query(&conn, "cubical", 50).await.unwrap();
+        assert_eq!(
+            got,
+            vec![
+                "notes/Project Cubical.md".to_string(),
+                "notes/cubical-ast.md".to_string(),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn files_for_link_query_empty_query_lists_all_markdown_ordered_and_limited() {
+        let (_dir, conn) = open_test_index().await;
+        seed_file(&conn, "b.md").await;
+        seed_file(&conn, "a.md").await;
+        seed_file(&conn, "c.md").await;
+
+        let all = files_for_link_query(&conn, "", 50).await.unwrap();
+        assert_eq!(
+            all,
+            vec!["a.md".to_string(), "b.md".to_string(), "c.md".to_string()]
+        );
+
+        let limited = files_for_link_query(&conn, "", 2).await.unwrap();
+        assert_eq!(limited, vec!["a.md".to_string(), "b.md".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn files_for_link_query_excludes_non_markdown_and_escapes_like() {
+        let (_dir, conn) = open_test_index().await;
+        seed_file(&conn, "real_note.md").await; // markdown
+                                                // A binary file must never appear in link autocomplete.
+        conn.connection()
+            .execute(
+                "INSERT INTO files \
+                 (path, type_id, size_bytes, mtime_unix, content_hash, last_seen, created_at, updated_at) \
+                 VALUES ('image.png', 'binary', 0, 0, '', 0, 0, 0)",
+                (),
+            )
+            .await
+            .unwrap();
+
+        let got = files_for_link_query(&conn, "note", 50).await.unwrap();
+        assert_eq!(got, vec!["real_note.md".to_string()]);
+
+        // The `_` in the query must be escaped — it must NOT act as a LIKE
+        // single-char wildcard. "real_note" matches; a near-miss must not.
+        let exact = files_for_link_query(&conn, "real_note", 50).await.unwrap();
+        assert_eq!(exact, vec!["real_note.md".to_string()]);
     }
 }
