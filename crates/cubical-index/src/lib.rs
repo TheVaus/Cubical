@@ -29,7 +29,8 @@ mod tags;
 
 pub use error::IndexError;
 pub use links::{
-    backlinks_for, links_from, links_to, replace_links_for_file, BacklinkRow, LinkRow,
+    backlinks_for, files_for_link_query, links_from, links_to, replace_links_for_file, BacklinkRow,
+    LinkRow,
 };
 pub use migrations::{Migration, MIGRATIONS};
 pub use runner::{open_index, IndexConn};
