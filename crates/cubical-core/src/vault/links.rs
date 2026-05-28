@@ -209,6 +209,18 @@ async fn parse_off_executor(abs_path: &Path) -> Option<Document> {
     }
 }
 
+/// Parse `abs_path` off the runtime and return its wiki-link
+/// occurrences, **without** resolving them or touching the DB. Used by
+/// the bulk scan's Pass 1 to buffer extractions for a single post-walk
+/// resolution pass (Pass 2). Returns an empty vec when the file can't
+/// be read/parsed — mirrors `refresh_links`'s "no links" policy.
+pub(crate) async fn extract_links_off_executor(abs_path: &Path) -> Vec<LinkExtraction> {
+    match parse_off_executor(abs_path).await {
+        Some(doc) => extract_links(&doc),
+        None => Vec::new(),
+    }
+}
+
 /// Translate a `cubical_index::IndexError` into a `libsql::Error` so the
 /// scan + watcher write paths can keep treating index failures the same
 /// way they treat any other libSQL error.
@@ -357,6 +369,23 @@ mod tests {
         assert_eq!(r.resolve("n0500"), Some("dir/n0500.md".to_string()));
         assert_eq!(r.resolve("dir/n0999.md"), Some("dir/n0999.md".to_string()));
         assert_eq!(r.resolve("nope"), None);
+    }
+
+    #[tokio::test]
+    async fn extract_links_off_executor_returns_occurrences_without_db() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("a.md");
+        std::fs::write(&p, "see [[b]] and [[c|display]] plus ![[d]]\n").unwrap();
+        let got = extract_links_off_executor(&p).await;
+        let targets: Vec<&str> = got.iter().map(|e| e.target_raw.as_str()).collect();
+        assert_eq!(targets, vec!["b", "c", "d"]);
+        assert!(got.iter().any(|e| e.is_embed)); // ![[d]]
+    }
+
+    #[tokio::test]
+    async fn extract_links_off_executor_unreadable_file_returns_empty() {
+        let got = extract_links_off_executor(std::path::Path::new("/no/such/file.md")).await;
+        assert!(got.is_empty());
     }
 
     #[test]
