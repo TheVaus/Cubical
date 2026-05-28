@@ -12,6 +12,7 @@
 //! mirror `refresh_frontmatter` (delete-then-insert, errors logged at the
 //! caller).
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use cubical_ast::{parse, Anchor, Block, Document, Inline, ListItem};
@@ -95,7 +96,11 @@ fn walk_inlines(inlines: &[Inline], pos: u64, out: &mut Vec<LinkExtraction>) {
     }
 }
 
-/// Resolve a wiki-link `target_raw` against the known vault file list.
+/// Resolve a wiki-link target against a snapshot of `files.path`.
+///
+/// Thin wrapper over [`PathResolver`] kept for the single-file watcher
+/// path (one edit → one build → resolve this file's links). The bulk
+/// scan builds a `PathResolver` once and calls `.resolve()` directly.
 ///
 /// Resolution order:
 /// 1. Exact vault-relative path match (with or without `.md`).
@@ -104,48 +109,8 @@ fn walk_inlines(inlines: &[Inline], pos: u64, out: &mut Vec<LinkExtraction>) {
 /// 3. Unique path-suffix match (case-insensitive `ends_with`).
 ///
 /// Returns `None` for no match or for ambiguous matches at levels 2/3.
-/// The file list is borrowed; the caller owns it (typically a snapshot
-/// from the `files` table).
 pub fn resolve_target(target_raw: &str, files: &[String]) -> Option<String> {
-    let target = target_raw.trim();
-    if target.is_empty() {
-        return None;
-    }
-    // 1) exact (with or without .md)
-    for f in files {
-        if f == target {
-            return Some(f.clone());
-        }
-        if let Some(stem) = f.strip_suffix(".md") {
-            if stem == target {
-                return Some(f.clone());
-            }
-        }
-    }
-    let target_lower = target.to_lowercase();
-    // 2) unique basename match, case-insensitive
-    let mut basename_matches: Vec<&String> = files
-        .iter()
-        .filter(|f| {
-            let base = f.rsplit('/').next().unwrap_or(f);
-            let base_no_ext = base.strip_suffix(".md").unwrap_or(base);
-            base_no_ext.to_lowercase() == target_lower || base.to_lowercase() == target_lower
-        })
-        .collect();
-    if basename_matches.len() == 1 {
-        return Some(basename_matches.remove(0).clone());
-    } else if basename_matches.len() > 1 {
-        return None;
-    }
-    // 3) unique path-suffix match, case-insensitive
-    let mut suffix_matches: Vec<&String> = files
-        .iter()
-        .filter(|f| f.to_lowercase().ends_with(&target_lower))
-        .collect();
-    if suffix_matches.len() == 1 {
-        return Some(suffix_matches.remove(0).clone());
-    }
-    None
+    PathResolver::build(files.to_vec()).resolve(target_raw)
 }
 
 /// Parse `abs_path`'s markdown, extract wiki-links, resolve each one
@@ -244,6 +209,18 @@ async fn parse_off_executor(abs_path: &Path) -> Option<Document> {
     }
 }
 
+/// Parse `abs_path` off the runtime and return its wiki-link
+/// occurrences, **without** resolving them or touching the DB. Used by
+/// the bulk scan's Pass 1 to buffer extractions for a single post-walk
+/// resolution pass (Pass 2). Returns an empty vec when the file can't
+/// be read/parsed — mirrors `refresh_links`'s "no links" policy.
+pub(crate) async fn extract_links_off_executor(abs_path: &Path) -> Vec<LinkExtraction> {
+    match parse_off_executor(abs_path).await {
+        Some(doc) => extract_links(&doc),
+        None => Vec::new(),
+    }
+}
+
 /// Translate a `cubical_index::IndexError` into a `libsql::Error` so the
 /// scan + watcher write paths can keep treating index failures the same
 /// way they treat any other libSQL error.
@@ -258,9 +235,158 @@ fn map_index_err(e: cubical_index::IndexError) -> libsql::Error {
     }
 }
 
+/// Index over the vault's `files.path` set for wiki-link resolution.
+///
+/// Built once per bulk scan (and per single-file watcher edit) rather
+/// than re-scanning a `&[String]` for every link. Resolution order is
+/// identical to [`resolve_target`]: exact (with/without `.md`) →
+/// unique case-insensitive basename → unique case-insensitive suffix.
+/// Exact and basename lookups are O(1); the suffix stage is a linear
+/// fallback over `all` and only runs when the first two miss (rare —
+/// only for targets that don't match a real note).
+pub struct PathResolver {
+    /// Every path, verbatim — used for the exact stage and the suffix
+    /// fallback. Order is irrelevant.
+    all: Vec<String>,
+    /// Lowercased basename (without `.md`) AND lowercased basename
+    /// (with `.md`) → the paths carrying it. A target resolves at this
+    /// stage only when exactly one path maps to it.
+    by_basename: HashMap<String, Vec<usize>>,
+    /// Verbatim path string → index, for the exact-with-extension hit.
+    exact: HashMap<String, usize>,
+    /// Path-without-`.md` → index, for the exact-without-extension hit.
+    exact_stem: HashMap<String, usize>,
+}
+
+impl PathResolver {
+    /// Build the index from the complete path set. O(N).
+    #[must_use]
+    pub fn build(paths: Vec<String>) -> Self {
+        let mut by_basename: HashMap<String, Vec<usize>> = HashMap::new();
+        let mut exact: HashMap<String, usize> = HashMap::new();
+        let mut exact_stem: HashMap<String, usize> = HashMap::new();
+        for (i, f) in paths.iter().enumerate() {
+            exact.insert(f.clone(), i);
+            if let Some(stem) = f.strip_suffix(".md") {
+                exact_stem.insert(stem.to_string(), i);
+            }
+            let base = f.rsplit('/').next().unwrap_or(f);
+            let base_no_ext = base.strip_suffix(".md").unwrap_or(base);
+            by_basename
+                .entry(base_no_ext.to_lowercase())
+                .or_default()
+                .push(i);
+            // Also key by the with-extension basename so a target like
+            // "b.md" matches at the basename stage, mirroring resolve_target.
+            if base != base_no_ext {
+                by_basename.entry(base.to_lowercase()).or_default().push(i);
+            }
+        }
+        // De-duplicate index lists so a file keyed under both basename
+        // forms is not double-counted when the two forms collide.
+        for v in by_basename.values_mut() {
+            v.sort_unstable();
+            v.dedup();
+        }
+        Self {
+            all: paths,
+            by_basename,
+            exact,
+            exact_stem,
+        }
+    }
+
+    /// Resolve a wiki-link target to a vault-relative path, or `None`
+    /// when there is no unique match. Semantics identical to
+    /// [`resolve_target`].
+    #[must_use]
+    pub fn resolve(&self, target_raw: &str) -> Option<String> {
+        let target = target_raw.trim();
+        if target.is_empty() {
+            return None;
+        }
+        // 1) exact (with or without .md)
+        if let Some(&i) = self.exact.get(target) {
+            return Some(self.all[i].clone());
+        }
+        if let Some(&i) = self.exact_stem.get(target) {
+            return Some(self.all[i].clone());
+        }
+        // 2) unique basename match, case-insensitive
+        let target_lower = target.to_lowercase();
+        if let Some(idxs) = self.by_basename.get(&target_lower) {
+            if idxs.len() == 1 {
+                return Some(self.all[idxs[0]].clone());
+            } else if idxs.len() > 1 {
+                return None; // ambiguous basename → unresolved
+            }
+        }
+        // 3) unique path-suffix match, case-insensitive (linear fallback)
+        let mut suffix_matches = self
+            .all
+            .iter()
+            .filter(|f| f.to_lowercase().ends_with(&target_lower));
+        let first = suffix_matches.next();
+        match (first, suffix_matches.next()) {
+            (Some(f), None) => Some(f.clone()),
+            _ => None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn path_resolver_matches_resolve_target_semantics() {
+        let files = vec![
+            "a.md".to_string(),
+            "notes/b.md".to_string(),
+            "notes/sub/c.md".to_string(),
+            "Dup.md".to_string(),
+            "other/Dup.md".to_string(), // ambiguous basename "dup"
+        ];
+        let r = PathResolver::build(files.clone());
+        // For a battery of targets, PathResolver must agree with resolve_target.
+        for target in [
+            "a", "a.md", "b", "notes/b", "c", "sub/c.md", "Dup", "dup", "missing", "", "  ", "B",
+            "NOTES/B",
+        ] {
+            assert_eq!(
+                r.resolve(target),
+                resolve_target(target, &files),
+                "mismatch for target {target:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn path_resolver_resolves_exact_and_basename_in_constant_lookups() {
+        // Build once, resolve many — proves resolution does not re-scan per call.
+        let files: Vec<String> = (0..1000).map(|i| format!("dir/n{i:04}.md")).collect();
+        let r = PathResolver::build(files);
+        assert_eq!(r.resolve("n0500"), Some("dir/n0500.md".to_string()));
+        assert_eq!(r.resolve("dir/n0999.md"), Some("dir/n0999.md".to_string()));
+        assert_eq!(r.resolve("nope"), None);
+    }
+
+    #[tokio::test]
+    async fn extract_links_off_executor_returns_occurrences_without_db() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("a.md");
+        std::fs::write(&p, "see [[b]] and [[c|display]] plus ![[d]]\n").unwrap();
+        let got = extract_links_off_executor(&p).await;
+        let targets: Vec<&str> = got.iter().map(|e| e.target_raw.as_str()).collect();
+        assert_eq!(targets, vec!["b", "c", "d"]);
+        assert!(got.iter().any(|e| e.is_embed)); // ![[d]]
+    }
+
+    #[tokio::test]
+    async fn extract_links_off_executor_unreadable_file_returns_empty() {
+        let got = extract_links_off_executor(std::path::Path::new("/no/such/file.md")).await;
+        assert!(got.is_empty());
+    }
 
     #[test]
     fn extracts_simple_wikilink() {

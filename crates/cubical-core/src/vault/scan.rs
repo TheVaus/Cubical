@@ -11,14 +11,18 @@
 
 use std::time::SystemTime;
 
-use cubical_index::IndexError;
+use cubical_ast::Anchor;
+use cubical_index::{replace_links_for_file, IndexError, LinkRow};
 use libsql::params;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use walkdir::WalkDir;
 
 use crate::vault::{
-    frontmatter::refresh_frontmatter, links::refresh_links, tags::refresh_tags, Vault, VaultError,
+    frontmatter::refresh_frontmatter,
+    links::{extract_links_off_executor, LinkExtraction, PathResolver},
+    tags::refresh_tags,
+    Vault, VaultError,
 };
 
 /// Number of files persisted per index transaction.
@@ -71,6 +75,13 @@ pub async fn scan(
     let conn = vault.index().connection();
     let mut tx = conn.transaction().await.map_err(IndexError::from)?;
     let mut batch_count: u32 = 0;
+
+    // Pass-1 buffer: link occurrences per source file. Resolution is
+    // deferred to Pass 2 (after the walk) so it sees the COMPLETE file
+    // set — both for correctness (forward references) and to avoid the
+    // O(N²) of re-loading the path set per file. See
+    // docs/layer-3-spec.md §5.6.
+    let mut pending_links: Vec<(String, Vec<LinkExtraction>)> = Vec::new();
 
     let walker = WalkDir::new(&root).follow_links(false).into_iter();
     let walker = walker.filter_entry(|entry| {
@@ -215,11 +226,12 @@ pub async fn scan(
             if let Err(e) = refresh_frontmatter(&vault, &abs_path, &path_str).await {
                 tracing::warn!(path = %abs_path.display(), error = %e, "frontmatter refresh failed");
             }
-            // L3: refresh the `links` rows. Same resilience policy as
-            // frontmatter — log and continue on failure so one bad file
-            // doesn't abort the scan.
-            if let Err(e) = refresh_links(&vault, &abs_path, &path_str).await {
-                tracing::warn!(path = %abs_path.display(), error = %e, "links refresh failed");
+            // L3 §5.6: defer link RESOLUTION to Pass 2; just extract +
+            // buffer here. Extraction still parses the file (the §5.5
+            // multi-parse is a separate, deferred issue).
+            let extractions = extract_links_off_executor(&abs_path).await;
+            if !extractions.is_empty() {
+                pending_links.push((path_str.clone(), extractions));
             }
             // L3 Session D: refresh the `tags` rows. Same resilience
             // policy — inline + frontmatter tags feed one table.
@@ -247,8 +259,64 @@ pub async fn scan(
             .await;
     }
 
-    // Commit the trailing partial batch.
+    // Commit Pass 1 so the files table is complete and visible to the
+    // resolution query below.
     tx.commit().await.map_err(IndexError::from)?;
+
+    // ---- Pass 2: resolve all buffered links against the complete file
+    // set, once. O(N) build + O(1) common-case lookups. Replaces the
+    // old O(N²) per-file resolve. See docs/layer-3-spec.md §5.6.
+    let known_paths = {
+        let mut rows = conn
+            .query("SELECT path FROM files ORDER BY path", ())
+            .await
+            .map_err(IndexError::from)?;
+        let mut v = Vec::new();
+        while let Some(row) = rows.next().await.map_err(IndexError::from)? {
+            v.push(row.get::<String>(0).map_err(IndexError::from)?);
+        }
+        v
+    };
+    let resolver = PathResolver::build(known_paths);
+
+    let mut link_tx = conn.transaction().await.map_err(IndexError::from)?;
+    let mut link_batch: u32 = 0;
+    for (source_path, extractions) in pending_links {
+        if cancel.is_cancelled() {
+            link_tx.commit().await.map_err(IndexError::from)?;
+            return Err(VaultError::ScanCancelled);
+        }
+        let rows: Vec<LinkRow> = extractions
+            .into_iter()
+            .map(|e| {
+                let target_path = resolver.resolve(&e.target_raw);
+                let (anchor_kind, anchor_value) = match e.anchor {
+                    Some(Anchor::Heading { value }) => (Some("heading".to_string()), Some(value)),
+                    Some(Anchor::Block { value }) => (Some("block".to_string()), Some(value)),
+                    None => (None, None),
+                };
+                LinkRow {
+                    target_raw: e.target_raw,
+                    target_path,
+                    anchor_kind,
+                    anchor_value,
+                    display_text: e.display,
+                    is_embed: e.is_embed,
+                    position: e.position,
+                }
+            })
+            .collect();
+        if let Err(e) = replace_links_for_file(vault.index(), &source_path, &rows).await {
+            tracing::warn!(path = %source_path, error = %e, "links resolve/write failed");
+        }
+        link_batch += 1;
+        if link_batch >= SCAN_BATCH_SIZE {
+            link_tx.commit().await.map_err(IndexError::from)?;
+            link_tx = conn.transaction().await.map_err(IndexError::from)?;
+            link_batch = 0;
+        }
+    }
+    link_tx.commit().await.map_err(IndexError::from)?;
 
     tracing::info!(processed = files_processed, "scan complete");
     Ok(files_processed)
@@ -745,6 +813,35 @@ mod tests {
         assert!(rows
             .iter()
             .any(|r| r.tag_path == "todo" && r.source == TagSource::Frontmatter));
+    }
+
+    #[tokio::test]
+    async fn scan_resolves_forward_references() {
+        use cubical_index::links_from;
+        let dir = tempdir().unwrap();
+        // Two files linking to EACH OTHER. WalkDir yields entries in
+        // unspecified order (APFS hash order, not alphabetical), so we
+        // can't assume which is visited first — but whichever it is, its
+        // link to the other is a forward reference (the target's `files`
+        // row doesn't exist yet under per-file resolution → NULL). The
+        // post-walk resolution pass sees the COMPLETE file set, so BOTH
+        // links must resolve on the first scan regardless of walk order.
+        // See docs/layer-3-spec.md §5.6.
+        fs::write(dir.path().join("aaa.md"), "ref to [[zzz]]\n").unwrap();
+        fs::write(dir.path().join("zzz.md"), "ref to [[aaa]]\n").unwrap();
+        let vault = Vault::open(dir.path()).await.expect("open");
+
+        let (tx, _rx) = mpsc::channel::<ScanProgress>(64);
+        let cancel = CancellationToken::new();
+        scan(vault.clone(), cancel, tx).await.expect("scan");
+
+        let from_aaa = links_from(vault.index(), "aaa.md").await.expect("query");
+        assert_eq!(from_aaa.len(), 1);
+        assert_eq!(from_aaa[0].target_path.as_deref(), Some("zzz.md"));
+
+        let from_zzz = links_from(vault.index(), "zzz.md").await.expect("query");
+        assert_eq!(from_zzz.len(), 1);
+        assert_eq!(from_zzz[0].target_path.as_deref(), Some("aaa.md"));
     }
 
     #[tokio::test]
