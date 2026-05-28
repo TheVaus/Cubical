@@ -96,7 +96,11 @@ fn walk_inlines(inlines: &[Inline], pos: u64, out: &mut Vec<LinkExtraction>) {
     }
 }
 
-/// Resolve a wiki-link `target_raw` against the known vault file list.
+/// Resolve a wiki-link target against a snapshot of `files.path`.
+///
+/// Thin wrapper over [`PathResolver`] kept for the single-file watcher
+/// path (one edit → one build → resolve this file's links). The bulk
+/// scan builds a `PathResolver` once and calls `.resolve()` directly.
 ///
 /// Resolution order:
 /// 1. Exact vault-relative path match (with or without `.md`).
@@ -105,48 +109,8 @@ fn walk_inlines(inlines: &[Inline], pos: u64, out: &mut Vec<LinkExtraction>) {
 /// 3. Unique path-suffix match (case-insensitive `ends_with`).
 ///
 /// Returns `None` for no match or for ambiguous matches at levels 2/3.
-/// The file list is borrowed; the caller owns it (typically a snapshot
-/// from the `files` table).
 pub fn resolve_target(target_raw: &str, files: &[String]) -> Option<String> {
-    let target = target_raw.trim();
-    if target.is_empty() {
-        return None;
-    }
-    // 1) exact (with or without .md)
-    for f in files {
-        if f == target {
-            return Some(f.clone());
-        }
-        if let Some(stem) = f.strip_suffix(".md") {
-            if stem == target {
-                return Some(f.clone());
-            }
-        }
-    }
-    let target_lower = target.to_lowercase();
-    // 2) unique basename match, case-insensitive
-    let mut basename_matches: Vec<&String> = files
-        .iter()
-        .filter(|f| {
-            let base = f.rsplit('/').next().unwrap_or(f);
-            let base_no_ext = base.strip_suffix(".md").unwrap_or(base);
-            base_no_ext.to_lowercase() == target_lower || base.to_lowercase() == target_lower
-        })
-        .collect();
-    if basename_matches.len() == 1 {
-        return Some(basename_matches.remove(0).clone());
-    } else if basename_matches.len() > 1 {
-        return None;
-    }
-    // 3) unique path-suffix match, case-insensitive
-    let mut suffix_matches: Vec<&String> = files
-        .iter()
-        .filter(|f| f.to_lowercase().ends_with(&target_lower))
-        .collect();
-    if suffix_matches.len() == 1 {
-        return Some(suffix_matches.remove(0).clone());
-    }
-    None
+    PathResolver::build(files.to_vec()).resolve(target_raw)
 }
 
 /// Parse `abs_path`'s markdown, extract wiki-links, resolve each one
