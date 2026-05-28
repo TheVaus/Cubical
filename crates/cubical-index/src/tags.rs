@@ -121,6 +121,36 @@ pub async fn files_for_tag_prefix(
     Ok(out)
 }
 
+/// Distinct tag paths whose lowercased form starts with `query`
+/// (case-insensitive prefix), ordered by `tag_path`, capped at `limit`.
+/// An empty `query` returns the first `limit` distinct tag paths. Case
+/// is preserved as written (display); matching is case-insensitive.
+///
+/// Backs the `#` tag-autocomplete command (L3 Session F, spec §2.6).
+pub async fn tag_paths_for_prefix(
+    conn: &IndexConn,
+    query: &str,
+    limit: u32,
+) -> Result<Vec<String>, IndexError> {
+    let needle = query.to_lowercase();
+    let prefix_like = format!("{}%", escape_like_literal(&needle));
+    let mut rows = conn
+        .connection()
+        .query(
+            "SELECT DISTINCT tag_path FROM tags \
+             WHERE ?1 = '' OR LOWER(tag_path) LIKE ?2 ESCAPE '\\' \
+             ORDER BY tag_path \
+             LIMIT ?3",
+            params![needle, prefix_like, i64::from(limit)],
+        )
+        .await?;
+    let mut out = Vec::new();
+    while let Some(row) = rows.next().await? {
+        out.push(row.get::<String>(0)?);
+    }
+    Ok(out)
+}
+
 /// All tag rows for a given file, ordered by `(source, tag_path)` so
 /// inline tags come before frontmatter ones and each group is
 /// lexicographic.
@@ -381,6 +411,87 @@ mod tests {
         let (_dir, conn) = open_test_index().await;
         let got = files_for_tag_prefix(&conn, "nope").await.expect("query");
         assert!(got.is_empty());
+    }
+
+    #[tokio::test]
+    async fn tag_paths_for_prefix_distinct_prefix_match_case_insensitive() {
+        let (_dir, conn) = open_test_index().await;
+        seed_file(&conn, "a.md").await;
+        seed_file(&conn, "b.md").await;
+        replace_tags_for_file(
+            &conn,
+            "a.md",
+            &[
+                row("Project", TagSource::Inline),
+                row("project/cubical", TagSource::Frontmatter),
+            ],
+        )
+        .await
+        .unwrap();
+        replace_tags_for_file(&conn, "b.md", &[row("done", TagSource::Inline)])
+            .await
+            .unwrap();
+
+        // Prefix match, case-insensitive; distinct across files.
+        let got = tag_paths_for_prefix(&conn, "proj", 50).await.unwrap();
+        assert_eq!(
+            got,
+            vec!["Project".to_string(), "project/cubical".to_string()]
+        );
+        // Non-matching prefix yields nothing.
+        assert!(tag_paths_for_prefix(&conn, "zzz", 50)
+            .await
+            .unwrap()
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn tag_paths_for_prefix_empty_query_lists_all_distinct_limited() {
+        let (_dir, conn) = open_test_index().await;
+        seed_file(&conn, "a.md").await;
+        seed_file(&conn, "b.md").await;
+        // Same tag on two files must collapse to one DISTINCT row.
+        replace_tags_for_file(&conn, "a.md", &[row("todo", TagSource::Inline)])
+            .await
+            .unwrap();
+        replace_tags_for_file(&conn, "b.md", &[row("todo", TagSource::Frontmatter)])
+            .await
+            .unwrap();
+        replace_tags_for_file(
+            &conn,
+            "a.md",
+            &[
+                row("todo", TagSource::Inline),
+                row("area", TagSource::Inline),
+            ],
+        )
+        .await
+        .unwrap();
+
+        let all = tag_paths_for_prefix(&conn, "", 50).await.unwrap();
+        assert_eq!(all, vec!["area".to_string(), "todo".to_string()]);
+
+        let limited = tag_paths_for_prefix(&conn, "", 1).await.unwrap();
+        assert_eq!(limited, vec!["area".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn tag_paths_for_prefix_escapes_like_underscore() {
+        let (_dir, conn) = open_test_index().await;
+        seed_file(&conn, "a.md").await;
+        replace_tags_for_file(
+            &conn,
+            "a.md",
+            &[
+                row("my_tag", TagSource::Inline),
+                row("myXtag", TagSource::Inline),
+            ],
+        )
+        .await
+        .unwrap();
+        // `_` in the query must be escaped, so it does not match `myXtag`.
+        let got = tag_paths_for_prefix(&conn, "my_", 50).await.unwrap();
+        assert_eq!(got, vec!["my_tag".to_string()]);
     }
 
     #[tokio::test]

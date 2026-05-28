@@ -34,4 +34,7 @@ pub use links::{
 };
 pub use migrations::{Migration, MIGRATIONS};
 pub use runner::{open_index, IndexConn};
-pub use tags::{files_for_tag_prefix, replace_tags_for_file, tags_for_file, TagRow, TagSource};
+pub use tags::{
+    files_for_tag_prefix, replace_tags_for_file, tag_paths_for_prefix, tags_for_file, TagRow,
+    TagSource,
+};
