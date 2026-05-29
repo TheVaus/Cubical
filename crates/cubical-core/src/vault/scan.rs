@@ -19,6 +19,7 @@ use tokio_util::sync::CancellationToken;
 use walkdir::WalkDir;
 
 use crate::vault::{
+    blocks::{refresh_block_refs_for_file, refresh_blocks},
     frontmatter::refresh_frontmatter,
     links::{extract_links_off_executor, LinkExtraction, PathResolver},
     tags::refresh_tags,
@@ -238,6 +239,11 @@ pub async fn scan(
             if let Err(e) = refresh_tags(&vault, &abs_path, &path_str).await {
                 tracing::warn!(path = %abs_path.display(), error = %e, "tags refresh failed");
             }
+            // L3 §2.7: block-id definitions are per-file (no resolution),
+            // so they refresh inline here alongside frontmatter + tags.
+            if let Err(e) = refresh_blocks(&vault, &abs_path, &path_str).await {
+                tracing::warn!(path = %abs_path.display(), error = %e, "blocks refresh failed");
+            }
         }
 
         files_processed = files_processed.saturating_add(1);
@@ -308,6 +314,11 @@ pub async fn scan(
             .collect();
         if let Err(e) = replace_links_for_file(vault.index(), &source_path, &rows).await {
             tracing::warn!(path = %source_path, error = %e, "links resolve/write failed");
+        }
+        // L3 §2.7: now that this source's resolved links are persisted,
+        // project its block-anchored ones into the block_refs table.
+        if let Err(e) = refresh_block_refs_for_file(&vault, &source_path).await {
+            tracing::warn!(path = %source_path, error = %e, "block_refs refresh failed");
         }
         link_batch += 1;
         if link_batch >= SCAN_BATCH_SIZE {
