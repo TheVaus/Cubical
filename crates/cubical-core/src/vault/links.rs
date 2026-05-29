@@ -221,10 +221,25 @@ pub(crate) async fn extract_links_off_executor(abs_path: &Path) -> Vec<LinkExtra
     }
 }
 
+/// Read `abs_path`'s raw bytes off the runtime as lossy UTF-8.
+/// `None` when the file can't be read. Used by block-id scanning,
+/// which needs source text rather than a parsed `Document`.
+pub(crate) async fn read_source_off_executor(abs_path: &Path) -> Option<String> {
+    let path_buf = abs_path.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        std::fs::read(&path_buf)
+            .ok()
+            .map(|b| String::from_utf8_lossy(&b).into_owned())
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
 /// Translate a `cubical_index::IndexError` into a `libsql::Error` so the
 /// scan + watcher write paths can keep treating index failures the same
 /// way they treat any other libSQL error.
-fn map_index_err(e: cubical_index::IndexError) -> libsql::Error {
+pub(crate) fn map_index_err(e: cubical_index::IndexError) -> libsql::Error {
     match e {
         cubical_index::IndexError::LibSql(inner) => inner,
         // Other variants don't surface on the link-refresh hot path

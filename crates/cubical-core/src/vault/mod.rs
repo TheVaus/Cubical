@@ -24,6 +24,7 @@ pub mod tags;
 mod watcher;
 
 pub use atomic::atomic_write;
+pub use blocks::{refresh_block_refs_for_file, refresh_blocks};
 pub use frontmatter::refresh_frontmatter;
 pub use links::{extract_links, refresh_links, resolve_target, LinkExtraction};
 pub use scan::{scan, ScanProgress};

@@ -4,6 +4,66 @@
 //! here but only ever *minted* by `create_block_ref` — never bulk
 //! auto-assigned (spec §2.7 / document-model §5.3).
 
+use std::path::Path;
+
+use cubical_index::{replace_block_refs_for_file, replace_blocks_for_file, BlockRefRow, BlockRow};
+
+use crate::vault::links::{map_index_err, read_source_off_executor};
+use crate::vault::Vault;
+
+/// Re-scan `abs_path`'s source for `^block-id` tokens and replace this
+/// file's `blocks` rows. Mirrors `refresh_links`'s resilience: an
+/// unreadable file clears the rows. The matching `files` row must exist
+/// (FK).
+pub async fn refresh_blocks(
+    vault: &Vault,
+    abs_path: &Path,
+    rel_path_str: &str,
+) -> Result<(), libsql::Error> {
+    let source = read_source_off_executor(abs_path).await.unwrap_or_default();
+    let rows: Vec<BlockRow> = extract_block_ids(&source)
+        .into_iter()
+        .map(|o| BlockRow {
+            block_id: o.block_id,
+            position_hint: o.position,
+        })
+        .collect();
+    replace_blocks_for_file(vault.index(), rel_path_str, &rows)
+        .await
+        .map_err(map_index_err)
+}
+
+/// Derive this file's `block_refs` from its resolved block-anchored
+/// rows in the `links` table (`anchor_kind='block'` with a non-null
+/// `target_path`) and replace them. Used by both the scan (Pass 2,
+/// after links are written) and the watcher.
+pub async fn refresh_block_refs_for_file(
+    vault: &Vault,
+    source_path: &str,
+) -> Result<(), libsql::Error> {
+    let conn = vault.index().connection();
+    let mut rows = conn
+        .query(
+            "SELECT target_path, anchor_value FROM links \
+             WHERE source_path = ?1 AND anchor_kind = 'block' AND target_path IS NOT NULL \
+               AND anchor_value IS NOT NULL",
+            libsql::params![source_path],
+        )
+        .await?;
+    let mut refs = Vec::new();
+    while let Some(row) = rows.next().await? {
+        let target_file_path: String = row.get(0)?;
+        let target_block_id: String = row.get(1)?;
+        refs.push(BlockRefRow {
+            target_file_path,
+            target_block_id,
+        });
+    }
+    replace_block_refs_for_file(vault.index(), source_path, &refs)
+        .await
+        .map_err(map_index_err)
+}
+
 /// One `^block-id` occurrence found in a file's source.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlockIdOccurrence {
@@ -122,5 +182,55 @@ mod tests {
     #[test]
     fn empty_source_returns_empty() {
         assert!(extract_block_ids("").is_empty());
+    }
+
+    #[tokio::test]
+    async fn refresh_blocks_populates_rows_from_source() {
+        use cubical_index::blocks_for_file;
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("a.md");
+        std::fs::write(&p, "first para ^one\n\nsecond ^two\n").unwrap();
+        let vault = Vault::open(dir.path()).await.expect("open");
+        // The files row must exist for the FK; a scan creates it.
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        crate::vault::scan(
+            vault.clone(),
+            tokio_util::sync::CancellationToken::new(),
+            tx,
+        )
+        .await
+        .expect("scan");
+
+        refresh_blocks(&vault, &p, "a.md").await.expect("refresh");
+        let got = blocks_for_file(vault.index(), "a.md").await.unwrap();
+        let ids: Vec<&str> = got.iter().map(|b| b.block_id.as_str()).collect();
+        assert_eq!(ids, vec!["one", "two"]);
+    }
+
+    #[tokio::test]
+    async fn refresh_block_refs_derives_from_resolved_block_links() {
+        use cubical_index::broken_block_refs;
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("src.md"),
+            "see [[tgt#^present]] and [[tgt#^gone]]\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("tgt.md"), "body ^present\n").unwrap();
+        let vault = Vault::open(dir.path()).await.expect("open");
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        crate::vault::scan(
+            vault.clone(),
+            tokio_util::sync::CancellationToken::new(),
+            tx,
+        )
+        .await
+        .expect("scan");
+
+        // After a full scan, "gone" has no blocks row → exactly one broken ref.
+        let broken = broken_block_refs(vault.index()).await.unwrap();
+        assert_eq!(broken.len(), 1);
+        assert_eq!(broken[0].source_file_path, "src.md");
+        assert_eq!(broken[0].target_block_id, "gone");
     }
 }
