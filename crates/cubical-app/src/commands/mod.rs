@@ -13,6 +13,7 @@
 
 pub mod autocomplete;
 pub mod backlinks;
+pub mod blocks;
 pub mod links;
 pub mod tags;
 pub mod vault;

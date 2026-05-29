@@ -35,6 +35,9 @@ tokio-util = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
+# Hashing — deterministic block-id generation in create_block_ref (L3).
+sha2 = { workspace = true }
+
 # Error handling
 thiserror = { workspace = true }
 anyhow = { workspace = true }

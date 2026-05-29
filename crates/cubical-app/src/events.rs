@@ -15,8 +15,8 @@ use tauri::Emitter;
 use tokio::sync::{mpsc, RwLock};
 
 use cubical_core::{
-    refresh_frontmatter, refresh_links, refresh_tags, scan, ScanProgress, Vault, VaultError,
-    WatchEvent,
+    refresh_block_refs_for_file, refresh_blocks, refresh_frontmatter, refresh_links, refresh_tags,
+    scan, ScanProgress, Vault, VaultError, WatchEvent,
 };
 use libsql::params;
 use tokio_util::sync::CancellationToken;
@@ -392,6 +392,14 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) -> O
                 // policy as links + frontmatter.
                 if let Err(e) = refresh_tags(vault, &abs, &path_str).await {
                     tracing::warn!(path = %path_str, error = %e, "watcher: tags refresh failed");
+                }
+                // L3 §2.7: refresh block-id definitions, then re-derive
+                // this file's block_refs from its just-written links.
+                if let Err(e) = refresh_blocks(vault, &abs, &path_str).await {
+                    tracing::warn!(path = %path_str, error = %e, "watcher: blocks refresh failed");
+                }
+                if let Err(e) = refresh_block_refs_for_file(vault, &path_str).await {
+                    tracing::warn!(path = %path_str, error = %e, "watcher: block_refs refresh failed");
                 }
             }
 
