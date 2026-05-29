@@ -31,14 +31,15 @@ pub mod events;
 pub mod state;
 
 use api::types::{
-    CancelVaultScanRequest, CloseVaultRequest, GetBacklinksRequest, GetBacklinksResponse,
-    GetCanonicalAstRequest, GetCanonicalAstResponse, GetFrontmatterRequest, GetFrontmatterResponse,
-    GetSettingRequest, GetSettingResponse, GetVaultInfoRequest, GetVaultInfoResponse,
-    LinkAutocompleteRequest, LinkAutocompleteResponse, ListFilesRequest, ListFilesResponse,
-    OpenVaultRequest, OpenVaultResponse, QueryTagPageRequest, QueryTagPageResponse,
-    ReadFileTextRequest, ReadFileTextResponse, ResolveLinkRequest, ResolveLinkResponse,
-    SetSettingRequest, SetSettingResponse, TagAutocompleteRequest, TagAutocompleteResponse,
-    WriteFileTextRequest, WriteFileTextResponse,
+    CancelVaultScanRequest, CloseVaultRequest, CreateBlockRefRequest, CreateBlockRefResponse,
+    GetBacklinksRequest, GetBacklinksResponse, GetBrokenBlockRefsRequest,
+    GetBrokenBlockRefsResponse, GetCanonicalAstRequest, GetCanonicalAstResponse,
+    GetFrontmatterRequest, GetFrontmatterResponse, GetSettingRequest, GetSettingResponse,
+    GetVaultInfoRequest, GetVaultInfoResponse, LinkAutocompleteRequest, LinkAutocompleteResponse,
+    ListFilesRequest, ListFilesResponse, OpenVaultRequest, OpenVaultResponse, QueryTagPageRequest,
+    QueryTagPageResponse, ReadFileTextRequest, ReadFileTextResponse, ResolveLinkRequest,
+    ResolveLinkResponse, SetSettingRequest, SetSettingResponse, TagAutocompleteRequest,
+    TagAutocompleteResponse, WriteFileTextRequest, WriteFileTextResponse,
 };
 use error::CubicalError;
 use state::AppState;
@@ -84,6 +85,8 @@ pub fn run() {
             query_tag_page,
             link_autocomplete,
             tag_autocomplete,
+            create_block_ref,
+            get_broken_block_refs,
             close_vault,
         ])
         .run(tauri::generate_context!())
@@ -230,6 +233,24 @@ async fn tag_autocomplete(
     req: TagAutocompleteRequest,
 ) -> Result<TagAutocompleteResponse, CubicalError> {
     commands::autocomplete::tag_autocomplete(state.inner(), req).await
+}
+
+/// Tauri shim — see [`commands::blocks::create_block_ref`].
+#[tauri::command]
+async fn create_block_ref(
+    state: tauri::State<'_, AppState>,
+    req: CreateBlockRefRequest,
+) -> Result<CreateBlockRefResponse, CubicalError> {
+    commands::blocks::create_block_ref(state.inner(), req).await
+}
+
+/// Tauri shim — see [`commands::blocks::get_broken_block_refs`].
+#[tauri::command]
+async fn get_broken_block_refs(
+    state: tauri::State<'_, AppState>,
+    req: GetBrokenBlockRefsRequest,
+) -> Result<GetBrokenBlockRefsResponse, CubicalError> {
+    commands::blocks::get_broken_block_refs(state.inner(), req).await
 }
 
 /// Tauri shim — see [`commands::vault::close_vault`].

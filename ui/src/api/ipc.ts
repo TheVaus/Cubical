@@ -403,6 +403,54 @@ export function tagAutocomplete(
   return invoke("tag_autocomplete", { req });
 }
 
+// ---------------------------------------------------------------------------
+// create_block_ref / get_broken_block_refs (L3 Session G)
+// ---------------------------------------------------------------------------
+
+export interface CreateBlockRefRequest {
+  vault_id: string;
+  /** Vault-relative path of the file whose block is referenced. */
+  target_path: string;
+  /** Byte offset identifying the block (id appended to that line). */
+  position: number;
+}
+
+export interface CreateBlockRefResponse {
+  /** Block id (no leading `^`), minted or pre-existing. */
+  block_id: string;
+}
+
+export interface GetBrokenBlockRefsRequest {
+  vault_id: string;
+}
+
+export interface BrokenBlockRef {
+  source_file_path: string;
+  target_file_path: string;
+  target_block_id: string;
+}
+
+export interface GetBrokenBlockRefsResponse {
+  refs: BrokenBlockRef[];
+}
+
+/**
+ * Lazily mint (or reuse) a `^block-id` on the line at `position` in
+ * `target_path`, persisting it. Returns the block id.
+ */
+export function createBlockRef(
+  req: CreateBlockRefRequest,
+): Promise<CreateBlockRefResponse> {
+  return invoke("create_block_ref", { req });
+}
+
+/** Every block ref whose target block id no longer exists. */
+export function getBrokenBlockRefs(
+  req: GetBrokenBlockRefsRequest,
+): Promise<GetBrokenBlockRefsResponse> {
+  return invoke("get_broken_block_refs", { req });
+}
+
 /**
  * Read a vault-local setting. The generic `K` narrows the result to
  * the value type declared for that key in {@link Setting}; an absent
