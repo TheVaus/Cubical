@@ -14,6 +14,7 @@ import Editor, { type EditorApi } from "./Editor";
 import Properties from "./Properties";
 import type { CanonicalDocument, Frontmatter } from "./ast/types";
 import {
+  createBlockRef,
   getSetting,
   listFiles,
   onVaultFileChanged,
@@ -37,6 +38,7 @@ import {
   type AutocompleteProvider,
 } from "./editor/autocompleteProvider";
 import { computeWindow } from "./virtualList";
+import { buildBlockRefLink } from "./editor/blockRef";
 import { resolveRawState } from "./editor/rawSource";
 import {
   applyTheme,
@@ -297,6 +299,36 @@ const App: Component = () => {
       await next;
     } finally {
       if (pendingWrite === next) pendingWrite = null;
+    }
+  };
+
+  /**
+   * "Copy block reference" gesture (L3 Session G). Flush the buffer so
+   * disk bytes match the cursor offset, mint/reuse a `^id` at that line
+   * via the backend (the sole minter), and copy the `[[path#^id]]` link.
+   * The backend's disk write rides the silent-reload path to bring the
+   * `^id` into the clean buffer — no conflict banner.
+   */
+  const handleCopyBlockRef = async (byteOffset: number): Promise<void> => {
+    const id = vaultId();
+    const path = selectedPath();
+    if (!id || !path) return;
+    try {
+      await flushAutosave();
+      const resp = await createBlockRef({
+        vault_id: id,
+        target_path: path,
+        position: byteOffset,
+      });
+      await navigator.clipboard.writeText(
+        buildBlockRefLink(path, resp.block_id),
+      );
+    } catch (e) {
+      const message =
+        typeof e === "object" && e !== null && "message" in e
+          ? String((e as { message: unknown }).message)
+          : String(e);
+      setError(message);
     }
   };
 
@@ -1182,6 +1214,7 @@ const App: Component = () => {
                   onAstChange={handleAstChange}
                   onContentChange={handleContentChange}
                   onBlur={() => void flushAutosave()}
+                  onCopyBlockRef={(off) => void handleCopyBlockRef(off)}
                   ref={(api) => {
                     editorApi = api;
                   }}

@@ -46,7 +46,7 @@ import {
   type Text,
 } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
-import { type Tree } from "@lezer/common";
+import { type SyntaxNode, type Tree } from "@lezer/common";
 
 import { scanWikilinks, type TokenizedRun } from "../ast/wikilink";
 import type { WikiLinkResolution } from "./wikilinkResolver";
@@ -70,6 +70,7 @@ export type DecoKind =
   | "mark-wikilink-unresolved"
   | "mark-wikilink-embed"
   | "mark-tag"
+  | "mark-blockid"
   | "mark-marker-muted"
   | "hide"
   | "bullet";
@@ -150,6 +151,58 @@ export function findFrontmatter(
     }
   }
   return null;
+}
+
+/** Trailing block id on a line: `^id` preceded by start-or-whitespace. */
+const TRAILING_BLOCK_ID = /(^|\s)\^([A-Za-z_][A-Za-z0-9_-]*)\s*$/;
+
+/** True when `pos` resolves inside a fenced/inline code construct. */
+function isInsideCode(tree: Tree, pos: number): boolean {
+  let node: SyntaxNode | null = tree.resolveInner(pos, -1);
+  while (node) {
+    const n = node.name;
+    if (
+      n === "FencedCode" ||
+      n === "CodeBlock" ||
+      n === "CodeText" ||
+      n === "InlineCode"
+    ) {
+      return true;
+    }
+    node = node.parent;
+  }
+  return false;
+}
+
+/**
+ * Scan every line for a trailing `^block-id` token (spec §2.7 grammar),
+ * skipping the cursor line (revealed raw, like every marker) and any id
+ * inside fenced/inline code. Returns `mark-blockid` entries. Pure; the
+ * markdown grammar has no `^id` node, so this is a direct doc scan in
+ * the `findFrontmatter` tradition rather than a Lezer walk.
+ */
+export function findBlockIds(
+  doc: Text,
+  tree: Tree,
+  activeLine: number,
+): DecoEntry[] {
+  const out: DecoEntry[] = [];
+  for (let ln = 1; ln <= doc.lines; ln++) {
+    if (ln === activeLine) continue;
+    const line = doc.line(ln);
+    const m = TRAILING_BLOCK_ID.exec(line.text);
+    if (!m) continue;
+    const lead = m[1] ?? "";
+    const id = m[2] ?? "";
+    // `lead` is the leading "" or single whitespace char; the caret
+    // sits right after it. `1 + id.length` covers "^" + the id.
+    const caretRel = m.index + lead.length;
+    const from = line.from + caretRel;
+    const to = from + 1 + id.length;
+    if (isInsideCode(tree, from)) continue;
+    out.push({ from, to, kind: "mark-blockid" });
+  }
+  return out;
 }
 
 /** Advance past run-of-spaces immediately after `from`, within its line. */
@@ -445,6 +498,7 @@ const wikilinkUnresolvedDeco = Decoration.mark({
   class: "cm-md-wikilink-unresolved",
 });
 const tagMarkDeco = Decoration.mark({ class: "cm-md-tag" });
+const blockIdMarkDeco = Decoration.mark({ class: "cm-md-blockid" });
 const mutedMarkDeco = Decoration.mark({ class: "cm-md-mark-muted" });
 const hideDeco = Decoration.replace({});
 const hideBlockDeco = Decoration.replace({ block: true });
@@ -516,6 +570,9 @@ function buildDecorationSet(entries: DecoEntry[]): DecorationSet {
       case "mark-tag":
         ranges.push(tagMarkDeco.range(e.from, e.to));
         break;
+      case "mark-blockid":
+        ranges.push(blockIdMarkDeco.range(e.from, e.to));
+        break;
       case "mark-marker-muted":
         ranges.push(mutedMarkDeco.range(e.from, e.to));
         break;
@@ -535,14 +592,14 @@ function buildFor(view: EditorView): DecorationSet {
   const head = view.state.selection.main.head;
   const activeLine = view.state.doc.lineAt(head).number;
   const resolver = view.state.facet(wikilinkResolverFacet);
-  return buildDecorationSet(
-    collectDecorations(
-      tree,
-      view.state.doc,
-      activeLine,
-      resolver ? (t) => resolver.get(t) : undefined,
-    ),
+  const entries = collectDecorations(
+    tree,
+    view.state.doc,
+    activeLine,
+    resolver ? (t) => resolver.get(t) : undefined,
   );
+  const blockIds = findBlockIds(view.state.doc, tree, activeLine);
+  return buildDecorationSet([...entries, ...blockIds]);
 }
 
 /**
@@ -693,6 +750,10 @@ const decorationBaseTheme = EditorView.baseTheme({
     paddingRight: "var(--space-1)",
     fontWeight: "500",
     cursor: "pointer",
+  },
+  ".cm-md-blockid": {
+    color: "var(--c-fg-muted)",
+    fontSize: "0.85em",
   },
   ".cm-md-mark-muted": { color: "var(--editor-mark-fg-muted)" },
   ".cm-md-bullet": { color: "var(--c-accent)" },
