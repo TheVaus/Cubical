@@ -192,11 +192,13 @@ export function findBlockIds(
     const line = doc.line(ln);
     const m = TRAILING_BLOCK_ID.exec(line.text);
     if (!m) continue;
-    // `m[1]` is the leading "" or single whitespace char; the caret
-    // sits right after it. `1 + m[2].length` covers "^" + the id.
-    const caretRel = m.index + m[1].length;
+    const lead = m[1] ?? "";
+    const id = m[2] ?? "";
+    // `lead` is the leading "" or single whitespace char; the caret
+    // sits right after it. `1 + id.length` covers "^" + the id.
+    const caretRel = m.index + lead.length;
     const from = line.from + caretRel;
-    const to = from + 1 + m[2].length;
+    const to = from + 1 + id.length;
     if (isInsideCode(tree, from)) continue;
     out.push({ from, to, kind: "mark-blockid" });
   }
