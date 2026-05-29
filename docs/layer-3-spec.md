@@ -636,3 +636,19 @@ Confirm: opening `Target.md` populates the panel with two rows (`NoteA`, `NoteB`
 **Smoke status.** Interactive `cargo tauri dev` was not run (the native window can't be browser-driven in this automated context — same constraint as Sessions D–G). The pure logic is fully unit-tested: byte-offset conversion (ASCII/multi-byte/astral), link building (`.md` strip + nested path), and decoration scanning (trailing id, own-line id, active-line reveal, fenced-code skip, mid-line/attached rejection). The flush→IPC→clipboard glue is thin and exercised end-to-end only by a hands-on smoke: open a note, `Cmd/Ctrl+Shift+B`, confirm the clipboard holds `[[note#^id]]`, `^id` lands in the `.md`, the editor shows it muted off the cursor line and raw on it, the pasted link resolves, and a `^id` inside a code fence is not decorated.
 
 **What's left for L3.** The remaining Session G follow-ups — broken block-ref **status bar** (needs a greenfield status-bar shell) and **`[[#^` in-bracket autocomplete** (needs a new backend "block-ids in a file" query, so not frontend-only). Then Sessions H–K — embeds proper (H), unlinked mentions (I), pending-rewrites cache (J), closeout (K).
+
+### 9.10 Session G follow-up — broken block-ref status-bar indicator
+
+**Done 2026-05-29.** A passive footer indicator surfacing broken block references. Frontend-only — reuses the §9.8 `getBrokenBlockRefs` IPC (previously unused). Executed from the plan at `docs/superpowers/plans/2026-05-29-l3-session-g-broken-ref-statusbar.md`.
+
+**No new shell.** The status bar already existed as the `App.tsx` `<footer>` (scan status + vault id); the indicator joins it as a middle item.
+
+**Mechanics.** A `brokenBlockRefs: BrokenBlockRef[]` signal is refreshed via `getBrokenBlockRefs({ vault_id })` immediately on **scan-complete** and debounced (200ms, mirroring `scheduleBacklinksRefresh`) on **`vault:file-changed`**; it's cleared in the vault-open reset block. A transient IPC failure logs and keeps the prior value (no flicker to zero). The pure `formatBrokenBlockRefs(refs)` (`ui/src/statusbar/brokenRefs.ts`) returns `{ label, title } | null` — `null` renders nothing; otherwise a `<Show>`-gated warning-colored (`var(--c-warning, var(--c-accent))`) `<span>` shows `⚠ N broken block ref{s}` with a `title` tooltip listing `source → target#^id` lines.
+
+**Passive by design.** No click-to-navigate, no panel. Broken *wiki-link* surfacing stays deferred (no backend query/IPC exists); when it lands it would feed this same footer indicator.
+
+**Tests:** 282 vitest (was 279 + 3 `formatBrokenBlockRefs`). 271 Rust unchanged. `npx tsc --noEmit`, `npx vitest run`, `npm run build`, `cargo test --workspace` all clean.
+
+**Smoke status.** Interactive `cargo tauri dev` not run (automated-context constraint). The formatter is fully unit-tested; the signal/refresh/render glue is thin and exercised end-to-end only by a hands-on smoke: write `[[B#^missing]]` (B lacks `^missing`), confirm `⚠ 1 broken block ref` with a tooltip, add `^missing` to B and confirm the indicator clears after the file-change refresh.
+
+**What's left for L3.** `[[#^` in-bracket block-id autocomplete (needs a backend block-ids-in-file query). Then Sessions H–K — embeds proper (H), unlinked mentions (I), pending-rewrites cache (J), closeout (K).
