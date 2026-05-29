@@ -21,12 +21,17 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+mod blocks;
 mod error;
 mod links;
 mod migrations;
 mod runner;
 mod tags;
 
+pub use blocks::{
+    block_exists, blocks_for_file, broken_block_refs, replace_block_refs_for_file,
+    replace_blocks_for_file, BlockRefRow, BlockRow, BrokenBlockRef,
+};
 pub use error::IndexError;
 pub use links::{
     backlinks_for, files_for_link_query, links_from, links_to, replace_links_for_file, BacklinkRow,
