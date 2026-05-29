@@ -16,6 +16,7 @@ use cubical_index::{open_index, IndexConn, IndexError};
 use crate::file_type::FileTypeRegistry;
 
 mod atomic;
+pub mod blocks;
 mod frontmatter;
 pub mod links;
 mod scan;
