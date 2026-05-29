@@ -18,6 +18,7 @@ import { Text } from "@codemirror/state";
 
 import {
   collectDecorations,
+  findBlockIds,
   findFrontmatter,
   livePreviewDecorations,
   type DecoEntry,
@@ -383,5 +384,47 @@ describe("livePreviewDecorations bundle — raw-source toggle contract (L3 Sessi
       anchor: null,
     }));
     expect(entries.some((e) => e.kind === "mark-wikilink")).toBe(true);
+  });
+});
+
+function runBlockIds(src: string, activeLine: number): DecoEntry[] {
+  const tree = parser.parse(src);
+  const doc = Text.of(src.split("\n"));
+  return findBlockIds(doc, tree, activeLine);
+}
+
+describe("findBlockIds", () => {
+  it("marks a trailing ^id off the cursor line", () => {
+    // activeLine 3 ("other"), so line 1's id is decorated.
+    const got = runBlockIds("a paragraph ^intro\n\nother\n", 3);
+    expect(got).toHaveLength(1);
+    expect(got[0]?.kind).toBe("mark-blockid");
+    const src = "a paragraph ^intro";
+    expect(got[0]?.from).toBe(src.indexOf("^"));
+    expect(got[0]?.to).toBe(src.length);
+  });
+
+  it("marks an id alone on its own line", () => {
+    const got = runBlockIds("para\n^solo\n", 1);
+    expect(got).toHaveLength(1);
+    // Line 2 starts after "para\n" = offset 5.
+    expect(got[0]?.from).toBe(5);
+    expect(got[0]?.to).toBe(5 + "^solo".length);
+  });
+
+  it("reveals (does not mark) the id on the active line", () => {
+    const got = runBlockIds("a paragraph ^intro\n", 1);
+    expect(got).toHaveLength(0);
+  });
+
+  it("ignores ^id inside a fenced code block", () => {
+    const got = runBlockIds("```\nlet x = 1 ^nope\n```\nreal ^yes\n", 99);
+    expect(got).toHaveLength(1);
+    expect(got[0]?.to).toBe("```\nlet x = 1 ^nope\n```\nreal ^yes".length);
+  });
+
+  it("does not match mid-line or non-ws-preceded carets", () => {
+    expect(runBlockIds("text ^mid more\n", 99)).toHaveLength(0);
+    expect(runBlockIds("word^attached\n", 99)).toHaveLength(0);
   });
 });
