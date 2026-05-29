@@ -33,6 +33,7 @@ import {
   tagCompletionSource,
 } from "./editor/autocomplete";
 import type { AutocompleteProvider } from "./editor/autocompleteProvider";
+import { byteOffsetOf } from "./editor/blockRef";
 import { buildCmTheme } from "./editor/cm-theme";
 import type { ResolvedAnchor } from "./api/ipc";
 import type { ResolvedTheme } from "./styles/theme";
@@ -179,6 +180,13 @@ export interface EditorProps {
    * button's naked click).
    */
   onToggleRawSource?: () => void;
+  /**
+   * Fired by the block-reference keybind (`Cmd/Ctrl+Shift+B`). The
+   * argument is the cursor's UTF-8 byte offset into the buffer; the
+   * parent mints a block id at that line via `create_block_ref` and
+   * copies a `[[…#^id]]` link to the clipboard.
+   */
+  onCopyBlockRef?: (byteOffset: number) => void;
   /** Imperative handle, set on mount. */
   ref?: (api: EditorApi) => void;
 }
@@ -319,6 +327,15 @@ const Editor: Component<EditorProps> = (props) => {
               key: "Mod-e",
               run: () => {
                 props.onToggleRawSource?.();
+                return true;
+              },
+            },
+            {
+              key: "Mod-Shift-b",
+              run: (view) => {
+                const head = view.state.selection.main.head;
+                const text = view.state.doc.toString();
+                props.onCopyBlockRef?.(byteOffsetOf(text, head));
                 return true;
               },
             },
