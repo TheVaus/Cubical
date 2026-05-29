@@ -429,3 +429,49 @@ pub struct CloseVaultRequest {
     /// Vault to close.
     pub vault_id: String,
 }
+
+// -- create_block_ref / get_broken_block_refs (L3 Session G) -------------
+
+/// Request payload for `create_block_ref`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateBlockRefRequest {
+    /// Vault owning the target file.
+    pub vault_id: String,
+    /// Vault-relative path of the file whose block is being referenced.
+    pub target_path: String,
+    /// Byte offset into the target file identifying the block (the
+    /// id is appended to the end of the line containing this offset).
+    pub position: u64,
+}
+
+/// Response payload for `create_block_ref`.
+#[derive(Debug, Clone, Serialize)]
+pub struct CreateBlockRefResponse {
+    /// The block id (no leading `^`) — newly minted or pre-existing.
+    pub block_id: String,
+}
+
+/// Request payload for `get_broken_block_refs`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct GetBrokenBlockRefsRequest {
+    /// Vault to inspect.
+    pub vault_id: String,
+}
+
+/// Response payload for `get_broken_block_refs`.
+#[derive(Debug, Clone, Serialize)]
+pub struct GetBrokenBlockRefsResponse {
+    /// Broken refs, ordered. Empty when none.
+    pub refs: Vec<BrokenBlockRefDto>,
+}
+
+/// One broken block ref for the frontend (vault-health surfacing).
+#[derive(Debug, Clone, Serialize)]
+pub struct BrokenBlockRefDto {
+    /// File containing the `[[…#^id]]`.
+    pub source_file_path: String,
+    /// Target file.
+    pub target_file_path: String,
+    /// Missing block id.
+    pub target_block_id: String,
+}
