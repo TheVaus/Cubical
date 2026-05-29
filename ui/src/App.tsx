@@ -15,6 +15,7 @@ import Properties from "./Properties";
 import type { CanonicalDocument, Frontmatter } from "./ast/types";
 import {
   createBlockRef,
+  getBrokenBlockRefs,
   getSetting,
   listFiles,
   onVaultFileChanged,
@@ -25,6 +26,7 @@ import {
   readFileText,
   setSetting,
   writeFileText,
+  type BrokenBlockRef,
   type FileEntry,
   type ResolvedAnchor,
   type ScanStatus,
@@ -39,6 +41,7 @@ import {
 } from "./editor/autocompleteProvider";
 import { computeWindow } from "./virtualList";
 import { buildBlockRefLink } from "./editor/blockRef";
+import { formatBrokenBlockRefs } from "./statusbar/brokenRefs";
 import { resolveRawState } from "./editor/rawSource";
 import {
   applyTheme,
@@ -201,6 +204,11 @@ const App: Component = () => {
   const [backlinksRefreshTick, setBacklinksRefreshTick] = createSignal(0);
   let backlinksRefreshTimer: ReturnType<typeof setTimeout> | undefined;
   const BACKLINKS_REFRESH_DEBOUNCE_MS = 200;
+  // L3 Session G: broken block refs surfaced in the footer status bar.
+  const [brokenBlockRefs, setBrokenBlockRefs] = createSignal<BrokenBlockRef[]>(
+    [],
+  );
+  let brokenBlockRefsTimer: ReturnType<typeof setTimeout> | undefined;
 
   // Per-file hash bookkeeping. Non-reactive (signals are overkill here
   // and would cause spurious re-renders when only the bookkeeping
@@ -356,6 +364,32 @@ const App: Component = () => {
     backlinksRefreshTimer = setTimeout(() => {
       backlinksRefreshTimer = undefined;
       setBacklinksRefreshTick((n) => n + 1);
+    }, BACKLINKS_REFRESH_DEBOUNCE_MS);
+  };
+
+  /**
+   * Re-query the vault's broken block refs (L3 Session G). A transient
+   * IPC error keeps the prior value rather than flickering to empty.
+   */
+  const refreshBrokenBlockRefs = async (): Promise<void> => {
+    const id = vaultId();
+    if (!id) return;
+    try {
+      const resp = await getBrokenBlockRefs({ vault_id: id });
+      setBrokenBlockRefs(resp.refs);
+    } catch (e) {
+      console.error("broken block-ref refresh failed", e);
+    }
+  };
+
+  /** Debounced `refreshBrokenBlockRefs` for the file-changed firehose. */
+  const scheduleBrokenBlockRefsRefresh = () => {
+    if (brokenBlockRefsTimer !== undefined) {
+      clearTimeout(brokenBlockRefsTimer);
+    }
+    brokenBlockRefsTimer = setTimeout(() => {
+      brokenBlockRefsTimer = undefined;
+      void refreshBrokenBlockRefs();
     }, BACKLINKS_REFRESH_DEBOUNCE_MS);
   };
 
@@ -618,6 +652,7 @@ const App: Component = () => {
       setFilesTotalEstimate(p.file_count);
       setScanStatus("complete");
       void refreshFileList();
+      void refreshBrokenBlockRefs();
     });
     unlistenCancelled = await onVaultScanCancelled((p) => {
       if (p.vault_id !== vaultId()) return;
@@ -636,6 +671,10 @@ const App: Component = () => {
       // a link pointing at the open note. Bump the backlinks tick
       // after a 200ms debounce so the panel refetches.
       scheduleBacklinksRefresh();
+
+      // L3 Session G: a change may have created or healed a broken
+      // block ref anywhere in the vault.
+      scheduleBrokenBlockRefsRefresh();
 
       // L3 Session E: any vault file change may have added/removed a
       // file carrying the currently-open tag. Refresh on every change
@@ -742,6 +781,7 @@ const App: Component = () => {
       setRawOverride(null);
       setCreateOffer(null);
       setBacklinksRefreshTick(0);
+      setBrokenBlockRefs([]);
       setTagRefreshTick(0);
       setView({ kind: "file" });
       setRightSidebarCollapsed(false);
@@ -1361,6 +1401,16 @@ const App: Component = () => {
                 ? `${filesProcessed()} file${filesProcessed() === 1 ? "" : "s"}`
                 : `Scan cancelled at ${filesProcessed()} file${filesProcessed() === 1 ? "" : "s"}`}
           </span>
+          <Show when={formatBrokenBlockRefs(brokenBlockRefs())}>
+            {(display) => (
+              <span
+                title={display().title}
+                style={{ color: "var(--c-warning, var(--c-accent))" }}
+              >
+                {display().label}
+              </span>
+            )}
+          </Show>
           <span>{vaultId()}</span>
         </footer>
       </Show>
