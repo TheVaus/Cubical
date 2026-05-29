@@ -55,11 +55,35 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 4,
         up: include_str!("../migrations/004_tags.sql"),
     },
+    Migration {
+        version: 5,
+        up: include_str!("../migrations/005_blocks.sql"),
+    },
 ];
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn migration_005_creates_blocks_tables() {
+        let m = MIGRATIONS
+            .iter()
+            .find(|m| m.version == 5)
+            .expect("005 migration must be registered");
+        let sql = m.up;
+        assert!(
+            sql.contains("CREATE TABLE blocks"),
+            "must create blocks table"
+        );
+        assert!(
+            sql.contains("CREATE TABLE block_refs"),
+            "must create block_refs table"
+        );
+        assert!(sql.contains("position_hint"));
+        assert!(sql.contains("target_block_id"));
+        assert!(sql.contains("idx_block_refs_target"));
+    }
 
     #[test]
     fn migration_004_creates_tags_table() {
