@@ -671,3 +671,28 @@ Confirm: opening `Target.md` populates the panel with two rows (`NoteA`, `NoteB`
 **Smoke status.** Interactive `cargo tauri dev` not run (automated-context constraint). Pure logic fully unit-tested end-to-end (trigger detection, insertion, code-context inhibition, target resolution → ids); the live dropdown is verified by a hands-on smoke: in note A type `[[B#^` where B has minted ids (`Cmd/Ctrl+Shift+B`), confirm the dropdown lists them; typing narrows; Enter inserts `id]]`; no dropdown for an unresolved target or inside a fenced code block.
 
 **What's left for L3.** Heading autocomplete (`[[target#headline`) stays deferred — no headings index. Then Sessions H–K — embeds proper (H), unlinked mentions (I), pending-rewrites cache (J), closeout (K).
+
+### 9.12 Session H.1 — Embed content extractor + IPC
+
+**Done 2026-05-29.** Backend half of Session H (spec §2.8): a `get_embed` IPC that, given a wiki-link target (`note` / `note#heading` / `note#^id`), returns the content the (deferred H.2) widget will inline. Pure markdown-aware extractors do the work; the handler is a thin orchestrator. **Frontend: zero changes** — the IPC binding lands unused (same backend-first cadence as §9.8). Executed from the plan at `docs/superpowers/plans/2026-05-29-l3-session-h1-embed-extractor.md`.
+
+**Pure extractors (`cubical-core::vault::embeds`).** New sibling module to `vault::blocks`. Three public functions, all unit-tested:
+- `extract_section(source, anchor) -> Option<String>` — slugifies the anchor + each ATX heading text (`slugify`: lowercase, non-alphanumeric runs → `-`, trim leading/trailing `-`), so `"My Section!"` matches anchor `"my-section"` / `"My Section"` / `"My Section!"`. Returns the slice from the line *after* the matched heading to the line *before* the next heading whose level is `≤` the matched heading's; sub-headings below the matched level are preserved.
+- `extract_block(source, byte_offset)` — `byte_offset` is the start of a line per Session G's `BlockRow::position_hint` contract. Walks outward to the nearest blank-line boundaries on each side and returns the contiguous slice. Handles paragraphs and most list items uniformly; defensive empty-string return when `byte_offset >= source.len()`.
+- `strip_frontmatter(source) -> &str` — borrow-returning. Accepts `---\n` / `---\r\n` opener with a closing `---` on its own line; otherwise returns the whole source unchanged. Unclosed openers are tolerated (return source unchanged).
+
+**Handler (`cubical-app::commands::embeds::get_embed`).** Mirrors `block_id_autocomplete`'s skeleton: snapshot `files.path`, `split_target_anchor` (widened to `pub(crate)` for reuse), `resolve_target`. Unresolved target → `EmbedKind::Unresolved`. Resolved → `read_source_off_executor` (widened to `pub`); unreadable file folds into `Unresolved` (watcher heals on next change — same policy as `refresh_blocks`). Then routes by anchor kind: `None` → `Note` + `strip_frontmatter(&source)`; `Heading { value }` → `extract_section` (Some → `Section`, None → `MissingAnchor`); `Block { value }` → `blocks_for_file` (Session G) → find matching id → `extract_block` (Some → `Block`, None → `MissingAnchor`). 5 handler unit tests cover every branch.
+
+**Wire shape.** `EmbedKind` enum (`note`/`section`/`block`/`unresolved`/`missing-anchor`, kebab-case serde rename); `GetEmbedRequest { vault_id, target_raw }`; `GetEmbedResponse { kind, target_path: Option<String>, content: Option<String> }`. `target_path` is `None` only when the target didn't resolve; `content` is `None` for `Unresolved` and `MissingAnchor`. Tauri shim + `ipc.ts` `getEmbed` binding — both unused until H.2.
+
+**Decisions worth noting.**
+- *Slug match on both sides.* Single normalization rule subsumes raw-text equality and Obsidian-style anchor form; one code path.
+- *No markdown parser dependency.* Extractors are simple line walks — sufficient for the §2.8 DoD and trivially testable. Real markdown awareness (setext headings, multi-paragraph blocks) is a non-breaking later upgrade.
+- *Unreadable file → `Unresolved`.* The embed surface treats "can't read" the same as "doesn't exist" — no filesystem error leakage through `get_embed`.
+- *No backend recursion / depth / cycle handling.* Per-call slice; the H.2 widget owns the chain.
+
+**Tests:** 289 Rust passing (was 273 + 16 new: 11 extractor in `vault::embeds`, 5 handler in `commands::embeds`). 293 vitest unchanged (no UI logic added). `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`, `npx tsc --noEmit`, `npx vitest run`, `npm run build` all clean.
+
+**Smoke status.** No editor surface this session — `get_embed` reachable only via dev-console `__TAURI__.core.invoke(...)`. Optional hands-on: invoke with `Daily`, `Daily#Intro`, `Daily#^id`, and `ghost` and confirm the response matches the kind/content expectation. The handler tests cover every branch end-to-end against real vault scans + real file writes.
+
+**What's left for L3.** **Session H.2 — embed widget** (live-preview block widget consuming `getEmbed`; depth cap → styled link; cycle detection; unresolved placeholder). Then Sessions I–K — unlinked mentions, pending-rewrites cache, closeout.
