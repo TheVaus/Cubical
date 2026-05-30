@@ -36,6 +36,10 @@ import {
   type WikiLinkResolver,
 } from "./editor/wikilinkResolver";
 import {
+  createEmbedResolver,
+  type EmbedResolver,
+} from "./editor/embedResolver";
+import {
   createAutocompleteProvider,
   type AutocompleteProvider,
 } from "./editor/autocompleteProvider";
@@ -169,6 +173,13 @@ const App: Component = () => {
   // "unresolved" to "resolved" without a reload.
   const [wikilinkResolver, setWikilinkResolver] =
     createSignal<WikiLinkResolver | null>(null);
+
+  // L3 Session H.2 — per-vault embed resolver (mirrors wikilinkResolver
+  // lifecycle). Created in `handleOpen`, cleared in close, invalidated
+  // on every `vault:file-changed` so a freshly-resolvable embed flips
+  // from "Couldn't resolve" to its content without a reload.
+  const [embedResolver, setEmbedResolver] =
+    createSignal<EmbedResolver | null>(null);
 
   // L3 Session F: per-vault autocomplete provider (`null` when no vault
   // is open). Parallels `wikilinkResolver` — reset on vault open,
@@ -667,6 +678,11 @@ const App: Component = () => {
       // next decoration rebuild re-resolves.
       wikilinkResolver()?.invalidate();
 
+      // L3 Session H.2: any vault file change may have altered embed
+      // targets or their contents. Drop the resolver cache so the next
+      // widget rebuild re-fetches.
+      embedResolver()?.invalidate();
+
       // L3 Session C: any vault file change may have added/removed
       // a link pointing at the open note. Bump the backlinks tick
       // after a 200ms debounce so the panel refetches.
@@ -786,6 +802,7 @@ const App: Component = () => {
       setView({ kind: "file" });
       setRightSidebarCollapsed(false);
       setWikilinkResolver(null);
+      setEmbedResolver(null);
       setAutocompleteProvider(null);
       seenHash = null;
       lastWrittenHash = null;
@@ -795,6 +812,7 @@ const App: Component = () => {
       setVaultId(resp.vault_id);
       setScanStatus(resp.scan_status);
       setWikilinkResolver(createWikiLinkResolver(resp.vault_id));
+      setEmbedResolver(createEmbedResolver(resp.vault_id));
       setAutocompleteProvider(createAutocompleteProvider(resp.vault_id));
       scheduleRefresh();
 
@@ -1240,6 +1258,8 @@ const App: Component = () => {
                   resolvedTheme={resolvedTheme()}
                   rawSource={effectiveRaw()}
                   wikilinkResolver={wikilinkResolver()}
+                  embedResolver={embedResolver()}
+                  openNotePath={selectedPath()}
                   autocompleteProvider={autocompleteProvider()}
                   onNavigateWikilink={(path, anchor) =>
                     void handleNavigateWikilink(path, anchor)

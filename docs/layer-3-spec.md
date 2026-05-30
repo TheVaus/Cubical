@@ -696,3 +696,65 @@ Confirm: opening `Target.md` populates the panel with two rows (`NoteA`, `NoteB`
 **Smoke status.** No editor surface this session — `get_embed` reachable only via dev-console `__TAURI__.core.invoke(...)`. Optional hands-on: invoke with `Daily`, `Daily#Intro`, `Daily#^id`, and `ghost` and confirm the response matches the kind/content expectation. The handler tests cover every branch end-to-end against real vault scans + real file writes.
 
 **What's left for L3.** **Session H.2 — embed widget** (live-preview block widget consuming `getEmbed`; depth cap → styled link; cycle detection; unresolved placeholder). Then Sessions I–K — unlinked mentions, pending-rewrites cache, closeout.
+
+### 9.13 Session H.2 — Embed widget
+
+**Done 2026-05-30.** Frontend half of Session H (spec §2.8): every `![[…]]` token in Live Preview renders a block widget below its line carrying the embedded content, with bounded recursion (max depth 4 per `document-model.md` §5.4), cycle detection, and styled placeholders for unresolved targets and missing anchors. Executed from the plan at `docs/superpowers/plans/2026-05-30-l3-session-h2-embed-widget.md`.
+
+**Resolver (`ui/src/editor/embedResolver.ts`).** `EmbedResolver` mirrors `WikiLinkResolver` (L3 Session B) verbatim — `get` / `fetch` / `resolve` / `invalidate` / `onUpdate`, cache key = `target_raw`, IPC stub injected for tests, failures cache an `{ kind: "unresolved", target_path: null, content: null }` entry. `resolve()` re-kicks `fetch` when its subscriber wakes to a still-empty cache with no in-flight fetch (caught in code review: without this, an `invalidate()` landing after a fetch settles but before the awaiting subscriber wakes leaves `resolve()` hung forever). 8 unit tests (6 plus 2 covering the re-kick semantics: joining an in-flight fetch + settling after mid-flight invalidate).
+
+**Pure renderer (`ui/src/editor/embedRender.ts`).** `renderEmbedBody(ctx)` returns a `DocumentFragment` for one embed token; five branches — depth-cap (chain.length ≥ 4) → styled depth link, cold cache → "Loading…" placeholder + `resolver.fetch`, unresolved/missing-anchor → ⚠ placeholder, cycle (resolved `target_path ∈ chain`) → styled cycle link, resolved (note/section/block) → preserved-newline plain text. Nested `![[…]]` in content are recognised via `scanWikilinks` (L1 tokenizer) and recursively rendered, threading `[...chain, here.target_path]`. Non-embed `[[…]]` inside an embed body stays as literal source (reconstructed via private `reconstructLiteral`). **No markdown formatting inside the body** — H.3 polish. `MAX_EMBED_DEPTH = 4` (exported). 11 unit tests against jsdom (per-file `// @vitest-environment jsdom` pragma — vitest runs in node by default).
+
+**CM6 extension (`ui/src/editor/embed.ts`).** `embedExtension = [embedBlockField, embedBaseTheme]`. `embedBlockField` is a `StateField<DecorationSet>` (block decorations cannot come from a `ViewPlugin`) that walks the Lezer tree for every `WikiLink` node, re-tokenises its raw source, and — only for `![[…]]` — emits one `Decoration.widget({ block: true, side: 1 })` at the token's line end. The widget's `toDOM()` mounts a `.cm-md-embed-frame` wrapper and appends `renderEmbedBody(...)`. Rebuilds on doc / tree / facet changes and on the `embedResolverUpdated` `StateEffect`. **Widget identity is keyed on the resolver cache entry** — `EmbedBlockWidget.eq()` compares `targetRaw`, `openNotePath`, **and** the captured `EmbedResolution | undefined` entry by reference (caught in code review: the plan's `stamp = Date.now()` strategy made every widget remount on every rebuild even when its target's cache state was unchanged; the entry-reference strategy preserves DOM identity unless the entry actually flips). `EmbedResolver.fetch` replaces the entry via `cache.set` on completion, so `eq()` returns `false` only for the widgets whose target was actually fetched. `embedResolverFacet` flows the per-vault resolver (`null` → no widgets emitted, avoiding a loading-placeholder forest); `openNotePathFacet` seeds the cycle chain with the host note's path. `ignoreEvent` left at the CM6 default (`true` = ignore) — a read-only block widget should not reposition the caret on body clicks (the plan's `return false` had inverted semantics; caught in review). 9 integration tests against real `EditorView`s (7 plus 2 covering identity preservation: unrelated doc edit keeps the frame node; entry change forces a remount).
+
+**Editor + App wiring.** `Editor` gains two props (`embedResolver?`, `openNotePath?`), two `Compartment`s (one per facet), an `onUpdate` subscription dispatching `embedResolverUpdated`, and reactive prop-swap `createEffect`s. `App` owns one `EmbedResolver` per open vault (`createEmbedResolver(vault_id)` on `handleOpen`, `null` on close, `.invalidate()` on every `vault:file-changed`), and feeds `selectedPath()` straight through as `openNotePath`. Mirrors the L3 Session B `WikiLinkResolver` lifecycle so the two surfaces stay symmetrical.
+
+**Decisions worth noting.**
+- *Block widget, not text replacement.* The `![[…]]` source line stays editable; the widget appears *below* it. The existing inline `mark-wikilink-embed` `⎘` glyph in `decorations.ts` (L3 Session B) is unchanged — it stays as a marker on the source. H.3 can decide whether to retire the glyph once the block widget is fully featured.
+- *Plain text, not markdown rendering, inside the body.* §2.8 DoD doesn't require it; the body uses `white-space: pre-wrap` so newlines + spacing land faithfully. Rich rendering is H.3.
+- *Recursive rendering through `renderEmbedBody`, not nested CM6 widgets.* The widget builds plain DOM; nested embeds are recursive calls within the same DocumentFragment. Cleaner than mounting CM6 inside CM6 and trivially testable in jsdom.
+- *Cycle = resolved `target_path` ∈ chain.* The chain stores resolved paths, not `target_raw`. Catches `[[Daily]]` ≡ `[[notes/Daily]]` referring to the same file with different surface forms.
+- *Seed chain = open note's path.* `App.tsx` passes `selectedPath()` so `![[OpenNote]]` inside itself renders as a cycle link, not as an empty-content render.
+- *Hard-coded `MAX_EMBED_DEPTH = 4`.* `document-model.md` §5.4 names 4 as the default; a setting surface can land alongside `editor.embed_max_depth` if a future session needs it.
+- *Widget identity by cache-entry reference, not by build counter.* Two follow-up commits during this session (`37b04f2` for the resolver re-kick, `515df18` for the widget identity strategy) corrected plan-level decisions that code review surfaced as too coarse. The end state is a widget that remounts only when its target's resolution actually changes — important once H.3 adds richer rendering inside the body.
+- *Failures cache as unresolved.* Same policy as `WikiLinkResolver`. Spec §2.8 doesn't distinguish "IPC died" from "file missing" — both render the unresolved placeholder.
+- *Per-file `jsdom` pragma, not a global vitest env switch.* Two new tests need DOM (`embedRender.test.ts` + `embed.test.ts`); the existing 290+ tests don't, and many would slow if the whole suite booted jsdom. `// @vitest-environment jsdom` at the top of each DOM test plus `jsdom` as a `devDependency` keeps the cost local.
+
+**Tests:** 289 Rust passing (unchanged — no Rust gap this session). 321 vitest passing (was 293 + 28 new: 8 `embedResolver` + 11 `embedRender` + 9 `embed`). `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`, `npx tsc --noEmit`, `npx vitest run`, `npm run build` all clean.
+
+**Smoke status.** Interactive `cargo tauri dev` not run (automated-context constraint). Pure logic fully unit-tested end-to-end (resolver including re-kick edge case, renderer including 5 branches + recursion + cycle threading, extension including identity preservation + remount-on-entry-change). Smoke vault for next hands-on session:
+
+```
+Daily.md:
+# Intro
+This is the intro.
+# Body
+Body text.
+^abc123
+
+Outer.md:
+top-of-outer
+![[Daily]]
+between
+![[Daily#Intro]]
+between
+![[Daily#^abc123]]
+between
+![[Ghost]]
+between
+![[Daily#Missing]]
+
+Cycle.md:
+self-referencing: ![[Cycle]]
+
+Chain.md → ChainE.md (each embeds the next):
+ChainA: ![[ChainB]]
+ChainB: ![[ChainC]]
+ChainC: ![[ChainD]]
+ChainD: ![[ChainE]]   ← depth-cap kicks in
+ChainE: end
+```
+
+Verify in `Outer.md`: full-note embed renders Daily's full content (minus frontmatter — H.1 strips it); section embed renders the `# Intro` body; block embed renders the line carrying `^abc123`; `![[Ghost]]` → unresolved placeholder; `![[Daily#Missing]]` → missing-anchor placeholder. In `Cycle.md`, the embed renders as a styled cycle link. In `ChainA.md`, the chain renders four levels of nested frames; the fifth (ChainE inside ChainD) renders as a styled depth link.
+
+**What's left for L3.** Sessions I–K — unlinked mentions, pending-rewrites cache, closeout. H.3 (rich markdown rendering inside the embed body, click navigation, optional `⎘`-indicator retirement) is **deferred polish** — not on the §2.8 DoD critical path.
