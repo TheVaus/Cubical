@@ -496,3 +496,41 @@ pub struct BlockIdAutocompleteResponse {
     /// server-side at AUTOCOMPLETE_LIMIT.
     pub candidates: Vec<String>,
 }
+
+// -- get_embed (L3 Session H.1) ----------------------------------------
+
+/// Request payload for `get_embed`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct GetEmbedRequest {
+    pub vault_id: String,
+    /// Wiki-link target as written (no `[[`/`]]`/`|`). May include a
+    /// `#heading` or `#^block-id` anchor.
+    pub target_raw: String,
+}
+
+/// What kind of embed `get_embed` resolved the target to.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum EmbedKind {
+    /// Full note body (frontmatter stripped).
+    Note,
+    /// Heading-anchored section.
+    Section,
+    /// Block-anchored paragraph or list item.
+    Block,
+    /// Target didn't resolve to any file in the vault.
+    Unresolved,
+    /// Target resolved, but the named heading / block id wasn't found.
+    MissingAnchor,
+}
+
+/// Response payload for `get_embed`.
+#[derive(Debug, Clone, Serialize)]
+pub struct GetEmbedResponse {
+    pub kind: EmbedKind,
+    /// Resolved vault-relative path. `None` only when kind=Unresolved.
+    pub target_path: Option<String>,
+    /// Extracted content. `None` when kind is Unresolved or
+    /// MissingAnchor.
+    pub content: Option<String>,
+}
