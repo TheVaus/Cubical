@@ -404,6 +404,31 @@ export function tagAutocomplete(
 }
 
 // ---------------------------------------------------------------------------
+// block_id_autocomplete (L3 — [[#^ block-id completion)
+// ---------------------------------------------------------------------------
+
+export interface BlockIdAutocompleteRequest {
+  vault_id: string;
+  /** Wiki-link target as written (no `[[`/`]]`/`#`/`|`). */
+  target_raw: string;
+}
+
+export interface BlockIdAutocompleteResponse {
+  /** Block ids in the resolved target file (ordered, capped). */
+  candidates: string[];
+}
+
+/**
+ * Block ids defined in the resolved target file, for the `[[…#^` editor
+ * dropdown. Empty when the target doesn't resolve.
+ */
+export function blockIdAutocomplete(
+  req: BlockIdAutocompleteRequest,
+): Promise<BlockIdAutocompleteResponse> {
+  return invoke("block_id_autocomplete", { req });
+}
+
+// ---------------------------------------------------------------------------
 // create_block_ref / get_broken_block_refs (L3 Session G)
 // ---------------------------------------------------------------------------
 
