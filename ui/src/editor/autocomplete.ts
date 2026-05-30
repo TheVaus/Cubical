@@ -68,6 +68,46 @@ export function linkInsertion(
   return { insert, cursorAfter: path.length + (closerFollows ? 0 : 2) };
 }
 
+/** Output of {@link detectBlockTrigger}: which target's blocks to query. */
+export interface BlockTrigger {
+  /** Wiki-link target as typed (between `[[` and `#^`). */
+  target: string;
+  /** Absolute doc offset where the partial id starts (completion `from`). */
+  from: number;
+}
+
+/**
+ * Detect a `[[target#^prefix` trigger ending at `pos`. Returns the
+ * target text and the offset where the partial id begins, or `null`
+ * when no match (including empty target). The regex deliberately
+ * requires the literal `#^` so it never collides with heading
+ * completion (`[[target#headline`, deferred — no headings index).
+ */
+export function detectBlockTrigger(
+  before: string,
+  pos: number,
+): BlockTrigger | null {
+  const m = /\[\[([^\]\n|#]+)#\^([A-Za-z0-9_-]*)$/.exec(before);
+  if (!m) return null;
+  const target = m[1] ?? "";
+  if (target.trim().length === 0) return null;
+  const prefix = m[2] ?? "";
+  return { target, from: pos - prefix.length };
+}
+
+/**
+ * Build the text to insert when a block-id candidate is chosen. Mirrors
+ * {@link linkInsertion} but the inserted string is just the id (the
+ * user has already typed `^`). Appends `]]` unless it already follows.
+ */
+export function blockInsertion(
+  id: string,
+  closerFollows: boolean,
+): { insert: string; cursorAfter: number } {
+  const insert = closerFollows ? id : `${id}]]`;
+  return { insert, cursorAfter: id.length + (closerFollows ? 0 : 2) };
+}
+
 /** Lezer node names that suppress autocomplete (raw / code contexts). */
 const CODE_NODES = new Set([
   "FencedCode",
@@ -137,6 +177,47 @@ export function linkCompletionSource(
         },
       })),
       validFor: /^[^\]\n|#]*$/,
+    };
+  };
+}
+
+/** `[[…#^` block-id completion source backed by `provider.blockIds`. */
+export function blockCompletionSource(
+  provider: AutocompleteProvider,
+): CompletionSource {
+  return async (
+    context: CompletionContext,
+  ): Promise<CompletionResult | null> => {
+    const before = lineBefore(context.state, context.pos);
+    const trig = detectBlockTrigger(before, context.pos);
+    if (!trig) return null;
+    // Inside a WikiLink is expected here, so denyWikiLink=false.
+    if (isInhibited(context.state, context.pos, false)) return null;
+
+    const candidates = await provider.blockIds(trig.target);
+    if (candidates.length === 0) return null;
+
+    const after = context.state.sliceDoc(context.pos, context.pos + 2);
+    const closerFollows = after === "]]";
+
+    return {
+      from: trig.from,
+      options: candidates.map((id) => ({
+        label: id,
+        apply: (
+          view: import("@codemirror/view").EditorView,
+          _completion: import("@codemirror/autocomplete").Completion,
+          from: number,
+          to: number,
+        ) => {
+          const { insert, cursorAfter } = blockInsertion(id, closerFollows);
+          view.dispatch({
+            changes: { from, to, insert },
+            selection: { anchor: from + cursorAfter },
+          });
+        },
+      })),
+      validFor: /^[A-Za-z0-9_-]*$/,
     };
   };
 }

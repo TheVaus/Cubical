@@ -31,15 +31,16 @@ pub mod events;
 pub mod state;
 
 use api::types::{
-    CancelVaultScanRequest, CloseVaultRequest, CreateBlockRefRequest, CreateBlockRefResponse,
-    GetBacklinksRequest, GetBacklinksResponse, GetBrokenBlockRefsRequest,
-    GetBrokenBlockRefsResponse, GetCanonicalAstRequest, GetCanonicalAstResponse,
-    GetFrontmatterRequest, GetFrontmatterResponse, GetSettingRequest, GetSettingResponse,
-    GetVaultInfoRequest, GetVaultInfoResponse, LinkAutocompleteRequest, LinkAutocompleteResponse,
-    ListFilesRequest, ListFilesResponse, OpenVaultRequest, OpenVaultResponse, QueryTagPageRequest,
-    QueryTagPageResponse, ReadFileTextRequest, ReadFileTextResponse, ResolveLinkRequest,
-    ResolveLinkResponse, SetSettingRequest, SetSettingResponse, TagAutocompleteRequest,
-    TagAutocompleteResponse, WriteFileTextRequest, WriteFileTextResponse,
+    BlockIdAutocompleteRequest, BlockIdAutocompleteResponse, CancelVaultScanRequest,
+    CloseVaultRequest, CreateBlockRefRequest, CreateBlockRefResponse, GetBacklinksRequest,
+    GetBacklinksResponse, GetBrokenBlockRefsRequest, GetBrokenBlockRefsResponse,
+    GetCanonicalAstRequest, GetCanonicalAstResponse, GetFrontmatterRequest, GetFrontmatterResponse,
+    GetSettingRequest, GetSettingResponse, GetVaultInfoRequest, GetVaultInfoResponse,
+    LinkAutocompleteRequest, LinkAutocompleteResponse, ListFilesRequest, ListFilesResponse,
+    OpenVaultRequest, OpenVaultResponse, QueryTagPageRequest, QueryTagPageResponse,
+    ReadFileTextRequest, ReadFileTextResponse, ResolveLinkRequest, ResolveLinkResponse,
+    SetSettingRequest, SetSettingResponse, TagAutocompleteRequest, TagAutocompleteResponse,
+    WriteFileTextRequest, WriteFileTextResponse,
 };
 use error::CubicalError;
 use state::AppState;
@@ -85,6 +86,7 @@ pub fn run() {
             query_tag_page,
             link_autocomplete,
             tag_autocomplete,
+            block_id_autocomplete,
             create_block_ref,
             get_broken_block_refs,
             close_vault,
@@ -233,6 +235,15 @@ async fn tag_autocomplete(
     req: TagAutocompleteRequest,
 ) -> Result<TagAutocompleteResponse, CubicalError> {
     commands::autocomplete::tag_autocomplete(state.inner(), req).await
+}
+
+/// Tauri shim — see [`commands::autocomplete::block_id_autocomplete`].
+#[tauri::command]
+async fn block_id_autocomplete(
+    state: tauri::State<'_, AppState>,
+    req: BlockIdAutocompleteRequest,
+) -> Result<BlockIdAutocompleteResponse, CubicalError> {
+    commands::autocomplete::block_id_autocomplete(state.inner(), req).await
 }
 
 /// Tauri shim — see [`commands::blocks::create_block_ref`].

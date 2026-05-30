@@ -652,3 +652,22 @@ Confirm: opening `Target.md` populates the panel with two rows (`NoteA`, `NoteB`
 **Smoke status.** Interactive `cargo tauri dev` not run (automated-context constraint). The formatter is fully unit-tested; the signal/refresh/render glue is thin and exercised end-to-end only by a hands-on smoke: write `[[B#^missing]]` (B lacks `^missing`), confirm `⚠ 1 broken block ref` with a tooltip, add `^missing` to B and confirm the indicator clears after the file-change refresh.
 
 **What's left for L3.** `[[#^` in-bracket block-id autocomplete (needs a backend block-ids-in-file query). Then Sessions H–K — embeds proper (H), unlinked mentions (I), pending-rewrites cache (J), closeout (K).
+
+### 9.11 `[[#^` in-bracket block-id autocomplete
+
+**Done 2026-05-29.** Typing `[[target#^pre` opens a CodeMirror dropdown of block ids defined in `target.md` whose name starts with `pre`; picking one inserts the id (and the `]]` closer if not already present). Closes the §9.7-deferred in-bracket anchor completion — *for blocks only*. Executed from the plan at `docs/superpowers/plans/2026-05-29-l3-blockid-autocomplete.md`.
+
+**Backend (`cubical-app`).** New `commands::autocomplete::block_id_autocomplete(state, req)` handler: snapshots `SELECT path FROM files ORDER BY path` → `cubical_core::vault::links::resolve_target(target_raw, &known)` (same resolution `resolve_link` uses — exact path → unique basename → unique suffix) → if `Some(path)`, `cubical_index::blocks_for_file(conn, &path)` (Session G's helper, already ordered by `position_hint`) → take `AUTOCOMPLETE_LIMIT` (50) block_id strings. Unresolved target returns `[]`. Wire types `BlockIdAutocomplete{Request,Response}` in `api/types.rs`; 3-line Tauri shim registered in `lib.rs`'s `generate_handler!`. **No new index helper** — `blocks_for_file` is sufficient. 2 handler unit tests (resolved → ordered ids; unresolved → empty).
+
+**Frontend (`ui/src/editor`).** Pure `detectBlockTrigger(before, pos)` regex `/\[\[([^\]\n|#]+)#\^([A-Za-z0-9_-]*)$/` returns `{ target, from }` where `from = pos - prefix.length` (CM6 replaces only the partial id); rejects empty target. `blockInsertion(id, closerFollows)` mirrors `linkInsertion` — the user has already typed `^`, so `insert` is just the id. `blockCompletionSource(provider)` calls `detectBlockTrigger`, runs `isInhibited(state, pos, false)` (we *want* to be inside a `WikiLink`, opposite of the tag source), fetches `provider.blockIds(target)`, returns options with `apply` dispatching the standard `changes`/`selection` transaction; `validFor: /^[A-Za-z0-9_-]*$/` filters between keystrokes without re-querying. `AutocompleteProvider` gains `blockIds(target): Promise<string[]>` plus a third `blockIdIpc` parameter in `createAutocompleteProvider` (defaults to `blockIdAutocomplete` from `api/ipc.ts`; failures resolve to `[]`). `Editor.tsx`'s `autocompletion({ override })` array gains `blockCompletionSource(provider)`.
+
+**Decisions worth noting.**
+- *Trigger regex requires `#^` literally.* The link trigger stops at `#`, and any future heading completion (`[[target#headline`) — still deferred, no headings index — would use a different anchor, so the two regexes can't collide.
+- *`denyWikiLink=false`* in the source's `isInhibited` call. Block autocomplete *wants* to be inside a `WikiLink`; the tag source passes `true` for the opposite reason.
+- *No prefix filter in the handler.* The full per-file id list (capped at 50) is returned once per fresh trigger; CM6's `validFor` does inter-keystroke filtering locally.
+
+**Tests:** 273 Rust passing (was 271 + 2 handler tests) + 293 vitest passing (was 282 + 11: 6 `detectBlockTrigger`, 2 `blockInsertion`, 3 `blockCompletionSource`). `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`, `npx tsc --noEmit`, `npx vitest run`, and `npm run build` all clean.
+
+**Smoke status.** Interactive `cargo tauri dev` not run (automated-context constraint). Pure logic fully unit-tested end-to-end (trigger detection, insertion, code-context inhibition, target resolution → ids); the live dropdown is verified by a hands-on smoke: in note A type `[[B#^` where B has minted ids (`Cmd/Ctrl+Shift+B`), confirm the dropdown lists them; typing narrows; Enter inserts `id]]`; no dropdown for an unresolved target or inside a fenced code block.
+
+**What's left for L3.** Heading autocomplete (`[[target#headline`) stays deferred — no headings index. Then Sessions H–K — embeds proper (H), unlinked mentions (I), pending-rewrites cache (J), closeout (K).

@@ -475,3 +475,24 @@ pub struct BrokenBlockRefDto {
     /// Missing block id.
     pub target_block_id: String,
 }
+
+// -- block_id_autocomplete (L3 — [[#^ autocomplete) -------------------
+
+/// Request payload for `block_id_autocomplete`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct BlockIdAutocompleteRequest {
+    /// Vault to query.
+    pub vault_id: String,
+    /// Wiki-link target as written (no `[[`/`]]`/`#`/`|`). Resolved to
+    /// a file path via the same rules as `resolve_link`.
+    pub target_raw: String,
+}
+
+/// Response payload for `block_id_autocomplete`.
+#[derive(Debug, Clone, Serialize)]
+pub struct BlockIdAutocompleteResponse {
+    /// Block ids defined in the resolved target file, ordered by
+    /// position; empty when the target doesn't resolve. Capped
+    /// server-side at AUTOCOMPLETE_LIMIT.
+    pub candidates: Vec<String>,
+}
