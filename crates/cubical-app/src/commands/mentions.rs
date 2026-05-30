@@ -12,6 +12,7 @@
 
 use cubical_core::vault::links::read_source_off_executor;
 use cubical_core::vault::mentions::{find_mention_occurrences, MentionHit};
+use cubical_core::{atomic_write, sha256_bytes_hex};
 
 use crate::api::types::{
     GetUnlinkedMentionsRequest, GetUnlinkedMentionsResponse, LinkMentionRequest,
@@ -102,15 +103,137 @@ pub async fn get_unlinked_mentions(
     Ok(GetUnlinkedMentionsResponse { mentions: out })
 }
 
-/// Stub for now — implemented in Task 7. The signature lands here so
-/// the commands module compiles.
+/// Rewrite one matched span in one source file into a `[[Title]]`
+/// (or `[[Title|alias]]` when the matched text differs case-insensitively
+/// from the canonical title). Reads the source fresh just-in-time +
+/// writes atomically.
 pub async fn link_mention(
-    _state: &AppState,
-    _req: LinkMentionRequest,
+    state: &AppState,
+    req: LinkMentionRequest,
 ) -> Result<LinkMentionResponse, CubicalError> {
-    Err(CubicalError::InvalidRequest(
-        "link_mention not yet implemented".into(),
-    ))
+    let abs = {
+        let guard = state.vaults().read().await;
+        let open = guard
+            .get(&req.vault_id)
+            .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
+        open.vault.root().join(&req.source_path)
+    };
+
+    // Read fresh just-in-time so a same-millisecond external edit is
+    // reflected. If the file has been removed entirely, surface IO.
+    let source = tokio::task::spawn_blocking({
+        let abs = abs.clone();
+        move || std::fs::read_to_string(&abs)
+    })
+    .await
+    .map_err(|e| CubicalError::Io(format!("read task join error: {e}")))?
+    .map_err(|e| CubicalError::Io(e.to_string()))?;
+
+    // Bounds check.
+    let start = req.position as usize;
+    let end = start.saturating_add(req.byte_len as usize);
+    if end > source.len() {
+        return Err(CubicalError::InvalidRequest(
+            "mention span out of bounds (file changed since fetch)".into(),
+        ));
+    }
+    if !source.is_char_boundary(start) || !source.is_char_boundary(end) {
+        return Err(CubicalError::InvalidRequest(
+            "mention span does not land on UTF-8 boundaries".into(),
+        ));
+    }
+
+    let matched = &source[start..end];
+    let title = req.target_title.trim();
+    if title.is_empty() {
+        return Err(CubicalError::InvalidRequest(
+            "target_title must not be empty".into(),
+        ));
+    }
+
+    // Sanity-check the span still looks like a word boundary'd needle.
+    // We don't re-run the full scan, but we do require:
+    //   * the span contains at least one word char
+    //   * the byte char immediately before/after is a non-word char
+    //     (or the file edge)
+    if matched.chars().all(|c| !c.is_alphanumeric() && c != '_') {
+        return Err(CubicalError::InvalidRequest(
+            "mention span no longer contains a word".into(),
+        ));
+    }
+    let prev_ok = matched_neighbor_ok(&source, start, /*before=*/ true);
+    let next_ok = matched_neighbor_ok(&source, end, /*before=*/ false);
+    if !prev_ok || !next_ok {
+        return Err(CubicalError::InvalidRequest(
+            "mention has moved (whole-word boundary lost)".into(),
+        ));
+    }
+
+    // Decide the replacement shape:
+    //   matched ≡ title (case-insensitive) → [[Title]]
+    //   otherwise (alias-display or differing casing on alias)  →  [[Title|matched]]
+    let replacement = if matched.eq_ignore_ascii_case(title) {
+        format!("[[{title}]]")
+    } else {
+        format!("[[{title}|{matched}]]")
+    };
+
+    let mut new_contents = String::with_capacity(source.len() + replacement.len());
+    new_contents.push_str(&source[..start]);
+    new_contents.push_str(&replacement);
+    new_contents.push_str(&source[end..]);
+
+    let new_bytes = new_contents.into_bytes();
+    let new_hash = sha256_bytes_hex(&new_bytes);
+
+    let abs_for_write = abs.clone();
+    let bytes_for_write = new_bytes.clone();
+    tokio::task::spawn_blocking(move || atomic_write(&abs_for_write, &bytes_for_write))
+        .await
+        .map_err(|e| CubicalError::Io(format!("write task join error: {e}")))??;
+
+    // Mirror write_file_text's eager files-row update so the next
+    // `get_unlinked_mentions` refresh sees the new hash. Best-effort —
+    // the watcher will also report it.
+    {
+        let guard = state.vaults().read().await;
+        let open = guard
+            .get(&req.vault_id)
+            .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
+        let conn = open.vault.index().connection();
+        if let Err(e) = conn
+            .execute(
+                "UPDATE files SET content_hash = ?1, size_bytes = ?2 WHERE path = ?3",
+                libsql::params![
+                    new_hash.clone(),
+                    new_bytes.len() as i64,
+                    req.source_path.clone(),
+                ],
+            )
+            .await
+        {
+            tracing::debug!(error = %e, "link_mention: files-row update failed (watcher will catch up)");
+        }
+    }
+
+    Ok(LinkMentionResponse { new_hash })
+}
+
+/// Whole-word boundary check on the source side. `before=true` checks
+/// the char immediately preceding `byte_idx`; `before=false` checks the
+/// char immediately at `byte_idx`. Edge of file always satisfies.
+fn matched_neighbor_ok(source: &str, byte_idx: usize, before: bool) -> bool {
+    if before {
+        match source[..byte_idx].chars().next_back() {
+            None => true,
+            Some(c) => !c.is_alphanumeric() && c != '_',
+        }
+    } else {
+        match source[byte_idx..].chars().next() {
+            None => true,
+            Some(c) => !c.is_alphanumeric() && c != '_',
+        }
+    }
 }
 
 /// Compute the canonical title for a vault-relative path — its basename
@@ -411,6 +534,151 @@ mod tests {
             GetUnlinkedMentionsRequest {
                 vault_id: "ghost".into(),
                 path: "Daily.md".into(),
+            },
+        )
+        .await
+        .expect_err("expected VaultNotOpen");
+        assert!(matches!(err, CubicalError::VaultNotOpen(v) if v == "ghost"));
+    }
+
+    // ---- link_mention --------------------------------------------
+
+    #[tokio::test]
+    async fn link_mention_rewrites_span_and_returns_new_hash() {
+        let (_dir, vault, state) = fresh("v1").await;
+        seed_md(&vault, "Daily.md", "body").await;
+        let body = "I worked on the Daily today.\n";
+        seed_md(&vault, "Project.md", body).await;
+
+        let pos = body.find("Daily").unwrap() as u64;
+        let resp = link_mention(
+            &state,
+            LinkMentionRequest {
+                vault_id: "v1".into(),
+                source_path: "Project.md".into(),
+                position: pos,
+                byte_len: 5,
+                target_title: "Daily".into(),
+            },
+        )
+        .await
+        .expect("ok");
+
+        let on_disk = std::fs::read_to_string(vault.root().join("Project.md")).unwrap();
+        assert_eq!(on_disk, "I worked on the [[Daily]] today.\n");
+        assert_eq!(
+            resp.new_hash,
+            cubical_core::sha256_bytes_hex(on_disk.as_bytes())
+        );
+    }
+
+    #[tokio::test]
+    async fn link_mention_emits_alias_form_when_target_differs_case_insensitively() {
+        let (_dir, vault, state) = fresh("v1").await;
+        seed_md(&vault, "Daily.md", "body").await;
+        let body = "The Journal entry tracks this.\n";
+        seed_md(&vault, "Project.md", body).await;
+
+        // The match is on "Journal" (alias); the canonical title is
+        // "Daily". The frontend supplies target_title=Daily AND the
+        // matched span; the backend produces [[Daily|Journal]] because
+        // the matched text differs from the target title.
+        let pos = body.find("Journal").unwrap() as u64;
+        link_mention(
+            &state,
+            LinkMentionRequest {
+                vault_id: "v1".into(),
+                source_path: "Project.md".into(),
+                position: pos,
+                byte_len: 7,
+                target_title: "Daily".into(),
+            },
+        )
+        .await
+        .unwrap();
+        let on_disk = std::fs::read_to_string(vault.root().join("Project.md")).unwrap();
+        assert_eq!(on_disk, "The [[Daily|Journal]] entry tracks this.\n");
+    }
+
+    #[tokio::test]
+    async fn link_mention_uses_bare_form_when_match_equals_title_case_insensitively() {
+        let (_dir, vault, state) = fresh("v1").await;
+        seed_md(&vault, "Daily.md", "body").await;
+        let body = "The daily check-in is done.\n";
+        seed_md(&vault, "Project.md", body).await;
+
+        let pos = body.find("daily").unwrap() as u64;
+        link_mention(
+            &state,
+            LinkMentionRequest {
+                vault_id: "v1".into(),
+                source_path: "Project.md".into(),
+                position: pos,
+                byte_len: 5,
+                target_title: "Daily".into(),
+            },
+        )
+        .await
+        .unwrap();
+        let on_disk = std::fs::read_to_string(vault.root().join("Project.md")).unwrap();
+        // Match casing dropped in favour of the canonical title.
+        assert_eq!(on_disk, "The [[Daily]] check-in is done.\n");
+    }
+
+    #[tokio::test]
+    async fn link_mention_invalidrequest_when_span_no_longer_alphanumeric() {
+        let (_dir, vault, state) = fresh("v1").await;
+        seed_md(&vault, "Daily.md", "body").await;
+        // Body where the chosen byte range now points at whitespace.
+        seed_md(&vault, "Project.md", "                  short body\n").await;
+
+        let err = link_mention(
+            &state,
+            LinkMentionRequest {
+                vault_id: "v1".into(),
+                source_path: "Project.md".into(),
+                position: 0,
+                byte_len: 5,
+                target_title: "Daily".into(),
+            },
+        )
+        .await
+        .expect_err("expected InvalidRequest");
+        assert!(matches!(err, CubicalError::InvalidRequest(_)));
+    }
+
+    #[tokio::test]
+    async fn link_mention_invalidrequest_when_span_out_of_bounds() {
+        let (_dir, vault, state) = fresh("v1").await;
+        seed_md(&vault, "Daily.md", "body").await;
+        seed_md(&vault, "Project.md", "tiny\n").await;
+
+        let err = link_mention(
+            &state,
+            LinkMentionRequest {
+                vault_id: "v1".into(),
+                source_path: "Project.md".into(),
+                position: 999,
+                byte_len: 5,
+                target_title: "Daily".into(),
+            },
+        )
+        .await
+        .expect_err("expected InvalidRequest");
+        assert!(matches!(err, CubicalError::InvalidRequest(_)));
+    }
+
+    #[tokio::test]
+    async fn link_mention_unknown_vault_errors() {
+        let (_dir, _vault, state) = fresh("v1").await;
+        let err = link_mention(
+            &state,
+            LinkMentionRequest {
+                vault_id: "ghost".into(),
+                source_path: "Project.md".into(),
+                position: 0,
+                byte_len: 5,
+                target_title: "Daily".into(),
             },
         )
         .await
