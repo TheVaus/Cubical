@@ -4,6 +4,8 @@ import { markdown } from "@codemirror/lang-markdown";
 import { CompletionContext } from "@codemirror/autocomplete";
 
 import {
+  blockInsertion,
+  detectBlockTrigger,
   detectLinkTrigger,
   detectTagTrigger,
   linkInsertion,
@@ -114,5 +116,52 @@ describe("tagCompletionSource", () => {
     const doc = "a `x #pr` b";
     const res = await src(ctxAt(doc, 8)); // caret after `r`, inside InlineCode
     expect(res).toBeNull();
+  });
+});
+
+describe("detectBlockTrigger", () => {
+  it("matches an empty prefix right after `[[target#^`", () => {
+    const got = detectBlockTrigger("see [[note#^", 12);
+    expect(got).toEqual({ target: "note", from: 12 });
+  });
+
+  it("matches with a partial id and reports `from` at the prefix start", () => {
+    const got = detectBlockTrigger("see [[note#^pre", 15);
+    expect(got).toEqual({ target: "note", from: 12 });
+  });
+
+  it("accepts a nested path target", () => {
+    // "[[a/b#^_x-1" — prefix "_x-1" (4 chars) → from = pos - 4 = 7.
+    const got = detectBlockTrigger("[[a/b#^_x-1", 11);
+    expect(got).toEqual({ target: "a/b", from: 7 });
+  });
+
+  it("rejects when target is empty", () => {
+    expect(detectBlockTrigger("[[#^x", 5)).toBeNull();
+  });
+
+  it("rejects when there is no `#^`", () => {
+    expect(detectBlockTrigger("[[note#pre", 10)).toBeNull();
+    expect(detectBlockTrigger("[[note^pre", 10)).toBeNull();
+  });
+
+  it("rejects outside any `[[`", () => {
+    expect(detectBlockTrigger("text^pre", 8)).toBeNull();
+  });
+});
+
+describe("blockInsertion", () => {
+  it("appends `]]` when no closer follows and lands the caret past it", () => {
+    expect(blockInsertion("intro", false)).toEqual({
+      insert: "intro]]",
+      cursorAfter: 7,
+    });
+  });
+
+  it("leaves the closer alone when it already follows", () => {
+    expect(blockInsertion("intro", true)).toEqual({
+      insert: "intro",
+      cursorAfter: 5,
+    });
   });
 });

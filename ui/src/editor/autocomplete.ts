@@ -68,6 +68,46 @@ export function linkInsertion(
   return { insert, cursorAfter: path.length + (closerFollows ? 0 : 2) };
 }
 
+/** Output of {@link detectBlockTrigger}: which target's blocks to query. */
+export interface BlockTrigger {
+  /** Wiki-link target as typed (between `[[` and `#^`). */
+  target: string;
+  /** Absolute doc offset where the partial id starts (completion `from`). */
+  from: number;
+}
+
+/**
+ * Detect a `[[target#^prefix` trigger ending at `pos`. Returns the
+ * target text and the offset where the partial id begins, or `null`
+ * when no match (including empty target). The regex deliberately
+ * requires the literal `#^` so it never collides with heading
+ * completion (`[[target#headline`, deferred — no headings index).
+ */
+export function detectBlockTrigger(
+  before: string,
+  pos: number,
+): BlockTrigger | null {
+  const m = /\[\[([^\]\n|#]+)#\^([A-Za-z0-9_-]*)$/.exec(before);
+  if (!m) return null;
+  const target = m[1] ?? "";
+  if (target.trim().length === 0) return null;
+  const prefix = m[2] ?? "";
+  return { target, from: pos - prefix.length };
+}
+
+/**
+ * Build the text to insert when a block-id candidate is chosen. Mirrors
+ * {@link linkInsertion} but the inserted string is just the id (the
+ * user has already typed `^`). Appends `]]` unless it already follows.
+ */
+export function blockInsertion(
+  id: string,
+  closerFollows: boolean,
+): { insert: string; cursorAfter: number } {
+  const insert = closerFollows ? id : `${id}]]`;
+  return { insert, cursorAfter: id.length + (closerFollows ? 0 : 2) };
+}
+
 /** Lezer node names that suppress autocomplete (raw / code contexts). */
 const CODE_NODES = new Set([
   "FencedCode",
