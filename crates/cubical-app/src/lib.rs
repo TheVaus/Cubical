@@ -35,13 +35,12 @@ use api::types::{
     CloseVaultRequest, CreateBlockRefRequest, CreateBlockRefResponse, GetBacklinksRequest,
     GetBacklinksResponse, GetBrokenBlockRefsRequest, GetBrokenBlockRefsResponse,
     GetCanonicalAstRequest, GetCanonicalAstResponse, GetEmbedRequest, GetEmbedResponse,
-    GetFrontmatterRequest, GetFrontmatterResponse,
-    GetSettingRequest, GetSettingResponse, GetVaultInfoRequest, GetVaultInfoResponse,
-    LinkAutocompleteRequest, LinkAutocompleteResponse, ListFilesRequest, ListFilesResponse,
-    OpenVaultRequest, OpenVaultResponse, QueryTagPageRequest, QueryTagPageResponse,
-    ReadFileTextRequest, ReadFileTextResponse, ResolveLinkRequest, ResolveLinkResponse,
-    SetSettingRequest, SetSettingResponse, TagAutocompleteRequest, TagAutocompleteResponse,
-    WriteFileTextRequest, WriteFileTextResponse,
+    GetFrontmatterRequest, GetFrontmatterResponse, GetSettingRequest, GetSettingResponse,
+    GetVaultInfoRequest, GetVaultInfoResponse, LinkAutocompleteRequest, LinkAutocompleteResponse,
+    ListFilesRequest, ListFilesResponse, OpenVaultRequest, OpenVaultResponse, QueryTagPageRequest,
+    QueryTagPageResponse, ReadFileTextRequest, ReadFileTextResponse, ResolveLinkRequest,
+    ResolveLinkResponse, SetSettingRequest, SetSettingResponse, TagAutocompleteRequest,
+    TagAutocompleteResponse, WriteFileTextRequest, WriteFileTextResponse,
 };
 use error::CubicalError;
 use state::AppState;
