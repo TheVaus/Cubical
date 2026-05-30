@@ -29,6 +29,7 @@ import {
 import type { WikiLinkResolver } from "./editor/wikilinkResolver";
 import { autocompletion } from "@codemirror/autocomplete";
 import {
+  blockCompletionSource,
   linkCompletionSource,
   tagCompletionSource,
 } from "./editor/autocomplete";
@@ -90,6 +91,7 @@ const autocompleteExtensionFor = (
         override: [
           linkCompletionSource(provider),
           tagCompletionSource(provider),
+          blockCompletionSource(provider),
         ],
       })
     : [];

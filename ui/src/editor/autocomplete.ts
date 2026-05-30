@@ -181,6 +181,47 @@ export function linkCompletionSource(
   };
 }
 
+/** `[[…#^` block-id completion source backed by `provider.blockIds`. */
+export function blockCompletionSource(
+  provider: AutocompleteProvider,
+): CompletionSource {
+  return async (
+    context: CompletionContext,
+  ): Promise<CompletionResult | null> => {
+    const before = lineBefore(context.state, context.pos);
+    const trig = detectBlockTrigger(before, context.pos);
+    if (!trig) return null;
+    // Inside a WikiLink is expected here, so denyWikiLink=false.
+    if (isInhibited(context.state, context.pos, false)) return null;
+
+    const candidates = await provider.blockIds(trig.target);
+    if (candidates.length === 0) return null;
+
+    const after = context.state.sliceDoc(context.pos, context.pos + 2);
+    const closerFollows = after === "]]";
+
+    return {
+      from: trig.from,
+      options: candidates.map((id) => ({
+        label: id,
+        apply: (
+          view: import("@codemirror/view").EditorView,
+          _completion: import("@codemirror/autocomplete").Completion,
+          from: number,
+          to: number,
+        ) => {
+          const { insert, cursorAfter } = blockInsertion(id, closerFollows);
+          view.dispatch({
+            changes: { from, to, insert },
+            selection: { anchor: from + cursorAfter },
+          });
+        },
+      })),
+      validFor: /^[A-Za-z0-9_-]*$/,
+    };
+  };
+}
+
 /** `#` tag-completion source backed by `provider.tags`. */
 export function tagCompletionSource(
   provider: AutocompleteProvider,

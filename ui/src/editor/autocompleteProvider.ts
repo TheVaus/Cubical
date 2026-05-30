@@ -9,8 +9,11 @@
  */
 
 import {
+  blockIdAutocomplete as defaultBlockIdAutocomplete,
   linkAutocomplete as defaultLinkAutocomplete,
   tagAutocomplete as defaultTagAutocomplete,
+  type BlockIdAutocompleteRequest,
+  type BlockIdAutocompleteResponse,
   type LinkAutocompleteRequest,
   type LinkAutocompleteResponse,
   type LinkCandidate,
@@ -23,6 +26,8 @@ export interface AutocompleteProvider {
   links: (query: string) => Promise<LinkCandidate[]>;
   /** Tags matching `query` (prefix). Empty array on failure. */
   tags: (query: string) => Promise<string[]>;
+  /** Block ids in `target` (resolved server-side). Empty on failure. */
+  blockIds: (target: string) => Promise<string[]>;
 }
 
 /**
@@ -39,6 +44,9 @@ export function createAutocompleteProvider(
   tagIpc: (
     req: TagAutocompleteRequest,
   ) => Promise<TagAutocompleteResponse> = defaultTagAutocomplete,
+  blockIdIpc: (
+    req: BlockIdAutocompleteRequest,
+  ) => Promise<BlockIdAutocompleteResponse> = defaultBlockIdAutocomplete,
 ): AutocompleteProvider {
   return {
     async links(query) {
@@ -52,6 +60,14 @@ export function createAutocompleteProvider(
     async tags(query) {
       try {
         const resp = await tagIpc({ vault_id: vaultId, query });
+        return resp.candidates;
+      } catch {
+        return [];
+      }
+    },
+    async blockIds(target) {
+      try {
+        const resp = await blockIdIpc({ vault_id: vaultId, target_raw: target });
         return resp.candidates;
       } catch {
         return [];

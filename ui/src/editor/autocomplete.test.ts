@@ -4,6 +4,7 @@ import { markdown } from "@codemirror/lang-markdown";
 import { CompletionContext } from "@codemirror/autocomplete";
 
 import {
+  blockCompletionSource,
   blockInsertion,
   detectBlockTrigger,
   detectLinkTrigger,
@@ -70,9 +71,11 @@ describe("linkInsertion", () => {
 const fakeProvider = (
   links: { path: string; title: string }[],
   tags: string[],
+  blockIdsByTarget: Record<string, string[]> = {},
 ): AutocompleteProvider => ({
   links: async () => links,
   tags: async () => tags,
+  blockIds: async (target) => blockIdsByTarget[target] ?? [],
 });
 
 function ctxAt(doc: string, pos: number): CompletionContext {
@@ -163,5 +166,33 @@ describe("blockInsertion", () => {
       insert: "intro",
       cursorAfter: 5,
     });
+  });
+});
+
+describe("blockCompletionSource", () => {
+  it("returns the target's block ids inside `[[…#^`", async () => {
+    const src = blockCompletionSource(
+      fakeProvider([], [], { note: ["intro", "summary"] }),
+    );
+    const res = await src(ctxAt("see [[note#^", 12));
+    expect(res).not.toBeNull();
+    expect(res!.options.map((o) => o.label)).toEqual(["intro", "summary"]);
+    expect(res!.from).toBe(12);
+  });
+
+  it("is suppressed inside a fenced code block", async () => {
+    const src = blockCompletionSource(
+      fakeProvider([], [], { note: ["intro"] }),
+    );
+    const doc = "```\n[[note#^\n```\n";
+    const pos = 4 + "[[note#^".length;
+    const res = await src(ctxAt(doc, pos));
+    expect(res).toBeNull();
+  });
+
+  it("returns null when the target resolves to no blocks", async () => {
+    const src = blockCompletionSource(fakeProvider([], [], {}));
+    const res = await src(ctxAt("[[ghost#^", 9));
+    expect(res).toBeNull();
   });
 });
