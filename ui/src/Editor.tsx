@@ -27,6 +27,13 @@ import {
   maybeInterceptWikiLinkMousedown,
 } from "./editor/wikilinkMousedown";
 import type { WikiLinkResolver } from "./editor/wikilinkResolver";
+import type { EmbedResolver } from "./editor/embedResolver";
+import {
+  embedExtension,
+  embedResolverFacet,
+  embedResolverUpdated,
+  openNotePathFacet,
+} from "./editor/embed";
 import { autocompletion } from "@codemirror/autocomplete";
 import {
   blockCompletionSource,
@@ -62,6 +69,20 @@ const themeCompartment = new Compartment();
  * `wikilinkResolver` prop changes (i.e. a different vault is open).
  */
 const wikilinkResolverCompartment = new Compartment();
+
+/**
+ * Holds the per-editor embed resolver supplied to the embed widget via
+ * {@link embedResolverFacet}. Reconfigured whenever the parent's
+ * `embedResolver` prop changes.
+ */
+const embedResolverCompartment = new Compartment();
+
+/**
+ * Holds the open-note vault-relative path supplied to the embed widget
+ * via {@link openNotePathFacet}. Reconfigured whenever the parent's
+ * `openNotePath` prop changes — used to seed the cycle chain.
+ */
+const openNotePathCompartment = new Compartment();
 
 /**
  * Holds the autocomplete extension. Reconfigured when the per-vault
@@ -159,6 +180,17 @@ export interface EditorProps {
    */
   wikilinkResolver?: WikiLinkResolver | null;
   /**
+   * Per-vault resolver for embed content (L3 Session H.2). `null` when
+   * no vault is open — the embed widget renders nothing in that state.
+   */
+  embedResolver?: EmbedResolver | null;
+  /**
+   * Vault-relative path of the currently open note (e.g. `notes/Daily.md`),
+   * supplied so the embed widget can seed its cycle-detection chain. `null`
+   * when no note is selected.
+   */
+  openNotePath?: string | null;
+  /**
    * Per-vault autocomplete provider (L3 Session F). `null` when no
    * vault is open — `[[` / `#` complete nothing.
    */
@@ -227,6 +259,22 @@ const Editor: Component<EditorProps> = (props) => {
     if (resolver && targetView) {
       unsubResolver = resolver.onUpdate(() => {
         targetView.dispatch({ effects: wikilinkResolverUpdated.of(null) });
+      });
+    }
+  };
+
+  // Unsubscribe handle for the embed resolver's onUpdate notifications.
+  let unsubEmbedResolver: (() => void) | undefined;
+
+  const subscribeEmbedResolver = (
+    resolver: EmbedResolver | null | undefined,
+    targetView: EditorView | undefined,
+  ) => {
+    unsubEmbedResolver?.();
+    unsubEmbedResolver = undefined;
+    if (resolver && targetView) {
+      unsubEmbedResolver = resolver.onUpdate(() => {
+        targetView.dispatch({ effects: embedResolverUpdated.of(null) });
       });
     }
   };
@@ -351,6 +399,13 @@ const Editor: Component<EditorProps> = (props) => {
           wikilinkResolverCompartment.of(
             wikilinkResolverFacet.of(facetValueFor(props.wikilinkResolver)),
           ),
+          embedResolverCompartment.of(
+            embedResolverFacet.of(props.embedResolver ?? null),
+          ),
+          openNotePathCompartment.of(
+            openNotePathFacet.of(props.openNotePath ?? null),
+          ),
+          embedExtension,
           autocompleteCompartment.of(
             autocompleteExtensionFor(props.autocompleteProvider),
           ),
@@ -419,6 +474,7 @@ const Editor: Component<EditorProps> = (props) => {
     view.contentDOM.addEventListener("mousedown", onContentTagMousedown, true);
 
     subscribeResolver(props.wikilinkResolver, view);
+    subscribeEmbedResolver(props.embedResolver, view);
 
     // Fire the initial AST synchronously so consumers don't have to
     // wait for the first keystroke to know what's loaded.
@@ -542,6 +598,42 @@ const Editor: Component<EditorProps> = (props) => {
     ),
   );
 
+  // Swap the embed resolver when the parent's prop changes (a different
+  // vault is open). Reconfigure the facet via the compartment and
+  // re-bind the onUpdate subscription so cache notifications dispatch
+  // into the right view.
+  createEffect(
+    on(
+      () => props.embedResolver,
+      (resolver) => {
+        view?.dispatch({
+          effects: embedResolverCompartment.reconfigure(
+            embedResolverFacet.of(resolver ?? null),
+          ),
+        });
+        subscribeEmbedResolver(resolver, view);
+      },
+      { defer: true },
+    ),
+  );
+
+  // Swap the open-note path facet when the parent's prop changes. The
+  // embed widget reads this as the seed of its cycle-detection chain;
+  // every navigation between notes flips the value.
+  createEffect(
+    on(
+      () => props.openNotePath,
+      (path) => {
+        view?.dispatch({
+          effects: openNotePathCompartment.reconfigure(
+            openNotePathFacet.of(path ?? null),
+          ),
+        });
+      },
+      { defer: true },
+    ),
+  );
+
   // Swap the autocomplete provider when the parent's prop changes (a
   // different vault is open). Reconfigure the compartment so the
   // completion sources close over the new vault id.
@@ -561,6 +653,7 @@ const Editor: Component<EditorProps> = (props) => {
 
   onCleanup(() => {
     unsubResolver?.();
+    unsubEmbedResolver?.();
     if (astPending !== undefined) clearTimeout(astPending);
     view?.destroy();
     view = undefined;
