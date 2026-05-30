@@ -38,7 +38,7 @@ import {
 import { syntaxTree } from "@codemirror/language";
 
 import { scanWikilinks } from "../ast/wikilink";
-import type { EmbedResolver } from "./embedResolver";
+import type { EmbedResolver, EmbedResolution } from "./embedResolver";
 import { renderEmbedBody } from "./embedRender";
 
 /**
@@ -84,10 +84,12 @@ class EmbedBlockWidget extends WidgetType {
     private readonly resolver: EmbedResolver,
     private readonly targetRaw: string,
     private readonly openNotePath: string | null,
-    // Carried for `eq()` cheap identity — the field tears down widgets
-    // and reconstructs on resolver-cache changes, so we don't need
-    // value comparison beyond identity + targetRaw.
-    private readonly stamp: number,
+    // Carried purely for `eq()` identity — the resolver replaces this
+    // entry reference via `cache.set` on fetch completion, so reference
+    // equality cleanly distinguishes "same state" from "needs remount"
+    // without diffing widget innards. The renderer inside `toDOM()`
+    // still reads the live resolver; this field is identity-only.
+    private readonly entry: EmbedResolution | undefined,
   ) {
     super();
   }
@@ -110,7 +112,7 @@ class EmbedBlockWidget extends WidgetType {
     return (
       this.targetRaw === other.targetRaw &&
       this.openNotePath === other.openNotePath &&
-      this.stamp === other.stamp
+      this.entry === other.entry
     );
   }
 
@@ -120,15 +122,9 @@ class EmbedBlockWidget extends WidgetType {
     // real on layout.
     return 60;
   }
-
-  override ignoreEvent(): boolean {
-    // The widget is read-only — let clicks / keystrokes pass through to
-    // CM6's host (no internal interactivity in H.2).
-    return false;
-  }
 }
 
-function buildDecorations(state: EditorState, stamp: number): DecorationSet {
+function buildDecorations(state: EditorState): DecorationSet {
   const resolver = state.facet(embedResolverFacet);
   if (!resolver) return Decoration.none;
   const openNotePath = state.facet(openNotePathFacet);
@@ -143,11 +139,12 @@ function buildDecorations(state: EditorState, stamp: number): DecorationSet {
       const tok = scanWikilinks(raw).find((t) => t.kind === "wiki_link");
       if (!tok || tok.kind !== "wiki_link" || !tok.embed) return;
       const line = doc.lineAt(node.from);
+      const targetRaw = targetRawOf(tok);
       const widget = new EmbedBlockWidget(
         resolver,
-        targetRawOf(tok),
+        targetRaw,
         openNotePath,
-        stamp,
+        resolver.get(targetRaw),
       );
       ranges.push(
         Decoration.widget({
@@ -171,12 +168,16 @@ function buildDecorations(state: EditorState, stamp: number): DecorationSet {
  *   - the `embedResolverUpdated` effect (cache mutated)
  *   - any facet change reaching it (vault swap via Compartment)
  *
- * The `stamp` counter forces widget identity to flip on each rebuild,
- * which makes CM6 tear down and recreate the DOM — the cleanest way to
- * pick up resolver updates without diffing widget innards.
+ * Widget identity is anchored to each target's resolver cache *entry*
+ * reference (see `EmbedBlockWidget.eq`). When a rebuild produces a
+ * widget whose entry reference matches its predecessor's, CM6 reuses
+ * the existing DOM; when the resolver flips the entry via `cache.set`
+ * on fetch completion, the new widget's `eq()` returns false and the
+ * DOM is remounted. This means unrelated edits (or sibling-embed
+ * fetches) don't tear down embeds that haven't actually changed.
  */
 const embedBlockField = StateField.define<DecorationSet>({
-  create: (state) => buildDecorations(state, 0),
+  create: (state) => buildDecorations(state),
   update: (deco, tr) => {
     const resolverChanged = tr.effects.some((e) => e.is(embedResolverUpdated));
     const treeChanged =
@@ -194,7 +195,7 @@ const embedBlockField = StateField.define<DecorationSet>({
     ) {
       return deco;
     }
-    return buildDecorations(tr.state, Date.now());
+    return buildDecorations(tr.state);
   },
   provide: (f) => EditorView.decorations.from(f),
 });

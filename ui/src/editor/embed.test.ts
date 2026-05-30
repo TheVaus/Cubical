@@ -136,6 +136,60 @@ describe("embedExtension", () => {
     view.destroy();
   });
 
+  it("preserves widget DOM identity across an unrelated doc edit", () => {
+    // Issue 1 regression guard: with the old `Date.now()` stamp every
+    // rebuild produced a fresh widget identity and CM6 remounted the
+    // frame; with entry-reference identity an unrelated edit leaves
+    // the embed's DOM node intact.
+    const r = stubResolver({
+      Daily: { kind: "note", target_path: "Daily.md", content: "hi" },
+    });
+    const view = makeView("![[Daily]]\nplain second line\n", r);
+    const frameBefore = view.contentDOM.querySelector(".cm-md-embed-frame");
+    expect(frameBefore).not.toBeNull();
+
+    view.dispatch({
+      changes: {
+        from: view.state.doc.line(2).from,
+        insert: "EDIT ",
+      },
+    });
+
+    const frameAfter = view.contentDOM.querySelector(".cm-md-embed-frame");
+    expect(frameAfter).toBe(frameBefore);
+    view.destroy();
+  });
+
+  it("remounts the widget when its resolver entry changes", () => {
+    // Companion to the identity-preservation test: when the resolver
+    // cache *does* flip the entry (cold → resolved), the new widget's
+    // `eq()` returns false and CM6 remounts the DOM.
+    const entries: Record<string, EmbedResolution> = {};
+    const r: EmbedResolver = {
+      get: (t) => entries[t],
+      fetch: () => undefined,
+      resolve: () => Promise.reject(new Error("not used")),
+      invalidate: () => undefined,
+      onUpdate: () => () => undefined,
+    };
+    const view = makeView("![[Daily]]\n", r);
+    const loadingFrame = view.contentDOM.querySelector(".cm-md-embed-frame");
+    expect(loadingFrame).not.toBeNull();
+
+    entries.Daily = {
+      kind: "note",
+      target_path: "Daily.md",
+      content: "hi",
+    };
+    view.dispatch({ effects: embedResolverUpdated.of(null) });
+
+    const resolvedFrame = view.contentDOM.querySelector(".cm-md-embed-frame");
+    expect(resolvedFrame).not.toBeNull();
+    expect(resolvedFrame).not.toBe(loadingFrame);
+    expect(view.contentDOM.querySelector(".cm-md-embed-body")).not.toBeNull();
+    view.destroy();
+  });
+
   // Sanity that the markdown grammar + wikilink extension still parses
   // an embed token as a WikiLink node — guards against an upstream
   // regression that would silently hide the widget.
