@@ -34,13 +34,13 @@ use api::types::{
     BlockIdAutocompleteRequest, BlockIdAutocompleteResponse, CancelVaultScanRequest,
     CloseVaultRequest, CreateBlockRefRequest, CreateBlockRefResponse, GetBacklinksRequest,
     GetBacklinksResponse, GetBrokenBlockRefsRequest, GetBrokenBlockRefsResponse,
-    GetCanonicalAstRequest, GetCanonicalAstResponse, GetFrontmatterRequest, GetFrontmatterResponse,
-    GetSettingRequest, GetSettingResponse, GetVaultInfoRequest, GetVaultInfoResponse,
-    LinkAutocompleteRequest, LinkAutocompleteResponse, ListFilesRequest, ListFilesResponse,
-    OpenVaultRequest, OpenVaultResponse, QueryTagPageRequest, QueryTagPageResponse,
-    ReadFileTextRequest, ReadFileTextResponse, ResolveLinkRequest, ResolveLinkResponse,
-    SetSettingRequest, SetSettingResponse, TagAutocompleteRequest, TagAutocompleteResponse,
-    WriteFileTextRequest, WriteFileTextResponse,
+    GetCanonicalAstRequest, GetCanonicalAstResponse, GetEmbedRequest, GetEmbedResponse,
+    GetFrontmatterRequest, GetFrontmatterResponse, GetSettingRequest, GetSettingResponse,
+    GetVaultInfoRequest, GetVaultInfoResponse, LinkAutocompleteRequest, LinkAutocompleteResponse,
+    ListFilesRequest, ListFilesResponse, OpenVaultRequest, OpenVaultResponse, QueryTagPageRequest,
+    QueryTagPageResponse, ReadFileTextRequest, ReadFileTextResponse, ResolveLinkRequest,
+    ResolveLinkResponse, SetSettingRequest, SetSettingResponse, TagAutocompleteRequest,
+    TagAutocompleteResponse, WriteFileTextRequest, WriteFileTextResponse,
 };
 use error::CubicalError;
 use state::AppState;
@@ -82,6 +82,7 @@ pub fn run() {
             set_setting,
             get_canonical_ast,
             resolve_link,
+            get_embed,
             get_backlinks,
             query_tag_page,
             link_autocomplete,
@@ -199,6 +200,15 @@ async fn resolve_link(
     req: ResolveLinkRequest,
 ) -> Result<ResolveLinkResponse, CubicalError> {
     commands::links::resolve_link(state.inner(), req).await
+}
+
+/// Tauri shim — see [`commands::embeds::get_embed`].
+#[tauri::command]
+async fn get_embed(
+    state: tauri::State<'_, AppState>,
+    req: GetEmbedRequest,
+) -> Result<GetEmbedResponse, CubicalError> {
+    commands::embeds::get_embed(state.inner(), req).await
 }
 
 /// Tauri shim — see [`commands::backlinks::get_backlinks`].

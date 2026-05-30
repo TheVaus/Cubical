@@ -17,6 +17,7 @@ use crate::file_type::FileTypeRegistry;
 
 mod atomic;
 pub mod blocks;
+pub mod embeds;
 mod frontmatter;
 pub mod links;
 mod scan;

@@ -476,6 +476,37 @@ export function getBrokenBlockRefs(
   return invoke("get_broken_block_refs", { req });
 }
 
+// ---------------------------------------------------------------------------
+// get_embed (L3 Session H.1 — embed content extractor)
+// ---------------------------------------------------------------------------
+
+export interface GetEmbedRequest {
+  vault_id: string;
+  /** Wiki-link target as written (no `[[`/`]]`/`|`). May include
+   *  a `#heading` or `#^block-id` anchor. */
+  target_raw: string;
+}
+
+export type EmbedKind =
+  | "note"
+  | "section"
+  | "block"
+  | "unresolved"
+  | "missing-anchor";
+
+export interface GetEmbedResponse {
+  kind: EmbedKind;
+  /** Resolved vault-relative path; null only when kind === "unresolved". */
+  target_path: string | null;
+  /** Extracted content; null when kind is "unresolved" or "missing-anchor". */
+  content: string | null;
+}
+
+/** Resolve `target_raw` and return its embedded content slice. */
+export function getEmbed(req: GetEmbedRequest): Promise<GetEmbedResponse> {
+  return invoke("get_embed", { req });
+}
+
 /**
  * Read a vault-local setting. The generic `K` narrows the result to
  * the value type declared for that key in {@link Setting}; an absent
