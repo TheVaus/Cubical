@@ -60,7 +60,7 @@ pub async fn resolve_link(
 /// so the caller is responsible for having stripped any `|display`
 /// segment before passing the string in. (The frontend only sends the
 /// target portion; this matches the AST's `WikiLink::target` field.)
-fn split_target_anchor(target_raw: &str) -> (String, Option<ResolvedAnchor>) {
+pub(crate) fn split_target_anchor(target_raw: &str) -> (String, Option<ResolvedAnchor>) {
     let trimmed = target_raw.trim();
     let (target, anchor_text) = match trimmed.find('#') {
         Some(hash) => (&trimmed[..hash], Some(&trimmed[hash + 1..])),

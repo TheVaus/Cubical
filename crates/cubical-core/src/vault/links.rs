@@ -224,7 +224,7 @@ pub(crate) async fn extract_links_off_executor(abs_path: &Path) -> Vec<LinkExtra
 /// Read `abs_path`'s raw bytes off the runtime as lossy UTF-8.
 /// `None` when the file can't be read. Used by block-id scanning,
 /// which needs source text rather than a parsed `Document`.
-pub(crate) async fn read_source_off_executor(abs_path: &Path) -> Option<String> {
+pub async fn read_source_off_executor(abs_path: &Path) -> Option<String> {
     let path_buf = abs_path.to_path_buf();
     tokio::task::spawn_blocking(move || {
         std::fs::read(&path_buf)
