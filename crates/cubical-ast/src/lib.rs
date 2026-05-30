@@ -35,11 +35,12 @@ mod frontmatter;
 mod normalize;
 mod tag;
 mod types;
-mod wikilink;
+pub mod wikilink;
 
 pub use error::AstError;
 pub use frontmatter::split_frontmatter;
 pub use types::{Anchor, Block, Document, Frontmatter, Inline, ListItem, Span};
+pub use wikilink::{scan_wikilinks, TokenizedRun};
 
 /// Parse `source` into a canonical [`Document`].
 ///
