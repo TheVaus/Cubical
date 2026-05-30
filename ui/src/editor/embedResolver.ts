@@ -79,6 +79,11 @@ export function createEmbedResolver(
     resolve(targetRaw) {
       const hit = cache.get(targetRaw);
       if (hit !== undefined) return Promise.resolve(hit);
+      // Kick the fetch if not already in flight, then await the next
+      // notify carrying our entry. `invalidate()` can land between
+      // notifies — the subscriber simply keeps waiting until the
+      // entry appears (the in-flight fetch, or the next one if we
+      // were invalidated mid-flight, will fill it).
       resolver.fetch(targetRaw);
       return new Promise((resolveFn) => {
         const unsub = resolver.onUpdate(() => {
@@ -86,6 +91,10 @@ export function createEmbedResolver(
           if (entry !== undefined) {
             unsub();
             resolveFn(entry);
+          } else if (!inFlight.has(targetRaw)) {
+            // Cache miss AND no fetch in flight (an `invalidate()`
+            // cleared us). Kick a fresh one and keep waiting.
+            resolver.fetch(targetRaw);
           }
         });
       });
