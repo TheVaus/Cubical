@@ -29,6 +29,7 @@ pub use atomic::atomic_write;
 pub use blocks::{refresh_block_refs_for_file, refresh_blocks};
 pub use frontmatter::refresh_frontmatter;
 pub use links::{extract_links, refresh_links, resolve_target, LinkExtraction};
+pub use mentions::{extract_text_runs, find_mention_occurrences, MentionHit, TextRun};
 pub use scan::{scan, ScanProgress};
 pub use tags::{extract_tags, refresh_tags, TagExtraction};
 pub use watcher::{start_watcher, WatchEvent, WatcherHandle};
