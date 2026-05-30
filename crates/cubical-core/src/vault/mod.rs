@@ -20,6 +20,7 @@ pub mod blocks;
 pub mod embeds;
 mod frontmatter;
 pub mod links;
+pub mod mentions;
 mod scan;
 pub mod tags;
 mod watcher;
