@@ -83,6 +83,8 @@ pub fn run() {
             get_canonical_ast,
             resolve_link,
             get_embed,
+            get_unlinked_mentions,
+            link_mention,
             get_backlinks,
             query_tag_page,
             link_autocomplete,
@@ -209,6 +211,24 @@ async fn get_embed(
     req: GetEmbedRequest,
 ) -> Result<GetEmbedResponse, CubicalError> {
     commands::embeds::get_embed(state.inner(), req).await
+}
+
+/// Tauri shim — see [`commands::mentions::get_unlinked_mentions`].
+#[tauri::command]
+async fn get_unlinked_mentions(
+    state: tauri::State<'_, AppState>,
+    req: crate::api::types::GetUnlinkedMentionsRequest,
+) -> Result<crate::api::types::GetUnlinkedMentionsResponse, CubicalError> {
+    commands::mentions::get_unlinked_mentions(state.inner(), req).await
+}
+
+/// Tauri shim — see [`commands::mentions::link_mention`].
+#[tauri::command]
+async fn link_mention(
+    state: tauri::State<'_, AppState>,
+    req: crate::api::types::LinkMentionRequest,
+) -> Result<crate::api::types::LinkMentionResponse, CubicalError> {
+    commands::mentions::link_mention(state.inner(), req).await
 }
 
 /// Tauri shim — see [`commands::backlinks::get_backlinks`].
