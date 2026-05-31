@@ -866,3 +866,40 @@ Implements spec §2.10 + the locked design at [`docs/superpowers/specs/2026-05-3
 **Headless smoke recipe.** Drive the IPCs from a Rust integration test or `cargo tauri dev` console: open vault → invoke `rename_file({ from: "Daily.md", to: "Journal.md" })` → invoke `get_pending_rewrites_count()` (≥1) → invoke `flush_pending_rewrites()` → `read_file_text` on a referrer file shows `[[Journal]]`, `get_pending_rewrites_count()` returns 0. Repeat for `rename_tag` (frontmatter `tags:` + inline `#tag`) and `rename_block_id` (referrer `[[file#^id]]` + defining-line `^id`). Hands-on UI smoke is J.2 scope per Session I's precedent for split sessions.
 
 **Next.** J.2 — frontend: status-bar count item + dropdown (breakdown + per-op undo), `Toast.tsx`, file-rename right-click gesture, `App.tsx` wiring through the two new listeners. Then K (L3 closeout, `l3` tag, full smoke pass).
+
+### 9.16 Session J.2 — Pending Rewrites frontend
+
+Implements the frontend half of the design locked at [`docs/superpowers/specs/2026-05-31-l3-session-j-pending-rewrites-design.md`](../superpowers/specs/2026-05-31-l3-session-j-pending-rewrites-design.md) (§J.2 — Frontend). Closes the §6 DoD item for "Rename → Pending Rewrites Cache" by surfacing every J.1 IPC + both new events into the running UI.
+
+**What landed.**
+
+*Toast surface — `ui/src/Toast.tsx` + `ui/src/toastState.ts`.* Single-slot, auto-dismiss 4 s, dismissible via the `×` button. State lives in a sibling `toastState.ts` module so vitest can exercise it under `environment: "node"` without pulling in Solid's JSX runtime (which needs `window`). Public surface: `showToast(message)`, `dismissToast()`, `currentToast` (signal getter), `TOAST_AUTO_DISMISS_MS`, and the `<ToastHost>` Solid component (mounted once in `App.tsx`). Re-showing inside the 4 s window replaces the message and resets the timer — the prior timer's callback is a no-op because `clearTimeout` ran first. Tokenised throughout (`--c-bg-tertiary` / `--c-fg-primary` / `--c-border-subtle` / `--shadow-md`); no hardcoded colours.
+
+*Status-bar formatter — `ui/src/statusbar/pendingRewritesLabel.ts`.* `formatPendingRewrites(count) -> { label } | null` mirrors `statusbar/brokenRefs.ts` byte-for-byte: `null` for `count <= 0`, singular `"1 pending change"`, plural `"N pending changes"`. The filename diverges from the design-spec's `pendingRewrites.ts` to avoid the `PendingRewrites.tsx` case-only collision flagged by `forceConsistentCasingInFileNames`; functionally identical.
+
+*Status-bar item + popover — `ui/src/statusbar/PendingRewrites.tsx` + `pendingRewritesState.ts`.* The clickable button in the footer renders `formatPendingRewrites(count).label`; clicking toggles a popover above the bar. Popover state runs through the pure `reducePendingRewritesPopover` reducer (`closed → loading → loaded | error → closed`) so the view transitions are testable without a DOM. On every open: `getPendingRewritesBreakdown` + `listRecentRenameOps({ limit: 5 })` fire in parallel via `Promise.all`; on close the in-flight token bumps so a late resolve doesn't paint a stale state. The popover renders three sections — per-target breakdown (or "No pending changes."), "Save all pending changes" button → `flushPendingRewrites`, and "Recent renames" list with one Undo button per op → `undoRename(rename_op_id)` + refetch. Outside-click + Esc close; failures surface back through the `onError` prop which `App.tsx` wires to `showToast`. **Hide when zero:** when `formatPendingRewrites(props.count)` returns `null` (no pending changes), the entire `<span>` is omitted from the footer — matches the `<BrokenBlockRefs>` convention.
+
+*File-rename gesture — wired inline in `App.tsx`.* Right-click on a markdown row triggers `e.preventDefault()` + `setContextMenu({ path, x, y })`. A `position: fixed` menu renders above the click point with a single "Rename…" item; a transparent backdrop closes the menu on outside-click / right-click. Selecting "Rename…" sets `renamingPath`, which swaps the row's `<span>` for an `<input>` (autofocus, pre-populated with the path). Enter commits, Escape cancels, blur commits — matching the Obsidian / Finder norm. Commit runs the pure `validateRenameTarget` first (`fileRename.ts`: empty / whitespace-only / same-path branches); valid targets fire `renameFile({ vault_id, from_path, to_path })`. Backend rejections (existing dest, vault not open) catch and surface verbatim via `showToast`. Tag-rename + block-id rename gestures are explicitly K polish — the IPCs ship but are exercised today through devtools + tests.
+
+*App.tsx event wiring.* `onMount` subscribes to `onVaultPendingRewritesChanged` (filters by `vault_id`, writes the `pendingRewritesCount` signal) and `onVaultFlushComplete` (filters by `vault_id`, suppresses the toast when both totals are 0, else `showToast("Applied N reference update(s) across M file(s).")`). `onCleanup` drops both handles. `handleOpen` resets the count signal + context-menu + rename-path state so a vault swap starts clean. The new listeners do NOT share the existing `RIGHT_SIDEBAR_REFRESH_DEBOUNCE_MS` debounce — the events are push-based and count = backend state 1:1.
+
+*Settings.* No new settings UI shipped in J.2. The `Setting` union already carries `pending_rewrites.flush_interval_secs` from J.1 — power users adjust via `setSetting(id, 'pending_rewrites.flush_interval_secs', N)` from the devtools console; the backend periodic-flush timer reads the new value on the next tick. A dedicated settings panel is K polish.
+
+**Tests.** 329 vitest baseline + 23 new = **352 vitest passing**. Breakdown: 5 in `Toast.test.ts` (start-empty, populate, auto-dismiss timing, dismiss-before-timer, re-show-replaces-and-resets), 4 in `pendingRewritesLabel.test.ts` (zero / negative defensive / singular / plural), 6 in `fileRename.test.ts` (empty / whitespace / unchanged / trim / fresh / nested-dir), 8 in `pendingRewritesState.test.ts` (reducer transitions + key helpers). 406 Rust unchanged — J.2 adds no backend code.
+
+**Verification.** `cargo test --workspace` (406), `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`, `cd ui && npx tsc --noEmit && npm run build && npx vitest run` all green.
+
+**Headless smoke recipe.** Drive from `cargo tauri dev` devtools:
+1. Open the smoke vault (`docs/superpowers/specs/2026-05-31-l3-session-j-pending-rewrites-design.md` "Interactive smoke vault").
+2. `await ipc.renameFile({ vault_id, from_path: "Daily.md", to_path: "Journal.md" })` → status bar shows "2 pending changes."
+3. Click the count → popover lists `Project.md (1)`, `Notes.md (1)`, plus one rename-op row with Undo.
+4. Click "Save all pending changes" → toast "Applied 2 reference updates across 2 files."; status-bar count disappears.
+5. Right-click `Pinned.md` in the file list → context menu → "Rename…" → type `Anchors.md`, press Enter → status bar bumps to "1 pending change" (the `Refs.md` referrer); flush again to drain.
+6. `await ipc.renameTag({ vault_id, old_tag: "planning", new_tag: "scheduling" })` from devtools → count bumps; flush from the popover; `cat Project.md` shows `#scheduling`.
+7. `await ipc.undoRename({ vault_id, rename_op_id: <id> })` (or click the per-row Undo before flush) → count returns to 0.
+
+Hands-on interactive smoke against `cargo tauri dev` is deferred per Session I's precedent (auto context cannot reliably drive the Tauri window). Recipe above is reproducible in any session with access to a desktop Tauri build.
+
+**Out of scope (closed below).** Tag-chip context menu, block-ref hover menu, keyboard-shortcut rename gesture, dedicated settings UI for `pending_rewrites.flush_interval_secs`, click-to-diff on the toast, post-flush undo, 3-way merge UI, cross-vault renames. All deferred to K polish or beyond.
+
+**Next.** Session K — interactive smoke across every L3 surface + `l3` tag.
