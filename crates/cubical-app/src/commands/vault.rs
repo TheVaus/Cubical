@@ -66,6 +66,7 @@ pub async fn open_vault(
         ScanStatusBackend::InProgress,
         Some(watcher),
     );
+    let flush_own_writes = open.flush_own_writes.clone();
     state.vaults().write().await.insert(vault_id.clone(), open);
 
     spawn_scan_dispatcher(
@@ -76,7 +77,13 @@ pub async fn open_vault(
         cancel,
     );
 
-    spawn_watcher_dispatcher(app.clone(), vault_id.clone(), vault, watch_rx);
+    spawn_watcher_dispatcher(
+        app.clone(),
+        vault_id.clone(),
+        vault,
+        watch_rx,
+        flush_own_writes,
+    );
 
     Ok(OpenVaultResponse {
         vault_id,
