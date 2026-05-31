@@ -254,7 +254,9 @@ export type Setting =
   | { key: "editor.raw_source_default"; value: boolean }
   | { key: "appearance.theme_mode"; value: "light" | "dark" | "system" }
   | { key: "ui.right_sidebar_collapsed"; value: boolean }
-  | { key: "ui.right_sidebar_panel"; value: "backlinks" | "unlinked_mentions" };
+  | { key: "ui.right_sidebar_panel"; value: "backlinks" | "unlinked_mentions" }
+  // L3 Session J — periodic flush interval (seconds). Default 300.
+  | { key: "pending_rewrites.flush_interval_secs"; value: number };
 
 /** Narrows a `Setting` key to its corresponding value type. */
 export type SettingValue<K extends Setting["key"]> = Extract<
@@ -287,6 +289,105 @@ export interface SetSettingRequest {
 export interface CubicalError {
   code: string;
   message: string;
+}
+
+// -- L3 Session J: rename + pending-rewrites wire types ---------------
+
+export interface RenameFileRequest {
+  vault_id: string;
+  from_path: string;
+  to_path: string;
+}
+
+export interface RenameFileResponse {
+  rename_op_id: number;
+  pending_count: number;
+}
+
+export interface RenameTagRequest {
+  vault_id: string;
+  old_tag: string;
+  new_tag: string;
+}
+
+export interface RenameTagResponse {
+  rename_op_id: number;
+  pending_count: number;
+}
+
+export interface RenameBlockIdRequest {
+  vault_id: string;
+  file_path: string;
+  old_id: string;
+  new_id: string;
+}
+
+export interface RenameBlockIdResponse {
+  rename_op_id: number;
+  pending_count: number;
+}
+
+export interface FlushPendingRewritesRequest {
+  vault_id: string;
+}
+
+export interface FlushPendingRewritesForTargetRequest {
+  vault_id: string;
+  target_file: string;
+}
+
+export interface FlushPendingRewritesResponse {
+  files_rewritten: number;
+  refs_updated: number;
+}
+
+export interface GetPendingRewritesCountRequest {
+  vault_id: string;
+}
+
+export interface GetPendingRewritesCountResponse {
+  count: number;
+}
+
+export interface GetPendingRewritesBreakdownRequest {
+  vault_id: string;
+}
+
+export interface PendingRewriteBreakdownRow {
+  target_file: string;
+  count: number;
+}
+
+export interface GetPendingRewritesBreakdownResponse {
+  rows: PendingRewriteBreakdownRow[];
+}
+
+export interface ListRecentRenameOpsRequest {
+  vault_id: string;
+  limit: number;
+}
+
+export interface RecentRenameOp {
+  rename_op_id: number;
+  /** Representative kind: `"wiki_link" | "tag" | "block_ref"`. */
+  kind: string;
+  row_count: number;
+  /** Unix seconds. */
+  created_at: number;
+}
+
+export interface ListRecentRenameOpsResponse {
+  ops: RecentRenameOp[];
+}
+
+export interface UndoRenameRequest {
+  vault_id: string;
+  rename_op_id: number;
+}
+
+export interface UndoRenameResponse {
+  removed: number;
+  pending_count: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -667,6 +768,87 @@ export function onVaultFileChanged(
   handler: (payload: VaultFileChanged) => void,
 ): Promise<UnlistenFn> {
   return listen<VaultFileChanged>("vault:file-changed", (e) =>
+    handler(e.payload),
+  );
+}
+
+// -- L3 Session J commands + events (unused stubs; J.2 wires them) ----
+
+export function renameFile(req: RenameFileRequest): Promise<RenameFileResponse> {
+  return invoke("rename_file", { req });
+}
+
+export function renameTag(req: RenameTagRequest): Promise<RenameTagResponse> {
+  return invoke("rename_tag", { req });
+}
+
+export function renameBlockId(
+  req: RenameBlockIdRequest,
+): Promise<RenameBlockIdResponse> {
+  return invoke("rename_block_id", { req });
+}
+
+export function flushPendingRewrites(
+  req: FlushPendingRewritesRequest,
+): Promise<FlushPendingRewritesResponse> {
+  return invoke("flush_pending_rewrites", { req });
+}
+
+export function flushPendingRewritesForTarget(
+  req: FlushPendingRewritesForTargetRequest,
+): Promise<FlushPendingRewritesResponse> {
+  return invoke("flush_pending_rewrites_for_target", { req });
+}
+
+export function getPendingRewritesCount(
+  req: GetPendingRewritesCountRequest,
+): Promise<GetPendingRewritesCountResponse> {
+  return invoke("get_pending_rewrites_count", { req });
+}
+
+export function getPendingRewritesBreakdown(
+  req: GetPendingRewritesBreakdownRequest,
+): Promise<GetPendingRewritesBreakdownResponse> {
+  return invoke("get_pending_rewrites_breakdown", { req });
+}
+
+export function listRecentRenameOps(
+  req: ListRecentRenameOpsRequest,
+): Promise<ListRecentRenameOpsResponse> {
+  return invoke("list_recent_rename_ops", { req });
+}
+
+export function undoRename(
+  req: UndoRenameRequest,
+): Promise<UndoRenameResponse> {
+  return invoke("undo_rename", { req });
+}
+
+export interface VaultPendingRewritesChanged {
+  vault_id: string;
+  /** New total pending-rewrites count for the vault. */
+  count: number;
+}
+
+export interface VaultFlushComplete {
+  vault_id: string;
+  files_rewritten: number;
+  refs_updated: number;
+}
+
+export function onVaultPendingRewritesChanged(
+  handler: (payload: VaultPendingRewritesChanged) => void,
+): Promise<UnlistenFn> {
+  return listen<VaultPendingRewritesChanged>(
+    "vault:pending-rewrites-changed",
+    (e) => handler(e.payload),
+  );
+}
+
+export function onVaultFlushComplete(
+  handler: (payload: VaultFlushComplete) => void,
+): Promise<UnlistenFn> {
+  return listen<VaultFlushComplete>("vault:flush-complete", (e) =>
     handler(e.payload),
   );
 }

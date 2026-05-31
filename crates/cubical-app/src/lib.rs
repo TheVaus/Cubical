@@ -32,15 +32,22 @@ pub mod state;
 
 use api::types::{
     BlockIdAutocompleteRequest, BlockIdAutocompleteResponse, CancelVaultScanRequest,
-    CloseVaultRequest, CreateBlockRefRequest, CreateBlockRefResponse, GetBacklinksRequest,
-    GetBacklinksResponse, GetBrokenBlockRefsRequest, GetBrokenBlockRefsResponse,
-    GetCanonicalAstRequest, GetCanonicalAstResponse, GetEmbedRequest, GetEmbedResponse,
-    GetFrontmatterRequest, GetFrontmatterResponse, GetSettingRequest, GetSettingResponse,
-    GetVaultInfoRequest, GetVaultInfoResponse, LinkAutocompleteRequest, LinkAutocompleteResponse,
-    ListFilesRequest, ListFilesResponse, OpenVaultRequest, OpenVaultResponse, QueryTagPageRequest,
-    QueryTagPageResponse, ReadFileTextRequest, ReadFileTextResponse, ResolveLinkRequest,
+    CloseVaultRequest, CreateBlockRefRequest, CreateBlockRefResponse,
+    FlushPendingRewritesForTargetRequest, FlushPendingRewritesRequest,
+    FlushPendingRewritesResponse, GetBacklinksRequest, GetBacklinksResponse,
+    GetBrokenBlockRefsRequest, GetBrokenBlockRefsResponse, GetCanonicalAstRequest,
+    GetCanonicalAstResponse, GetEmbedRequest, GetEmbedResponse, GetFrontmatterRequest,
+    GetFrontmatterResponse, GetPendingRewritesBreakdownRequest,
+    GetPendingRewritesBreakdownResponse, GetPendingRewritesCountRequest,
+    GetPendingRewritesCountResponse, GetSettingRequest, GetSettingResponse, GetVaultInfoRequest,
+    GetVaultInfoResponse, LinkAutocompleteRequest, LinkAutocompleteResponse, ListFilesRequest,
+    ListFilesResponse, ListRecentRenameOpsRequest, ListRecentRenameOpsResponse, OpenVaultRequest,
+    OpenVaultResponse, QueryTagPageRequest, QueryTagPageResponse, ReadFileTextRequest,
+    ReadFileTextResponse, RenameBlockIdRequest, RenameBlockIdResponse, RenameFileRequest,
+    RenameFileResponse, RenameTagRequest, RenameTagResponse, ResolveLinkRequest,
     ResolveLinkResponse, SetSettingRequest, SetSettingResponse, TagAutocompleteRequest,
-    TagAutocompleteResponse, WriteFileTextRequest, WriteFileTextResponse,
+    TagAutocompleteResponse, UndoRenameRequest, UndoRenameResponse, WriteFileTextRequest,
+    WriteFileTextResponse,
 };
 use error::CubicalError;
 use state::AppState;
@@ -92,6 +99,15 @@ pub fn run() {
             block_id_autocomplete,
             create_block_ref,
             get_broken_block_refs,
+            rename_file,
+            rename_tag,
+            rename_block_id,
+            flush_pending_rewrites,
+            flush_pending_rewrites_for_target,
+            get_pending_rewrites_count,
+            get_pending_rewrites_breakdown,
+            list_recent_rename_ops,
+            undo_rename,
             close_vault,
         ])
         .run(tauri::generate_context!())
@@ -292,6 +308,93 @@ async fn get_broken_block_refs(
     req: GetBrokenBlockRefsRequest,
 ) -> Result<GetBrokenBlockRefsResponse, CubicalError> {
     commands::blocks::get_broken_block_refs(state.inner(), req).await
+}
+
+/// Tauri shim — see [`commands::rename::rename_file`].
+#[tauri::command]
+async fn rename_file(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    req: RenameFileRequest,
+) -> Result<RenameFileResponse, CubicalError> {
+    commands::rename::rename_file(state.inner(), &app, req).await
+}
+
+/// Tauri shim — see [`commands::rename::rename_tag`].
+#[tauri::command]
+async fn rename_tag(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    req: RenameTagRequest,
+) -> Result<RenameTagResponse, CubicalError> {
+    commands::rename::rename_tag(state.inner(), &app, req).await
+}
+
+/// Tauri shim — see [`commands::rename::rename_block_id`].
+#[tauri::command]
+async fn rename_block_id(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    req: RenameBlockIdRequest,
+) -> Result<RenameBlockIdResponse, CubicalError> {
+    commands::rename::rename_block_id(state.inner(), &app, req).await
+}
+
+/// Tauri shim — see [`commands::rename::flush_pending_rewrites`].
+#[tauri::command]
+async fn flush_pending_rewrites(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    req: FlushPendingRewritesRequest,
+) -> Result<FlushPendingRewritesResponse, CubicalError> {
+    commands::rename::flush_pending_rewrites(state.inner(), &app, req).await
+}
+
+/// Tauri shim — see [`commands::rename::flush_pending_rewrites_for_target`].
+#[tauri::command]
+async fn flush_pending_rewrites_for_target(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    req: FlushPendingRewritesForTargetRequest,
+) -> Result<FlushPendingRewritesResponse, CubicalError> {
+    commands::rename::flush_pending_rewrites_for_target(state.inner(), &app, req).await
+}
+
+/// Tauri shim — see [`commands::rename::get_pending_rewrites_count`].
+#[tauri::command]
+async fn get_pending_rewrites_count(
+    state: tauri::State<'_, AppState>,
+    req: GetPendingRewritesCountRequest,
+) -> Result<GetPendingRewritesCountResponse, CubicalError> {
+    commands::rename::get_pending_rewrites_count(state.inner(), req).await
+}
+
+/// Tauri shim — see [`commands::rename::get_pending_rewrites_breakdown`].
+#[tauri::command]
+async fn get_pending_rewrites_breakdown(
+    state: tauri::State<'_, AppState>,
+    req: GetPendingRewritesBreakdownRequest,
+) -> Result<GetPendingRewritesBreakdownResponse, CubicalError> {
+    commands::rename::get_pending_rewrites_breakdown(state.inner(), req).await
+}
+
+/// Tauri shim — see [`commands::rename::list_recent_rename_ops`].
+#[tauri::command]
+async fn list_recent_rename_ops(
+    state: tauri::State<'_, AppState>,
+    req: ListRecentRenameOpsRequest,
+) -> Result<ListRecentRenameOpsResponse, CubicalError> {
+    commands::rename::list_recent_rename_ops(state.inner(), req).await
+}
+
+/// Tauri shim — see [`commands::rename::undo_rename`].
+#[tauri::command]
+async fn undo_rename(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    req: UndoRenameRequest,
+) -> Result<UndoRenameResponse, CubicalError> {
+    commands::rename::undo_rename(state.inner(), &app, req).await
 }
 
 /// Tauri shim — see [`commands::vault::close_vault`].
