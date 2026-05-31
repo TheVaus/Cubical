@@ -596,3 +596,183 @@ pub struct LinkMentionResponse {
     /// SHA-256 of the file's new on-disk contents (lowercase hex).
     pub new_hash: String,
 }
+
+// -- L3 Session J: rename + pending-rewrites IPCs ----------------------
+
+/// Request payload for `rename_file`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RenameFileRequest {
+    /// Vault hosting the file being renamed.
+    pub vault_id: String,
+    /// Current vault-relative path (must already exist + be tracked).
+    pub from_path: String,
+    /// Target vault-relative path (must not already exist).
+    pub to_path: String,
+}
+
+/// Response payload for `rename_file`.
+#[derive(Debug, Clone, Serialize)]
+pub struct RenameFileResponse {
+    /// The newly-minted `rename_op_id` for this rename. Surfaces in the
+    /// status-bar undo dropdown.
+    pub rename_op_id: i64,
+    /// New total pending-rewrites count for the vault, post-enqueue.
+    pub pending_count: i64,
+}
+
+/// Request payload for `rename_tag`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RenameTagRequest {
+    /// Vault hosting the tag.
+    pub vault_id: String,
+    /// Tag path without the leading `#` (e.g. `"work/active"`).
+    pub old_tag: String,
+    /// Replacement tag path without the leading `#`.
+    pub new_tag: String,
+}
+
+/// Response payload for `rename_tag`.
+#[derive(Debug, Clone, Serialize)]
+pub struct RenameTagResponse {
+    /// Newly-minted rename op id.
+    pub rename_op_id: i64,
+    /// New total pending-rewrites count for the vault, post-enqueue.
+    pub pending_count: i64,
+}
+
+/// Request payload for `rename_block_id`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RenameBlockIdRequest {
+    /// Vault hosting the block.
+    pub vault_id: String,
+    /// Vault-relative path of the file defining the block.
+    pub file_path: String,
+    /// Current block id without the leading `^`.
+    pub old_id: String,
+    /// Replacement block id without the leading `^`.
+    pub new_id: String,
+}
+
+/// Response payload for `rename_block_id`.
+#[derive(Debug, Clone, Serialize)]
+pub struct RenameBlockIdResponse {
+    /// Newly-minted rename op id.
+    pub rename_op_id: i64,
+    /// New total pending-rewrites count for the vault, post-enqueue.
+    pub pending_count: i64,
+}
+
+/// Request payload for `flush_pending_rewrites`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FlushPendingRewritesRequest {
+    /// Vault whose pending rows should be drained.
+    pub vault_id: String,
+}
+
+/// Request payload for `flush_pending_rewrites_for_target`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FlushPendingRewritesForTargetRequest {
+    /// Vault hosting the target file.
+    pub vault_id: String,
+    /// Vault-relative path of the file whose pending rewrites should be
+    /// flushed. Other files' pending rows remain queued.
+    pub target_file: String,
+}
+
+/// Response payload for both `flush_pending_rewrites` and
+/// `flush_pending_rewrites_for_target`.
+#[derive(Debug, Clone, Serialize)]
+pub struct FlushPendingRewritesResponse {
+    /// Number of files whose on-disk content actually changed.
+    pub files_rewritten: i64,
+    /// Number of pending rows whose textual substitution applied.
+    pub refs_updated: i64,
+}
+
+/// Request payload for `get_pending_rewrites_count`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct GetPendingRewritesCountRequest {
+    /// Vault to query.
+    pub vault_id: String,
+}
+
+/// Response payload for `get_pending_rewrites_count`.
+#[derive(Debug, Clone, Serialize)]
+pub struct GetPendingRewritesCountResponse {
+    /// Total pending rows across every target file in the vault.
+    pub count: i64,
+}
+
+/// Request payload for `get_pending_rewrites_breakdown`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct GetPendingRewritesBreakdownRequest {
+    /// Vault to query.
+    pub vault_id: String,
+}
+
+/// One row in the pending-rewrites breakdown.
+#[derive(Debug, Clone, Serialize)]
+pub struct PendingRewriteBreakdownRow {
+    /// Vault-relative path of the file with pending rows.
+    pub target_file: String,
+    /// Number of pending rows for `target_file`.
+    pub count: i64,
+}
+
+/// Response payload for `get_pending_rewrites_breakdown`.
+#[derive(Debug, Clone, Serialize)]
+pub struct GetPendingRewritesBreakdownResponse {
+    /// Per-target rows ordered by count descending; `target_file` is
+    /// the tiebreaker for stable output.
+    pub rows: Vec<PendingRewriteBreakdownRow>,
+}
+
+/// Request payload for `list_recent_rename_ops`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ListRecentRenameOpsRequest {
+    /// Vault to query.
+    pub vault_id: String,
+    /// Maximum number of ops to return. The status-bar dropdown caps at
+    /// ~5 in practice; the IPC leaves the choice to the caller.
+    pub limit: u32,
+}
+
+/// One recent rename op surfaced for the status-bar undo dropdown.
+#[derive(Debug, Clone, Serialize)]
+pub struct RecentRenameOp {
+    /// Op id to pass to `undo_rename`.
+    pub rename_op_id: i64,
+    /// Representative kind for the group's leading icon (deterministic
+    /// `MIN(rewrite_kind)` in lexicographic order — not semantic).
+    pub kind: String,
+    /// Number of pending rows belonging to this op.
+    pub row_count: i64,
+    /// Earliest `created_at` in the group; effectively the time the
+    /// rename was enqueued (unix seconds).
+    pub created_at: i64,
+}
+
+/// Response payload for `list_recent_rename_ops`.
+#[derive(Debug, Clone, Serialize)]
+pub struct ListRecentRenameOpsResponse {
+    /// Ops newest-first.
+    pub ops: Vec<RecentRenameOp>,
+}
+
+/// Request payload for `undo_rename`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct UndoRenameRequest {
+    /// Vault containing the op.
+    pub vault_id: String,
+    /// Op id from a `RecentRenameOp.rename_op_id`.
+    pub rename_op_id: i64,
+}
+
+/// Response payload for `undo_rename`.
+#[derive(Debug, Clone, Serialize)]
+pub struct UndoRenameResponse {
+    /// Number of pending rows the undo removed.
+    pub removed: u64,
+    /// New total pending-rewrites count for the vault.
+    pub pending_count: i64,
+}

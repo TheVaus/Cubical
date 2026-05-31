@@ -7,12 +7,14 @@
 //!
 //! See `docs/migration-touchpoints.md`.
 
+use std::collections::HashSet;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
 use serde::Serialize;
 use tauri::Emitter;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{mpsc, Mutex, RwLock};
 
 use cubical_core::vault::links::read_source_off_executor;
 use cubical_core::vault::pending::materialize_on_read;
@@ -25,11 +27,27 @@ use tokio_util::sync::CancellationToken;
 
 use crate::state::{OpenVault, ScanStatusBackend};
 
+/// Per-vault own-write hash gate consumed by the watcher dispatcher.
+///
+/// The flush executor inserts `(relative_path, content_hash_hex)` BEFORE
+/// the atomic write; the watcher dispatcher's `Modified` branch, after
+/// computing the post-write disk hash, removes the matching entry and
+/// suppresses the `vault:file-changed` emit. This is the backend mirror
+/// of L2's editor-side hash gate — flush writes have no editor to
+/// match them, so they would otherwise bounce back into the UI as
+/// external edits and re-trigger reads.
+pub type FlushOwnWrites = Arc<Mutex<HashSet<(PathBuf, String)>>>;
+
 /// Re-export so pure command handlers can refer to `AppHandle` without
 /// importing `tauri` directly. The "no `use tauri` in commands/" rule is
 /// about migration touchpoints, not about avoiding the Tauri type itself
 /// — `events.rs` is the single chokepoint where Tauri types are named.
 pub use tauri::AppHandle;
+/// Re-export the `Runtime` bound used by the L3 Session J emit helpers
+/// and handlers. Runtime-generic signatures let the same code run
+/// against the production `Wry` runtime AND `tauri::test::MockRuntime`
+/// in unit tests.
+pub use tauri::Runtime;
 
 // -- Event name constants ---------------------------------------------------
 //
@@ -46,6 +64,16 @@ pub const VAULT_SCAN_CANCELLED: &str = "vault:scan-cancelled";
 
 /// Emitted whenever the file watcher reports a change in the vault.
 pub const VAULT_FILE_CHANGED: &str = "vault:file-changed";
+
+/// L3 Session J — emitted whenever the pending-rewrites total for a
+/// vault changes (enqueue from a rename, drain from a flush, undo). The
+/// payload carries the new count so the status-bar item updates in one
+/// hop without a follow-up `get_pending_rewrites_count` round trip.
+pub const VAULT_PENDING_REWRITES_CHANGED: &str = "vault:pending-rewrites-changed";
+
+/// L3 Session J — emitted exactly once at the end of a flush, carrying
+/// per-flush totals. Drives the post-flush toast in J.2.
+pub const VAULT_FLUSH_COMPLETE: &str = "vault:flush-complete";
 
 /// Live tail of the audit log, useful for in-app debugging UIs.
 pub const VAULT_AUDIT: &str = "vault:audit";
@@ -110,6 +138,21 @@ pub struct VaultAudit {
     pub message: String,
 }
 
+/// Payload for [`VAULT_PENDING_REWRITES_CHANGED`].
+#[derive(Serialize, Clone)]
+pub struct VaultPendingRewritesChanged {
+    pub vault_id: String,
+    pub count: i64,
+}
+
+/// Payload for [`VAULT_FLUSH_COMPLETE`].
+#[derive(Serialize, Clone)]
+pub struct VaultFlushComplete {
+    pub vault_id: String,
+    pub files_rewritten: i64,
+    pub refs_updated: i64,
+}
+
 // -- Emit helpers -----------------------------------------------------------
 //
 // Generic over `AppHandle` so pure handlers can be tested with a mock or
@@ -147,6 +190,25 @@ pub fn emit_file_changed(app: &AppHandle, payload: VaultFileChanged) {
 pub fn emit_audit(app: &AppHandle, payload: VaultAudit) {
     if let Err(e) = app.emit(VAULT_AUDIT, payload) {
         tracing::warn!(error = %e, "failed to emit audit");
+    }
+}
+
+/// Emit a [`VAULT_PENDING_REWRITES_CHANGED`] event. Runtime-generic so
+/// unit tests can pass `tauri::test::MockRuntime` handles.
+pub fn emit_pending_rewrites_changed<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    payload: VaultPendingRewritesChanged,
+) {
+    if let Err(e) = app.emit(VAULT_PENDING_REWRITES_CHANGED, payload) {
+        tracing::warn!(error = %e, "failed to emit pending-rewrites-changed");
+    }
+}
+
+/// Emit a [`VAULT_FLUSH_COMPLETE`] event. Runtime-generic for the same
+/// reason as [`emit_pending_rewrites_changed`].
+pub fn emit_flush_complete<R: Runtime>(app: &tauri::AppHandle<R>, payload: VaultFlushComplete) {
+    if let Err(e) = app.emit(VAULT_FLUSH_COMPLETE, payload) {
+        tracing::warn!(error = %e, "failed to emit flush-complete");
     }
 }
 
@@ -279,11 +341,12 @@ pub fn spawn_watcher_dispatcher(
     vault_id: String,
     vault: Vault,
     mut events_rx: tokio::sync::mpsc::Receiver<WatchEvent>,
+    flush_own_writes: FlushOwnWrites,
 ) {
     tokio::spawn(async move {
         while let Some(ev) = events_rx.recv().await {
             let arrived = Instant::now();
-            handle_watch_event(&app, &vault_id, &vault, &ev, arrived).await;
+            handle_watch_event(&app, &vault_id, &vault, &ev, arrived, &flush_own_writes).await;
         }
         tracing::debug!(vault_id = %vault_id, "watcher dispatcher: channel closed");
     });
@@ -295,8 +358,17 @@ async fn handle_watch_event(
     vault: &Vault,
     ev: &WatchEvent,
     arrived: Instant,
+    flush_own_writes: &FlushOwnWrites,
 ) {
     let new_content_hash = apply_watch_event_to_db(vault, ev).await;
+
+    if consume_own_write_hash(flush_own_writes, ev, new_content_hash.as_deref()).await {
+        tracing::debug!(
+            vault_id = %vault_id,
+            "watcher: suppressing vault:file-changed for own-write",
+        );
+        return;
+    }
 
     let payload = file_changed_payload(vault_id, ev, new_content_hash);
     let elapsed_ms = arrived.elapsed().as_millis();
@@ -550,6 +622,30 @@ fn audit_payload_for(ev: &WatchEvent) -> (String, String) {
             .to_string(),
         ),
     }
+}
+
+/// L3 Session J — backend own-write hash gate consumer.
+///
+/// Returns `true` if the event matches an entry in `flush_own_writes`
+/// (and the entry has been drained — own-write gate entries are
+/// single-use). Only `Modified` events with a non-empty hash can match;
+/// all other event kinds pass through.
+pub(crate) async fn consume_own_write_hash(
+    flush_own_writes: &FlushOwnWrites,
+    ev: &WatchEvent,
+    new_content_hash: Option<&str>,
+) -> bool {
+    let WatchEvent::Modified(rel) = ev else {
+        return false;
+    };
+    let Some(hash) = new_content_hash else {
+        return false;
+    };
+    if hash.is_empty() {
+        return false;
+    }
+    let key = (rel.clone(), hash.to_string());
+    flush_own_writes.lock().await.remove(&key)
 }
 
 fn file_changed_payload(
@@ -820,6 +916,78 @@ mod tests {
             Some("ignored".into()),
         );
         assert!(payload.new_content_hash.is_none());
+    }
+
+    #[tokio::test]
+    async fn own_write_gate_consumes_matching_modified_entry() {
+        let gate: FlushOwnWrites = Arc::new(Mutex::new(HashSet::new()));
+        gate.lock()
+            .await
+            .insert((PathBuf::from("a.md"), "deadbeef".into()));
+
+        let suppressed = consume_own_write_hash(
+            &gate,
+            &WatchEvent::Modified(PathBuf::from("a.md")),
+            Some("deadbeef"),
+        )
+        .await;
+        assert!(suppressed, "matching modify+hash must drain the entry");
+
+        // Entry was single-use — a second pass through the gate sees an
+        // empty set and lets the event through.
+        let suppressed_again = consume_own_write_hash(
+            &gate,
+            &WatchEvent::Modified(PathBuf::from("a.md")),
+            Some("deadbeef"),
+        )
+        .await;
+        assert!(!suppressed_again, "entry must be consumed on first match");
+    }
+
+    #[tokio::test]
+    async fn own_write_gate_lets_external_edit_through() {
+        let gate: FlushOwnWrites = Arc::new(Mutex::new(HashSet::new()));
+        gate.lock()
+            .await
+            .insert((PathBuf::from("a.md"), "deadbeef".into()));
+
+        // Same path, different hash — external edit landed on top of
+        // the flush write before the watcher observed it. Must pass
+        // through (the user sees the change) and the original entry
+        // stays put (a subsequent identical-hash event would still be
+        // suppressed).
+        let suppressed = consume_own_write_hash(
+            &gate,
+            &WatchEvent::Modified(PathBuf::from("a.md")),
+            Some("cafebabe"),
+        )
+        .await;
+        assert!(!suppressed);
+        assert_eq!(gate.lock().await.len(), 1, "non-match leaves entry intact");
+    }
+
+    #[tokio::test]
+    async fn own_write_gate_ignores_non_modified_events() {
+        let gate: FlushOwnWrites = Arc::new(Mutex::new(HashSet::new()));
+        gate.lock()
+            .await
+            .insert((PathBuf::from("a.md"), "deadbeef".into()));
+
+        for ev in [
+            WatchEvent::Created(PathBuf::from("a.md")),
+            WatchEvent::Removed(PathBuf::from("a.md")),
+            WatchEvent::Renamed {
+                from: PathBuf::from("a.md"),
+                to: PathBuf::from("b.md"),
+            },
+        ] {
+            assert!(!consume_own_write_hash(&gate, &ev, Some("deadbeef")).await);
+        }
+        assert_eq!(
+            gate.lock().await.len(),
+            1,
+            "non-Modified events must not drain entries",
+        );
     }
 
     #[test]

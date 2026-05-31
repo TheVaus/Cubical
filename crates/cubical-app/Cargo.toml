@@ -54,3 +54,7 @@ custom-protocol = ["tauri/custom-protocol"]
 
 [dev-dependencies]
 tempfile = "3"
+# `tauri::test::mock_app()` is gated behind the `test` feature; the
+# L3 Session J rename handlers emit events through `events::AppHandle`,
+# so unit tests need a real `AppHandle` instance.
+tauri = { version = "2", features = ["test"] }
