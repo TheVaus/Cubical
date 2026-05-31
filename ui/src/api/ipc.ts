@@ -253,7 +253,8 @@ export interface TagAutocompleteResponse {
 export type Setting =
   | { key: "editor.raw_source_default"; value: boolean }
   | { key: "appearance.theme_mode"; value: "light" | "dark" | "system" }
-  | { key: "ui.right_sidebar_collapsed"; value: boolean };
+  | { key: "ui.right_sidebar_collapsed"; value: boolean }
+  | { key: "ui.right_sidebar_panel"; value: "backlinks" | "unlinked_mentions" };
 
 /** Narrows a `Setting` key to its corresponding value type. */
 export type SettingValue<K extends Setting["key"]> = Extract<
@@ -505,6 +506,67 @@ export interface GetEmbedResponse {
 /** Resolve `target_raw` and return its embedded content slice. */
 export function getEmbed(req: GetEmbedRequest): Promise<GetEmbedResponse> {
   return invoke("get_embed", { req });
+}
+
+// ---------------------------------------------------------------------------
+// get_unlinked_mentions / link_mention (L3 Session I)
+// ---------------------------------------------------------------------------
+
+export interface GetUnlinkedMentionsRequest {
+  vault_id: string;
+  /** Vault-relative path of the open note. Its mentions in other files
+   *  drive the scan; its own body is excluded from the candidate set. */
+  path: string;
+}
+
+/** One unlinked mention surfaced to the frontend. */
+export interface Mention {
+  /** Vault-relative path of the source note containing the mention. */
+  source_path: string;
+  /** Single-line context snippet (~120 chars) centred on the match. */
+  context: string;
+  /** Byte offset of the match start within `source_path`. */
+  position: number;
+  /** Byte length of the matched span. */
+  byte_len: number;
+  /** The needle that matched — the canonical title or one of the aliases. */
+  needle: string;
+}
+
+export interface GetUnlinkedMentionsResponse {
+  mentions: Mention[];
+}
+
+export interface LinkMentionRequest {
+  vault_id: string;
+  source_path: string;
+  position: number;
+  byte_len: number;
+  /** Canonical title of the target note (basename minus `.md`). */
+  target_title: string;
+}
+
+export interface LinkMentionResponse {
+  new_hash: string;
+}
+
+/** Scan the vault for every plain-text occurrence of the open note's
+ *  title / aliases that isn't already a link. Empty `mentions` array
+ *  when nothing matches. */
+export function getUnlinkedMentions(
+  req: GetUnlinkedMentionsRequest,
+): Promise<GetUnlinkedMentionsResponse> {
+  return invoke("get_unlinked_mentions", { req });
+}
+
+/** Rewrite one matched span into `[[Title]]` (or `[[Title|alias]]` when
+ *  the matched text differs case-insensitively from the title) on disk
+ *  atomically. Throws `InvalidRequest` if the span has moved — the
+ *  caller should re-fetch and retry. */
+export function linkMention(
+  req: LinkMentionRequest,
+): Promise<LinkMentionResponse> {
+  return invoke("link_mention", { req });
 }
 
 /**
