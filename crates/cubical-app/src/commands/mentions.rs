@@ -172,7 +172,7 @@ pub async fn link_mention(
     // Decide the replacement shape:
     //   matched ≡ title (case-insensitive) → [[Title]]
     //   otherwise (alias-display or differing casing on alias)  →  [[Title|matched]]
-    let replacement = if matched.eq_ignore_ascii_case(title) {
+    let replacement = if matched.to_lowercase() == title.to_lowercase() {
         format!("[[{title}]]")
     } else {
         format!("[[{title}|{matched}]]")
@@ -623,6 +623,33 @@ mod tests {
         let on_disk = std::fs::read_to_string(vault.root().join("Project.md")).unwrap();
         // Match casing dropped in favour of the canonical title.
         assert_eq!(on_disk, "The [[Daily]] check-in is done.\n");
+    }
+
+    #[tokio::test]
+    async fn link_mention_handles_non_ascii_title_with_unicode_case_fold() {
+        let (_dir, vault, state) = fresh("v1").await;
+        seed_md(&vault, "Café.md", "body").await;
+        // Match on "café" (lowercased); canonical title is "Café".
+        // Pre-fix this would have produced [[Café|café]] (eq_ignore_ascii_case
+        // only folds A-Z↔a-z), which is wrong — full Unicode casefold says
+        // "Café" == "café" so the bare form is correct.
+        let body = "see café for context\n";
+        seed_md(&vault, "Project.md", body).await;
+        let pos = body.find("café").unwrap() as u64;
+        link_mention(
+            &state,
+            LinkMentionRequest {
+                vault_id: "v1".into(),
+                source_path: "Project.md".into(),
+                position: pos,
+                byte_len: "café".len() as u64,
+                target_title: "Café".into(),
+            },
+        )
+        .await
+        .unwrap();
+        let on_disk = std::fs::read_to_string(vault.root().join("Project.md")).unwrap();
+        assert_eq!(on_disk, "see [[Café]] for context\n");
     }
 
     #[tokio::test]

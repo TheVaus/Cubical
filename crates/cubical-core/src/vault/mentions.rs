@@ -61,6 +61,11 @@ pub fn extract_text_runs(source: &str) -> Vec<TextRun<'_>> {
         }
     }
 
+    // `line_start` is reassigned inside the loop at fence open/close
+    // boundaries; the final reassignment after the last block is dead
+    // because the loop only exits when `i >= len`. Allow the warning
+    // rather than refactor the control flow.
+    #[allow(unused_assignments)]
     let mut line_start = i;
     let mut at_line_start = true;
 
@@ -234,7 +239,6 @@ pub fn extract_text_runs(source: &str) -> Vec<TextRun<'_>> {
         i += 1;
     }
 
-    let _ = line_start;
     push_run(&mut out, source, cursor, len);
     out
 }
