@@ -628,11 +628,12 @@ mod tests {
     #[tokio::test]
     async fn link_mention_handles_non_ascii_title_with_unicode_case_fold() {
         let (_dir, vault, state) = fresh("v1").await;
-        seed_md(&vault, "Café.md", "body").await;
-        // Match on "café" (lowercased); canonical title is "Café".
-        // Pre-fix this would have produced [[Café|café]] (eq_ignore_ascii_case
-        // only folds A-Z↔a-z), which is wrong — full Unicode casefold says
-        // "Café" == "café" so the bare form is correct.
+        seed_md(&vault, "CAFÉ.md", "body").await;
+        // Match on "café" (lowercased); canonical title is "CAFÉ".
+        // Pre-fix this would have produced [[CAFÉ|café]] (eq_ignore_ascii_case
+        // only folds A-Z↔a-z, so É vs é is treated as not-equal), which is
+        // wrong — full Unicode casefold says "CAFÉ" == "café" so the bare
+        // form is correct.
         let body = "see café for context\n";
         seed_md(&vault, "Project.md", body).await;
         let pos = body.find("café").unwrap() as u64;
@@ -643,13 +644,13 @@ mod tests {
                 source_path: "Project.md".into(),
                 position: pos,
                 byte_len: "café".len() as u64,
-                target_title: "Café".into(),
+                target_title: "CAFÉ".into(),
             },
         )
         .await
         .unwrap();
         let on_disk = std::fs::read_to_string(vault.root().join("Project.md")).unwrap();
-        assert_eq!(on_disk, "see [[Café]] for context\n");
+        assert_eq!(on_disk, "see [[CAFÉ]] for context\n");
     }
 
     #[tokio::test]
