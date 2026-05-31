@@ -43,4 +43,18 @@ pub enum IndexError {
          upgrade Cubical to open this vault"
     )]
     SchemaTooNew(u32),
+
+    /// A row's enum-typed column carried a value this build doesn't
+    /// recognize. Used by `pending_rewrites.rewrite_kind` (and any future
+    /// enum column) so the read-back path can surface "corrupt or
+    /// future-build" data without panicking.
+    #[error("unknown enum value {value:?} in {table}.{column}")]
+    UnknownEnum {
+        /// Table the offending row belongs to.
+        table: &'static str,
+        /// Column the offending value came from.
+        column: &'static str,
+        /// The string the database returned.
+        value: String,
+    },
 }
