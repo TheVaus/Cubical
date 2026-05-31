@@ -36,6 +36,10 @@ pub struct Migration {
 /// - `v3` (L3 Session A): the `links` table for wiki-link occurrences.
 /// - `v4` (L3 Session D): the `tags` table for inline + frontmatter
 ///   tag occurrences.
+/// - `v5` (L3 Session G): the `blocks` + `block_refs` tables for
+///   `^block-id` definitions and resolved `[[#^id]]` references.
+/// - `v6` (L3 Session J): the `pending_rewrites` cache for deferred
+///   per-file token rewrites produced by rename operations.
 ///
 /// Subsequent layers append entries here.
 pub const MIGRATIONS: &[Migration] = &[
@@ -59,11 +63,35 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 5,
         up: include_str!("../migrations/005_blocks.sql"),
     },
+    Migration {
+        version: 6,
+        up: include_str!("../migrations/006_pending_rewrites.sql"),
+    },
 ];
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn migration_006_creates_pending_rewrites_table() {
+        let m = MIGRATIONS
+            .iter()
+            .find(|m| m.version == 6)
+            .expect("006 migration must be registered");
+        let sql = m.up;
+        assert!(
+            sql.contains("CREATE TABLE pending_rewrites"),
+            "must create pending_rewrites table"
+        );
+        assert!(sql.contains("target_file"));
+        assert!(sql.contains("rewrite_kind"));
+        assert!(sql.contains("old_token"));
+        assert!(sql.contains("new_token"));
+        assert!(sql.contains("rename_op_id"));
+        assert!(sql.contains("idx_pending_target"));
+        assert!(sql.contains("idx_pending_op"));
+    }
 
     #[test]
     fn migration_005_creates_blocks_tables() {

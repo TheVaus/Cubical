@@ -4,24 +4,24 @@
 //! here but only ever *minted* by `create_block_ref` — never bulk
 //! auto-assigned (spec §2.7 / document-model §5.3).
 
-use std::path::Path;
-
 use cubical_index::{replace_block_refs_for_file, replace_blocks_for_file, BlockRefRow, BlockRow};
 
-use crate::vault::links::{map_index_err, read_source_off_executor};
+use crate::vault::links::map_index_err;
 use crate::vault::Vault;
 
-/// Re-scan `abs_path`'s source for `^block-id` tokens and replace this
-/// file's `blocks` rows. Mirrors `refresh_links`'s resilience: an
-/// unreadable file clears the rows. The matching `files` row must exist
-/// (FK).
+/// Scan `source` for `^block-id` tokens and replace this file's
+/// `blocks` rows. The matching `files` row must already exist (FK).
+///
+/// **L3 Session J (chain 3):** caller passes the post-`materialize_on_read`
+/// source so block-ids reflect any pending block-id rewrites before they
+/// flush. Read + materialize happen once at the caller; this helper is
+/// the pure-scan + DB write step.
 pub async fn refresh_blocks(
     vault: &Vault,
-    abs_path: &Path,
     rel_path_str: &str,
+    source: &str,
 ) -> Result<(), libsql::Error> {
-    let source = read_source_off_executor(abs_path).await.unwrap_or_default();
-    let rows: Vec<BlockRow> = extract_block_ids(&source)
+    let rows: Vec<BlockRow> = extract_block_ids(source)
         .into_iter()
         .map(|o| BlockRow {
             block_id: o.block_id,
@@ -201,7 +201,8 @@ mod tests {
         .await
         .expect("scan");
 
-        refresh_blocks(&vault, &p, "a.md").await.expect("refresh");
+        let src = std::fs::read_to_string(&p).unwrap();
+        refresh_blocks(&vault, "a.md", &src).await.expect("refresh");
         let got = blocks_for_file(vault.index(), "a.md").await.unwrap();
         let ids: Vec<&str> = got.iter().map(|b| b.block_id.as_str()).collect();
         assert_eq!(ids, vec!["one", "two"]);

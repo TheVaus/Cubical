@@ -218,7 +218,7 @@ mod tests {
     /// The version the highest-numbered known migration applies. Use
     /// this rather than hard-coding so adding a new migration only
     /// requires updating the `MIGRATIONS` slice — not every test.
-    const HIGHEST_KNOWN_VERSION: i64 = 5;
+    const HIGHEST_KNOWN_VERSION: i64 = 6;
 
     #[tokio::test]
     async fn fresh_db_applies_all_known_migrations() {
@@ -251,6 +251,11 @@ mod tests {
         // L3 Session D's tags table + index exist.
         assert!(table_exists(conn, "tags").await);
         assert!(index_exists(conn, "idx_tags_path").await);
+
+        // L3 Session J's pending_rewrites table + indexes exist.
+        assert!(table_exists(conn, "pending_rewrites").await);
+        assert!(index_exists(conn, "idx_pending_target").await);
+        assert!(index_exists(conn, "idx_pending_op").await);
 
         // schema_version == HIGHEST_KNOWN_VERSION, single row.
         assert_eq!(
@@ -400,6 +405,62 @@ mod tests {
         // v2 table exists.
         assert!(table_exists(conn, "frontmatter").await);
         // schema_version reflects v2.
+        assert_eq!(
+            scalar_i64(conn, "SELECT MAX(version) FROM schema_version").await,
+            HIGHEST_KNOWN_VERSION
+        );
+    }
+
+    #[tokio::test]
+    async fn v6_applies_on_top_of_existing_v5_database() {
+        // Bring the DB up to v5 only, seed a `blocks` row, then re-open
+        // with the full migrations slice and verify the seed survives and
+        // the new `pending_rewrites` table is in place.
+        let dir = TempDir::new().unwrap();
+        let path = db_path(&dir);
+
+        let v5_only: &[Migration] = &MIGRATIONS[..5];
+        {
+            let idx = open_index_with_migrations(&path, v5_only)
+                .await
+                .expect("v5 open");
+            let conn = idx.connection();
+            conn.execute(
+                "INSERT INTO files (
+                    path, type_id, size_bytes, mtime_unix, content_hash,
+                    inode, last_seen, created_at, updated_at
+                ) VALUES ('a.md', 'markdown', 1, 0, 'h', NULL, 0, 0, 0)",
+                (),
+            )
+            .await
+            .expect("insert seed file");
+            conn.execute(
+                "INSERT INTO blocks (file_path, block_id, position_hint, last_modified) \
+                 VALUES ('a.md', 'seed', 0, 0)",
+                (),
+            )
+            .await
+            .expect("insert seed block");
+        }
+
+        // Now apply the full set including v6.
+        let idx = open_index(&path).await.expect("reopen with v6");
+        let conn = idx.connection();
+
+        // Seed data survived.
+        assert_eq!(
+            scalar_i64(
+                conn,
+                "SELECT COUNT(*) FROM blocks WHERE file_path = 'a.md' AND block_id = 'seed'"
+            )
+            .await,
+            1
+        );
+        // v6 table + indexes exist.
+        assert!(table_exists(conn, "pending_rewrites").await);
+        assert!(index_exists(conn, "idx_pending_target").await);
+        assert!(index_exists(conn, "idx_pending_op").await);
+        // schema_version reflects v6.
         assert_eq!(
             scalar_i64(conn, "SELECT MAX(version) FROM schema_version").await,
             HIGHEST_KNOWN_VERSION

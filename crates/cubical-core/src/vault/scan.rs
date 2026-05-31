@@ -21,7 +21,8 @@ use walkdir::WalkDir;
 use crate::vault::{
     blocks::{refresh_block_refs_for_file, refresh_blocks},
     frontmatter::refresh_frontmatter,
-    links::{extract_links_off_executor, LinkExtraction, PathResolver},
+    links::{extract_links_from_source, read_source_off_executor, LinkExtraction, PathResolver},
+    pending::materialize_on_read,
     tags::refresh_tags,
     Vault, VaultError,
 };
@@ -223,25 +224,46 @@ pub async fn scan(
         // so a malformed YAML file is still tracked, just without a
         // frontmatter index. The next scan or modify event will heal
         // it if the file gets fixed.
+        //
+        // L3 Session J (chain 3): read the source ONCE per markdown file
+        // and materialize any pending rewrites for `path_str`, then hand
+        // the materialized text to every extractor. Otherwise scan-derived
+        // tables (frontmatter, links, tags, blocks) reflect the *old*
+        // tokens until flush — the user-visible editor view (which goes
+        // through `materialize_on_read`) would disagree with backlinks +
+        // tag listings. (`files.content_hash` is computed against the
+        // raw on-disk bytes above and intentionally untouched here — it
+        // tracks the unrewritten file.)
         if type_id == "markdown" {
-            if let Err(e) = refresh_frontmatter(&vault, &abs_path, &path_str).await {
+            let raw_source = read_source_off_executor(&abs_path)
+                .await
+                .unwrap_or_default();
+            let source = match materialize_on_read(vault.index(), &path_str, &raw_source).await {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::warn!(path = %abs_path.display(), error = %e, "materialize_on_read failed; using raw source");
+                    raw_source
+                }
+            };
+
+            if let Err(e) = refresh_frontmatter(&vault, &path_str, &source).await {
                 tracing::warn!(path = %abs_path.display(), error = %e, "frontmatter refresh failed");
             }
             // L3 §5.6: defer link RESOLUTION to Pass 2; just extract +
             // buffer here. Extraction still parses the file (the §5.5
             // multi-parse is a separate, deferred issue).
-            let extractions = extract_links_off_executor(&abs_path).await;
+            let extractions = extract_links_from_source(&source).await;
             if !extractions.is_empty() {
                 pending_links.push((path_str.clone(), extractions));
             }
             // L3 Session D: refresh the `tags` rows. Same resilience
             // policy — inline + frontmatter tags feed one table.
-            if let Err(e) = refresh_tags(&vault, &abs_path, &path_str).await {
+            if let Err(e) = refresh_tags(&vault, &path_str, &source).await {
                 tracing::warn!(path = %abs_path.display(), error = %e, "tags refresh failed");
             }
             // L3 §2.7: block-id definitions are per-file (no resolution),
             // so they refresh inline here alongside frontmatter + tags.
-            if let Err(e) = refresh_blocks(&vault, &abs_path, &path_str).await {
+            if let Err(e) = refresh_blocks(&vault, &path_str, &source).await {
                 tracing::warn!(path = %abs_path.display(), error = %e, "blocks refresh failed");
             }
         }
@@ -853,6 +875,52 @@ mod tests {
         let from_zzz = links_from(vault.index(), "zzz.md").await.expect("query");
         assert_eq!(from_zzz.len(), 1);
         assert_eq!(from_zzz[0].target_path.as_deref(), Some("aaa.md"));
+    }
+
+    #[tokio::test]
+    async fn scan_materializes_pending_rewrites_before_extracting_links() {
+        // L3 Session J (chain 3): pass-1 reads each markdown file and
+        // materializes any pending wiki-link rewrites before handing
+        // the source to the link extractor. So backlinks reflect the
+        // post-rewrite world even before the pending queue flushes.
+        use cubical_index::{enqueue_pending, links_from, NewPendingRewrite, RewriteKind};
+        let dir = tempdir().unwrap();
+        // On disk: a.md links to OldName via wiki-link.
+        fs::write(dir.path().join("a.md"), "linked to [[OldName]]\n").unwrap();
+        // Real target file Daily.md exists so the rewrite resolves.
+        fs::write(dir.path().join("Daily.md"), "body\n").unwrap();
+        let vault = Vault::open(dir.path()).await.expect("open");
+
+        // Enqueue a pending wiki-link rewrite for a.md: OldName → Daily.
+        enqueue_pending(
+            vault.index(),
+            &[NewPendingRewrite {
+                target_file: "a.md".into(),
+                rewrite_kind: RewriteKind::WikiLink,
+                old_token: "OldName".into(),
+                new_token: "Daily".into(),
+                created_at: 0,
+                rename_op_id: 1,
+            }],
+        )
+        .await
+        .unwrap();
+
+        let (tx, _rx) = mpsc::channel::<ScanProgress>(64);
+        scan(vault.clone(), CancellationToken::new(), tx)
+            .await
+            .expect("scan");
+
+        let rows = links_from(vault.index(), "a.md").await.expect("query");
+        // The scanned link points at the post-rewrite target — Daily.md —
+        // not OldName.
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].target_raw, "Daily");
+        assert_eq!(rows[0].target_path.as_deref(), Some("Daily.md"));
+
+        // On-disk bytes untouched (materialize-on-read doesn't write).
+        let on_disk = std::fs::read_to_string(dir.path().join("a.md")).unwrap();
+        assert_eq!(on_disk, "linked to [[OldName]]\n");
     }
 
     #[tokio::test]

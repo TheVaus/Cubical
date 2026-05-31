@@ -12,6 +12,7 @@
 
 use cubical_core::vault::links::read_source_off_executor;
 use cubical_core::vault::mentions::{find_mention_occurrences, MentionHit};
+use cubical_core::vault::pending::materialize_on_read;
 use cubical_core::{atomic_write, sha256_bytes_hex};
 
 use crate::api::types::{
@@ -34,16 +35,15 @@ pub async fn get_unlinked_mentions(
     state: &AppState,
     req: GetUnlinkedMentionsRequest,
 ) -> Result<GetUnlinkedMentionsResponse, CubicalError> {
-    let (root, conn) = {
+    let vault = {
         let guard = state.vaults().read().await;
         let open = guard
             .get(&req.vault_id)
             .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
-        (
-            open.vault.root().to_path_buf(),
-            open.vault.index().connection().clone(),
-        )
+        open.vault.clone()
     };
+    let root = vault.root().to_path_buf();
+    let conn = vault.index().connection().clone();
 
     // 1) Title from the basename (minus `.md`).
     let title = title_from_path(&req.path);
@@ -69,14 +69,22 @@ pub async fn get_unlinked_mentions(
     // 4) Snapshot the markdown candidate paths (excluding the open note).
     let candidates = list_markdown_candidates(&conn, &req.path).await?;
 
-    // 5) For each candidate, read + scan. Hits accumulate; sort at end.
+    // 5) For each candidate, read + materialize + scan. Hits accumulate;
+    //    sort at end.
+    //
+    // L3 Session J (chain 3): each candidate's source goes through
+    // `materialize_on_read` so an unlinked-mention scan over a file
+    // with a pending rename rewrite operates on the post-rewrite text
+    // (otherwise we'd offer to "Link it" against a span that the user
+    // sees as already-rewritten via the editor's materialized view).
     let mut out: Vec<Mention> = Vec::new();
     let needle_refs: Vec<&str> = needles.iter().map(|s| s.as_str()).collect();
     for path in candidates.into_iter().take(MAX_SCAN_FILES) {
         let abs = root.join(&path);
-        let Some(source) = read_source_off_executor(&abs).await else {
+        let Some(on_disk) = read_source_off_executor(&abs).await else {
             continue; // unreadable file = no mentions
         };
+        let source = materialize_on_read(vault.index(), &path, &on_disk).await?;
         let hits = find_mention_occurrences(&source, &needle_refs);
         for MentionHit {
             needle_index,
@@ -107,17 +115,53 @@ pub async fn get_unlinked_mentions(
 /// (or `[[Title|alias]]` when the matched text differs case-insensitively
 /// from the canonical title). Reads the source fresh just-in-time +
 /// writes atomically.
+///
+/// **L3 Session J (chain 3):** if there are any pending rewrites
+/// targeting `source_path`, flush them first (write the materialized
+/// view to disk + drop the rows) and then read fresh. This avoids the
+/// "splice into materialized but write non-materialized" trap from the
+/// design spec — the splice always sees the same bytes that the
+/// editor's `read_file_text` sees.
 pub async fn link_mention(
     state: &AppState,
     req: LinkMentionRequest,
 ) -> Result<LinkMentionResponse, CubicalError> {
-    let abs = {
+    let (abs, conn) = {
         let guard = state.vaults().read().await;
         let open = guard
             .get(&req.vault_id)
             .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
-        open.vault.root().join(&req.source_path)
+        (
+            open.vault.root().join(&req.source_path),
+            open.vault.index().connection().clone(),
+        )
     };
+
+    // Flush any pending rewrites for the source file first. The flush is
+    // a no-op when the queue is empty; when non-empty, it rewrites the
+    // file on disk and drops the matching rows so the read below sees a
+    // bytes-equal copy of the materialized view.
+    let pending_count = {
+        let mut rows = conn
+            .query(
+                "SELECT COUNT(*) FROM pending_rewrites WHERE target_file = ?1",
+                libsql::params![req.source_path.clone()],
+            )
+            .await?;
+        let row = rows
+            .next()
+            .await?
+            .ok_or_else(|| CubicalError::Db("pending count query returned no row".into()))?;
+        row.get::<i64>(0)?
+    };
+    if pending_count > 0 {
+        crate::commands::rename::flush_target_for_link_mention(
+            state,
+            &req.vault_id,
+            &req.source_path,
+        )
+        .await?;
+    }
 
     // Read fresh just-in-time so a same-millisecond external edit is
     // reflected. If the file has been removed entirely, surface IO.
@@ -541,6 +585,51 @@ mod tests {
         assert!(matches!(err, CubicalError::VaultNotOpen(v) if v == "ghost"));
     }
 
+    #[tokio::test]
+    async fn get_unlinked_mentions_materializes_candidate_source() {
+        // L3 Session J (chain 3): a candidate source file with a
+        // pending wiki-link rewrite is scanned against its MATERIALIZED
+        // text, not the on-disk raw bytes. So a "Daily" plain-text hit
+        // in raw text that is *already linked* to [[Journal]] in the
+        // post-rewrite view must NOT surface as an unlinked mention.
+        use cubical_index::{enqueue_pending, NewPendingRewrite, RewriteKind};
+
+        let (_dir, vault, state) = fresh("v1").await;
+        seed_md(&vault, "Daily.md", "body").await;
+        // Raw disk has [[OldName]] — a stale link, not a mention.
+        // After materialization the pending row rewrites [[OldName]]
+        // → [[Daily]] and the file's only "Daily" occurrence is the
+        // wiki-link itself, which is excluded from mentions.
+        seed_md(&vault, "Project.md", "see [[OldName]] for context\n").await;
+        enqueue_pending(
+            vault.index(),
+            &[NewPendingRewrite {
+                target_file: "Project.md".into(),
+                rewrite_kind: RewriteKind::WikiLink,
+                old_token: "OldName".into(),
+                new_token: "Daily".into(),
+                created_at: 0,
+                rename_op_id: 1,
+            }],
+        )
+        .await
+        .unwrap();
+
+        let resp = get_unlinked_mentions(
+            &state,
+            GetUnlinkedMentionsRequest {
+                vault_id: "v1".into(),
+                path: "Daily.md".into(),
+            },
+        )
+        .await
+        .unwrap();
+        // Materialized view of Project.md has the Daily wiki-link, so
+        // there's no plain-text "Daily" mention.
+        assert!(resp.mentions.is_empty(), "{:?}", resp.mentions);
+        let _ = vault;
+    }
+
     // ---- link_mention --------------------------------------------
 
     #[tokio::test]
@@ -694,6 +783,62 @@ mod tests {
         .await
         .expect_err("expected InvalidRequest");
         assert!(matches!(err, CubicalError::InvalidRequest(_)));
+    }
+
+    #[tokio::test]
+    async fn link_mention_flushes_pending_rewrites_before_splicing() {
+        // L3 Session J (chain 3): when the source file has pending
+        // rewrites, link_mention flushes them FIRST (writing the
+        // materialized text to disk + dropping the rows) then splices
+        // against the just-flushed source. This closes the
+        // "splice-into-materialized-but-write-non-materialized" trap.
+        use cubical_index::{enqueue_pending, pending_for_target, NewPendingRewrite, RewriteKind};
+
+        let (_dir, vault, state) = fresh("v1").await;
+        seed_md(&vault, "Daily.md", "body").await;
+        // Disk text contains [[OldName]] which a pending row will
+        // rewrite to [[Daily]], plus a separate plain-text "Daily"
+        // mention to splice.
+        let body = "see [[OldName]] and mention Daily here\n";
+        seed_md(&vault, "Project.md", body).await;
+        enqueue_pending(
+            vault.index(),
+            &[NewPendingRewrite {
+                target_file: "Project.md".into(),
+                rewrite_kind: RewriteKind::WikiLink,
+                old_token: "OldName".into(),
+                new_token: "Daily".into(),
+                created_at: 0,
+                rename_op_id: 1,
+            }],
+        )
+        .await
+        .unwrap();
+
+        // After the flush+splice, on-disk content should reflect both:
+        // the pending wiki-link rewrite AND the new [[Daily]] mention.
+        let post_flush_body = "see [[Daily]] and mention Daily here\n";
+        let pos = post_flush_body.find("mention Daily").unwrap() + "mention ".len();
+        link_mention(
+            &state,
+            LinkMentionRequest {
+                vault_id: "v1".into(),
+                source_path: "Project.md".into(),
+                position: pos as u64,
+                byte_len: 5,
+                target_title: "Daily".into(),
+            },
+        )
+        .await
+        .expect("ok");
+
+        let on_disk = std::fs::read_to_string(vault.root().join("Project.md")).unwrap();
+        assert_eq!(on_disk, "see [[Daily]] and mention [[Daily]] here\n");
+        // Pending rows for this target are gone (flush succeeded).
+        let remaining = pending_for_target(vault.index(), "Project.md")
+            .await
+            .unwrap();
+        assert!(remaining.is_empty());
     }
 
     #[tokio::test]

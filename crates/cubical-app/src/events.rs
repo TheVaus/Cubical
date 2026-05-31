@@ -14,6 +14,8 @@ use serde::Serialize;
 use tauri::Emitter;
 use tokio::sync::{mpsc, RwLock};
 
+use cubical_core::vault::links::read_source_off_executor;
+use cubical_core::vault::pending::materialize_on_read;
 use cubical_core::{
     refresh_block_refs_for_file, refresh_blocks, refresh_frontmatter, refresh_links, refresh_tags,
     scan, ScanProgress, Vault, VaultError, WatchEvent,
@@ -374,8 +376,25 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) -> O
             // effort — a malformed YAML or transient I/O error here
             // must not take the dispatcher down. Non-markdown types
             // skip; frontmatter is a markdown-only concept.
+            //
+            // L3 Session J (chain 3): read the source ONCE for this
+            // markdown file and materialize any pending rewrites for
+            // `path_str`, then hand the materialized text to every
+            // extractor. (`hash` above stays raw — that's
+            // `files.content_hash`, which tracks on-disk bytes for
+            // change detection, NOT the rewritten view.)
             if type_id == "markdown" {
-                if let Err(e) = refresh_frontmatter(vault, &abs, &path_str).await {
+                let raw_source = read_source_off_executor(&abs).await.unwrap_or_default();
+                let source = match materialize_on_read(vault.index(), &path_str, &raw_source).await
+                {
+                    Ok(s) => s,
+                    Err(e) => {
+                        tracing::warn!(path = %path_str, error = %e, "watcher: materialize_on_read failed; using raw source");
+                        raw_source
+                    }
+                };
+
+                if let Err(e) = refresh_frontmatter(vault, &path_str, &source).await {
                     tracing::warn!(path = %path_str, error = %e, "watcher: frontmatter refresh failed");
                 }
                 // L3: refresh `links` rows. Best effort — same policy
@@ -385,17 +404,17 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) -> O
                 // when the eventual cleanup-rewrite session ships);
                 // `Renamed` is handled by the future pending-rewrites
                 // work along with the rest of the rename pipeline.
-                if let Err(e) = refresh_links(vault, &abs, &path_str).await {
+                if let Err(e) = refresh_links(vault, &path_str, &source).await {
                     tracing::warn!(path = %path_str, error = %e, "watcher: links refresh failed");
                 }
                 // L3 Session D: refresh `tags` rows. Same best-effort
                 // policy as links + frontmatter.
-                if let Err(e) = refresh_tags(vault, &abs, &path_str).await {
+                if let Err(e) = refresh_tags(vault, &path_str, &source).await {
                     tracing::warn!(path = %path_str, error = %e, "watcher: tags refresh failed");
                 }
                 // L3 §2.7: refresh block-id definitions, then re-derive
                 // this file's block_refs from its just-written links.
-                if let Err(e) = refresh_blocks(vault, &abs, &path_str).await {
+                if let Err(e) = refresh_blocks(vault, &path_str, &source).await {
                     tracing::warn!(path = %path_str, error = %e, "watcher: blocks refresh failed");
                 }
                 if let Err(e) = refresh_block_refs_for_file(vault, &path_str).await {
@@ -676,6 +695,62 @@ mod tests {
         let map: std::collections::HashMap<String, String> = got.into_iter().collect();
         assert_eq!(map["title"], "\"New\"");
         assert_eq!(map["status"], "\"ready\"");
+    }
+
+    #[tokio::test]
+    async fn modified_event_materializes_pending_for_extractors_but_hashes_raw_bytes() {
+        // L3 Session J (chain 3): the watcher's Modified branch reads
+        // the source ONCE per markdown file and materializes any pending
+        // wiki-link rewrites before handing it to the link extractor.
+        // CRITICAL: files.content_hash is computed against the RAW bytes
+        // (its purpose is tracking on-disk state), NOT the materialized
+        // view.
+        use cubical_core::sha256_bytes_hex;
+        use cubical_index::{enqueue_pending, links_from, NewPendingRewrite, RewriteKind};
+
+        let dir = tempdir().unwrap();
+        let p = dir.path().join("a.md");
+        let raw = "linked to [[OldName]]\n";
+        std::fs::write(&p, raw).unwrap();
+        // Target file so the rewrite resolves to a real path.
+        std::fs::write(dir.path().join("Daily.md"), "body\n").unwrap();
+        let vault = Vault::open(dir.path()).await.expect("vault open");
+
+        // Seed a Created event so `files` rows exist for both paths.
+        apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("a.md"))).await;
+        apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("Daily.md"))).await;
+
+        // Enqueue a pending rewrite for a.md: OldName → Daily.
+        enqueue_pending(
+            vault.index(),
+            &[NewPendingRewrite {
+                target_file: "a.md".into(),
+                rewrite_kind: RewriteKind::WikiLink,
+                old_token: "OldName".into(),
+                new_token: "Daily".into(),
+                created_at: 0,
+                rename_op_id: 1,
+            }],
+        )
+        .await
+        .unwrap();
+
+        // Fire Modified. (File on disk unchanged; the watcher just
+        // re-applies the extractors over the post-materialize view.)
+        let hash = apply_watch_event_to_db(&vault, &WatchEvent::Modified(PathBuf::from("a.md")))
+            .await
+            .expect("Modified hash");
+
+        // Extractor output: the link resolves to Daily.md, not OldName.
+        let rows = links_from(vault.index(), "a.md").await.expect("query");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].target_raw, "Daily");
+        assert_eq!(rows[0].target_path.as_deref(), Some("Daily.md"));
+
+        // content_hash is over the RAW bytes (not the materialized view).
+        assert_eq!(hash, sha256_bytes_hex(raw.as_bytes()));
+        // And the file on disk is still raw.
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), raw);
     }
 
     #[tokio::test]

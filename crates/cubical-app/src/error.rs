@@ -126,6 +126,11 @@ impl From<IndexError> for CubicalError {
             IndexError::Io { source, .. } => Self::Io(source.to_string()),
             IndexError::LibSql(e) => Self::Db(e.to_string()),
             IndexError::SchemaTooNew(v) => Self::SchemaVersionUnsupported(v),
+            // L3 Session J: surfaces when a `pending_rewrites.rewrite_kind`
+            // row carries a value this build doesn't know (corrupt or
+            // future-version DB). Fold into `Db` so the frontend toast
+            // path stays uniform.
+            other @ IndexError::UnknownEnum { .. } => Self::Db(other.to_string()),
         }
     }
 }
