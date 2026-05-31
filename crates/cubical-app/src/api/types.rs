@@ -534,3 +534,65 @@ pub struct GetEmbedResponse {
     /// MissingAnchor.
     pub content: Option<String>,
 }
+
+// -- get_unlinked_mentions (L3 Session I) ------------------------------
+
+/// Request payload for `get_unlinked_mentions`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct GetUnlinkedMentionsRequest {
+    /// Vault whose files to scan.
+    pub vault_id: String,
+    /// Vault-relative path of the note whose title / aliases drive the
+    /// scan. This note is excluded from the candidate source list.
+    pub path: String,
+}
+
+/// Response payload for `get_unlinked_mentions`.
+#[derive(Debug, Clone, Serialize)]
+pub struct GetUnlinkedMentionsResponse {
+    /// Mentions in `(source_path, position)` order. Empty when nothing
+    /// matches.
+    pub mentions: Vec<Mention>,
+}
+
+/// One unlinked-mention row surfaced to the frontend.
+#[derive(Debug, Clone, Serialize)]
+pub struct Mention {
+    /// Vault-relative path of the source note containing the mention.
+    pub source_path: String,
+    /// Single-line context snippet, ~120 chars centred on `position`.
+    pub context: String,
+    /// Byte offset of the match start within `source_path`.
+    pub position: u64,
+    /// Byte length of the matched span (for the "link it" rewrite).
+    pub byte_len: u64,
+    /// The needle that matched, as supplied by the handler (the
+    /// canonical title or one of the aliases — case-preserved as
+    /// stored). Powers the alias-vs-title rewrite decision.
+    pub needle: String,
+}
+
+// -- link_mention (L3 Session I) ---------------------------------------
+
+/// Request payload for `link_mention`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct LinkMentionRequest {
+    /// Vault containing the file to rewrite.
+    pub vault_id: String,
+    /// Vault-relative path of the source note (the file being edited).
+    pub source_path: String,
+    /// Byte offset of the matched span (from a `Mention.position`).
+    pub position: u64,
+    /// Byte length of the matched span (from a `Mention.byte_len`).
+    pub byte_len: u64,
+    /// Canonical title of the target note (the basename minus `.md`).
+    /// This is what the produced `[[…]]` resolves to.
+    pub target_title: String,
+}
+
+/// Response payload for `link_mention`.
+#[derive(Debug, Clone, Serialize)]
+pub struct LinkMentionResponse {
+    /// SHA-256 of the file's new on-disk contents (lowercase hex).
+    pub new_hash: String,
+}

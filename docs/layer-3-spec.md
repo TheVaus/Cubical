@@ -758,3 +758,59 @@ ChainE: end
 Verify in `Outer.md`: full-note embed renders Daily's full content (minus frontmatter — H.1 strips it); section embed renders the `# Intro` body; block embed renders the line carrying `^abc123`; `![[Ghost]]` → unresolved placeholder; `![[Daily#Missing]]` → missing-anchor placeholder. In `Cycle.md`, the embed renders as a styled cycle link. In `ChainA.md`, the chain renders four levels of nested frames; the fifth (ChainE inside ChainD) renders as a styled depth link.
 
 **What's left for L3.** Sessions I–K — unlinked mentions, pending-rewrites cache, closeout. H.3 (rich markdown rendering inside the embed body, click navigation, optional `⎘`-indicator retirement) is **deferred polish** — not on the §2.8 DoD critical path.
+
+### 9.14 Session I — Unlinked mentions
+
+**Done 2026-05-30.** A second right-sidebar panel ("Unlinked Mentions") lands beside Backlinks. For the open note, every plain-text occurrence of its title or any frontmatter `aliases` value that is NOT already a link surfaces with a context snippet; a per-row "Link it" button rewrites the matched text into `[[…]]` on disk. The scan is on-demand (per IPC call) — no new index table.
+
+**Pure scanner — `cubical-core::vault::mentions`.** Two pure functions sit beside `vault::blocks` and `vault::tags`. `extract_text_runs(source) -> Vec<TextRun<'_>>` walks the source byte-by-byte, yielding plain-text regions (with their original byte offsets) outside frontmatter, fenced code (` ``` ` / `~~~`), inline code spans (`` `…` `` — multi-line aware, multi-tick aware), wiki-links (`[[…]]` / `![[…]]` — pre-`!` byte included in the exclusion zone), and markdown links (`[…](…)` — both display and url segments excluded). Unterminated fences / spans / brackets fall through as text. `find_mention_occurrences(source, needles) -> Vec<MentionHit>` walks each text run, lowercases it once, and runs a linear case-insensitive substring scan per needle. The whole-word boundary rule is `!c.is_alphanumeric() && c != '_'` on both sides (Rust's locale-independent `char::is_alphanumeric` — mirrors Tantivy's default tokenizer boundary so the eventual L4 search agrees). Empty / whitespace-only needles skip silently. Hits sort by `byte_offset` so callers don't need to. A `map_lower_span_to_original` helper handles the (rare) case where casefolding expands the source bytes (e.g. `ß` → `ss`) so byte offsets remain correct on the original source. AST module `cubical_ast::wikilink` (Session A's tokenizer) was promoted to `pub` for anticipated reuse, though the byte-level walker in `mentions.rs` ended up not delegating to `scan_wikilinks` directly — the re-export is held as a building block for future scanner consolidation.
+
+**Snippet helper lifted.** `build_snippet` moved out of `commands/backlinks.rs` into the new `cubical_app::commands::snippet` module (verbatim — same 9 unit tests) so the Backlinks panel and the Mentions panel produce identical-looking context.
+
+**Handler: `get_unlinked_mentions`.** Pure handler + Tauri shim + `generate_handler!` registration (mirroring `get_backlinks`). Steps: snapshot every markdown `files.path` except the open note (`type_id = 'markdown' AND path != ?1 ORDER BY path` — the `path != ?1` is the open-note self-exclusion); load the note's title (basename minus `.md`) and aliases (`SELECT value FROM frontmatter WHERE file_path = ?1 AND key = 'aliases'`, JSON-decoded — non-list / non-string entries silently dropped); build a deduped needle list (title first, aliases case-insensitively deduped against title, blanks dropped); for each candidate file read it off the tokio runtime (`vault::links::read_source_off_executor` — already widened to `pub` for H.1) and call `find_mention_occurrences`; emit `Mention { source_path, context, position, byte_len, needle }` per hit; sort `(source_path, position)`. A `MAX_SCAN_FILES = 50_000` fuse caps the worst case at a known bound — a vault past that size gets a partial answer rather than a frozen UI; documented in the source so the next reader can find it.
+
+**Handler: `link_mention`.** Reads the source file fresh just-in-time (so a same-millisecond external edit is reflected), validates the byte range is in bounds and falls on UTF-8 boundaries, re-checks the whole-word boundary at the span's edges (so an external edit that moved the match raises `InvalidRequest` and the frontend re-fetches), then splices `[[Title]]` (when `matched.to_lowercase() == title.to_lowercase()`) or `[[Title|matched]]` (otherwise — the alias-display case) over the span. The bare-vs-alias decision uses **full Unicode `to_lowercase`**, not `eq_ignore_ascii_case`, so a title like `"CAFÉ"` matched as `"café"` correctly produces `[[CAFÉ]]` (caught in code review; regression test in `commands::mentions::tests::link_mention_handles_non_ascii_title_with_unicode_case_fold`). Atomic write via `cubical_core::atomic_write` off the executor; mirrors `write_file_text`'s blocking-task pattern. The `files.content_hash` is eagerly updated post-write so the next mentions refresh sees the new hash (best-effort — the watcher will also catch up). Returns `{ new_hash }`. No `expected_seen_hash` parameter — for arbitrary source files the frontend has no seen-hash, and the just-in-time read is sufficient for the spec's "responsive on a large vault" DoD.
+
+**Frontend.**
+- `ui/src/api/ipc.ts` — `getUnlinkedMentions` + `linkMention` bindings + the `Mention` type. `Setting` union gains `ui.right_sidebar_panel`.
+- `ui/src/sidebar/unlinkedMentionsState.ts` — pure state machine (`MentionsViewState` = `idle | loading | empty | loaded | error`) + `mentionKey` row identity + a `mention:linked` action that locally removes the linked row (optimistic) until the next refresh tick resolves it from disk.
+- `ui/src/sidebar/UnlinkedMentions.tsx` — Solid panel mirroring `Backlinks.tsx` shape verbatim (same untrack-guarded fetch effect from the Session C regression test); per-row "Link it" button calls `linkMention` and dispatches `mention:linked` on success. Per-row link errors live in a separate `linkError` signal keyed by `mentionKey` so a single-row failure doesn't blow away the rest of the loaded list (caught in code review).
+- `ui/src/RightSidebar.tsx` — extended with optional `segments` / `segment` / `onSegmentChange` props. When two or more segments are supplied a tabbed selector (`role="tablist"`, per-tab `aria-selected`) renders above `children` (hidden when collapsed). Backwards-compatible — Session C-style single-panel usage still works.
+- `ui/src/App.tsx` — renders `<Backlinks>` or `<UnlinkedMentions>` based on `rightSidebarPanel` signal; persists the choice as `ui.right_sidebar_panel` (default `"backlinks"`). Renames `backlinksRefreshTick` → `rightSidebarRefreshTick` (and the constant from `BACKLINKS_…` to `RIGHT_SIDEBAR_…`) since the same debounced tick now drives both panels.
+
+**Decisions worth noting.**
+- *Title source:* basename minus `.md`. No `title:` frontmatter convention exists in the codebase; the file list and Backlinks both already use the same `basenameWithoutExtension` helper.
+- *Whole-word boundary:* `!char::is_alphanumeric() && != '_'` (Rust's locale-independent method). Hyphens act as non-word chars (so `Daily-Note` matches `Daily`); underscores are word chars (so `Daily_Note` does NOT match — `_` is part of the surrounding identifier, which is the standard convention).
+- *Alias-display rewrite:* `[[Title|alias]]` when the matched span differs from the canonical title case-insensitively (full Unicode fold); bare `[[Title]]` otherwise.
+- *No `expected_seen_hash` on the rewrite:* the frontend has no seen-hash for non-open source files. The handler reads fresh, validates, splices, writes atomically — a same-millisecond external edit's content is what the splice operates on.
+- *Live-refresh route:* piggybacks the existing debounced `vault:file-changed` listener — the same tick now fans out to both Backlinks and Mentions. No new event (spec §3.5 reserves `vault:index-changed` for a hypothetical future second consumer; Session I has none).
+- *Segment selector location:* inside `RightSidebar` (the shell owns the tab chrome). Keeps `App.tsx` flatter.
+- *Group by source vs. flat list:* flat list, sorted `(source_path, position)`. Identical to Backlinks.
+- *Open note self-exclusion:* enforced in the SQL (`path != ?1`). A note's own body never produces mentions of itself.
+- *`MAX_SCAN_FILES` fuse:* 50,000 markdown files. Above that the panel returns a partial answer rather than freezing.
+
+**Tests:** 289 baseline + 37 new Rust (= 326) — 21 in `vault::mentions` (text-run extraction + needle finder + Unicode boundary cases) + 16 in `commands::mentions` (handler success / error paths + rewrite shapes + edge cases including the non-ASCII case-fold regression). 321 baseline + 8 new vitest (= 329) — 8 in `unlinkedMentions.test.ts` (`mentionKey` + reducer transitions including `mention:linked`).
+
+**Smoke status — deferred.** Hands-on `cargo tauri dev` smoke was not performed; the automated context can't drive the native Tauri window. The recipe is recorded for the next interactive pass:
+
+```
+Smoke vault:
+
+  Daily.md
+  ---
+  aliases: [diary, journal]
+  ---
+  body — see Project for context.
+
+  Project.md
+  Worked on the daily today. The Journal entry tracks this.
+  Also see [[Daily]] — this occurrence must NOT appear.
+  `daily` inside code — this occurrence must NOT appear.
+
+  Notes.md
+  Mentions of the journal and Daily across multiple lines.
+```
+
+Expected: with `Daily.md` open, three rows from `Project.md` (`daily` body match, `Journal` alias match, plain `Daily`) and the matches in `Notes.md`. `[[Daily]]` and `` `daily` `` are NOT listed. `Daily.md`'s own body is excluded. Clicking "Link it" rewrites the matched span to `[[Daily]]` (or `[[Daily|Journal]]` for the alias case) on disk; the row disappears; the panel re-fetches via the debounced `vault:file-changed` listener and the rewritten occurrence no longer appears. Toggling the segment to Backlinks still works; the collapsed-sidebar state from Session C still works. A failed "Link it" (e.g. the span has moved) surfaces an inline error on the affected row without destroying the rest of the list.
+
+**What's left for L3.** Sessions J (Rename → Pending Rewrites Cache) and K (closeout, `l3` tag, full smoke pass). H.3 polish (rich markdown rendering inside the embed body, click navigation, `⎘`-indicator retirement) remains explicitly deferred — not on the §6 DoD critical path. The `vault:index-changed` event reserved by §3.5 stays unbuilt; the on-demand `vault:file-changed` fan-out is the only live-refresh substrate L3 ships.

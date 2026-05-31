@@ -55,6 +55,7 @@ import {
 } from "./styles/theme";
 import RightSidebar from "./RightSidebar";
 import Backlinks from "./sidebar/Backlinks";
+import UnlinkedMentions from "./sidebar/UnlinkedMentions";
 import TagPage from "./TagPage";
 
 /**
@@ -208,13 +209,20 @@ const App: Component = () => {
   // L3 Session C: right-sidebar shell state + backlinks refresh tick.
   // `rightSidebarCollapsed` mirrors the `ui.right_sidebar_collapsed`
   // vault-local setting (seeded on vault open, persisted on toggle).
-  // `backlinksRefreshTick` is a monotonic counter that the Backlinks
-  // panel watches — every `vault:file-changed` event bumps it after
-  // a 200ms debounce so the panel refetches without polling.
+  // `rightSidebarRefreshTick` is a monotonic counter that the Backlinks
+  // and Unlinked Mentions panels watch — every `vault:file-changed`
+  // event bumps it after a 200ms debounce so the panels refetch
+  // without polling. (Renamed in Session I — the same tick now drives
+  // both panels.)
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = createSignal(false);
-  const [backlinksRefreshTick, setBacklinksRefreshTick] = createSignal(0);
-  let backlinksRefreshTimer: ReturnType<typeof setTimeout> | undefined;
-  const BACKLINKS_REFRESH_DEBOUNCE_MS = 200;
+  const [rightSidebarRefreshTick, setRightSidebarRefreshTick] = createSignal(0);
+  let rightSidebarRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+  const RIGHT_SIDEBAR_REFRESH_DEBOUNCE_MS = 200;
+  // L3 Session I: which right-sidebar panel is currently rendered.
+  // Persisted as `ui.right_sidebar_panel` (default `backlinks`).
+  type RightSidebarPanel = "backlinks" | "unlinked_mentions";
+  const [rightSidebarPanel, setRightSidebarPanel] =
+    createSignal<RightSidebarPanel>("backlinks");
   // L3 Session G: broken block refs surfaced in the footer status bar.
   const [brokenBlockRefs, setBrokenBlockRefs] = createSignal<BrokenBlockRef[]>(
     [],
@@ -364,18 +372,20 @@ const App: Component = () => {
   };
 
   /**
-   * Bump the backlinks refresh tick after a 200ms debounce. Called
+   * Bump the right-sidebar refresh tick after a 200ms debounce. Called
    * from the `vault:file-changed` listener — any vault file change
-   * may have created or removed a link pointing at the open note.
+   * may have created or removed a link pointing at the open note
+   * (Backlinks) or added/removed a plain-text mention (Unlinked
+   * Mentions). Same tick fans out to both panels.
    */
-  const scheduleBacklinksRefresh = () => {
-    if (backlinksRefreshTimer !== undefined) {
-      clearTimeout(backlinksRefreshTimer);
+  const scheduleRightSidebarRefresh = () => {
+    if (rightSidebarRefreshTimer !== undefined) {
+      clearTimeout(rightSidebarRefreshTimer);
     }
-    backlinksRefreshTimer = setTimeout(() => {
-      backlinksRefreshTimer = undefined;
-      setBacklinksRefreshTick((n) => n + 1);
-    }, BACKLINKS_REFRESH_DEBOUNCE_MS);
+    rightSidebarRefreshTimer = setTimeout(() => {
+      rightSidebarRefreshTimer = undefined;
+      setRightSidebarRefreshTick((n) => n + 1);
+    }, RIGHT_SIDEBAR_REFRESH_DEBOUNCE_MS);
   };
 
   /**
@@ -401,7 +411,7 @@ const App: Component = () => {
     brokenBlockRefsTimer = setTimeout(() => {
       brokenBlockRefsTimer = undefined;
       void refreshBrokenBlockRefs();
-    }, BACKLINKS_REFRESH_DEBOUNCE_MS);
+    }, RIGHT_SIDEBAR_REFRESH_DEBOUNCE_MS);
   };
 
   const handleContentChange = (_content: string) => {
@@ -478,6 +488,22 @@ const App: Component = () => {
     if (id) {
       setSetting(id, "ui.right_sidebar_collapsed", next).catch((e) => {
         console.error("persisting ui.right_sidebar_collapsed failed", e);
+      });
+    }
+  };
+
+  /**
+   * L3 Session I — pick which right-sidebar panel to render. Persists
+   * the choice as `ui.right_sidebar_panel` so the user's preference
+   * sticks across sessions for this vault.
+   */
+  const handleRightSidebarSegmentChange = (id: string) => {
+    if (id !== "backlinks" && id !== "unlinked_mentions") return;
+    setRightSidebarPanel(id);
+    const v = vaultId();
+    if (v) {
+      setSetting(v, "ui.right_sidebar_panel", id).catch((e) => {
+        console.error("persisting ui.right_sidebar_panel failed", e);
       });
     }
   };
@@ -683,10 +709,11 @@ const App: Component = () => {
       // widget rebuild re-fetches.
       embedResolver()?.invalidate();
 
-      // L3 Session C: any vault file change may have added/removed
-      // a link pointing at the open note. Bump the backlinks tick
-      // after a 200ms debounce so the panel refetches.
-      scheduleBacklinksRefresh();
+      // L3 Sessions C + I: any vault file change may have added/removed
+      // a link pointing at the open note (Backlinks) or a plain-text
+      // mention (Unlinked Mentions). Bump the right-sidebar tick after
+      // a 200ms debounce so both panels refetch.
+      scheduleRightSidebarRefresh();
 
       // L3 Session G: a change may have created or healed a broken
       // block ref anywhere in the vault.
@@ -771,7 +798,8 @@ const App: Component = () => {
     unlistenCancelled?.();
     unlistenFileChanged?.();
     if (autosaveTimer !== undefined) clearTimeout(autosaveTimer);
-    if (backlinksRefreshTimer !== undefined) clearTimeout(backlinksRefreshTimer);
+    if (rightSidebarRefreshTimer !== undefined)
+      clearTimeout(rightSidebarRefreshTimer);
   });
 
   const handleOpen = async () => {
@@ -796,11 +824,12 @@ const App: Component = () => {
       setConflictExternalHash(null);
       setRawOverride(null);
       setCreateOffer(null);
-      setBacklinksRefreshTick(0);
+      setRightSidebarRefreshTick(0);
       setBrokenBlockRefs([]);
       setTagRefreshTick(0);
       setView({ kind: "file" });
       setRightSidebarCollapsed(false);
+      setRightSidebarPanel("backlinks");
       setWikilinkResolver(null);
       setEmbedResolver(null);
       setAutocompleteProvider(null);
@@ -852,6 +881,18 @@ const App: Component = () => {
         setRightSidebarCollapsed(stored ?? false);
       } catch (e) {
         console.error("loading ui.right_sidebar_collapsed failed", e);
+      }
+
+      // L3 Session I: seed which right-sidebar panel is selected.
+      // Absent key → `backlinks` (preserves the Session C default).
+      try {
+        const stored = await getSetting(
+          resp.vault_id,
+          "ui.right_sidebar_panel",
+        );
+        if (stored !== null) setRightSidebarPanel(stored);
+      } catch (e) {
+        console.error("loading ui.right_sidebar_panel failed", e);
       }
     } catch (e) {
       const message =
@@ -1295,15 +1336,35 @@ const App: Component = () => {
             <RightSidebar
               collapsed={rightSidebarCollapsed()}
               onToggle={toggleRightSidebar}
+              segments={[
+                { id: "backlinks", label: "Backlinks" },
+                { id: "unlinked_mentions", label: "Mentions" },
+              ]}
+              segment={rightSidebarPanel()}
+              onSegmentChange={handleRightSidebarSegmentChange}
             >
-              <Backlinks
-                vaultId={vaultId()}
-                path={selectedPath()}
-                refreshSignal={backlinksRefreshTick()}
-                onRowClick={(path) =>
-                  void handleNavigateWikilink(path, null)
+              <Show
+                when={rightSidebarPanel() === "backlinks"}
+                fallback={
+                  <UnlinkedMentions
+                    vaultId={vaultId()}
+                    path={selectedPath()}
+                    refreshSignal={rightSidebarRefreshTick()}
+                    onRowClick={(path) =>
+                      void handleNavigateWikilink(path, null)
+                    }
+                  />
                 }
-              />
+              >
+                <Backlinks
+                  vaultId={vaultId()}
+                  path={selectedPath()}
+                  refreshSignal={rightSidebarRefreshTick()}
+                  onRowClick={(path) =>
+                    void handleNavigateWikilink(path, null)
+                  }
+                />
+              </Show>
             </RightSidebar>
           </div>
         </section>

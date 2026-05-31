@@ -16,5 +16,7 @@ pub mod backlinks;
 pub mod blocks;
 pub mod embeds;
 pub mod links;
+pub mod mentions;
+pub mod snippet;
 pub mod tags;
 pub mod vault;
