@@ -67,6 +67,8 @@ pub async fn open_vault(
         Some(watcher),
     );
     let flush_own_writes = open.flush_own_writes.clone();
+    let flush_in_progress = open.flush_in_progress.clone();
+    let flush_timer_cancel = open.flush_timer_cancel.clone();
     state.vaults().write().await.insert(vault_id.clone(), open);
 
     spawn_scan_dispatcher(
@@ -80,9 +82,20 @@ pub async fn open_vault(
     spawn_watcher_dispatcher(
         app.clone(),
         vault_id.clone(),
-        vault,
+        vault.clone(),
         watch_rx,
+        flush_own_writes.clone(),
+    );
+
+    // L3 Session J — per-vault periodic flush timer. Cancelled in
+    // close_vault before the close-time flush runs.
+    crate::commands::rename::spawn_flush_timer(
+        app.clone(),
+        vault,
         flush_own_writes,
+        flush_in_progress,
+        vault_id.clone(),
+        flush_timer_cancel,
     );
 
     Ok(OpenVaultResponse {
@@ -635,7 +648,11 @@ pub async fn get_canonical_ast(
 /// Drops the underlying `IndexConn` (and therefore the libSQL connection)
 /// when the last reference goes away — Vault clones inside the scan task
 /// keep the connection alive until the scan settles.
-pub async fn close_vault(state: &AppState, req: CloseVaultRequest) -> Result<(), CubicalError> {
+pub async fn close_vault<R: crate::events::Runtime>(
+    state: &AppState,
+    app: &tauri::AppHandle<R>,
+    req: CloseVaultRequest,
+) -> Result<(), CubicalError> {
     let removed = {
         let mut guard = state.vaults().write().await;
         guard.remove(&req.vault_id)
@@ -643,6 +660,23 @@ pub async fn close_vault(state: &AppState, req: CloseVaultRequest) -> Result<(),
     let Some(open) = removed else {
         return Err(CubicalError::VaultNotOpen(req.vault_id));
     };
+
+    // Bring the periodic flush timer down BEFORE running the close-time
+    // flush, so the two don't race for `flush_in_progress`.
+    open.flush_timer_cancel.cancel();
+
+    // L3 Session J — mandatory close-time flush. Errors are logged and
+    // swallowed so flush failure doesn't block close (rows survive on
+    // disk for the next open).
+    crate::commands::rename::flush_at_close(
+        &open.vault,
+        &open.flush_own_writes,
+        &open.flush_in_progress,
+        app,
+        &req.vault_id,
+    )
+    .await;
+
     open.cancel.cancel();
     // Drop `open` here; the dispatcher task observes cancellation via
     // its CancellationToken clone and tears itself down. Last reference

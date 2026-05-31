@@ -161,6 +161,24 @@ async fn clone_vault_with_flush_state(
     ))
 }
 
+/// Spec §5.7's >50-per-file fuse. After enqueuing, if any newly-touched
+/// target already exceeds 50 pending rows, flush THAT target
+/// synchronously so the cache doesn't grow unbounded for a single file
+/// while the rest of the vault stays deferred.
+async fn enforce_fifty_per_file_fuse(
+    vault: &cubical_core::Vault,
+    flush_own_writes: &std::sync::Arc<tokio::sync::Mutex<HashSet<(PathBuf, String)>>>,
+    targets: &[String],
+) -> Result<(), CubicalError> {
+    for target in targets {
+        let n = cubical_index::pending_count_for_target(vault.index(), target).await?;
+        if n > 50 {
+            flush_pending_for_target(vault, target, Some(flush_own_writes.clone())).await?;
+        }
+    }
+    Ok(())
+}
+
 // -- Rename IPC handlers -------------------------------------------------
 
 /// `rename_file` (L3 Session J, spec §2.10).
@@ -186,7 +204,8 @@ pub async fn rename_file<R: Runtime>(
             "from_path == to_path".into(),
         ));
     }
-    let vault = clone_vault(state, &req.vault_id).await?;
+    let (vault, flush_own_writes, _flush_in_progress) =
+        clone_vault_with_flush_state(state, &req.vault_id).await?;
     let conn = vault.index().connection();
 
     // Disk-side pre-checks. The file move happens AFTER the transaction
@@ -343,6 +362,11 @@ pub async fn rename_file<R: Runtime>(
     let _ = refresh_blocks(&vault, &req.to_path, &on_disk).await;
     let _ = refresh_block_refs_for_file(&vault, &req.to_path).await;
 
+    // >50-per-file fuse — spec §5.7. Per-referrer-file synchronous
+    // flush when the post-enqueue count for that file exceeds 50.
+    let fuse_targets: Vec<String> = referrers.iter().map(|(s, _)| s.clone()).collect();
+    enforce_fifty_per_file_fuse(&vault, &flush_own_writes, &fuse_targets).await?;
+
     let pending_count = pending_count_total(vault.index()).await?;
     emit_pending_rewrites_changed(
         app,
@@ -374,7 +398,8 @@ pub async fn rename_tag<R: Runtime>(
     if req.old_tag.is_empty() || req.new_tag.is_empty() {
         return Err(CubicalError::InvalidRequest("tag must not be empty".into()));
     }
-    let vault = clone_vault(state, &req.vault_id).await?;
+    let (vault, flush_own_writes, _flush_in_progress) =
+        clone_vault_with_flush_state(state, &req.vault_id).await?;
     let conn = vault.index().connection();
 
     let prefix_like = format!("{}/%", req.old_tag);
@@ -419,6 +444,8 @@ pub async fn rename_tag<R: Runtime>(
     }
     tx.commit().await?;
 
+    enforce_fifty_per_file_fuse(&vault, &flush_own_writes, &files).await?;
+
     let pending_count = pending_count_total(vault.index()).await?;
     emit_pending_rewrites_changed(
         app,
@@ -456,7 +483,8 @@ pub async fn rename_block_id<R: Runtime>(
     if req.old_id.is_empty() || req.new_id.is_empty() {
         return Err(CubicalError::InvalidRequest("block id must not be empty".into()));
     }
-    let vault = clone_vault(state, &req.vault_id).await?;
+    let (vault, flush_own_writes, _flush_in_progress) =
+        clone_vault_with_flush_state(state, &req.vault_id).await?;
     let conn = vault.index().connection();
 
     let exists = cubical_index::block_exists(vault.index(), &req.file_path, &req.old_id).await?;
@@ -512,6 +540,8 @@ pub async fn rename_block_id<R: Runtime>(
     }
     tx.commit().await?;
 
+    enforce_fifty_per_file_fuse(&vault, &flush_own_writes, &targets).await?;
+
     let pending_count = pending_count_total(vault.index()).await?;
     emit_pending_rewrites_changed(
         app,
@@ -547,13 +577,10 @@ pub async fn rename_block_id<R: Runtime>(
 /// follows is itself an own-write tracked through the same disk write),
 /// the gate insert is skipped.
 pub(crate) async fn flush_pending_for_target(
-    state: &AppState,
-    vault_id: &str,
+    vault: &cubical_core::Vault,
     target_file: &str,
     flush_own_writes: Option<std::sync::Arc<tokio::sync::Mutex<HashSet<(PathBuf, String)>>>>,
 ) -> Result<(bool, usize), CubicalError> {
-    let vault = clone_vault(state, vault_id).await?;
-
     let rows = pending_for_target(vault.index(), target_file).await?;
     if rows.is_empty() {
         return Ok((false, 0));
@@ -659,7 +686,8 @@ pub(crate) async fn flush_target_for_link_mention(
     vault_id: &str,
     target_file: &str,
 ) -> Result<(), CubicalError> {
-    flush_pending_for_target(state, vault_id, target_file, None)
+    let vault = clone_vault(state, vault_id).await?;
+    flush_pending_for_target(&vault, target_file, None)
         .await
         .map(|_| ())
 }
@@ -682,13 +710,8 @@ pub async fn flush_pending_rewrites<R: Runtime>(
     let mut files_rewritten: i64 = 0;
     let mut refs_updated: i64 = 0;
     for target in &targets {
-        let (changed, n) = flush_pending_for_target(
-            state,
-            &req.vault_id,
-            target,
-            Some(flush_own_writes.clone()),
-        )
-        .await?;
+        let (changed, n) =
+            flush_pending_for_target(&vault, target, Some(flush_own_writes.clone())).await?;
         if changed {
             files_rewritten += 1;
         }
@@ -728,13 +751,8 @@ pub async fn flush_pending_rewrites_for_target<R: Runtime>(
         clone_vault_with_flush_state(state, &req.vault_id).await?;
     let _guard = flush_in_progress.lock().await;
 
-    let (changed, refs_updated_usize) = flush_pending_for_target(
-        state,
-        &req.vault_id,
-        &req.target_file,
-        Some(flush_own_writes),
-    )
-    .await?;
+    let (changed, refs_updated_usize) =
+        flush_pending_for_target(&vault, &req.target_file, Some(flush_own_writes)).await?;
     let files_rewritten: i64 = if changed { 1 } else { 0 };
     let refs_updated = refs_updated_usize as i64;
 
@@ -761,23 +779,142 @@ pub async fn flush_pending_rewrites_for_target<R: Runtime>(
     })
 }
 
-/// Internal flush entry point that drops a vault held by id directly
-/// from the state. Used by the close-time flush and the periodic timer,
-/// which both need to operate without touching the higher-level
-/// flush IPCs' wire types.
+/// Internal flush entry point that drives a flush given only what the
+/// timer / close-time triggers can capture from `open_vault`:
+/// - the `Vault` handle (cheap-clone, owns the index connection),
+/// - the per-vault `flush_own_writes` gate,
+/// - the per-vault `flush_in_progress` guard.
+///
+/// Doesn't touch `AppState`, so the spawned timer task can call it
+/// without borrowing across an `await` point.
 pub(crate) async fn flush_all_for_vault<R: Runtime>(
-    state: &AppState,
+    vault: &cubical_core::Vault,
+    flush_own_writes: &std::sync::Arc<tokio::sync::Mutex<HashSet<(PathBuf, String)>>>,
+    flush_in_progress: &std::sync::Arc<tokio::sync::Mutex<()>>,
     app: &tauri::AppHandle<R>,
     vault_id: &str,
 ) -> Result<FlushPendingRewritesResponse, CubicalError> {
-    flush_pending_rewrites(
-        state,
+    let _guard = flush_in_progress.lock().await;
+    let targets = pending_targets(vault.index()).await?;
+    let mut files_rewritten: i64 = 0;
+    let mut refs_updated: i64 = 0;
+    for target in &targets {
+        let (changed, n) =
+            flush_pending_for_target(vault, target, Some(flush_own_writes.clone())).await?;
+        if changed {
+            files_rewritten += 1;
+        }
+        refs_updated += n as i64;
+    }
+
+    let pending_count = pending_count_total(vault.index()).await?;
+    emit_flush_complete(
         app,
-        FlushPendingRewritesRequest {
+        VaultFlushComplete {
             vault_id: vault_id.to_string(),
+            files_rewritten,
+            refs_updated,
         },
-    )
-    .await
+    );
+    emit_pending_rewrites_changed(
+        app,
+        VaultPendingRewritesChanged {
+            vault_id: vault_id.to_string(),
+            count: pending_count,
+        },
+    );
+
+    Ok(FlushPendingRewritesResponse {
+        files_rewritten,
+        refs_updated,
+    })
+}
+
+/// Config key holding the periodic-flush interval (seconds, default 300).
+pub const FLUSH_INTERVAL_SECS_KEY: &str = "pending_rewrites.flush_interval_secs";
+
+/// Default periodic flush interval if `pending_rewrites.flush_interval_secs`
+/// is unset (or corrupt). Spec §5.7 / design spec default.
+const DEFAULT_FLUSH_INTERVAL_SECS: u64 = 300;
+
+/// Spawn the per-vault periodic flush timer. Reads
+/// `pending_rewrites.flush_interval_secs` on each tick (so a J.2
+/// settings change takes effect on the next tick, not on app restart).
+/// Exits when `cancel` fires.
+pub fn spawn_flush_timer<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    vault: cubical_core::Vault,
+    flush_own_writes: std::sync::Arc<tokio::sync::Mutex<HashSet<(PathBuf, String)>>>,
+    flush_in_progress: std::sync::Arc<tokio::sync::Mutex<()>>,
+    vault_id: String,
+    cancel: tokio_util::sync::CancellationToken,
+) {
+    tokio::spawn(async move {
+        loop {
+            let secs = read_flush_interval(&vault).await;
+            let sleep = tokio::time::sleep(std::time::Duration::from_secs(secs));
+            tokio::select! {
+                _ = cancel.cancelled() => {
+                    tracing::debug!(vault_id = %vault_id, "flush timer: cancelled");
+                    return;
+                }
+                _ = sleep => {}
+            }
+            if let Err(e) = flush_all_for_vault(
+                &vault,
+                &flush_own_writes,
+                &flush_in_progress,
+                &app,
+                &vault_id,
+            )
+            .await
+            {
+                tracing::warn!(vault_id = %vault_id, error = %e, "flush timer: tick failed");
+            }
+        }
+    });
+}
+
+async fn read_flush_interval(vault: &cubical_core::Vault) -> u64 {
+    let conn = vault.index().connection();
+    let mut rows = match conn
+        .query(
+            "SELECT value FROM config WHERE key = ?1",
+            params![FLUSH_INTERVAL_SECS_KEY],
+        )
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!(error = %e, "flush timer: config query failed; using default");
+            return DEFAULT_FLUSH_INTERVAL_SECS;
+        }
+    };
+    let raw: Option<String> = match rows.next().await {
+        Ok(Some(row)) => row.get(0).ok(),
+        _ => None,
+    };
+    raw.and_then(|s| serde_json::from_str::<u64>(&s).ok())
+        .unwrap_or(DEFAULT_FLUSH_INTERVAL_SECS)
+}
+
+/// Close-time flush — drives one flush before `close_vault` drops the
+/// index handle. Errors are logged and swallowed: a flush failure must
+/// not block close (better to lose the pending rewrites than to wedge
+/// the user; the rows persist in libSQL and the next open will see
+/// them).
+pub(crate) async fn flush_at_close<R: Runtime>(
+    vault: &cubical_core::Vault,
+    flush_own_writes: &std::sync::Arc<tokio::sync::Mutex<HashSet<(PathBuf, String)>>>,
+    flush_in_progress: &std::sync::Arc<tokio::sync::Mutex<()>>,
+    app: &tauri::AppHandle<R>,
+    vault_id: &str,
+) {
+    if let Err(e) =
+        flush_all_for_vault(vault, flush_own_writes, flush_in_progress, app, vault_id).await
+    {
+        tracing::warn!(vault_id = %vault_id, error = %e, "close-time flush failed; pending rows preserved");
+    }
 }
 
 // -- Read-only IPCs ------------------------------------------------------
@@ -1423,12 +1560,9 @@ mod tests {
 
     #[tokio::test]
     async fn flush_noop_when_no_pending_rows() {
-        let (_d, vault, state) = fresh("v1").await;
+        let (_d, vault, _state) = fresh("v1").await;
         std::fs::write(vault.root().join("A.md"), "body\n").unwrap();
-        let (changed, refs) =
-            flush_pending_for_target(&state, "v1", "A.md", None)
-                .await
-                .unwrap();
+        let (changed, refs) = flush_pending_for_target(&vault, "A.md", None).await.unwrap();
         assert!(!changed);
         assert_eq!(refs, 0);
         let s = std::fs::read_to_string(vault.root().join("A.md")).unwrap();
@@ -1437,7 +1571,7 @@ mod tests {
 
     #[tokio::test]
     async fn flush_writes_materialized_source_and_drops_rows() {
-        let (_d, vault, state) = fresh("v1").await;
+        let (_d, vault, _state) = fresh("v1").await;
         std::fs::write(vault.root().join("Project.md"), "see [[Daily]] today\n").unwrap();
         enqueue_pending(
             vault.index(),
@@ -1453,10 +1587,9 @@ mod tests {
         .await
         .unwrap();
 
-        let (changed, refs) =
-            flush_pending_for_target(&state, "v1", "Project.md", None)
-                .await
-                .unwrap();
+        let (changed, refs) = flush_pending_for_target(&vault, "Project.md", None)
+            .await
+            .unwrap();
         assert!(changed);
         assert_eq!(refs, 1);
 
@@ -1470,7 +1603,7 @@ mod tests {
 
     #[tokio::test]
     async fn flush_silent_drops_when_old_token_was_removed_externally() {
-        let (_d, vault, state) = fresh("v1").await;
+        let (_d, vault, _state) = fresh("v1").await;
         // Disk no longer contains the old token (external edit removed it).
         std::fs::write(vault.root().join("Project.md"), "unrelated content\n").unwrap();
         enqueue_pending(
@@ -1487,10 +1620,9 @@ mod tests {
         .await
         .unwrap();
 
-        let (changed, refs) =
-            flush_pending_for_target(&state, "v1", "Project.md", None)
-                .await
-                .unwrap();
+        let (changed, refs) = flush_pending_for_target(&vault, "Project.md", None)
+            .await
+            .unwrap();
         assert!(!changed);
         assert_eq!(refs, 0, "no row contributed");
         // Pending row still gone — the silent-drop semantic per §5.7.
@@ -1502,7 +1634,7 @@ mod tests {
 
     #[tokio::test]
     async fn flush_populates_own_write_gate_with_post_write_hash() {
-        let (_d, vault, state) = fresh("v1").await;
+        let (_d, vault, _state) = fresh("v1").await;
         std::fs::write(vault.root().join("Project.md"), "see [[Daily]]\n").unwrap();
         enqueue_pending(
             vault.index(),
@@ -1521,7 +1653,7 @@ mod tests {
         let gate: std::sync::Arc<tokio::sync::Mutex<HashSet<(PathBuf, String)>>> =
             std::sync::Arc::new(tokio::sync::Mutex::new(HashSet::new()));
 
-        flush_pending_for_target(&state, "v1", "Project.md", Some(gate.clone()))
+        flush_pending_for_target(&vault, "Project.md", Some(gate.clone()))
             .await
             .unwrap();
 
@@ -1537,7 +1669,7 @@ mod tests {
 
     #[tokio::test]
     async fn flush_silently_drops_rows_for_externally_deleted_target_file() {
-        let (_d, vault, state) = fresh("v1").await;
+        let (_d, vault, _state) = fresh("v1").await;
         // Don't create the target file at all → ENOENT path.
         enqueue_pending(
             vault.index(),
@@ -1553,10 +1685,9 @@ mod tests {
         .await
         .unwrap();
 
-        let (changed, refs) =
-            flush_pending_for_target(&state, "v1", "Gone.md", None)
-                .await
-                .unwrap();
+        let (changed, refs) = flush_pending_for_target(&vault, "Gone.md", None)
+            .await
+            .unwrap();
         assert!(!changed);
         assert_eq!(refs, 0);
         assert!(pending_for_target(vault.index(), "Gone.md")
@@ -1655,5 +1786,178 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(n, 1);
+    }
+
+    // -- triggers: periodic timer / close / >50 fuse ----------------------
+
+    #[tokio::test]
+    async fn fifty_per_file_fuse_flushes_only_the_offending_target() {
+        // Enqueue 51 rows for A.md and 1 for B.md, then run the fuse.
+        // A.md must drain; B.md must stay queued.
+        let (_d, vault, _state) = fresh("v1").await;
+        std::fs::write(
+            vault.root().join("A.md"),
+            // Repeat the old token a couple of times so the textual
+            // substitution actually has something to chew on. The fuse
+            // counts pending ROWS, not occurrences in source.
+            "[[X]] [[X]] [[X]]\n",
+        )
+        .unwrap();
+        std::fs::write(vault.root().join("B.md"), "[[X]]\n").unwrap();
+
+        let mut rows = Vec::new();
+        for op in 0..51 {
+            rows.push(NewPendingRewrite {
+                target_file: "A.md".into(),
+                rewrite_kind: RewriteKind::WikiLink,
+                old_token: "X".into(),
+                new_token: "Y".into(),
+                created_at: op,
+                rename_op_id: op + 1,
+            });
+        }
+        rows.push(NewPendingRewrite {
+            target_file: "B.md".into(),
+            rewrite_kind: RewriteKind::WikiLink,
+            old_token: "X".into(),
+            new_token: "Y".into(),
+            created_at: 100,
+            rename_op_id: 1000,
+        });
+        enqueue_pending(vault.index(), &rows).await.unwrap();
+        assert_eq!(pending_count_for_target(vault.index(), "A.md").await.unwrap(), 51);
+
+        let gate: std::sync::Arc<tokio::sync::Mutex<HashSet<(PathBuf, String)>>> =
+            std::sync::Arc::new(tokio::sync::Mutex::new(HashSet::new()));
+        enforce_fifty_per_file_fuse(&vault, &gate, &["A.md".into(), "B.md".into()])
+            .await
+            .unwrap();
+
+        // A.md drained; B.md still queued (count = 1 is NOT > 50).
+        assert_eq!(pending_count_for_target(vault.index(), "A.md").await.unwrap(), 0);
+        assert_eq!(pending_count_for_target(vault.index(), "B.md").await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn fifty_per_file_fuse_does_not_fire_at_exactly_fifty() {
+        // Boundary check: count must EXCEED 50 to trigger.
+        let (_d, vault, _state) = fresh("v1").await;
+        std::fs::write(vault.root().join("A.md"), "[[X]]\n").unwrap();
+        let rows: Vec<_> = (0..50)
+            .map(|i| NewPendingRewrite {
+                target_file: "A.md".into(),
+                rewrite_kind: RewriteKind::WikiLink,
+                old_token: "X".into(),
+                new_token: "Y".into(),
+                created_at: i,
+                rename_op_id: i + 1,
+            })
+            .collect();
+        enqueue_pending(vault.index(), &rows).await.unwrap();
+        let gate: std::sync::Arc<tokio::sync::Mutex<HashSet<(PathBuf, String)>>> =
+            std::sync::Arc::new(tokio::sync::Mutex::new(HashSet::new()));
+        enforce_fifty_per_file_fuse(&vault, &gate, &["A.md".into()])
+            .await
+            .unwrap();
+        assert_eq!(pending_count_for_target(vault.index(), "A.md").await.unwrap(), 50);
+    }
+
+    #[tokio::test]
+    async fn flush_all_for_vault_drains_every_target() {
+        let (_d, vault, _state) = fresh("v1").await;
+        std::fs::write(vault.root().join("A.md"), "[[X]]\n").unwrap();
+        std::fs::write(vault.root().join("B.md"), "[[X]]\n").unwrap();
+        enqueue_pending(
+            vault.index(),
+            &[
+                NewPendingRewrite {
+                    target_file: "A.md".into(),
+                    rewrite_kind: RewriteKind::WikiLink,
+                    old_token: "X".into(),
+                    new_token: "Y".into(),
+                    created_at: 0,
+                    rename_op_id: 1,
+                },
+                NewPendingRewrite {
+                    target_file: "B.md".into(),
+                    rewrite_kind: RewriteKind::WikiLink,
+                    old_token: "X".into(),
+                    new_token: "Y".into(),
+                    created_at: 0,
+                    rename_op_id: 1,
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        let gate: std::sync::Arc<tokio::sync::Mutex<HashSet<(PathBuf, String)>>> =
+            std::sync::Arc::new(tokio::sync::Mutex::new(HashSet::new()));
+        let guard: std::sync::Arc<tokio::sync::Mutex<()>> =
+            std::sync::Arc::new(tokio::sync::Mutex::new(()));
+        let resp = flush_all_for_vault(&vault, &gate, &guard, &mock_app(), "v1")
+            .await
+            .unwrap();
+        assert_eq!(resp.files_rewritten, 2);
+        assert_eq!(resp.refs_updated, 2);
+        assert_eq!(pending_count_total(vault.index()).await.unwrap(), 0);
+        assert_eq!(std::fs::read_to_string(vault.root().join("A.md")).unwrap(), "[[Y]]\n");
+        assert_eq!(std::fs::read_to_string(vault.root().join("B.md")).unwrap(), "[[Y]]\n");
+    }
+
+    #[tokio::test]
+    async fn periodic_flush_timer_fires_on_interval_then_stops_on_cancel() {
+        let (_d, vault, _state) = fresh("v1").await;
+        std::fs::write(vault.root().join("A.md"), "[[X]]\n").unwrap();
+        // Set the interval to 1s so the test doesn't spin for 5 minutes.
+        vault
+            .index()
+            .connection()
+            .execute(
+                "INSERT INTO config (key, value) VALUES (?1, ?2)",
+                params![FLUSH_INTERVAL_SECS_KEY, "1"],
+            )
+            .await
+            .unwrap();
+        enqueue_pending(
+            vault.index(),
+            &[NewPendingRewrite {
+                target_file: "A.md".into(),
+                rewrite_kind: RewriteKind::WikiLink,
+                old_token: "X".into(),
+                new_token: "Y".into(),
+                created_at: 0,
+                rename_op_id: 1,
+            }],
+        )
+        .await
+        .unwrap();
+
+        let gate: std::sync::Arc<tokio::sync::Mutex<HashSet<(PathBuf, String)>>> =
+            std::sync::Arc::new(tokio::sync::Mutex::new(HashSet::new()));
+        let guard: std::sync::Arc<tokio::sync::Mutex<()>> =
+            std::sync::Arc::new(tokio::sync::Mutex::new(()));
+        let cancel = CancellationToken::new();
+
+        spawn_flush_timer(
+            mock_app(),
+            vault.clone(),
+            gate.clone(),
+            guard.clone(),
+            "v1".into(),
+            cancel.clone(),
+        );
+
+        // Wait up to 3s for the timer to tick.
+        let mut drained = false;
+        for _ in 0..30 {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            if pending_count_total(vault.index()).await.unwrap() == 0 {
+                drained = true;
+                break;
+            }
+        }
+        cancel.cancel();
+        assert!(drained, "periodic timer must have flushed within 3s");
     }
 }

@@ -298,7 +298,8 @@ async fn get_broken_block_refs(
 #[tauri::command]
 async fn close_vault(
     state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
     req: CloseVaultRequest,
 ) -> Result<(), CubicalError> {
-    commands::vault::close_vault(state.inner(), req).await
+    commands::vault::close_vault(state.inner(), &app, req).await
 }
