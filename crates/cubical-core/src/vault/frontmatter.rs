@@ -14,16 +14,20 @@
 //! Called via `tokio::task::spawn_blocking` for the parse step
 //! because `pulldown-cmark` is CPU-bound; the DB writes happen on
 //! the async runtime as usual.
-
-use std::path::Path;
+//!
+//! **L3 Session J (chain 3):** the caller supplies a `&str` source —
+//! i.e. the *post-`materialize_on_read`* view, so frontmatter rows
+//! reflect any pending tag rewrites before they flush. The read +
+//! materialize happens once per file per pass at the caller; this
+//! helper is purely the parse + DB write step.
 
 use cubical_ast::{parse, Frontmatter};
 use libsql::params;
 
 use crate::vault::Vault;
 
-/// Read `abs_path`, parse its markdown, and replace the file's rows
-/// in the `frontmatter` table with whatever the parsed
+/// Parse `source` (a materialized markdown blob), and replace the
+/// file's rows in the `frontmatter` table with whatever the parsed
 /// [`Frontmatter`] contains.
 ///
 /// `rel_path_str` is the path key used in `files.path` and
@@ -32,18 +36,18 @@ use crate::vault::Vault;
 /// invoked, so the foreign-key cascade has a parent to point at.
 ///
 /// Returns `Ok(rows_inserted)` on success. Returns the underlying
-/// libSQL error if the SQL fails; I/O errors and parse warnings are
-/// logged and counted as zero rows.
+/// libSQL error if the SQL fails; parse warnings are logged and
+/// counted as zero rows.
 pub async fn refresh_frontmatter(
     vault: &Vault,
-    abs_path: &Path,
     rel_path_str: &str,
+    source: &str,
 ) -> Result<u32, libsql::Error> {
-    let parsed = match parse_off_executor(abs_path).await {
+    let parsed = match parse_off_executor(source).await {
         Some(fm) => fm,
         None => {
-            // No frontmatter, malformed YAML, or unreadable file —
-            // wipe any stale rows and we're done.
+            // No frontmatter or malformed YAML — wipe any stale rows
+            // and we're done.
             delete_rows(vault, rel_path_str).await?;
             return Ok(0);
         }
@@ -83,32 +87,20 @@ async fn delete_rows(vault: &Vault, rel_path_str: &str) -> Result<(), libsql::Er
     Ok(())
 }
 
-/// Read + parse the file off the runtime. Returns `None` if the file
-/// can't be read, has no frontmatter, or has malformed YAML — every
-/// failure is logged at `debug` / `warn` and treated as "no
-/// frontmatter to record."
-async fn parse_off_executor(abs_path: &Path) -> Option<Frontmatter> {
-    let path_buf = abs_path.to_path_buf();
+/// Parse `source` off the runtime. Returns `None` if the parse turns
+/// up no frontmatter or fails — every failure is logged at `debug` /
+/// `warn` and treated as "no frontmatter to record."
+async fn parse_off_executor(source: &str) -> Option<Frontmatter> {
+    let owned = source.to_string();
     let result = tokio::task::spawn_blocking(move || {
-        let bytes = match std::fs::read(&path_buf) {
-            Ok(b) => b,
-            Err(e) => {
-                tracing::debug!(path = %path_buf.display(), error = %e, "frontmatter: read failed");
-                return None;
-            }
-        };
-        // Markdown is canonically UTF-8. Use lossy conversion so a
-        // file with a few stray non-UTF-8 bytes still gets its
-        // frontmatter parsed rather than being silently skipped.
-        let source = String::from_utf8_lossy(&bytes).into_owned();
-        let doc = parse(&source);
+        let doc = parse(&owned);
         doc.frontmatter
     })
     .await;
     match result {
         Ok(fm) => fm,
         Err(join_err) => {
-            tracing::warn!(path = %abs_path.display(), error = %join_err, "frontmatter: parse task join failed");
+            tracing::warn!(error = %join_err, "frontmatter: parse task join failed");
             None
         }
     }
@@ -146,15 +138,12 @@ mod tests {
     async fn refresh_writes_one_row_per_key() {
         let dir = tempdir().unwrap();
         let p = dir.path().join("note.md");
-        std::fs::write(
-            &p,
-            "---\ntitle: Hello\ntags: [a, b]\ncount: 3\n---\n\nbody\n",
-        )
-        .unwrap();
+        let body = "---\ntitle: Hello\ntags: [a, b]\ncount: 3\n---\n\nbody\n";
+        std::fs::write(&p, body).unwrap();
         let vault = Vault::open(dir.path()).await.expect("open");
         seed_files_row(&vault, "note.md").await;
 
-        let n = refresh_frontmatter(&vault, &p, "note.md")
+        let n = refresh_frontmatter(&vault, "note.md", body)
             .await
             .expect("refresh");
         assert_eq!(n, 3);
@@ -174,17 +163,19 @@ mod tests {
     async fn refresh_replaces_old_rows_on_re_run() {
         let dir = tempdir().unwrap();
         let p = dir.path().join("note.md");
-        std::fs::write(&p, "---\ntitle: A\nstatus: draft\n---\n").unwrap();
+        let first = "---\ntitle: A\nstatus: draft\n---\n";
+        std::fs::write(&p, first).unwrap();
         let vault = Vault::open(dir.path()).await.expect("open");
         seed_files_row(&vault, "note.md").await;
 
-        refresh_frontmatter(&vault, &p, "note.md")
+        refresh_frontmatter(&vault, "note.md", first)
             .await
             .expect("first");
 
         // User deletes `status` and renames `title`.
-        std::fs::write(&p, "---\nheading: B\n---\n").unwrap();
-        refresh_frontmatter(&vault, &p, "note.md")
+        let second = "---\nheading: B\n---\n";
+        std::fs::write(&p, second).unwrap();
+        refresh_frontmatter(&vault, "note.md", second)
             .await
             .expect("second");
 
@@ -216,11 +207,12 @@ mod tests {
     async fn malformed_yaml_writes_no_rows_and_does_not_error() {
         let dir = tempdir().unwrap();
         let p = dir.path().join("note.md");
-        std::fs::write(&p, "---\ntitle: : :\n  - bad\n---\n\nbody\n").unwrap();
+        let body = "---\ntitle: : :\n  - bad\n---\n\nbody\n";
+        std::fs::write(&p, body).unwrap();
         let vault = Vault::open(dir.path()).await.expect("open");
         seed_files_row(&vault, "note.md").await;
 
-        let n = refresh_frontmatter(&vault, &p, "note.md")
+        let n = refresh_frontmatter(&vault, "note.md", body)
             .await
             .expect("refresh");
         assert_eq!(n, 0);
@@ -236,11 +228,12 @@ mod tests {
     async fn no_frontmatter_writes_no_rows() {
         let dir = tempdir().unwrap();
         let p = dir.path().join("note.md");
-        std::fs::write(&p, "# Just a heading\n").unwrap();
+        let body = "# Just a heading\n";
+        std::fs::write(&p, body).unwrap();
         let vault = Vault::open(dir.path()).await.expect("open");
         seed_files_row(&vault, "note.md").await;
 
-        let n = refresh_frontmatter(&vault, &p, "note.md")
+        let n = refresh_frontmatter(&vault, "note.md", body)
             .await
             .expect("refresh");
         assert_eq!(n, 0);

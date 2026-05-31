@@ -128,10 +128,10 @@ pub fn resolve_target(target_raw: &str, files: &[String]) -> Option<String> {
 /// paths log and continue, mirroring `refresh_frontmatter`.
 pub async fn refresh_links(
     vault: &Vault,
-    abs_path: &Path,
     rel_path_str: &str,
+    source: &str,
 ) -> Result<u32, libsql::Error> {
-    let extractions = match parse_off_executor(abs_path).await {
+    let extractions = match parse_off_executor(source).await {
         Some(doc) => extract_links(&doc),
         None => Vec::new(),
     };
@@ -181,41 +181,33 @@ async fn list_known_paths(vault: &Vault) -> Result<Vec<String>, libsql::Error> {
     Ok(out)
 }
 
-/// Read + parse the file off the runtime. Returns `None` if the file
-/// can't be read — every failure is logged at `debug` / `warn` and
+/// Parse `source` off the runtime. Returns `None` only when the parse
+/// task itself fails to join — every failure is logged at `warn` and
 /// treated as "no wiki-links to record" (the existing rows are wiped
-/// by [`refresh_links`]). Mirrors the policy in
-/// `vault::frontmatter::parse_off_executor`.
-async fn parse_off_executor(abs_path: &Path) -> Option<Document> {
-    let path_buf = abs_path.to_path_buf();
-    let result = tokio::task::spawn_blocking(move || {
-        let bytes = match std::fs::read(&path_buf) {
-            Ok(b) => b,
-            Err(e) => {
-                tracing::debug!(path = %path_buf.display(), error = %e, "links: read failed");
-                return None;
-            }
-        };
-        let source = String::from_utf8_lossy(&bytes).into_owned();
-        Some(parse(&source))
-    })
-    .await;
+/// by [`refresh_links`]).
+async fn parse_off_executor(source: &str) -> Option<Document> {
+    let owned = source.to_string();
+    let result = tokio::task::spawn_blocking(move || parse(&owned)).await;
     match result {
-        Ok(doc) => doc,
+        Ok(doc) => Some(doc),
         Err(join_err) => {
-            tracing::warn!(path = %abs_path.display(), error = %join_err, "links: parse task join failed");
+            tracing::warn!(error = %join_err, "links: parse task join failed");
             None
         }
     }
 }
 
-/// Parse `abs_path` off the runtime and return its wiki-link
+/// Parse `source` off the runtime and return its wiki-link
 /// occurrences, **without** resolving them or touching the DB. Used by
 /// the bulk scan's Pass 1 to buffer extractions for a single post-walk
-/// resolution pass (Pass 2). Returns an empty vec when the file can't
-/// be read/parsed — mirrors `refresh_links`'s "no links" policy.
-pub(crate) async fn extract_links_off_executor(abs_path: &Path) -> Vec<LinkExtraction> {
-    match parse_off_executor(abs_path).await {
+/// resolution pass (Pass 2). Returns an empty vec when the parse task
+/// can't be joined — mirrors `refresh_links`'s "no links" policy.
+///
+/// **L3 Session J (chain 3):** caller passes the post-`materialize_on_read`
+/// source so extracted links reflect any pending wiki-link rewrites
+/// before they flush.
+pub(crate) async fn extract_links_from_source(source: &str) -> Vec<LinkExtraction> {
+    match parse_off_executor(source).await {
         Some(doc) => extract_links(&doc),
         None => Vec::new(),
     }
@@ -387,19 +379,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn extract_links_off_executor_returns_occurrences_without_db() {
-        let dir = tempfile::tempdir().unwrap();
-        let p = dir.path().join("a.md");
-        std::fs::write(&p, "see [[b]] and [[c|display]] plus ![[d]]\n").unwrap();
-        let got = extract_links_off_executor(&p).await;
+    async fn extract_links_from_source_returns_occurrences_without_db() {
+        let got = extract_links_from_source("see [[b]] and [[c|display]] plus ![[d]]\n").await;
         let targets: Vec<&str> = got.iter().map(|e| e.target_raw.as_str()).collect();
         assert_eq!(targets, vec!["b", "c", "d"]);
         assert!(got.iter().any(|e| e.is_embed)); // ![[d]]
     }
 
     #[tokio::test]
-    async fn extract_links_off_executor_unreadable_file_returns_empty() {
-        let got = extract_links_off_executor(std::path::Path::new("/no/such/file.md")).await;
+    async fn extract_links_from_source_empty_input_returns_empty() {
+        let got = extract_links_from_source("").await;
         assert!(got.is_empty());
     }
 

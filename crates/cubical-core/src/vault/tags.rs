@@ -21,8 +21,6 @@
 //! the first-seen casing preserved (matches the spec's "case-insensitive
 //! matching, case-preserving display" rule).
 
-use std::path::Path;
-
 use cubical_ast::{parse, Block, Document, Inline, ListItem};
 use cubical_index::{replace_tags_for_file, TagRow, TagSource};
 
@@ -174,10 +172,10 @@ fn push_unique(seen: &mut Vec<(String, String)>, candidate: &str) {
 /// log and continue, mirroring `refresh_links`.
 pub async fn refresh_tags(
     vault: &Vault,
-    abs_path: &Path,
     rel_path_str: &str,
+    source: &str,
 ) -> Result<u32, libsql::Error> {
-    let extractions = match parse_off_executor(abs_path).await {
+    let extractions = match parse_off_executor(source).await {
         Some(doc) => extract_tags(&doc),
         None => Vec::new(),
     };
@@ -197,29 +195,17 @@ pub async fn refresh_tags(
     Ok(inserted)
 }
 
-/// Read + parse the file off the runtime. Returns `None` if the file
-/// can't be read — every failure is logged at `debug` / `warn` and
+/// Parse `source` off the runtime. Returns `None` only if the parse
+/// task itself fails to join — every failure is logged at `warn` and
 /// treated as "no tags to record" (the existing rows are wiped by
-/// [`refresh_tags`]). Mirrors [`crate::vault::links::refresh_links`]'s
-/// `parse_off_executor`.
-async fn parse_off_executor(abs_path: &Path) -> Option<Document> {
-    let path_buf = abs_path.to_path_buf();
-    let result = tokio::task::spawn_blocking(move || {
-        let bytes = match std::fs::read(&path_buf) {
-            Ok(b) => b,
-            Err(e) => {
-                tracing::debug!(path = %path_buf.display(), error = %e, "tags: read failed");
-                return None;
-            }
-        };
-        let source = String::from_utf8_lossy(&bytes).into_owned();
-        Some(parse(&source))
-    })
-    .await;
+/// [`refresh_tags`]).
+async fn parse_off_executor(source: &str) -> Option<Document> {
+    let owned = source.to_string();
+    let result = tokio::task::spawn_blocking(move || parse(&owned)).await;
     match result {
-        Ok(doc) => doc,
+        Ok(doc) => Some(doc),
         Err(join_err) => {
-            tracing::warn!(path = %abs_path.display(), error = %join_err, "tags: parse task join failed");
+            tracing::warn!(error = %join_err, "tags: parse task join failed");
             None
         }
     }
