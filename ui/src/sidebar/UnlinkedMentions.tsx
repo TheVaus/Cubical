@@ -29,6 +29,10 @@ export interface UnlinkedMentionsProps {
 const UnlinkedMentions: Component<UnlinkedMentionsProps> = (props) => {
   const [state, setState] = createSignal<MentionsViewState>({ kind: "idle" });
   const [pending, setPending] = createSignal<string | null>(null);
+  const [linkError, setLinkError] = createSignal<{
+    key: string;
+    message: string;
+  } | null>(null);
 
   // Same untrack-guarded fetch effect as Backlinks (see
   // backlinks.test.ts "self-trigger loop guard" for the rationale).
@@ -72,6 +76,7 @@ const UnlinkedMentions: Component<UnlinkedMentionsProps> = (props) => {
     const openPath = props.path;
     if (!vid || !openPath) return;
     const k = mentionKey(m);
+    setLinkError(null);
     setPending(k);
     try {
       await linkMention({
@@ -89,9 +94,7 @@ const UnlinkedMentions: Component<UnlinkedMentionsProps> = (props) => {
         typeof e === "object" && e !== null && "message" in e
           ? String((e as { message: unknown }).message)
           : String(e);
-      setState(
-        reduceMentionsState(untrack(state), { type: "fetch:error", message }),
-      );
+      setLinkError({ key: k, message });
     } finally {
       setPending(null);
     }
@@ -234,6 +237,18 @@ const UnlinkedMentions: Component<UnlinkedMentionsProps> = (props) => {
                         >
                           {m.context || "—"}
                         </span>
+                        <Show when={linkError()?.key === k}>
+                          <span
+                            role="alert"
+                            style={{
+                              margin: 0,
+                              color: "var(--c-error)",
+                              "font-size": "var(--text-xs)",
+                            }}
+                          >
+                            {linkError()!.message}
+                          </span>
+                        </Show>
                         <div
                           style={{ display: "flex", "justify-content": "flex-end" }}
                         >
@@ -241,9 +256,10 @@ const UnlinkedMentions: Component<UnlinkedMentionsProps> = (props) => {
                             type="button"
                             onClick={() => void handleLink(m)}
                             disabled={isPending()}
-                            aria-label={`Link this mention to ${basenameWithoutExtension(
-                              props.path ?? "",
-                            )}`}
+                            aria-label={`Link this mention to ${
+                              basenameWithoutExtension(props.path ?? "") ||
+                              "the open note"
+                            }`}
                             style={{
                               padding: "var(--space-1) var(--space-3)",
                               "font-size": "var(--text-xs)",
