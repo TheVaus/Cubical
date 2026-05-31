@@ -206,10 +206,7 @@ pub fn emit_pending_rewrites_changed<R: Runtime>(
 
 /// Emit a [`VAULT_FLUSH_COMPLETE`] event. Runtime-generic for the same
 /// reason as [`emit_pending_rewrites_changed`].
-pub fn emit_flush_complete<R: Runtime>(
-    app: &tauri::AppHandle<R>,
-    payload: VaultFlushComplete,
-) {
+pub fn emit_flush_complete<R: Runtime>(app: &tauri::AppHandle<R>, payload: VaultFlushComplete) {
     if let Err(e) = app.emit(VAULT_FLUSH_COMPLETE, payload) {
         tracing::warn!(error = %e, "failed to emit flush-complete");
     }

@@ -21,7 +21,6 @@
 //!   `list_recent_rename_ops` / `undo_rename` — thin read wrappers
 //!   around the chain-1 `cubical-index::pending` query module.
 
-use std::collections::HashSet;
 use std::path::PathBuf;
 
 use cubical_core::vault::pending::apply_pending;
@@ -36,17 +35,18 @@ use cubical_index::{
 use libsql::params;
 
 use crate::api::types::{
-    FlushPendingRewritesForTargetRequest, FlushPendingRewritesRequest, FlushPendingRewritesResponse,
-    GetPendingRewritesBreakdownRequest, GetPendingRewritesBreakdownResponse,
-    GetPendingRewritesCountRequest, GetPendingRewritesCountResponse, ListRecentRenameOpsRequest,
-    ListRecentRenameOpsResponse, PendingRewriteBreakdownRow, RecentRenameOp, RenameBlockIdRequest,
-    RenameBlockIdResponse, RenameFileRequest, RenameFileResponse, RenameTagRequest,
-    RenameTagResponse, UndoRenameRequest, UndoRenameResponse,
+    FlushPendingRewritesForTargetRequest, FlushPendingRewritesRequest,
+    FlushPendingRewritesResponse, GetPendingRewritesBreakdownRequest,
+    GetPendingRewritesBreakdownResponse, GetPendingRewritesCountRequest,
+    GetPendingRewritesCountResponse, ListRecentRenameOpsRequest, ListRecentRenameOpsResponse,
+    PendingRewriteBreakdownRow, RecentRenameOp, RenameBlockIdRequest, RenameBlockIdResponse,
+    RenameFileRequest, RenameFileResponse, RenameTagRequest, RenameTagResponse, UndoRenameRequest,
+    UndoRenameResponse,
 };
 use crate::error::CubicalError;
 use crate::events::{
-    emit_flush_complete, emit_pending_rewrites_changed, Runtime, VaultFlushComplete,
-    VaultPendingRewritesChanged,
+    emit_flush_complete, emit_pending_rewrites_changed, FlushOwnWrites, Runtime,
+    VaultFlushComplete, VaultPendingRewritesChanged,
 };
 use crate::state::AppState;
 
@@ -128,7 +128,10 @@ fn derive_wikilink_new_token(target_raw: &str, from_path: &str, to_path: &str) -
 
 /// Look up an open vault by id and clone its `Vault` handle out from
 /// under the read lock. Each rename handler does this once at the top.
-async fn clone_vault(state: &AppState, vault_id: &str) -> Result<cubical_core::Vault, CubicalError> {
+async fn clone_vault(
+    state: &AppState,
+    vault_id: &str,
+) -> Result<cubical_core::Vault, CubicalError> {
     let guard = state.vaults().read().await;
     let open = guard
         .get(vault_id)
@@ -145,7 +148,7 @@ async fn clone_vault_with_flush_state(
 ) -> Result<
     (
         cubical_core::Vault,
-        std::sync::Arc<tokio::sync::Mutex<HashSet<(PathBuf, String)>>>,
+        FlushOwnWrites,
         std::sync::Arc<tokio::sync::Mutex<()>>,
     ),
     CubicalError,
@@ -167,7 +170,7 @@ async fn clone_vault_with_flush_state(
 /// while the rest of the vault stays deferred.
 async fn enforce_fifty_per_file_fuse(
     vault: &cubical_core::Vault,
-    flush_own_writes: &std::sync::Arc<tokio::sync::Mutex<HashSet<(PathBuf, String)>>>,
+    flush_own_writes: &FlushOwnWrites,
     targets: &[String],
 ) -> Result<(), CubicalError> {
     for target in targets {
@@ -200,9 +203,7 @@ pub async fn rename_file<R: Runtime>(
     req: RenameFileRequest,
 ) -> Result<RenameFileResponse, CubicalError> {
     if req.from_path == req.to_path {
-        return Err(CubicalError::InvalidRequest(
-            "from_path == to_path".into(),
-        ));
+        return Err(CubicalError::InvalidRequest("from_path == to_path".into()));
     }
     let (vault, flush_own_writes, _flush_in_progress) =
         clone_vault_with_flush_state(state, &req.vault_id).await?;
@@ -291,11 +292,8 @@ pub async fn rename_file<R: Runtime>(
         ("frontmatter", "file_path"),
     ] {
         let sql = format!("UPDATE {table} SET {column} = ?1 WHERE {column} = ?2");
-        tx.execute(
-            &sql,
-            params![req.to_path.clone(), req.from_path.clone()],
-        )
-        .await?;
+        tx.execute(&sql, params![req.to_path.clone(), req.from_path.clone()])
+            .await?;
     }
     // `block_refs.target_file_path` is path-keyed too — keep stale refs
     // pointing at the new path so referrer files don't suddenly become
@@ -481,7 +479,9 @@ pub async fn rename_block_id<R: Runtime>(
         return Err(CubicalError::InvalidRequest("old_id == new_id".into()));
     }
     if req.old_id.is_empty() || req.new_id.is_empty() {
-        return Err(CubicalError::InvalidRequest("block id must not be empty".into()));
+        return Err(CubicalError::InvalidRequest(
+            "block id must not be empty".into(),
+        ));
     }
     let (vault, flush_own_writes, _flush_in_progress) =
         clone_vault_with_flush_state(state, &req.vault_id).await?;
@@ -579,7 +579,7 @@ pub async fn rename_block_id<R: Runtime>(
 pub(crate) async fn flush_pending_for_target(
     vault: &cubical_core::Vault,
     target_file: &str,
-    flush_own_writes: Option<std::sync::Arc<tokio::sync::Mutex<HashSet<(PathBuf, String)>>>>,
+    flush_own_writes: Option<FlushOwnWrites>,
 ) -> Result<(bool, usize), CubicalError> {
     let rows = pending_for_target(vault.index(), target_file).await?;
     if rows.is_empty() {
@@ -635,8 +635,8 @@ pub(crate) async fn flush_pending_for_target(
 
     let abs_for_write = abs.clone();
     let bytes_for_write = new_bytes.clone();
-    let write_res = tokio::task::spawn_blocking(move || atomic_write(&abs_for_write, &bytes_for_write))
-        .await;
+    let write_res =
+        tokio::task::spawn_blocking(move || atomic_write(&abs_for_write, &bytes_for_write)).await;
     match write_res {
         Ok(Ok(())) => {}
         Ok(Err(e)) => {
@@ -789,7 +789,7 @@ pub async fn flush_pending_rewrites_for_target<R: Runtime>(
 /// without borrowing across an `await` point.
 pub(crate) async fn flush_all_for_vault<R: Runtime>(
     vault: &cubical_core::Vault,
-    flush_own_writes: &std::sync::Arc<tokio::sync::Mutex<HashSet<(PathBuf, String)>>>,
+    flush_own_writes: &FlushOwnWrites,
     flush_in_progress: &std::sync::Arc<tokio::sync::Mutex<()>>,
     app: &tauri::AppHandle<R>,
     vault_id: &str,
@@ -844,7 +844,7 @@ const DEFAULT_FLUSH_INTERVAL_SECS: u64 = 300;
 pub fn spawn_flush_timer<R: Runtime>(
     app: tauri::AppHandle<R>,
     vault: cubical_core::Vault,
-    flush_own_writes: std::sync::Arc<tokio::sync::Mutex<HashSet<(PathBuf, String)>>>,
+    flush_own_writes: FlushOwnWrites,
     flush_in_progress: std::sync::Arc<tokio::sync::Mutex<()>>,
     vault_id: String,
     cancel: tokio_util::sync::CancellationToken,
@@ -905,7 +905,7 @@ async fn read_flush_interval(vault: &cubical_core::Vault) -> u64 {
 /// them).
 pub(crate) async fn flush_at_close<R: Runtime>(
     vault: &cubical_core::Vault,
-    flush_own_writes: &std::sync::Arc<tokio::sync::Mutex<HashSet<(PathBuf, String)>>>,
+    flush_own_writes: &FlushOwnWrites,
     flush_in_progress: &std::sync::Arc<tokio::sync::Mutex<()>>,
     app: &tauri::AppHandle<R>,
     vault_id: &str,
@@ -1002,6 +1002,7 @@ mod tests {
         replace_blocks_for_file, replace_links_for_file, replace_tags_for_file, BlockRow, LinkRow,
         NewPendingRewrite, RewriteKind, TagRow, TagSource,
     };
+    use std::collections::HashSet;
     use tempfile::{tempdir, TempDir};
     use tokio_util::sync::CancellationToken;
 
@@ -1208,13 +1209,14 @@ mod tests {
         // tags FK rekeyed.
         let conn = vault.index().connection();
         let mut rows = conn
-            .query(
-                "SELECT file_path FROM tags WHERE tag_path = 'planning'",
-                (),
-            )
+            .query("SELECT file_path FROM tags WHERE tag_path = 'planning'", ())
             .await
             .unwrap();
-        let row = rows.next().await.unwrap().expect("tags row survives rename");
+        let row = rows
+            .next()
+            .await
+            .unwrap()
+            .expect("tags row survives rename");
         let fp: String = row.get(0).unwrap();
         assert_eq!(fp, "Journal.md");
 
@@ -1253,7 +1255,10 @@ mod tests {
         .expect("ok");
 
         assert!(!vault.root().join("a.md").exists());
-        assert_eq!(std::fs::read_to_string(vault.root().join("b.md")).unwrap(), "hi\n");
+        assert_eq!(
+            std::fs::read_to_string(vault.root().join("b.md")).unwrap(),
+            "hi\n"
+        );
     }
 
     #[tokio::test]
@@ -1476,7 +1481,10 @@ mod tests {
         .await
         .expect("ok");
         assert_eq!(resp.rename_op_id, 1);
-        assert_eq!(resp.pending_count, 2, "Refs.md (referrer) + Pinned.md (defining)");
+        assert_eq!(
+            resp.pending_count, 2,
+            "Refs.md (referrer) + Pinned.md (defining)"
+        );
 
         // Both files have one pending row.
         assert_eq!(
@@ -1562,7 +1570,9 @@ mod tests {
     async fn flush_noop_when_no_pending_rows() {
         let (_d, vault, _state) = fresh("v1").await;
         std::fs::write(vault.root().join("A.md"), "body\n").unwrap();
-        let (changed, refs) = flush_pending_for_target(&vault, "A.md", None).await.unwrap();
+        let (changed, refs) = flush_pending_for_target(&vault, "A.md", None)
+            .await
+            .unwrap();
         assert!(!changed);
         assert_eq!(refs, 0);
         let s = std::fs::read_to_string(vault.root().join("A.md")).unwrap();
@@ -1650,8 +1660,7 @@ mod tests {
         .await
         .unwrap();
 
-        let gate: std::sync::Arc<tokio::sync::Mutex<HashSet<(PathBuf, String)>>> =
-            std::sync::Arc::new(tokio::sync::Mutex::new(HashSet::new()));
+        let gate: FlushOwnWrites = std::sync::Arc::new(tokio::sync::Mutex::new(HashSet::new()));
 
         flush_pending_for_target(&vault, "Project.md", Some(gate.clone()))
             .await
@@ -1825,17 +1834,31 @@ mod tests {
             rename_op_id: 1000,
         });
         enqueue_pending(vault.index(), &rows).await.unwrap();
-        assert_eq!(pending_count_for_target(vault.index(), "A.md").await.unwrap(), 51);
+        assert_eq!(
+            pending_count_for_target(vault.index(), "A.md")
+                .await
+                .unwrap(),
+            51
+        );
 
-        let gate: std::sync::Arc<tokio::sync::Mutex<HashSet<(PathBuf, String)>>> =
-            std::sync::Arc::new(tokio::sync::Mutex::new(HashSet::new()));
+        let gate: FlushOwnWrites = std::sync::Arc::new(tokio::sync::Mutex::new(HashSet::new()));
         enforce_fifty_per_file_fuse(&vault, &gate, &["A.md".into(), "B.md".into()])
             .await
             .unwrap();
 
         // A.md drained; B.md still queued (count = 1 is NOT > 50).
-        assert_eq!(pending_count_for_target(vault.index(), "A.md").await.unwrap(), 0);
-        assert_eq!(pending_count_for_target(vault.index(), "B.md").await.unwrap(), 1);
+        assert_eq!(
+            pending_count_for_target(vault.index(), "A.md")
+                .await
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            pending_count_for_target(vault.index(), "B.md")
+                .await
+                .unwrap(),
+            1
+        );
     }
 
     #[tokio::test]
@@ -1854,12 +1877,16 @@ mod tests {
             })
             .collect();
         enqueue_pending(vault.index(), &rows).await.unwrap();
-        let gate: std::sync::Arc<tokio::sync::Mutex<HashSet<(PathBuf, String)>>> =
-            std::sync::Arc::new(tokio::sync::Mutex::new(HashSet::new()));
+        let gate: FlushOwnWrites = std::sync::Arc::new(tokio::sync::Mutex::new(HashSet::new()));
         enforce_fifty_per_file_fuse(&vault, &gate, &["A.md".into()])
             .await
             .unwrap();
-        assert_eq!(pending_count_for_target(vault.index(), "A.md").await.unwrap(), 50);
+        assert_eq!(
+            pending_count_for_target(vault.index(), "A.md")
+                .await
+                .unwrap(),
+            50
+        );
     }
 
     #[tokio::test]
@@ -1891,8 +1918,7 @@ mod tests {
         .await
         .unwrap();
 
-        let gate: std::sync::Arc<tokio::sync::Mutex<HashSet<(PathBuf, String)>>> =
-            std::sync::Arc::new(tokio::sync::Mutex::new(HashSet::new()));
+        let gate: FlushOwnWrites = std::sync::Arc::new(tokio::sync::Mutex::new(HashSet::new()));
         let guard: std::sync::Arc<tokio::sync::Mutex<()>> =
             std::sync::Arc::new(tokio::sync::Mutex::new(()));
         let resp = flush_all_for_vault(&vault, &gate, &guard, &mock_app(), "v1")
@@ -1901,8 +1927,14 @@ mod tests {
         assert_eq!(resp.files_rewritten, 2);
         assert_eq!(resp.refs_updated, 2);
         assert_eq!(pending_count_total(vault.index()).await.unwrap(), 0);
-        assert_eq!(std::fs::read_to_string(vault.root().join("A.md")).unwrap(), "[[Y]]\n");
-        assert_eq!(std::fs::read_to_string(vault.root().join("B.md")).unwrap(), "[[Y]]\n");
+        assert_eq!(
+            std::fs::read_to_string(vault.root().join("A.md")).unwrap(),
+            "[[Y]]\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(vault.root().join("B.md")).unwrap(),
+            "[[Y]]\n"
+        );
     }
 
     #[tokio::test]
@@ -1933,8 +1965,7 @@ mod tests {
         .await
         .unwrap();
 
-        let gate: std::sync::Arc<tokio::sync::Mutex<HashSet<(PathBuf, String)>>> =
-            std::sync::Arc::new(tokio::sync::Mutex::new(HashSet::new()));
+        let gate: FlushOwnWrites = std::sync::Arc::new(tokio::sync::Mutex::new(HashSet::new()));
         let guard: std::sync::Arc<tokio::sync::Mutex<()>> =
             std::sync::Arc::new(tokio::sync::Mutex::new(()));
         let cancel = CancellationToken::new();
