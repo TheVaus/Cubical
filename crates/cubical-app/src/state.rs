@@ -7,11 +7,12 @@
 //!
 //! See `docs/migration-touchpoints.md` for the rationale.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use cubical_core::{Vault, WatcherHandle};
@@ -36,6 +37,45 @@ pub struct OpenVault {
     /// vault is open; dropping it (via `close_vault`) tears down the OS
     /// watch and aborts the watcher dispatcher's bridge task.
     pub watcher: Option<WatcherHandle>,
+    /// L3 Session J — backend own-write hash gate. The flush executor
+    /// inserts `(relative_path, content_hash_hex)` before writing; the
+    /// watcher dispatcher's `Modified` branch consumes (removes) the
+    /// entry to suppress its `vault:file-changed` emit, preventing flush
+    /// rewrites from bouncing back into the editor as external edits.
+    pub flush_own_writes: Arc<Mutex<HashSet<(PathBuf, String)>>>,
+    /// L3 Session J — per-vault flush guard. Held for the duration of
+    /// any flush (timer / manual / close / >50 fuse) so concurrent
+    /// triggers don't interleave; second caller blocks behind the first.
+    pub flush_in_progress: Arc<Mutex<()>>,
+    /// L3 Session J — cancellation handle for the per-vault periodic
+    /// flush timer task spawned in `open_vault`. Fired from `close_vault`
+    /// before the synchronous close-time flush so the timer task exits
+    /// cleanly rather than racing the index handle drop.
+    pub flush_timer_cancel: CancellationToken,
+}
+
+impl OpenVault {
+    /// Construct an `OpenVault` with default-empty flush state.
+    ///
+    /// Single constructor used by both `open_vault` and test fixtures —
+    /// keeps the three new L3 Session J fields out of every call site's
+    /// struct-literal shape.
+    pub fn new(
+        vault: Vault,
+        cancel: CancellationToken,
+        scan_status: ScanStatusBackend,
+        watcher: Option<WatcherHandle>,
+    ) -> Self {
+        Self {
+            vault,
+            cancel,
+            scan_status,
+            watcher,
+            flush_own_writes: Arc::new(Mutex::new(HashSet::new())),
+            flush_in_progress: Arc::new(Mutex::new(())),
+            flush_timer_cancel: CancellationToken::new(),
+        }
+    }
 }
 
 /// Backend representation of [`crate::api::types::ScanStatus`].

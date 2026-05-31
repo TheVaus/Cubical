@@ -109,12 +109,12 @@ mod tests {
         let state = AppState::new();
         state.vaults().write().await.insert(
             vault_id.into(),
-            OpenVault {
-                vault: vault.clone(),
-                cancel: CancellationToken::new(),
-                scan_status: ScanStatusBackend::Complete,
-                watcher: None,
-            },
+            OpenVault::new(
+                vault.clone(),
+                CancellationToken::new(),
+                ScanStatusBackend::Complete,
+                None,
+            ),
         );
         (dir, vault, state)
     }

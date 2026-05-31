@@ -60,12 +60,12 @@ pub async fn open_vault(
     let (watch_tx, watch_rx) = mpsc::channel::<WatchEvent>(WATCHER_CHANNEL_DEPTH);
     let watcher = start_watcher(&vault, cancel.clone(), watch_tx)?;
 
-    let open = OpenVault {
-        vault: vault.clone(),
-        cancel: cancel.clone(),
-        scan_status: ScanStatusBackend::InProgress,
-        watcher: Some(watcher),
-    };
+    let open = OpenVault::new(
+        vault.clone(),
+        cancel.clone(),
+        ScanStatusBackend::InProgress,
+        Some(watcher),
+    );
     state.vaults().write().await.insert(vault_id.clone(), open);
 
     spawn_scan_dispatcher(
@@ -676,12 +676,12 @@ mod tests {
         let state = AppState::new();
         state.vaults().write().await.insert(
             vault_id.to_string(),
-            OpenVault {
-                vault: vault.clone(),
-                cancel: tokio_util::sync::CancellationToken::new(),
-                scan_status: ScanStatusBackend::Complete,
-                watcher: None,
-            },
+            OpenVault::new(
+                vault.clone(),
+                tokio_util::sync::CancellationToken::new(),
+                ScanStatusBackend::Complete,
+                None,
+            ),
         );
         (dir, vault, state)
     }
@@ -1496,12 +1496,12 @@ mod tests {
             let state = AppState::new();
             state.vaults().write().await.insert(
                 "v1".into(),
-                OpenVault {
+                OpenVault::new(
                     vault,
-                    cancel: tokio_util::sync::CancellationToken::new(),
-                    scan_status: ScanStatusBackend::Complete,
-                    watcher: None,
-                },
+                    tokio_util::sync::CancellationToken::new(),
+                    ScanStatusBackend::Complete,
+                    None,
+                ),
             );
             set_setting(
                 &state,
@@ -1521,12 +1521,12 @@ mod tests {
         let state = AppState::new();
         state.vaults().write().await.insert(
             "v1".into(),
-            OpenVault {
+            OpenVault::new(
                 vault,
-                cancel: tokio_util::sync::CancellationToken::new(),
-                scan_status: ScanStatusBackend::Complete,
-                watcher: None,
-            },
+                tokio_util::sync::CancellationToken::new(),
+                ScanStatusBackend::Complete,
+                None,
+            ),
         );
 
         let resp = get_setting(
