@@ -5,6 +5,7 @@
 
 use cubical_core::vault::embeds::{extract_block, extract_section, strip_frontmatter};
 use cubical_core::vault::links::{read_source_off_executor, resolve_target};
+use cubical_core::vault::pending::materialize_on_read;
 use cubical_index::blocks_for_file;
 
 use crate::api::types::{EmbedKind, GetEmbedRequest, GetEmbedResponse, ResolvedAnchor};
@@ -46,13 +47,19 @@ pub async fn get_embed(
     // Read the file off the runtime; unreadable file folds into Unresolved
     // (the watcher will heal on next change — same policy as refresh_blocks).
     let abs = vault.root().join(&target_path);
-    let Some(source) = read_source_off_executor(&abs).await else {
+    let Some(on_disk) = read_source_off_executor(&abs).await else {
         return Ok(GetEmbedResponse {
             kind: EmbedKind::Unresolved,
             target_path: Some(target_path),
             content: None,
         });
     };
+
+    // L3 Session J (chain 3): materialize pending rewrites for the
+    // target file so embed bodies show the post-rename content the
+    // editor sees. Per the "Read-path integration" decision in the
+    // pending-rewrites design spec.
+    let source = materialize_on_read(vault.index(), &target_path, &on_disk).await?;
 
     match anchor {
         None => Ok(GetEmbedResponse {
@@ -215,6 +222,47 @@ mod tests {
         assert!(matches!(resp.kind, EmbedKind::Unresolved));
         assert!(resp.target_path.is_none());
         assert!(resp.content.is_none());
+    }
+
+    #[tokio::test]
+    async fn get_embed_materializes_pending_rewrites_in_body() {
+        // L3 Session J (chain 3): an embed body for a target with a
+        // pending wiki-link rewrite must reflect the post-rewrite text
+        // (otherwise the embed would show old tokens after a rename).
+        use cubical_index::{enqueue_pending, NewPendingRewrite, RewriteKind};
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("Notes.md"), "body referencing [[Daily]]\n").unwrap();
+        let (vault, state) = state_with_vault_at(dir.path(), "v1").await;
+        scan(&vault).await;
+
+        enqueue_pending(
+            vault.index(),
+            &[NewPendingRewrite {
+                target_file: "Notes.md".into(),
+                rewrite_kind: RewriteKind::WikiLink,
+                old_token: "Daily".into(),
+                new_token: "Journal".into(),
+                created_at: 0,
+                rename_op_id: 1,
+            }],
+        )
+        .await
+        .unwrap();
+
+        let resp = get_embed(
+            &state,
+            GetEmbedRequest {
+                vault_id: "v1".into(),
+                target_raw: "Notes".into(),
+            },
+        )
+        .await
+        .expect("ok");
+        assert!(matches!(resp.kind, EmbedKind::Note));
+        assert_eq!(
+            resp.content.as_deref(),
+            Some("body referencing [[Journal]]\n"),
+        );
     }
 
     #[tokio::test]

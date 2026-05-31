@@ -285,7 +285,7 @@ pub async fn read_file_text(
     state: &AppState,
     req: ReadFileTextRequest,
 ) -> Result<ReadFileTextResponse, CubicalError> {
-    let abs_path = {
+    let (abs_path, vault) = {
         let guard = state.vaults().read().await;
         let open = guard
             .get(&req.vault_id)
@@ -309,14 +309,23 @@ pub async fn read_file_text(
                 req.path, type_id,
             )));
         }
-        open.vault.root().join(&req.path)
+        (open.vault.root().join(&req.path), open.vault.clone())
     };
 
     // Disk I/O off the async executor.
-    let content = tokio::task::spawn_blocking(move || std::fs::read_to_string(&abs_path))
+    let on_disk = tokio::task::spawn_blocking(move || std::fs::read_to_string(&abs_path))
         .await
         .map_err(|e| CubicalError::Io(format!("read task join error: {e}")))?
         .map_err(|e| CubicalError::Io(e.to_string()))?;
+
+    // L3 Session J (chain 3): materialize pending rewrites so the editor
+    // view reflects post-rename links / tags / block-ids before the
+    // pending-rewrites queue flushes to disk. No-op when the queue is
+    // empty for this path. See `docs/superpowers/specs/2026-05-31-l3-session-j-pending-rewrites-design.md`
+    // "Read-path integration (materialize-on-read invariant)".
+    let content =
+        cubical_core::vault::pending::materialize_on_read(vault.index(), &req.path, &on_disk)
+            .await?;
 
     Ok(ReadFileTextResponse { content })
 }
@@ -807,6 +816,47 @@ mod tests {
         .await
         .expect("ok");
         assert_eq!(resp.content, body);
+    }
+
+    #[tokio::test]
+    async fn read_file_text_materializes_pending_rewrites() {
+        // L3 Session J (chain 3): a pending wiki-link rewrite for the
+        // open file must show up in the editor's read view BEFORE the
+        // flush.
+        use cubical_index::{enqueue_pending, NewPendingRewrite, RewriteKind};
+
+        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        let body = "see [[Daily]] for context\n";
+        seed_file_on_disk(&vault, "note.md", body, "markdown").await;
+
+        enqueue_pending(
+            vault.index(),
+            &[NewPendingRewrite {
+                target_file: "note.md".into(),
+                rewrite_kind: RewriteKind::WikiLink,
+                old_token: "Daily".into(),
+                new_token: "Journal".into(),
+                created_at: 0,
+                rename_op_id: 1,
+            }],
+        )
+        .await
+        .unwrap();
+
+        let resp = read_file_text(
+            &state,
+            ReadFileTextRequest {
+                vault_id: "v1".into(),
+                path: "note.md".into(),
+            },
+        )
+        .await
+        .expect("ok");
+        // Returned content is materialized — the editor sees [[Journal]].
+        assert_eq!(resp.content, "see [[Journal]] for context\n");
+        // The on-disk bytes are untouched until the flush.
+        let on_disk = std::fs::read_to_string(vault.root().join("note.md")).unwrap();
+        assert_eq!(on_disk, body);
     }
 
     #[tokio::test]

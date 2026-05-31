@@ -42,8 +42,9 @@ pub async fn create_block_ref(
     }
     // Persist the blocks row immediately so resolution doesn't wait on
     // the watcher. (The watcher echo will re-refresh; replace is
-    // idempotent.)
-    refresh_blocks(&vault, &abs, &req.target_path)
+    // idempotent.) Source passed in is the post-mint text we just
+    // wrote — no need to re-read or re-materialize.
+    refresh_blocks(&vault, &req.target_path, &new_source)
         .await
         .map_err(|e| CubicalError::Io(e.to_string()))?;
 
