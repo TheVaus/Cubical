@@ -19,11 +19,14 @@ import {
   getSetting,
   listFiles,
   onVaultFileChanged,
+  onVaultFlushComplete,
+  onVaultPendingRewritesChanged,
   onVaultScanCancelled,
   onVaultScanComplete,
   onVaultScanProgress,
   openVault,
   readFileText,
+  renameFile,
   setSetting,
   writeFileText,
   type BrokenBlockRef,
@@ -46,6 +49,9 @@ import {
 import { computeWindow } from "./virtualList";
 import { buildBlockRefLink } from "./editor/blockRef";
 import { formatBrokenBlockRefs } from "./statusbar/brokenRefs";
+import PendingRewrites from "./statusbar/PendingRewrites";
+import { ToastHost, showToast } from "./Toast";
+import { validateRenameTarget } from "./fileRename";
 import { resolveRawState } from "./editor/rawSource";
 import {
   applyTheme,
@@ -229,6 +235,18 @@ const App: Component = () => {
   );
   let brokenBlockRefsTimer: ReturnType<typeof setTimeout> | undefined;
 
+  // L3 Session J.2 — pending-rewrites count (driven by
+  // `vault:pending-rewrites-changed`) + the right-click rename gesture
+  // state. `contextMenu` is the floating menu anchored to a file row;
+  // `renamingPath` is the row currently swapped for an inline input.
+  const [pendingRewritesCount, setPendingRewritesCount] = createSignal(0);
+  const [contextMenu, setContextMenu] = createSignal<{
+    path: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [renamingPath, setRenamingPath] = createSignal<string | null>(null);
+
   // Per-file hash bookkeeping. Non-reactive (signals are overkill here
   // and would cause spurious re-renders when only the bookkeeping
   // changes). The active file's hashes are read directly from these
@@ -246,6 +264,8 @@ const App: Component = () => {
   let unlistenComplete: UnlistenFn | undefined;
   let unlistenCancelled: UnlistenFn | undefined;
   let unlistenFileChanged: UnlistenFn | undefined;
+  let unlistenPendingChanged: UnlistenFn | undefined;
+  let unlistenFlushComplete: UnlistenFn | undefined;
 
   let pendingRefresh = false;
   let lastRefreshAt = 0;
@@ -412,6 +432,46 @@ const App: Component = () => {
       brokenBlockRefsTimer = undefined;
       void refreshBrokenBlockRefs();
     }, RIGHT_SIDEBAR_REFRESH_DEBOUNCE_MS);
+  };
+
+  /**
+   * L3 Session J.2 — commit a file rename. Validates locally first
+   * (empty / same-path are caught client-side) and surfaces backend
+   * rejections (existing destination, vault not open) through the
+   * shared toast surface.
+   */
+  const handleRenameCommit = async (
+    fromPath: string,
+    rawTarget: string,
+  ): Promise<void> => {
+    const id = vaultId();
+    if (!id) {
+      setRenamingPath(null);
+      return;
+    }
+    const validation = validateRenameTarget(fromPath, rawTarget);
+    if (validation !== null) {
+      if (validation.code !== "same") {
+        showToast(validation.message);
+      }
+      setRenamingPath(null);
+      return;
+    }
+    const target = rawTarget.trim();
+    setRenamingPath(null);
+    try {
+      await renameFile({
+        vault_id: id,
+        from_path: fromPath,
+        to_path: target,
+      });
+    } catch (e) {
+      const message =
+        typeof e === "object" && e !== null && "message" in e
+          ? String((e as { message: unknown }).message)
+          : String(e);
+      showToast(message);
+    }
   };
 
   const handleContentChange = (_content: string) => {
@@ -768,6 +828,21 @@ const App: Component = () => {
       }
     });
 
+    unlistenPendingChanged = await onVaultPendingRewritesChanged((p) => {
+      if (p.vault_id !== vaultId()) return;
+      setPendingRewritesCount(p.count);
+    });
+    unlistenFlushComplete = await onVaultFlushComplete((p) => {
+      if (p.vault_id !== vaultId()) return;
+      if (p.files_rewritten === 0 && p.refs_updated === 0) return;
+      const refs = p.refs_updated;
+      const files = p.files_rewritten;
+      showToast(
+        `Applied ${refs} reference update${refs === 1 ? "" : "s"} across ` +
+          `${files} file${files === 1 ? "" : "s"}.`,
+      );
+    });
+
     // App-quit / window-close flush (best effort, §2.1 flush triggers).
     // `beforeunload` is the only synchronous hook the webview exposes;
     // we kick the autosave and let the in-flight IPC race the close.
@@ -797,6 +872,8 @@ const App: Component = () => {
     unlistenComplete?.();
     unlistenCancelled?.();
     unlistenFileChanged?.();
+    unlistenPendingChanged?.();
+    unlistenFlushComplete?.();
     if (autosaveTimer !== undefined) clearTimeout(autosaveTimer);
     if (rightSidebarRefreshTimer !== undefined)
       clearTimeout(rightSidebarRefreshTimer);
@@ -826,6 +903,9 @@ const App: Component = () => {
       setCreateOffer(null);
       setRightSidebarRefreshTick(0);
       setBrokenBlockRefs([]);
+      setPendingRewritesCount(0);
+      setContextMenu(null);
+      setRenamingPath(null);
       setTagRefreshTick(0);
       setView({ kind: "file" });
       setRightSidebarCollapsed(false);
@@ -1132,11 +1212,24 @@ const App: Component = () => {
                       {(file) => {
                         const isMarkdown = file.type_id === "markdown";
                         const isSelected = () => selectedPath() === file.path;
+                        const isRenaming = () => renamingPath() === file.path;
                         return (
                           <div
                             role="option"
                             aria-selected={isSelected()}
-                            onClick={() => handleSelectFile(file)}
+                            onClick={() => {
+                              if (isRenaming()) return;
+                              void handleSelectFile(file);
+                            }}
+                            onContextMenu={(e) => {
+                              if (!isMarkdown) return;
+                              e.preventDefault();
+                              setContextMenu({
+                                path: file.path,
+                                x: e.clientX,
+                                y: e.clientY,
+                              });
+                            }}
                             style={{
                               height: `${FILE_ROW_HEIGHT}px`,
                               "box-sizing": "border-box",
@@ -1158,15 +1251,57 @@ const App: Component = () => {
                                 : "var(--c-fg-muted)",
                             }}
                           >
-                            <span
-                              style={{
-                                overflow: "hidden",
-                                "text-overflow": "ellipsis",
-                                "white-space": "nowrap",
-                              }}
+                            <Show
+                              when={isRenaming()}
+                              fallback={
+                                <span
+                                  style={{
+                                    overflow: "hidden",
+                                    "text-overflow": "ellipsis",
+                                    "white-space": "nowrap",
+                                  }}
+                                >
+                                  {file.path}
+                                </span>
+                              }
                             >
-                              {file.path}
-                            </span>
+                              <input
+                                type="text"
+                                value={file.path}
+                                autofocus
+                                onClick={(e) => e.stopPropagation()}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    void handleRenameCommit(
+                                      file.path,
+                                      e.currentTarget.value,
+                                    );
+                                  } else if (e.key === "Escape") {
+                                    e.preventDefault();
+                                    setRenamingPath(null);
+                                  }
+                                }}
+                                onBlur={(e) =>
+                                  void handleRenameCommit(
+                                    file.path,
+                                    e.currentTarget.value,
+                                  )
+                                }
+                                style={{
+                                  flex: 1,
+                                  "min-width": 0,
+                                  background: "var(--c-bg-primary)",
+                                  border: "1px solid var(--c-accent)",
+                                  "border-radius": "var(--radius-sm)",
+                                  color: "var(--c-fg-primary)",
+                                  "font-family": "var(--font-mono)",
+                                  "font-size": "var(--text-xs)",
+                                  padding: "0 var(--space-2)",
+                                  height: "calc(var(--space-5) + var(--space-1))",
+                                }}
+                              />
+                            </Show>
                             <span
                               style={{
                                 color: "var(--c-fg-muted)",
@@ -1492,9 +1627,75 @@ const App: Component = () => {
               </span>
             )}
           </Show>
+          <PendingRewrites
+            vaultId={vaultId()}
+            count={pendingRewritesCount()}
+            onError={(m: string) => showToast(m)}
+          />
           <span>{vaultId()}</span>
         </footer>
       </Show>
+
+      <Show when={contextMenu()}>
+        {(menu) => (
+          <>
+            <div
+              onClick={() => setContextMenu(null)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setContextMenu(null);
+              }}
+              style={{
+                position: "fixed",
+                inset: 0,
+                "z-index": 12,
+                background: "transparent",
+              }}
+            />
+            <div
+              role="menu"
+              style={{
+                position: "fixed",
+                top: `${menu().y}px`,
+                left: `${menu().x}px`,
+                "min-width": "10rem",
+                background: "var(--c-bg-primary)",
+                border: "1px solid var(--c-border-subtle)",
+                "border-radius": "var(--radius-md)",
+                "box-shadow": "var(--shadow-md)",
+                padding: "var(--space-1) 0",
+                "z-index": 13,
+              }}
+            >
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  const path = menu().path;
+                  setContextMenu(null);
+                  setRenamingPath(path);
+                }}
+                style={{
+                  display: "block",
+                  width: "100%",
+                  "text-align": "left",
+                  padding: "var(--space-2) var(--space-3)",
+                  background: "transparent",
+                  border: "none",
+                  color: "var(--c-fg-primary)",
+                  "font-family": "var(--font-body)",
+                  "font-size": "var(--text-sm)",
+                  cursor: "pointer",
+                }}
+              >
+                Rename…
+              </button>
+            </div>
+          </>
+        )}
+      </Show>
+
+      <ToastHost />
     </main>
   );
 };
