@@ -43,6 +43,11 @@ pub type FlushOwnWrites = Arc<Mutex<HashSet<(PathBuf, String)>>>;
 /// about migration touchpoints, not about avoiding the Tauri type itself
 /// — `events.rs` is the single chokepoint where Tauri types are named.
 pub use tauri::AppHandle;
+/// Re-export the `Runtime` bound used by the L3 Session J emit helpers
+/// and handlers. Runtime-generic signatures let the same code run
+/// against the production `Wry` runtime AND `tauri::test::MockRuntime`
+/// in unit tests.
+pub use tauri::Runtime;
 
 // -- Event name constants ---------------------------------------------------
 //
@@ -188,15 +193,23 @@ pub fn emit_audit(app: &AppHandle, payload: VaultAudit) {
     }
 }
 
-/// Emit a [`VAULT_PENDING_REWRITES_CHANGED`] event.
-pub fn emit_pending_rewrites_changed(app: &AppHandle, payload: VaultPendingRewritesChanged) {
+/// Emit a [`VAULT_PENDING_REWRITES_CHANGED`] event. Runtime-generic so
+/// unit tests can pass `tauri::test::MockRuntime` handles.
+pub fn emit_pending_rewrites_changed<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    payload: VaultPendingRewritesChanged,
+) {
     if let Err(e) = app.emit(VAULT_PENDING_REWRITES_CHANGED, payload) {
         tracing::warn!(error = %e, "failed to emit pending-rewrites-changed");
     }
 }
 
-/// Emit a [`VAULT_FLUSH_COMPLETE`] event.
-pub fn emit_flush_complete(app: &AppHandle, payload: VaultFlushComplete) {
+/// Emit a [`VAULT_FLUSH_COMPLETE`] event. Runtime-generic for the same
+/// reason as [`emit_pending_rewrites_changed`].
+pub fn emit_flush_complete<R: Runtime>(
+    app: &tauri::AppHandle<R>,
+    payload: VaultFlushComplete,
+) {
     if let Err(e) = app.emit(VAULT_FLUSH_COMPLETE, payload) {
         tracing::warn!(error = %e, "failed to emit flush-complete");
     }
