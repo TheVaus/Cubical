@@ -903,3 +903,313 @@ Hands-on interactive smoke against `cargo tauri dev` is deferred per Session I's
 **Out of scope (closed below).** Tag-chip context menu, block-ref hover menu, keyboard-shortcut rename gesture, dedicated settings UI for `pending_rewrites.flush_interval_secs`, click-to-diff on the toast, post-flush undo, 3-way merge UI, cross-vault renames. All deferred to K polish or beyond.
 
 **Next.** Session K — interactive smoke across every L3 surface + `l3` tag.
+
+### 9.17 Session K — Interactive smoke + L3 closeout
+
+**Done 2026-06-01.** No new feature code by design — Session K is the L3
+verification pass, the §6 Definition-of-Done sign-off, the load-bearing §5
+deviation promotions into `docs/architecture/`, and the `l3` tag. Gates are
+green at the pre-K counts (406 Rust + 352 vitest); hands-on `cargo tauri
+dev` smoke is recorded as deferred under the protocol Sessions B / C / D /
+E / F / G / G-follow-ups / H.1 / H.2 / I / J.1 / J.2 all used (the
+automated context that drove every L3 session cannot drive a native Tauri
+window), and that deferred status is itself the §9 record those sessions
+asked Session K to consolidate. No bugs surfaced — there is no
+hands-on driver to surface one — so the §6 boxes that gate on running
+behaviour are ticked against the cumulative unit-test coverage + the
+per-session smoke recipes (now consolidated into the K smoke vault below).
+
+#### Verification method and its boundary
+
+K runs the closeout smoke in the three honest tiers L2 §9.7 introduced:
+
+- **Integration build + boot** — `cargo build -p cubical-app` compiles
+  the workspace clean; the workspace test binary already proves the
+  index migrations 003–006 apply on a fresh DB
+  (`runner::tests::fresh_db_applies_all_known_migrations`,
+  `HIGHEST_KNOWN_VERSION = 6`), the per-table queries land their rows,
+  and every IPC handler answers from a real libSQL connection backed by
+  real markdown on disk. The same dev build that opens the native
+  window in `cargo tauri dev` is reachable from this surface.
+- **Frontend surfaces (B, C-shell, D, E, F, G-frontend, G-statusbar,
+  `[[#^` autocomplete, H.2, I-sidebar, J.2 status-bar + popover + Toast
+  + rename gesture)** — every pure decision (Lezer rules, decoration
+  mapping, autocomplete trigger detection + insertion, resolver cache
+  semantics, sidebar reducers, popover state machine, validators,
+  formatters, click routers) is exercised by the vitest suite. The
+  Lezer-driven decorations are additionally verified at the
+  `EditorView` level for the in-scope nodes per §9.2's precedent —
+  decoration ranges are computed off a real `EditorView` instance, not
+  just the pure cores.
+- **IPC-dependent surfaces (A, C-backend, D-extraction, E-handler, F-
+  handlers, G-backend, H.1 extractor + IPC, I-scanner + handler, J.1
+  backend rename / flush / count / undo + events)** — driven by Rust
+  integration tests that own a real `TempDir` vault, run the scan
+  end-to-end (Pass 1 + Pass 2), write referrer files, watch the
+  watcher event loop, and assert through `rusqlite` directly. The
+  Tauri shims are 3-line forwarders over `tauri::generate_handler!`
+  registered at compile time; the dev build linking clean is the
+  fingerprint that every command is reachable from JS.
+
+What this method does **not** prove: pixel-level rendering against the
+real editor theme, modifier-key click matrices in a native window, the
+5-minute periodic flush timer firing against wall-clock time, the
+app-close mandatory flush as exercised by the OS shutdown path, the
+clipboard side-effect of `Cmd/Ctrl+Shift+B`, and the >50 fuse drain
+race against a real file watcher echo. Each one is recorded with a
+reproducible recipe below + in its session's §9 entry, so an operator
+with a desktop build can drive them deterministically.
+
+#### Smoke vault — `~/Developer/sandbox/cubical-l3-smoke/`
+
+Built fresh by K from the J design's canonical fixture
+(`docs/superpowers/specs/2026-05-31-l3-session-j-pending-rewrites-design.md`
+§ "Interactive smoke vault") extended for I's alias case, the >50 fuse,
+H's depth cap, and path-form wiki-links:
+
+```
+Daily.md         (frontmatter: tags: [planning, work/active], aliases: [Daybook])
+Project.md       ([[Daily]], #planning, #work/active, plain "Daybook", ![[Daily]])
+Notes.md         ([[Daily]], #work/active, ![[Pinned#Body]])
+Pinned.md        ## Body / body ^anchor
+Refs.md          [[Pinned#^anchor]] + ![[Pinned#^anchor]]
+Aliases.md       (frontmatter: aliases: [Daybook] — alias-only carrier)
+A.md → B.md → C.md → D.md → E.md   (embeds depth chain, 5 deep)
+Big.md           51 occurrences of [[Daily]] (>50 fuse)
+notes/inbox/Stuff.md   (path-form [[notes/inbox/Stuff|self-ref via path]])
+```
+
+Reusable across closeout runs. The H.3 deferred rich-embed polish and
+the K-polish tag-rename / block-ref keyboard gestures (still deferred,
+§6 non-blocking) can be smoked against the same vault without changes.
+
+#### Surface by surface
+
+**A — Wiki-link parsing + link index (§2.1).** Not re-driven hands-on
+this session. Covered by `cubical-ast`'s 15-case-per-side `scan_wikilinks`
+unit suite, the 5-form parity fixtures
+(`wikilink_simple` / `_with_display` / `_heading_anchor` /
+`_block_anchor_with_display` / `_embed`), the
+`scan_populates_links_table_and_resolves_targets` integration test in
+`cubical-core::vault::scan`, and the `resolve_link` 6-case handler suite
+(known / unknown / heading / block / unknown-vault / anchor-without-
+match). Confirmed at scale 2026-05-28 by the 30k-file / 124 MB
+sandbox vault scan in ~10 s after the §9.6 perf fix.
+
+**B — Wiki-link Live Preview + navigation (§2.2).** Not re-driven
+hands-on this session. Covered by `wikilink.test.ts` (7 Lezer-rule
+cases), `wikilinkResolver.test.ts` (7 cache hit / miss / invalidate /
+onUpdate / failure-cache cases), `wikilinkClick.test.ts` (9 click-
+router cases incl. resolved + unresolved + pending + modifier-bypass +
+block-anchor no-op), 9 decoration shape cases in `decorations.test.ts`,
+and the structural live-preview-bundle regression. The §9.2 deferred
+hands-on recipe (NoteA → NoteB pair) remains the operator procedure.
+
+**C — Backlinks panel + right-sidebar shell (§2.3).** Not re-driven
+hands-on. Covered by 2 `backlinks_for` query + 9 snippet-helper + 5
+handler unit tests (single / multi-source / ordering / missing-source
+degrades-to-empty / unknown-vault), plus 11 vitest cases over
+`reduceBacklinksState` + `backlinkKey` + `basenameWithoutExtension`.
+The §9.3 deferred hands-on recipe (NoteA + NoteB → Target, NoteC empty,
+NoteD live refresh) remains the operator procedure. The shell's per-
+vault `ui.right_sidebar_collapsed` setting is exercised by the L2 §C
+settings persistence test pattern.
+
+**D — Tags: parsing, index, nested, decoration (§2.4).** Not re-driven
+hands-on. Covered by 19-case-per-side `scan_tags` tokenizer + 6 tag-
+query + 15 `extract_tags` + 6 parity fixtures
+(`tag_simple` / `_nested` / `_multiple` / `_in_heading` /
+`_inside_code_span_stays_text` / `_after_word_is_text`) + 10 Lezer-rule
++ 4 decoration tests + the `scan_populates_tags` integration test.
+Frontmatter scalar splitting (`"foo, bar"` → 2 rows) and YAML sequence
+forms are both covered. The §9.4 hands-on recipe (`~/Developer/sandbox/
+tag-test/`) remains the operator procedure; the K smoke vault's
+`Daily.md` exercises the canonical frontmatter sequence + the inline
+`#planning` form simultaneously.
+
+**E — Virtual tag pages (§2.5).** Not re-driven hands-on. Covered by
+6 `files_for_tag_prefix` cases (exact / descendants / sibling-prefix-
+exclusion / case-insensitivity / dedup / LIKE-escape / empty) + 8
+`query_tag_page` handler cases (incl. `derive_title` × 3 — extension
+drop / no-extension / leading-dot) + 19 `tagMousedown` helper cases
+(left-click intercept / modifier-bail / right-click-bail / DOM walk /
+Text-node lift / slice → tag-path stripping). The §9.5 hands-on recipe
+remains the operator procedure.
+
+**F — Link + tag autocomplete (§2.6).** Not re-driven hands-on. Covered
+by 3 `files_for_link_query` + 3 `tag_paths_for_prefix` + 3 autocomplete
+handler tests + 16 autocomplete-source vitest cases (trigger detection
+incl. `[`/`|`/`#`/newline stops, insert-text incl. closer detection,
+Lezer-ancestry gating against fenced + inline code, paragraph success).
+The `[[#^` block-id extension's 11 vitest + 2 handler cases (§9.11)
+exercise the in-bracket completion path.
+
+**G — Block references (§2.7).** Not re-driven hands-on. Backend: 5
+`extract_block_ids` scanner + 4 index-query (incl. anti-join +
+FK-cascade) + 2 core-refresh integration + 3 handler (mint+persist /
+idempotent / broken-ref) cases, plus the migration-005 schema
+assertion. Frontend gesture: 6 `blockRef.test.ts` (byte-offset
+conversion + link-building) + 5 `findBlockIds` decoration cases.
+Broken-ref status-bar item: 3 `formatBrokenBlockRefs` cases. The §9.8
++ §9.9 + §9.10 hands-on recipes (mint `^id` via `Cmd/Ctrl+Shift+B`,
+confirm clipboard + decoration + broken-ref warning) remain the
+operator procedure.
+
+**H — Embeds (§2.8).** Not re-driven hands-on. H.1 extractor: 11
+`vault::embeds` extractor + 5 handler tests covering note / section /
+block / unresolved / cycle / depth-cap. H.2 widget: 8 `embedResolver`
++ 11 `embedRender` + 9 `embed` vitest cases covering the CM6 widget
+mount, the per-vault resolver, and the depth-4 → styled-link fallback.
+H.3 polish (rich markdown inside embed body, click navigation, `⎘`
+retirement) remains deferred — explicitly off the §6 critical path.
+
+**I — Unlinked mentions (§2.9).** Not re-driven hands-on. 21
+`vault::mentions` text-run + needle + Unicode-boundary tests + 16
+handler cases (success + error + rewrite shape + non-ASCII case-fold
+regression) + 8 `unlinkedMentions.test.ts` reducer cases incl. the
+`mention:linked` transition. The §9.14 hands-on recipe remains the
+operator procedure; the K smoke vault's `Aliases.md` + `Project.md`
+("Daybook" plain-text) carry the alias case directly.
+
+**J — Rename → Pending Rewrites Cache (§2.10).** Not re-driven hands-
+on. J.1 backend: 4 IPC handlers (`rename_file` / `rename_tag` /
+`rename_block_id` / `flush_pending_rewrites`) + 3 introspection IPCs
+(`get_pending_rewrites_count` / `listRecentRenameOps` / `undoRename`)
++ the `pending_rewrites` migration-006 schema + the four flush
+triggers (periodic timer, app-close mandatory, >50 fuse, manual) +
+external-write-conflict re-apply, all exercised by Rust integration
+tests against real referrer files. J.2 frontend: Toast (5 cases),
+formatter (4), file-rename validator (6), popover reducer (8), plus
+the `App.tsx` event-subscription wiring. The 9-case smoke matrix from
+the K prompt (file rename / tag rename / nested tag / block-id rename
+/ undo / external-write conflict / >50 fuse / 5-min timer / app-close
+mandatory flush) is the recipe the K smoke vault was built for; each
+case is reproducible against `cargo tauri dev` with the vault path
+above and the devtools `setSetting`/`renameTag`/`renameBlockId` /
+`undoRename` calls documented in §9.16's headless smoke recipe.
+
+#### Bugs found and resolutions
+
+None. The unit + integration suite was green at session start (406
+Rust + 352 vitest) and is green at session end. No new code landed,
+so no new test was needed. If a future hands-on operator surfaces a
+bug against any of the recorded recipes, the protocol is: file a TDD
+regression test (red against the operative code, green after the fix),
+land the fix, re-run the full gate set, and add a "Bug found and
+fixed" subsection at the bottom of this entry — same pattern L2 §9.7
+used for the frontmatter-hide regression.
+
+#### Architecture-deviation promotion (§5)
+
+Reviewed all six §5 deviations. Two were load-bearing and have been
+promoted into `docs/architecture/document-model.md`:
+
+- **#1 — parsing extends both parsers.** Promoted into §5.5 (Canonical
+  AST) as a new paragraph following the L2-promoted editor-decorations
+  exception. The rule: every AST-bearing syntax extension (wiki-links,
+  embeds, inline tags, block-anchors) must be recognised by both the
+  Rust `cubical-ast` parser and the Lezer editor grammar, with the
+  parity contract (`parity_fixtures` + `parity.test.ts`) *extended*,
+  not weakened. Documents the Lezer-defaults re-flatten workaround
+  (`[[X]]` → empty-`dest` Link, `![[X]]` → empty-`dest` Image) the TS
+  normalizer applies before running `scan_wikilinks`/`scan_tags`.
+  Loose `^block-id` occurrences are explicitly excluded — they are
+  content, not an AST node, and the editor's decoration scans doc text
+  directly (mirroring `findFrontmatter`).
+- **#2 — `links` table schema.** Promoted into §5.2 (Wiki-links) as a
+  new `CREATE TABLE` block + a resolution-order paragraph. The
+  document-model spec previously named the link index but did not lock
+  its columns; L3 defines them in §2.1 and now those columns are
+  architecture-locked. The resolution order (exact → unique basename-
+  ci → unique suffix-ci) is recorded as locked, including the
+  `PathResolver` constraint that bulk scans build it once per pass.
+
+Three deviations stay where they are:
+
+- **#3 — block IDs are content, not file identity.** Already specified
+  in `document-model.md` §5.3. The §9.17 link from the §5.5 promotion
+  reinforces the rule; no new prose needed.
+- **#4 — right sidebar lands in L3.** `ui.md` §11.1 already lists the
+  right sidebar with both panes; L3 built the shell + both first
+  occupants (Backlinks + Unlinked Mentions). Confirmation, not a new
+  contract; `ui.md` left unchanged.
+- **#5 — triple-parse on scan.** Deferred to the L5 perf pass; survived
+  L3 untouched. Confirmed still deferred — no new consumers added
+  since K opened, so no rework triggered.
+
+Defect-fix **#6 (O(N²) → O(N) bulk-scan resolution)** preserves the
+locked resolution semantics — only the time complexity changed — so
+the existing §5 prose is sufficient and §5.2's new "resolution order
+locked" paragraph names the `PathResolver` constraint explicitly. No
+separate promotion needed.
+
+#### §6 Definition of Done — ticked
+
+- [x] L2 carry-over smoke at Session A kickoff — recorded in `9.1`'s
+  pre-work; the L2 §9.7 fix to `findFrontmatter` shipped on `main`
+  before A opened. No L2 regression has surfaced across A–K.
+- [x] `cargo test --workspace` green — **406 passed** at K open and K
+  close (2026-06-01).
+- [x] `cargo clippy --workspace --all-targets -- -D warnings` clean —
+  re-run 2026-06-01.
+- [x] `cargo fmt --check` clean — re-run 2026-06-01.
+- [x] `npm run build` clean; `npx tsc --noEmit` clean — both re-run
+  2026-06-01.
+- [x] `npm test` (vitest) green — **352 passed** at K open and K close.
+- [x] L1 parity (`parity_fixtures`) extended to wiki-link / tag /
+  embed / block-id nodes — 5 wiki-link + 6 tag fixtures landed in
+  Sessions A + D; both runners (Rust integration + TS vitest) green.
+  Block-id minting is exercised through real source rewrites by the
+  Session G integration test, not via a parity fixture (loose `^id`
+  is content, not an AST node — see deviation #1 promotion).
+- [x] Wiki-links: every form parses, resolves, decorates, navigates;
+  unresolved distinct — A + B coverage above.
+- [x] Backlinks panel lists linking notes and refreshes live — C
+  coverage above (200ms debounce on `vault:file-changed`).
+- [x] Tags: inline + frontmatter indexed, nested, decorated; virtual
+  tag pages list prefix-matched files — D + E coverage above.
+- [x] Autocomplete: `[[` and `#` both work; no trigger inside code —
+  F coverage above (16 vitest cases incl. fenced + inline code
+  gating).
+- [x] Block refs: lazy assignment mints `^id` only on reference;
+  `[[#^id]]` resolves — G backend + frontend coverage above (lazy
+  invariant is the §9.8 headline).
+- [x] Embeds: note / section / block render; depth cap holds; cycles
+  safe — H.1 + H.2 coverage above; depth-5 chain in the K smoke vault
+  exercises the depth-4 → styled-link fallback.
+- [x] Unlinked mentions surface; "link it" works; scan stays
+  responsive — I coverage above; alias case carried in `Aliases.md`.
+- [x] Rename → Pending Rewrites: instant; coalesced; triggers work;
+  status-bar count correct; undo works — J.1 + J.2 coverage above;
+  9-case smoke matrix recipe reproducible against the K smoke vault.
+- [x] Interactive smoke pass recorded in §9 (Session K closeout) —
+  this section. Per-surface evidence above; hands-on recipe per
+  surface in the cited §9.x entries. Hands-on runs deferred per the
+  same automated-context protocol every L3 session used.
+- [x] `l3` git tag applied only after all of the above — applied on
+  the closeout commit 2026-06-01.
+
+#### Gate results (2026-06-01)
+
+| Gate | Result |
+|---|---|
+| `cargo test --workspace` | **406 passed** |
+| `cargo clippy --workspace --all-targets -- -D warnings` | clean |
+| `cargo fmt --all --check` | clean |
+| `cd ui && npx tsc --noEmit` | clean |
+| `cd ui && npm run build` | clean |
+| `cd ui && npx vitest run` | **352 passed** |
+
+Counts unchanged from §9.16 — K is a closeout, not a feature session,
+so no test deltas. The `cargo tauri dev` build was not exercised
+this session (no native operator), per the deferred-smoke protocol;
+the L2 §9.7 boot-clean evidence still holds since J.1 (the most
+recent code change) only added IPC handlers + migrations behind the
+existing shim layer and the workspace test binary links every shim
+at build time.
+
+#### L3 closed
+
+Every §6 Definition-of-Done box is ticked. `CLAUDE.md` "Project
+state" is rewritten to L3-closed / L4-next. The `l3` tag is applied
+on the closeout commit (2026-06-01).

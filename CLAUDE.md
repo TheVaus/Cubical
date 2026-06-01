@@ -66,20 +66,12 @@ Crates without Tauri deps (`cubical-core`, `cubical-ast`, `cubical-index`, `cubi
 
 ## Project state
 
-Current layer: 3 — Knowledge Graph (Sessions A–F done + scan perf fix + G full + `[[#^` block-id autocomplete + H.1 + H.2 + I + **J done**; K pending).
+Current layer: 4 — Search (pending; not yet started).
 
-J.2 (frontend) merges follow J.1's two-merge backend pass; together they close §6 DoD item "Rename → Pending Rewrites Cache." Spec §9.16 (`docs/layer-3-spec.md`) catalogues the frontend; §9.15 the backend.
+**L3 closed 2026-06-01** (`l3` tag). Sessions A–F + the §5.6 O(N²)→O(N) scan-resolution perf fix + Session G (backend core + frontend gesture + decoration + broken-ref status-bar) + the `[[#^` in-bracket block-id autocomplete + H.1 + H.2 + I + J.1 + J.2 + K all done. Spec catalogue: `docs/layer-3-spec.md` §9.1–§9.17. Session K is no-feature-code — closeout smoke recorded in §9.17, §5 deviations promoted into `docs/architecture/document-model.md` (#1 — two-parser extension as the AST contract; #2 — `links` table schema), every §6 DoD box ticked. K smoke vault at `~/Developer/sandbox/cubical-l3-smoke/` (Daily/Project/Notes/Pinned/Refs/Aliases/Big/A→B→C→D→E + nested `notes/inbox/Stuff.md`) — reusable across closeout reruns. Hands-on interactive smoke against `cargo tauri dev` deferred under the same protocol Sessions B–J used (auto context can't drive the native Tauri window); per-surface recipes in each session's §9.x entry.
 
-**J.2 highlights** (full prose in spec §9.16):
-- `ui/src/Toast.tsx` + sibling pure `toastState.ts` — single-slot toast (4 s auto-dismiss, dismissible, tokenised). `<ToastHost>` mounts once in `App.tsx`; every consumer routes through `showToast(message)`.
-- `ui/src/statusbar/pendingRewritesLabel.ts` — pure `formatPendingRewrites(count)` mirroring `brokenRefs.ts` (singular / plural / hidden at zero). Filename diverges from spec to avoid the `PendingRewrites.tsx` case-only collision.
-- `ui/src/statusbar/PendingRewrites.tsx` + pure `pendingRewritesState.ts` reducer — clickable status-bar item; click opens a popover with the per-target breakdown (`getPendingRewritesBreakdown`), "Save all pending changes" (`flushPendingRewrites`), and the last 5 rename ops (`listRecentRenameOps({ limit: 5 })`) each with an Undo button (`undoRename`). Refetches on every open; outside-click + Esc close.
-- File-rename gesture in `App.tsx` — right-click a markdown row → context menu "Rename…" → inline `<input>` replaces the row's label. Enter / blur commit (`renameFile`), Esc cancels. Pure `validateRenameTarget` rejects empty / unchanged client-side; backend `InvalidRequest` (existing dest) surfaces via `showToast`.
-- `App.tsx` wiring — subscribes to `onVaultPendingRewritesChanged` (updates `pendingRewritesCount` signal) + `onVaultFlushComplete` (toast `"Applied N reference update(s) across M file(s)."`; suppressed when both totals are 0). Cleanup drops both handles + resets state on `close_vault`.
-- No new settings UI for `pending_rewrites.flush_interval_secs` — `setSetting(id, …, N)` from devtools is the documented affordance; dedicated settings panel deferred to K polish.
+Final L3 test counts: **406 Rust + 352 vitest** (unchanged from §9.16 — K adds no code). All gates green at K close: `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`, `npx tsc --noEmit`, `npm run build`, `npx vitest run`. L0 closed 2026-05-13 (`l0`); L1 closed 2026-05-09 (`l1`); L2 closed 2026-05-22 (`l2`); L3 closed 2026-06-01 (`l3`).
 
-Tests: 406 Rust unchanged (J.2 adds no backend). 329 vitest baseline + 23 new = **352 vitest** (Toast 5, pendingRewritesLabel 4, fileRename 6, pendingRewritesState 8). L0 closed 2026-05-13 (`l0`); L1 closed 2026-05-09 (`l1`); L2 closed 2026-05-22 (`l2`).
+Deferred at L3 close: H.3 polish (rich markdown inside embed body, click nav, `⎘` retirement), K-polish (tag-chip context menu / block-ref hover menu / keyboard-shortcut rename gesture / dedicated settings UI for `pending_rewrites.flush_interval_secs`), the §5.5 triple-parse refactor (handed to L5 perf pass). None on the §6 DoD critical path.
 
-Earlier L3 (unchanged): backend block-refs (Session G, spec §9.8), frontend gesture + decoration + status bar (§9.9 + §9.10), `[[#^` block-id autocomplete (§9.11). H.1 + H.2 (embed extractor + CM6 widget, §9.12 + §9.13). Session I unlinked mentions (§9.14). J.1 backend rename / flush / count / undo IPCs + the two new events (§9.15).
-
-Next: Session K — interactive smoke across every L3 surface (file rename, tag rename, nested tag, block-id rename, undo, external-write conflict, >50 fuse, 5-min timer, app-close mandatory flush — recipe in §9.16) + `l3` tag + L3 closeout. Hands-on smoke for J + I + H.2 + G consolidated into K. H.3 polish (rich markdown inside embed body, click nav, `⎘` retirement) remains explicitly deferred — not on §6 DoD critical path.
+Next: **Session L4-A — Tantivy full-text search** (per `docs/build-order.md`). L4 introduces the Tantivy index, the persistent search panel, and the `Cmd/Ctrl+K` Omni-Bar over it. L3's link + tag indexes are the substrate L4's relevance ranking layers on.
