@@ -24,6 +24,28 @@ Frontmatter is parsed into structured columns in libSQL for fast Dataview-style 
 
 `[[target]]`, `[[target|display]]`, `[[target#heading]]`, `[[target#^block-id]]`. Resolution is via libSQL's link index, keyed by `file_path` pre-L7 and by `file_uuid` post-L7 (schema migration handles the transition at the L7 onboarding moment). Renames do not rewrite referencing files immediately — they enqueue entries in the [Pending Rewrites Cache](#57-pending-rewrites-cache) that are flushed periodically and on close.
 
+**Schema (L3, promoted from `docs/layer-3-spec.md` §2.1 at L3 close):**
+
+```sql
+CREATE TABLE links (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_path   TEXT NOT NULL,        -- vault-relative file containing the link
+    target_raw    TEXT NOT NULL,        -- the [[…]] target exactly as written
+    target_path   TEXT,                 -- resolved vault-relative path; NULL = unresolved
+    anchor_kind   TEXT,                 -- NULL | 'heading' | 'block'
+    anchor_value  TEXT,                 -- heading text or block-id slug; NULL if no anchor
+    display_text  TEXT,                 -- NULL unless [[target|display]]
+    is_embed      INTEGER NOT NULL,     -- 0 | 1  (![[…]] sets 1)
+    position      INTEGER NOT NULL      -- byte offset in source, for ordering + context
+);
+CREATE INDEX idx_links_source ON links(source_path);
+CREATE INDEX idx_links_target ON links(target_path);
+```
+
+`source_path` becomes `source_file_uuid` (and `target_path` → `target_file_uuid`) post-L7 via schema migration. `target_raw` survives unchanged — it preserves the user-written form so renames can rewrite the source byte-for-byte (basename-form referrers keep basenames, path-form referrers keep paths). `is_embed` discriminates `[[…]]` from `![[…]]` so a single index serves both wiki-links and embeds. `position` is the byte offset of the enclosing block; per-inline byte positions are post-L1 work, deferred to whichever later session needs them.
+
+**Resolution order** (locked at L3): exact vault-relative path → case-insensitive unique basename → case-insensitive unique suffix; ambiguity at the latter two yields `NULL` (the row still lands so unresolved links surface in the UI and a later rename can re-resolve). Bulk scan resolves all links through a single in-memory `PathResolver` built once per scan pass (O(N) build, O(1) common-case lookup) so the initial vault scan stays linear; the single-file watcher path delegates to the same resolver.
+
 ### 5.3 Block references
 
 A block ID is a slug (`^my-block`) appended to a paragraph or list item. **Lazy assignment:** an ID is only created when the user creates a reference to that paragraph (typing `[[note#^...]]` in autocomplete, or invoking a "create block ref" action). No bulk auto-assignment. The literal `^id` lives in the markdown source as text; it survives content edits as long as the user doesn't delete it.
@@ -72,6 +94,10 @@ The exact shape is finalized during Layer 1. The point is: this AST is the lingu
 The AST is intentionally slim — it represents only the markdown subset Cubical itself produces and renders. Cross-app importers (Obsidian, Logseq, Notion) are out of v1 scope, so the AST does not carry math, mermaid, callout, footnote, or other extension nodes.
 
 **Editor decorations are a sanctioned exception (promoted from L2).** The editor's Live Preview decoration layer does *not* consume the canonical AST — it reads the editor's Lezer syntax tree (`syntaxTree(state)`) directly. Live Preview hides and reveals individual marker tokens (`#`, `*`, backticks, list dashes, link brackets) at byte precision, and the canonical AST deliberately abstracts those positions away. This is a parallel consumer, not a replacement: the in-process `onAstChange` path still normalizes Lezer into `cubical_ast::Document`, so the L1 parity contract is unaffected. The rule: anything that **indexes, exports, or crosses the plugin (Layer 6) boundary** consumes the canonical AST; only the editor's own rendering may read Lezer directly.
+
+**Two-parser extension is the contract for AST-bearing syntax (promoted from L3).** Wiki-links, embeds, inline tags, and block-id occurrences live in the canonical AST (`Inline::WikiLink`, `Inline::Tag`, `Anchor::{Heading,Block}`) and so must be recognised by **both** the Rust `cubical-ast` parser (pulldown-cmark + hand-rolled inline tokenizers — `scan_wikilinks`, `scan_tags`) **and** the Lezer editor grammar (`@lezer/markdown` + `MarkdownConfig` inline rules registered `before: "Link"`). Both sides emit the same node names with the same grammar; the L1 cross-language parity contract (`crates/cubical-ast/tests/fixtures/parity.json`, exercised by the Rust `parity_fixtures` integration test + TS `parity.test.ts`) is *extended* to every new AST-bearing form, not weakened. Where Lezer's defaults conflict with the canonical grammar (e.g. its shortcut-Link parser claims `[[X]]` as an empty-`dest` Link, its Image parser claims `![[X]]` as an empty-`dest` Image), the TS normalizer re-flattens those nodes back to text before running `scan_wikilinks`/`scan_tags` so the canonical output stays in lockstep. This is the load-bearing L3 call — every later AST-bearing syntax extension follows the same pattern.
+
+Plain `^block-id` occurrences are the explicit exception: they are content, not an AST node (the canonical AST carries `block_id: Option<String>` on `Heading`/`Paragraph` only after a reference mints one; loose `^id` in source is a textual anchor, not a structural node). The editor's `^id` decoration therefore scans the doc text directly (mirroring the `findFrontmatter` precedent), bypassing both parsers — outside the AST contract by design.
 
 ### 5.6 Tags
 
