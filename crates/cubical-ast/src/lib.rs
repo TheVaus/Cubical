@@ -31,14 +31,14 @@
 #![warn(missing_docs)]
 
 mod error;
-mod frontmatter;
+pub mod frontmatter;
 mod normalize;
-mod tag;
+pub mod tag;
 mod types;
 pub mod wikilink;
 
 pub use error::AstError;
-pub use frontmatter::split_frontmatter;
+pub use frontmatter::{parse_frontmatter, split_frontmatter};
 pub use types::{Anchor, Block, Document, Frontmatter, Inline, ListItem, Span};
 pub use wikilink::{scan_wikilinks, TokenizedRun};
 

@@ -10,6 +10,7 @@
 //! lenient here would silently reinterpret edge-case `.md` files.
 
 use crate::types::{Frontmatter, Span};
+use serde_json::Value as JsonValue;
 use serde_yaml_ng::Value as YamlValue;
 
 /// Split a source string into `(yaml_str_opt, body_str)`.
@@ -193,6 +194,84 @@ fn yaml_value_to_string_key(v: &YamlValue) -> String {
     }
 }
 
+/// Convenience: split + parse a `source` string into a [`Frontmatter`].
+///
+/// Returns `None` when the source has no strict frontmatter block, when
+/// the YAML parses to a non-mapping top-level value, or when the YAML
+/// is malformed (errors are swallowed here — callers who need the raw
+/// `serde_yaml_ng::Error` should use [`split_frontmatter`] + the lower-
+/// level helpers). Used by `cubical-search` to project frontmatter into
+/// the search schema without re-implementing the split/parse dance.
+#[must_use]
+pub fn parse_frontmatter(source: &str) -> Option<Frontmatter> {
+    let (yaml_opt, _body, body_offset) = split_with_offset(source);
+    let yaml_str = yaml_opt?;
+    parse_with_span(yaml_str, body_offset).ok().flatten()
+}
+
+impl Frontmatter {
+    /// Lookup a scalar string value by key. Returns `None` if the key
+    /// is missing or the value is not a JSON string scalar.
+    #[must_use]
+    pub fn get_string(&self, key: &str) -> Option<&str> {
+        self.entries
+            .iter()
+            .find(|(k, _)| k == key)
+            .and_then(|(_, v)| v.as_str())
+    }
+
+    /// Lookup a list of string scalars by key. Returns an empty `Vec`
+    /// if the key is missing, the value is not a JSON array, or no
+    /// element is a string. Non-string elements inside an otherwise
+    /// string list are skipped silently.
+    #[must_use]
+    pub fn get_string_list(&self, key: &str) -> Vec<&str> {
+        let Some((_, value)) = self.entries.iter().find(|(k, _)| k == key) else {
+            return Vec::new();
+        };
+        let JsonValue::Array(items) = value else {
+            return Vec::new();
+        };
+        items.iter().filter_map(|v| v.as_str()).collect()
+    }
+
+    /// Walk the frontmatter as a flat key/value list of stringified
+    /// scalars. Nested maps join keys with `.`; sequences expand to
+    /// repeated `(key, value)` pairs (the key is reused unchanged so
+    /// callers that want indexed keys can recover position from order).
+    /// Booleans render as `"true"`/`"false"`; numbers via `Display`;
+    /// nulls are skipped. Used by `cubical-search`'s frontmatter field
+    /// projector.
+    #[must_use]
+    pub fn flattened_scalars(&self) -> Vec<(String, String)> {
+        let mut out: Vec<(String, String)> = Vec::new();
+        for (key, value) in &self.entries {
+            flatten_value(key, value, &mut out);
+        }
+        out
+    }
+}
+
+fn flatten_value(prefix: &str, value: &JsonValue, out: &mut Vec<(String, String)>) {
+    match value {
+        JsonValue::Null => {}
+        JsonValue::Bool(b) => out.push((prefix.to_string(), b.to_string())),
+        JsonValue::Number(n) => out.push((prefix.to_string(), n.to_string())),
+        JsonValue::String(s) => out.push((prefix.to_string(), s.clone())),
+        JsonValue::Array(items) => {
+            for item in items {
+                flatten_value(prefix, item, out);
+            }
+        }
+        JsonValue::Object(map) => {
+            for (k, v) in map {
+                let nested = format!("{prefix}.{k}");
+                flatten_value(&nested, v, out);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -304,5 +383,63 @@ mod tests {
     fn parse_yaml_returns_none_for_empty_block() {
         let fm = parse_yaml("").expect("parse");
         assert!(fm.is_none());
+    }
+
+    #[test]
+    fn parse_frontmatter_returns_some_for_valid_block() {
+        let src = "---\ntitle: Hello\n---\n\nbody\n";
+        let fm = parse_frontmatter(src).expect("some");
+        assert_eq!(fm.get_string("title"), Some("Hello"));
+    }
+
+    #[test]
+    fn parse_frontmatter_returns_none_for_missing_or_malformed() {
+        assert!(parse_frontmatter("# just body\n").is_none());
+        // Malformed YAML between the markers degrades to None.
+        assert!(parse_frontmatter("---\ntitle: : :\n  - bad\n---\n").is_none());
+    }
+
+    #[test]
+    fn get_string_returns_some_for_scalar_none_otherwise() {
+        let fm = parse_yaml("title: Hello\ncount: 3\nready: true\n")
+            .expect("parse")
+            .expect("some");
+        assert_eq!(fm.get_string("title"), Some("Hello"));
+        assert_eq!(fm.get_string("count"), None);
+        assert_eq!(fm.get_string("ready"), None);
+        assert_eq!(fm.get_string("missing"), None);
+    }
+
+    #[test]
+    fn get_string_list_returns_vec_for_string_list_empty_otherwise() {
+        let fm = parse_yaml("tags: [a, b, c]\nmixed: [a, 1, true]\nscalar: x\n")
+            .expect("parse")
+            .expect("some");
+        assert_eq!(fm.get_string_list("tags"), vec!["a", "b", "c"]);
+        // Non-string elements are skipped silently.
+        assert_eq!(fm.get_string_list("mixed"), vec!["a"]);
+        assert!(fm.get_string_list("scalar").is_empty());
+        assert!(fm.get_string_list("missing").is_empty());
+    }
+
+    #[test]
+    fn flattened_scalars_walks_scalars_lists_and_nested_maps() {
+        let yaml =
+            "title: T\ntags: [a, b]\nready: true\ncount: 3\nmeta:\n  author: jane\n  pub: false\n";
+        let fm = parse_yaml(yaml).expect("parse").expect("some");
+        let flat = fm.flattened_scalars();
+        // Order preserves source order; sequences expand under the same key.
+        assert_eq!(
+            flat,
+            vec![
+                ("title".to_string(), "T".to_string()),
+                ("tags".to_string(), "a".to_string()),
+                ("tags".to_string(), "b".to_string()),
+                ("ready".to_string(), "true".to_string()),
+                ("count".to_string(), "3".to_string()),
+                ("meta.author".to_string(), "jane".to_string()),
+                ("meta.pub".to_string(), "false".to_string()),
+            ]
+        );
     }
 }

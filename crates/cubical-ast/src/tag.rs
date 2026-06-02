@@ -26,7 +26,11 @@ pub enum TokenizedRun {
     Text(String),
     /// A successfully parsed tag. `path` is the body without the leading
     /// `#`, e.g. `"todo"` or `"project/cubical"`.
-    Tag { path: String },
+    Tag {
+        /// Tag body with the leading `#` stripped, including any nested
+        /// `/`-separated segments.
+        path: String,
+    },
 }
 
 /// Scan a text run for `#tag` / `#nested/tag` occurrences. Always

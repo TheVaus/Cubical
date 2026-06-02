@@ -16,7 +16,7 @@ pub mod schema;
 pub mod status;
 
 // Re-exports are restored as each module is fleshed out in later tasks.
-// TODO(l4-a Task 4): pub use doc::IndexDoc;
+pub use doc::IndexDoc;
 pub use error::SearchError;
 // TODO(l4-a Task 6): pub use index::SearchIndex;
 // TODO(l4-a Task 8): pub use query::{FieldScope, MatchedField, SearchHit, SearchQuery, SearchResponse, SortMode};
