@@ -1,1 +1,127 @@
-//! Stub — populated in a later task.
+//! Tantivy schema definition for the search index.
+
+use tantivy::schema::{
+    Field, IndexRecordOption, Schema, SchemaBuilder, TextFieldIndexing, TextOptions, FAST, INDEXED,
+    STORED, STRING,
+};
+use tantivy::tokenizer::{
+    Language, LowerCaser, SimpleTokenizer, Stemmer, TextAnalyzer, TokenizerManager,
+};
+
+/// Tokenizer name for the English-stemmed prose tokenizer.
+pub const TOKENIZER_EN_STEM: &str = "en_stem";
+
+/// Tokenizer name for the code tokenizer (lowercase, no stem).
+pub const TOKENIZER_CODE: &str = "code";
+
+/// Handles for every field in the schema.
+#[derive(Debug, Clone, Copy)]
+pub struct Fields {
+    /// Vault-relative path. `STRING` (not tokenized); upsert/delete key.
+    pub path: Field,
+    /// Title text. `TEXT` + `en_stem`. Stored.
+    pub title: Field,
+    /// Concatenated heading text. `TEXT` + `en_stem`. Not stored.
+    pub headings: Field,
+    /// Prose body. `TEXT` + `en_stem`. Not stored.
+    pub body: Field,
+    /// Code text. `TEXT` + `code`. Not stored.
+    pub code: Field,
+    /// Multi-valued lowercase tag strings. `STRING`. Stored.
+    pub tags: Field,
+    /// Flattened frontmatter scalars. `TEXT` + `en_stem`. Not stored.
+    pub frontmatter: Field,
+    /// Unix seconds. `i64` `INDEXED|STORED|FAST`.
+    pub mtime_secs: Field,
+    /// File size in bytes. `u64` `INDEXED|STORED|FAST`.
+    pub size_bytes: Field,
+}
+
+/// Build the schema (called once per `SearchIndex::open`).
+pub fn build_schema() -> (Schema, Fields) {
+    let mut sb = SchemaBuilder::new();
+
+    let en_stem_indexing = TextFieldIndexing::default()
+        .set_tokenizer(TOKENIZER_EN_STEM)
+        .set_index_option(IndexRecordOption::WithFreqsAndPositions);
+    let code_indexing = TextFieldIndexing::default()
+        .set_tokenizer(TOKENIZER_CODE)
+        .set_index_option(IndexRecordOption::WithFreqsAndPositions);
+
+    let en_stem_stored = TextOptions::default()
+        .set_indexing_options(en_stem_indexing.clone())
+        .set_stored();
+    let en_stem_not_stored = TextOptions::default().set_indexing_options(en_stem_indexing.clone());
+    let code_not_stored = TextOptions::default().set_indexing_options(code_indexing);
+
+    let path = sb.add_text_field("path", STRING | STORED);
+    let title = sb.add_text_field("title", en_stem_stored);
+    let headings = sb.add_text_field("headings", en_stem_not_stored.clone());
+    let body = sb.add_text_field("body", en_stem_not_stored.clone());
+    let code = sb.add_text_field("code", code_not_stored);
+    let tags = sb.add_text_field("tags", STRING | STORED);
+    let frontmatter = sb.add_text_field("frontmatter", en_stem_not_stored);
+    let mtime_secs = sb.add_i64_field("mtime_secs", INDEXED | STORED | FAST);
+    let size_bytes = sb.add_u64_field("size_bytes", INDEXED | STORED | FAST);
+
+    (
+        sb.build(),
+        Fields {
+            path,
+            title,
+            headings,
+            body,
+            code,
+            tags,
+            frontmatter,
+            mtime_secs,
+            size_bytes,
+        },
+    )
+}
+
+/// Register `en_stem` and `code` tokenizers on the supplied manager.
+pub fn register_tokenizers(mgr: &TokenizerManager) {
+    let en_stem = TextAnalyzer::builder(SimpleTokenizer::default())
+        .filter(LowerCaser)
+        .filter(Stemmer::new(Language::English))
+        .build();
+    let code = TextAnalyzer::builder(SimpleTokenizer::default())
+        .filter(LowerCaser)
+        .build();
+    mgr.register(TOKENIZER_EN_STEM, en_stem);
+    mgr.register(TOKENIZER_CODE, code);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn schema_has_all_expected_fields() {
+        let (schema, f) = build_schema();
+        assert_eq!(schema.get_field_name(f.path), "path");
+        assert_eq!(schema.get_field_name(f.title), "title");
+        assert_eq!(schema.get_field_name(f.headings), "headings");
+        assert_eq!(schema.get_field_name(f.body), "body");
+        assert_eq!(schema.get_field_name(f.code), "code");
+        assert_eq!(schema.get_field_name(f.tags), "tags");
+        assert_eq!(schema.get_field_name(f.frontmatter), "frontmatter");
+        assert_eq!(schema.get_field_name(f.mtime_secs), "mtime_secs");
+        assert_eq!(schema.get_field_name(f.size_bytes), "size_bytes");
+    }
+
+    #[test]
+    fn tokenizers_register_under_expected_names() {
+        let mgr = TokenizerManager::default();
+        register_tokenizers(&mgr);
+        assert!(
+            mgr.get(TOKENIZER_EN_STEM).is_some(),
+            "en_stem not registered"
+        );
+        assert!(
+            mgr.get(TOKENIZER_CODE).is_some(),
+            "code tokenizer not registered"
+        );
+    }
+}
