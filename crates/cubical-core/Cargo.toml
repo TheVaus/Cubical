@@ -10,6 +10,7 @@ description = "Vault, file watcher, file-type registry, frontmatter I/O. Core bu
 [dependencies]
 cubical-ast = { path = "../cubical-ast" }
 cubical-index = { path = "../cubical-index" }
+cubical-search = { path = "../cubical-search" }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 serde = { workspace = true }

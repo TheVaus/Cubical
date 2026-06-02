@@ -42,6 +42,12 @@ sha2 = "0.10"
 # CommonMark-conformant pull parser; MIT/Apache-2.0; no_std-compatible.
 pulldown-cmark = { version = "0.13", default-features = false }
 
+# Full-text search — Tantivy wrapper lives in `cubical-search` (L4-A).
+tantivy = "0.22"
+
+# Test-only — used as a dev-dep across crates that need an isolated FS.
+tempfile = "3"
+
 # uuid + filetime are intentionally NOT in L0 — they land at L7 with frontmatter UUIDs.
 
 [profile.release]

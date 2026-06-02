@@ -5,7 +5,15 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "Tantivy wrapper. Skeleton only in L0; full-text search lands at L4."
+description = "Tantivy wrapper. Full-text search over the canonical AST (L4-A)."
 
 [dependencies]
 cubical-ast = { path = "../cubical-ast" }
+tantivy = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
