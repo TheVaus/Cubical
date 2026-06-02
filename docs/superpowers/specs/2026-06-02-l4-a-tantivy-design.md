@@ -26,7 +26,9 @@ The seam is clean: L4-A's IPC is the only surface L4-B/C/D touches. L4-A lands b
 ## Background — relevant existing machinery
 
 - **`cubical-search` skeleton.** L0 created the crate with `cubical-ast` as its only dependency; `lib.rs` is a doc-comment placeholder. L4-A is its first feature pass.
-- **Per-file parse pattern.** `crates/cubical-core/src/vault/scan.rs` already calls `refresh_frontmatter`, `refresh_links`, `refresh_tags`, plus the block / pending-rewrites refreshers from L3. Each parses the source independently — the §5.6 / §5.5 "scan parses each file 3–4×" finding (see `docs/layer-3-spec.md` §5.5). L4-A adds a fourth refresher (`refresh_search_index`) following the same shape; the consolidation refactor is the L5 perf pass.
+- **Per-file parse pattern.** `crates/cubical-core/src/vault/scan.rs` pass 1 reads each `.md` file once, runs L3-J's `materialize_on_read` once, then hands the materialized source to four extractors: `refresh_frontmatter` + `extract_links_from_source` + `refresh_tags` + `refresh_blocks`. Each parses the source independently — the §5.5 / §5.6 finding documented in `docs/layer-3-spec.md` §5.5 (currently 4 parses; L4-A makes it 5). The consolidation refactor is the L5 perf pass.
+- **Refresher signature.** All four existing refreshers take `(vault, rel, source: &str)`. L4-A's `refresh_search_index` matches that signature exactly; the search refresher parses the source locally with `cubical_ast::parse` to produce the `Document` it projects into `IndexDoc`. No `&Document` plumbed across the scan loop.
+- **Materialize-on-read invariant.** Because the scan loop hands every refresher the **materialized** source (L3-J §5.7), L4-A's index automatically reflects post-rename-pre-flush state — no separate materialization plumbing required, no risk of the search index seeing stale wikilink targets between rename and flush.
 - **Watcher fan-out.** `crates/cubical-core/src/vault/watcher.rs::apply_watch_event_to_db` dispatches per-file events to the L3 refreshers; L4-A extends this dispatch to include search.
 - **Watcher buffering during scan.** The L0/L1 scan already holds an exclusive index handle; watcher events buffer until scan releases. L4-A reuses this — Tantivy's single-writer constraint is satisfied by the existing serialization.
 - **`cubical-ast` public surface.** `Document` (`parse`), `frontmatter::parse_frontmatter`, `wikilink::scan_wikilinks`, `tag::scan_tags` — all `pub`. L4-A consumes them; it does not extend them.
@@ -60,7 +62,7 @@ One Tantivy document per `.md` file. Fields:
 | `body` | `TEXT(en_stem)` | yes | no | prose: paragraphs, list items, blockquotes, table cells, image alt text, wiki-link **display text**. Excludes fenced + inline code, frontmatter, raw `#tag` tokens, raw `^block-id` markers, raw `[[…]]` syntax. |
 | `code` | `TEXT(code_tokenizer)` | yes | no | fenced + inline code, separate field so `code:fn` works and prose queries don't drown in symbols |
 | `tags` | `STRING` (multi-valued) | yes | yes | lowercase tag strings (`project/cubical`) — stored so the future panel can render "matched tag" chips |
-| `frontmatter` | `TEXT(en_stem)` | yes | no | flattened `key value` pairs of frontmatter scalars; lists flatten to repeated entries; nested keys dot-join (`author.name jane`) |
+| `frontmatter` | `TEXT(en_stem)` | yes | no | flattened `key value` pairs of frontmatter scalars; lists flatten to repeated `key value` entries; nested keys dot-join (`author.name jane`); booleans/numbers/dates stringified. **Excludes the `title` and `tags` keys** — already covered by dedicated fields; including them here would double-count for ranking. |
 | `mtime_secs` | `i64` | yes (fast) | yes | for date filters + sort-by-recency |
 | `size_bytes` | `u64` | yes (fast) | yes | debug + future filters |
 
@@ -72,8 +74,8 @@ One Tantivy document per `.md` file. Fields:
 
 **Body extraction — what counts as prose.** The `body` field is built by walking the canonical `Document` AST:
 
-- **Included:** paragraph text, list item text, blockquote text, table cell text, image alt text, the *display text* of wiki-links (the alias if present, else the target's last path component).
-- **Excluded:** fenced code blocks (→ `code`), inline code spans (→ `code`), raw `[[…]]` / `![[…]]` syntax (display text covers it), raw `#tag` tokens (→ `tags`), raw `^block-id` markers (metadata, not prose), frontmatter (→ `frontmatter` / `title` / `tags`), HTML comments, `<!-- … -->` blocks.
+- **Included:** paragraph text, list item text, blockquote text, table cell text, standard-markdown image alt text (`![alt](url)`), the *display text* of wiki-links (the alias if present, else the target's last path component — for block-ref links `[[Note#^abc]]`, the last path component of `Note`, **not** the resolved block content).
+- **Excluded:** fenced code blocks (→ `code`), inline code spans (→ `code`), wiki-image embeds (`![[image.png]]` — filename is not prose; no contribution to `body`), raw `[[…]]` syntax (display text already covers it), raw `#tag` tokens (→ `tags`), raw `^block-id` markers (metadata, not prose), frontmatter (→ `frontmatter` / `title` / `tags`), HTML comments / `<!-- … -->` blocks, transcluded/embedded content from other files (search hits in an embedded file surface as hits in that file, not the host — keeps ranking honest).
 
 This honors the architecture promise that search indexes the **canonical AST, not the raw markdown**.
 
@@ -83,13 +85,13 @@ This honors the architecture promise that search indexes the **canonical AST, no
 
 ### Hook into scan
 
-`crates/cubical-core/src/vault/scan.rs` adds a fourth refresher to its per-file loop:
+`crates/cubical-core/src/vault/scan.rs` adds a fifth refresher to its per-file loop, after the existing four:
 
 ```rust
-refresh_search_index(&path, &document, &search_index)?;
+refresh_search_index(&vault, &rel, &source, &search_index)?;
 ```
 
-Same signature shape as `refresh_links` / `refresh_tags`. Errors propagate to the scan's per-file error envelope — a single file's failure does not abort the scan; the file is logged and skipped, identical to the existing refreshers' contract.
+Signature exactly matches the L3 refreshers (`vault`, `rel`, `source: &str`) — the function parses the source locally via `cubical_ast::parse` before projecting into `IndexDoc`. `source` is the **materialized** source (L3-J §5.7 invariant), produced once per file by the scan loop and reused across all five refreshers. Errors propagate to the scan's per-file error envelope — a single file's failure does not abort the scan; the file is logged and skipped, identical to the existing refreshers' contract.
 
 **Memory bound during initial scan.** A single end-of-scan `IndexWriter::commit()` buffers all docs in memory until commit; on a 30k-file vault this exceeds practical RAM budgets. L4-A commits **every 5,000 docs** during scan, plus a final commit at scan completion. Commit cadence is not user-visible; it's purely a memory-control device.
 
@@ -112,7 +114,7 @@ Both intervals are stored in the L0 `config` table (`key TEXT PRIMARY KEY, value
 ### Index location & schema version
 
 - **Path:** `<vault>/.cubical/search/`. Sibling of `<vault>/.cubical/index.db`. `.cubical/` is already vault-gitignored per `docs/vault-gitignore.md`.
-- **Schema version stamp:** `<vault>/.cubical/search/schema.json` with `{"version": "L4-A v1"}`. Read on `SearchIndex::open`; mismatch (or missing) → `std::fs::remove_dir_all` the entire `search/` dir, recreate, force full reindex via the next scan.
+- **Schema version stamp:** `<vault>/.cubical/search/schema.json` with `{"version": 1}` — integer, monotonically bumped on any schema change in L4 / L5. Read on `SearchIndex::open`; mismatch (or missing, or unparseable) → `std::fs::remove_dir_all` the entire `search/` dir, recreate, force full reindex via the next scan.
 - **No migration framework** for the Tantivy index. It's derived state — wipe-and-rebuild is the only "migration." (libSQL keeps its migration runner; Tantivy does not.)
 
 ### Concurrency & writer ownership
@@ -309,9 +311,12 @@ L3 closeout test counts (406 Rust + 352 vitest) and gate green status are preser
 
 ---
 
-## Open implementation questions (resolved during writing-plans, not here)
+## Resolved during writing-plans
 
-- Exact `tantivy` version pin (workspace `Cargo.toml`).
-- Whether `body` extraction lives in a new `cubical_ast::prose` module or stays a private walker inside `cubical-search`. (Leaning new pub module — L4-D's libSQL query layer may want the same projection.)
-- Whether `IndexWriter` heap size is the Tantivy default (50 MB) or tuned. Default is fine for L4-A; revisit in L5.
-- Whether the `code` tokenizer treats `_` and `-` as word boundaries (affects matching `snake_case` vs `kebab-case`). Default Tantivy `SimpleTokenizer` splits on both — probably right; confirm during implementation.
+- **Tantivy version pin.** Latest 0.22.x at plan time, pinned in workspace `Cargo.toml`. Confirmed against MSRV during the implementation plan's setup step.
+- **`IndexWriter` heap size.** Tantivy default (50 MB). Revisit in L5 perf pass if scan throughput on the 30k-vault is unacceptable.
+
+## Decided in this spec (not deferred)
+
+- **Body walker lives in `cubical-search`, private.** Not promoted to `cubical_ast::prose`. YAGNI — L4-D's libSQL query layer queries typed frontmatter, not free-text projection. If a future consumer needs the same projection, promote then. Keeping the walker private keeps `cubical-ast`'s surface minimal.
+- **`code` tokenizer word boundaries.** `SimpleTokenizer` default — splits on every non-alphanumeric. `snake_case` indexes as `["snake", "case"]`; `kebab-case` as `["kebab", "case"]`; `foo.bar()` as `["foo", "bar"]`. `QueryParser` applies the same tokenizer to the query side, so both halves agree. Cost: a search for the literal `snake_case` matches files containing `snake` near `case` (no proximity constraint at L4-A), not just files with the exact symbol. Acceptable for free-text code search; symbol-precision search is an L4-D Omni-Bar concern if requested.
