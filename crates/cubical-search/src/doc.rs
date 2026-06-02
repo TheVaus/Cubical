@@ -29,9 +29,10 @@ pub struct IndexDoc {
 /// AST is parsed locally so the caller hands only `(path, source, mtime, size)`.
 ///
 /// `tags` are collected from frontmatter `tags:` plus inline `#tag`
-/// occurrences (via `cubical_ast::tag::scan_tags`). They are lowercased
-/// at projection time so the `tag:` field-prefix query parses to the
-/// same form as the indexed value.
+/// occurrences (from `Inline::Tag` nodes during the AST walk; frontmatter
+/// is excluded by construction since `cubical_ast::parse` splits it off
+/// before block parsing). They are lowercased at projection time so the
+/// `tag:` field-prefix query parses to the same form as the indexed value.
 #[must_use]
 pub fn project(path: &str, source: &str, mtime_secs: i64, size_bytes: u64) -> IndexDoc {
     let doc = parse(source);
