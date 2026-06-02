@@ -42,7 +42,10 @@ mod tests {
 
     #[test]
     fn limit_too_large_display() {
-        let e = SearchError::LimitTooLarge { got: 1000, max: 500 };
+        let e = SearchError::LimitTooLarge {
+            got: 1000,
+            max: 500,
+        };
         assert_eq!(e.to_string(), "limit 1000 exceeds maximum of 500");
     }
 }
