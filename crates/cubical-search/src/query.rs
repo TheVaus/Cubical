@@ -85,7 +85,12 @@ pub struct SearchHit {
     pub path: String,
     /// Display title.
     pub title: String,
-    /// BM25 score (or `mtime_secs` cast to `f32` when `sort = RecencyDesc`).
+    /// BM25 score, or — when `sort = RecencyDesc` — the `mtime_secs`
+    /// value cast to `f32`. The cast is lossy above ~2^24 (≈Apr 1970),
+    /// but ordering is still correct because Tantivy sorts on the i64
+    /// *before* the cast; the public `f32` is intentionally opaque under
+    /// `RecencyDesc` (callers should treat it as a sort-key remnant, not
+    /// a meaningful score).
     pub score: f32,
     /// Unix-seconds modification time.
     pub mtime_secs: i64,
@@ -110,7 +115,13 @@ pub struct MatchedField {
 pub struct SearchResponse {
     /// Ranked hits, capped at `limit`.
     pub hits: Vec<SearchHit>,
-    /// Tantivy's hit-count estimate before truncation.
+    /// Size of the top-K hit window the runner pulled from Tantivy
+    /// — i.e. `min(matches, limit + offset)`. **Not** the true match
+    /// count in the index. Frontends must not display this as
+    /// "X total results"; it's only useful as an "is there more after
+    /// this page?" hint (`total_estimated == limit + offset` ⇒ likely
+    /// more pages exist). A true count would require a `Count`
+    /// collector on a second pass; L4-A doesn't pay that cost.
     pub total_estimated: u64,
     /// Elapsed milliseconds for this query.
     pub took_ms: u64,

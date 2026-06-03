@@ -189,6 +189,8 @@ Off by default. When `fuzzy: true`:
 
 Tantivy's `SnippetGenerator` per matched field, 150-char window, `<mark>…</mark>` boundaries. Backend returns the snippet string; the frontend renders the marks. `MatchedField` is populated for the top-ranked field per hit (the field that contributed the highest term score) plus any **`code`** match (since code matches read very differently from prose and we want both visible when both fire).
 
+**Known L4-A limitation — snippet field coverage.** Tantivy's `SnippetGenerator::snippet_from_doc` requires the field to be `STORED` to retrieve its text. The L4-A schema stores only `title` and `tags`; `body`, `headings`, `code`, and `frontmatter` are indexed but not stored. As a result, L4-A's `MatchedField` entries are restricted to `title` matches in practice. L4-B (persistent left-panel UI) will resolve this by either (a) promoting `body`/`headings`/`code` to `STORED` — costs ~2-3× disk but immediate snippets — or (b) re-reading the source from disk on demand and regenerating snippets per visible hit — costs an I/O per shown result but keeps the index slim. The choice is deferred to L4-B's UX requirements: if highlighted snippets are essential to the panel's first-paint scan, option (a) wins; if hover-to-expand is acceptable, (b) wins.
+
 ### Ranking
 
 BM25 default with the field boosts above. No custom scorer. Sort:
