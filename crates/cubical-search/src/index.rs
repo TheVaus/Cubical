@@ -283,4 +283,31 @@ mod tests {
         let idx = SearchIndex::open(tmp.path()).unwrap();
         assert_eq!(idx.doc_count().unwrap(), 0);
     }
+
+    #[test]
+    fn delete_all_clears_doc_count_after_commit() {
+        let tmp = TempDir::new().unwrap();
+        let idx = SearchIndex::open(tmp.path()).unwrap();
+        idx.upsert(&doc_fixture("a.md", "alpha body", &["foo"]))
+            .unwrap();
+        idx.upsert(&doc_fixture("b.md", "beta body", &["bar"]))
+            .unwrap();
+        idx.commit().unwrap();
+        assert_eq!(idx.doc_count().unwrap(), 2);
+        idx.delete_all().unwrap();
+        idx.commit().unwrap();
+        assert_eq!(idx.doc_count().unwrap(), 0);
+    }
+
+    #[test]
+    fn segment_count_is_zero_until_commit_then_at_least_one() {
+        let tmp = TempDir::new().unwrap();
+        let idx = SearchIndex::open(tmp.path()).unwrap();
+        // Empty index has zero segments.
+        assert_eq!(idx.segment_count(), 0);
+        idx.upsert(&doc_fixture("a.md", "x", &[])).unwrap();
+        idx.commit().unwrap();
+        // After at least one commit there is at least one segment.
+        assert!(idx.segment_count() >= 1);
+    }
 }
