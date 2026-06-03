@@ -852,3 +852,161 @@ export function onVaultFlushComplete(
     handler(e.payload),
   );
 }
+
+// ---------------------------------------------------------------------------
+// L4-A: search IPC surface. Four commands, all vault-id-keyed:
+//
+// - `search`                — run a free-text query (SearchRequest = vault_id + query).
+// - `search_index_status`   — cheap polling for "still indexing…" pill.
+// - `search_rebuild_index`  — wipe + rescan; returns immediately.
+// - `search_get_health`     — segment/doc/disk-bytes snapshot for dev console.
+//
+// Wire types mirror `cubical_search` re-exports in
+// `cubical-app/src/api/types.rs`. `FieldScope` is an internally-tagged
+// union with discriminator `kind` (serde `#[serde(tag = "kind",
+// rename_all = "snake_case")]`); `SortMode` and `IndexState` are
+// snake_case string enums.
+// ---------------------------------------------------------------------------
+
+/**
+ * Which fields to search. Default scope is
+ * `title^3 + headings^2 + body + tags^2 + frontmatter`; the others
+ * restrict to a single field. `Tags` is an exact-match filter (AND of
+ * lowercased values).
+ */
+export type FieldScope =
+  | { kind: "default" }
+  | { kind: "headings_only" }
+  | { kind: "body_only" }
+  | { kind: "code_only" }
+  | { kind: "tags"; tags: string[] };
+
+/** Sort order. */
+export type SortMode = "relevance" | "recency_desc";
+
+/** Free-text query input. Mirrors `cubical_search::SearchQuery`. */
+export interface SearchQuery {
+  /** User-typed query string. */
+  text: string;
+  /** Page size. 0 → server default (50); >500 → error. */
+  limit: number;
+  /** Pagination offset. */
+  offset: number;
+  /** Which fields to search. */
+  fields: FieldScope;
+  /** Edit-distance-1 fuzziness on single-term queries (≥4 chars, default scope). */
+  fuzzy: boolean;
+  /** Sort order. */
+  sort: SortMode;
+}
+
+/** One snippet from one matched field. */
+export interface MatchedField {
+  /** `"title" | "headings" | "body" | "code" | "frontmatter"`. */
+  field: string;
+  /** Up to ~150-char snippet with `<mark>…</mark>` highlights. */
+  snippet: string;
+}
+
+/** One search result. */
+export interface SearchHit {
+  /** Vault-relative path. */
+  path: string;
+  /** Display title. */
+  title: string;
+  /** BM25 score (or `mtime_secs` cast to f32 under `recency_desc`). */
+  score: number;
+  /** Unix-seconds modification time. */
+  mtime_secs: number;
+  /** Per-field highlighted snippets. */
+  matched_fields: MatchedField[];
+  /** Stored tag values for the hit. */
+  tags: string[];
+}
+
+/** Wraps a hit list with metadata. */
+export interface SearchResponse {
+  /** Ranked hits, capped at `limit`. */
+  hits: SearchHit[];
+  /** Tantivy's hit-count estimate before truncation. */
+  total_estimated: number;
+  /** Elapsed milliseconds for this query. */
+  took_ms: number;
+  /** True if the index state was `Building` at query time. */
+  still_indexing: boolean;
+}
+
+export interface SearchRequest {
+  vault_id: string;
+  query: SearchQuery;
+}
+
+export interface SearchVaultRequest {
+  vault_id: string;
+}
+
+/** High-level state of the search index. */
+export type IndexState = "building" | "ready" | "error";
+
+/** Polled for the "still indexing…" status-bar indicator. */
+export interface IndexStatus {
+  /** Current state. */
+  state: IndexState;
+  /** Files indexed so far this session. */
+  indexed_files: number;
+  /** Total files the scan enumerated (0 until enumeration completes). */
+  total_files: number;
+  /** Unix seconds of the most recent commit, if any. */
+  last_commit_secs: number | null;
+}
+
+/** Debug-only health snapshot. */
+export interface IndexHealth {
+  /** On-disk schema-version stamp. */
+  schema_version: number;
+  /** Tantivy segment count. */
+  segments: number;
+  /** Total document count. */
+  doc_count: number;
+  /** Approximate on-disk bytes. */
+  disk_bytes: number;
+}
+
+/**
+ * Run a free-text query against `vault_id`'s Tantivy index. The
+ * response's `still_indexing` flag is stamped by the backend based on
+ * the per-vault index-state cell.
+ */
+export function search(req: SearchRequest): Promise<SearchResponse> {
+  return invoke("search", { req });
+}
+
+/**
+ * Snapshot of the current index state — `state`, `indexed_files`,
+ * `total_files`, `last_commit_secs`. Cheap; safe to poll.
+ */
+export function searchIndexStatus(
+  req: SearchVaultRequest,
+): Promise<IndexStatus> {
+  return invoke("search_index_status", { req });
+}
+
+/**
+ * Wipe the in-index document set and trigger a re-scan that
+ * repopulates from the `.md` source-of-truth. Returns immediately
+ * after marking the index as `Building`; poll `searchIndexStatus` for
+ * the transition back to `Ready`.
+ */
+export function searchRebuildIndex(req: SearchVaultRequest): Promise<void> {
+  return invoke("search_rebuild_index", { req });
+}
+
+/**
+ * Debug snapshot of the on-disk index — schema version, segment count,
+ * doc count, approximate disk bytes. Drives the dev console.
+ */
+export function searchGetHealth(
+  req: SearchVaultRequest,
+): Promise<IndexHealth> {
+  return invoke("search_get_health", { req });
+}
