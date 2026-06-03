@@ -69,6 +69,10 @@ pub enum VaultError {
     /// The scan was cancelled before it completed.
     #[error("scan cancelled")]
     ScanCancelled,
+
+    /// Search index open / commit failure.
+    #[error("search index: {0}")]
+    Search(String),
 }
 
 /// A directory-backed Cubical workspace.
@@ -81,6 +85,7 @@ pub struct Vault {
     root: Arc<PathBuf>,
     registry: Arc<FileTypeRegistry>,
     index: Arc<IndexConn>,
+    search: Arc<cubical_search::SearchIndex>,
 }
 
 impl Vault {
@@ -129,12 +134,17 @@ impl Vault {
         let db_path = cubical_dir.join("index.db");
         let index = open_index(&db_path).await?;
 
+        let search_dir = cubical_dir.join("search");
+        let search = cubical_search::SearchIndex::open(&search_dir)
+            .map_err(|e| VaultError::Search(e.to_string()))?;
+
         tracing::info!(path = %root.display(), "vault opened");
 
         Ok(Self {
             root: Arc::new(root),
             registry: Arc::new(FileTypeRegistry::default()),
             index: Arc::new(index),
+            search: Arc::new(search),
         })
     }
 
@@ -161,6 +171,12 @@ impl Vault {
     #[must_use]
     pub fn index(&self) -> &IndexConn {
         &self.index
+    }
+
+    /// The open Tantivy search index.
+    #[must_use]
+    pub fn search(&self) -> &cubical_search::SearchIndex {
+        &self.search
     }
 }
 
@@ -217,6 +233,17 @@ mod tests {
             VaultError::NotADirectory(p) => assert_eq!(p, file_path),
             other => panic!("expected NotADirectory, got {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn vault_open_creates_search_dir_and_stamp() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let vault = Vault::open(tmp.path()).await.unwrap();
+        let search_dir = tmp.path().join(".cubical").join("search");
+        assert!(search_dir.exists());
+        assert!(search_dir.join("schema.json").exists());
+        // Accessor returns a usable handle.
+        assert_eq!(vault.search().doc_count().unwrap(), 0);
     }
 
     #[tokio::test]

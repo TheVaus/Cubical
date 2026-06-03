@@ -68,6 +68,10 @@ pub enum CubicalError {
     #[error("watcher error: {0}")]
     Watcher(String),
 
+    /// Tantivy search index failure.
+    #[error("search index error: {0}")]
+    Search(String),
+
     /// Argument validation failure.
     #[error("invalid request: {0}")]
     InvalidRequest(String),
@@ -89,6 +93,7 @@ impl CubicalError {
             Self::Db(_) => "Db",
             Self::FileType(_) => "FileType",
             Self::Watcher(_) => "Watcher",
+            Self::Search(_) => "Search",
             Self::InvalidRequest(_) => "InvalidRequest",
         }
     }
@@ -116,6 +121,7 @@ impl From<VaultError> for CubicalError {
             VaultError::Index(e) => Self::from(e),
             VaultError::Watcher(e) => Self::Watcher(e.to_string()),
             VaultError::ScanCancelled => Self::ScanCancelled,
+            VaultError::Search(e) => Self::Search(e),
         }
     }
 }
