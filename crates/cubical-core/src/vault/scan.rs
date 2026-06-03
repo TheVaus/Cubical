@@ -23,6 +23,7 @@ use crate::vault::{
     frontmatter::refresh_frontmatter,
     links::{extract_links_from_source, read_source_off_executor, LinkExtraction, PathResolver},
     pending::materialize_on_read,
+    search_refresh::refresh_search_index,
     tags::refresh_tags,
     Vault, VaultError,
 };
@@ -35,6 +36,10 @@ use crate::vault::{
 /// Batching collapses that to one `fsync` per batch. A re-scan resumes
 /// cleanly from the last committed batch.
 const SCAN_BATCH_SIZE: u32 = 500;
+
+/// Commit the Tantivy index every N docs during initial scan so the
+/// writer's in-memory buffer stays bounded on large vaults.
+const SEARCH_COMMIT_EVERY: usize = 5_000;
 
 /// Progress update streamed from an in-flight scan.
 ///
@@ -77,6 +82,7 @@ pub async fn scan(
     let conn = vault.index().connection();
     let mut tx = conn.transaction().await.map_err(IndexError::from)?;
     let mut batch_count: u32 = 0;
+    let mut search_batch_count: usize = 0;
 
     // Pass-1 buffer: link occurrences per source file. Resolution is
     // deferred to Pass 2 (after the walk) so it sees the COMPLETE file
@@ -266,6 +272,22 @@ pub async fn scan(
             if let Err(e) = refresh_blocks(&vault, &path_str, &source).await {
                 tracing::warn!(path = %abs_path.display(), error = %e, "blocks refresh failed");
             }
+            // L4-A: search index refresh. Same resilience policy as the
+            // others — log on error, do not abort the scan.
+            let search_size_bytes = source.len() as u64;
+            if let Err(e) =
+                refresh_search_index(&vault, &path_str, &source, mtime_unix, search_size_bytes)
+                    .await
+            {
+                tracing::warn!(path = %abs_path.display(), error = %e, "search index refresh failed");
+            }
+            search_batch_count += 1;
+            if search_batch_count >= SEARCH_COMMIT_EVERY {
+                if let Err(e) = vault.search().commit() {
+                    tracing::warn!(error = %e, "search index periodic commit failed");
+                }
+                search_batch_count = 0;
+            }
         }
 
         files_processed = files_processed.saturating_add(1);
@@ -290,6 +312,11 @@ pub async fn scan(
     // Commit Pass 1 so the files table is complete and visible to the
     // resolution query below.
     tx.commit().await.map_err(IndexError::from)?;
+
+    // L4-A: final search commit so the scan's last batch is queryable.
+    if let Err(e) = vault.search().commit() {
+        tracing::warn!(error = %e, "search index final commit failed");
+    }
 
     // ---- Pass 2: resolve all buffered links against the complete file
     // set, once. O(N) build + O(1) common-case lookups. Replaces the
@@ -950,5 +977,23 @@ mod tests {
         // future scan / rename can re-resolve it.
         let to_c = rows.iter().find(|r| r.target_raw == "c").expect("c row");
         assert!(to_c.target_path.is_none());
+    }
+
+    #[tokio::test]
+    async fn scan_populates_search_index() {
+        // L4-A: scan Pass 1 fans out into the Tantivy index alongside
+        // frontmatter/links/tags/blocks. After scan completes the final
+        // commit makes the docs queryable.
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("a.md"), "# A\n\nalpha body\n").unwrap();
+        fs::write(dir.path().join("b.md"), "# B\n\nbeta body\n").unwrap();
+
+        let vault = Vault::open(dir.path()).await.expect("open");
+        let (tx, mut rx) = mpsc::channel::<ScanProgress>(8);
+        let cancel = CancellationToken::new();
+        scan(vault.clone(), cancel, tx).await.expect("scan");
+        while rx.recv().await.is_some() {}
+
+        assert_eq!(vault.search().doc_count().unwrap(), 2);
     }
 }

@@ -23,6 +23,7 @@ pub mod links;
 pub mod mentions;
 pub mod pending;
 mod scan;
+pub mod search_refresh;
 pub mod tags;
 mod watcher;
 
