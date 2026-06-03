@@ -25,8 +25,7 @@ pub struct SearchIndex {
     dir: PathBuf,
     fields: Fields,
     schema: Schema,
-    // Consumed by `QueryParser` construction in Task 8 (`query.rs`).
-    #[allow(dead_code)]
+    // Consumed by `QueryParser` construction in `query.rs`.
     index: Index,
     writer: Mutex<IndexWriter>,
     reader: IndexReader,
@@ -163,14 +162,12 @@ impl SearchIndex {
         Ok(self.reader.searcher().num_docs())
     }
 
-    /// Cheap-clone access to a fresh `IndexReader` for query module.
-    #[allow(dead_code)] // consumed by `query.rs` in Task 8
+    /// Cheap-clone access to a fresh `IndexReader` for the query module.
     pub(crate) fn reader_clone(&self) -> IndexReader {
         self.reader.clone()
     }
 
     /// Index handle (for `QueryParser` construction in `query.rs`).
-    #[allow(dead_code)] // consumed by `query.rs` in Task 8
     pub(crate) fn index(&self) -> &Index {
         &self.index
     }

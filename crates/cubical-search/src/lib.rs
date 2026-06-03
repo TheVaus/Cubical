@@ -19,5 +19,5 @@ pub mod status;
 pub use doc::IndexDoc;
 pub use error::SearchError;
 pub use index::SearchIndex;
-// TODO(l4-a Task 8): pub use query::{FieldScope, MatchedField, SearchHit, SearchQuery, SearchResponse, SortMode};
+pub use query::{FieldScope, MatchedField, SearchHit, SearchQuery, SearchResponse, SortMode};
 pub use status::{IndexHealth, IndexState, IndexStatus};
