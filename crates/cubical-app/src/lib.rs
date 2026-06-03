@@ -45,7 +45,8 @@ use api::types::{
     OpenVaultResponse, QueryTagPageRequest, QueryTagPageResponse, ReadFileTextRequest,
     ReadFileTextResponse, RenameBlockIdRequest, RenameBlockIdResponse, RenameFileRequest,
     RenameFileResponse, RenameTagRequest, RenameTagResponse, ResolveLinkRequest,
-    ResolveLinkResponse, SetSettingRequest, SetSettingResponse, TagAutocompleteRequest,
+    ResolveLinkResponse, SearchHealthDto, SearchIndexStatusDto, SearchRequest, SearchResponse,
+    SearchVaultRequest, SetSettingRequest, SetSettingResponse, TagAutocompleteRequest,
     TagAutocompleteResponse, UndoRenameRequest, UndoRenameResponse, WriteFileTextRequest,
     WriteFileTextResponse,
 };
@@ -108,6 +109,10 @@ pub fn run() {
             get_pending_rewrites_breakdown,
             list_recent_rename_ops,
             undo_rename,
+            search,
+            search_index_status,
+            search_rebuild_index,
+            search_get_health,
             close_vault,
         ])
         .run(tauri::generate_context!())
@@ -395,6 +400,43 @@ async fn undo_rename(
     req: UndoRenameRequest,
 ) -> Result<UndoRenameResponse, CubicalError> {
     commands::rename::undo_rename(state.inner(), &app, req).await
+}
+
+/// Tauri shim — see [`commands::search::search`].
+#[tauri::command]
+async fn search(
+    state: tauri::State<'_, AppState>,
+    req: SearchRequest,
+) -> Result<SearchResponse, CubicalError> {
+    commands::search::search(state.inner(), req).await
+}
+
+/// Tauri shim — see [`commands::search::search_index_status`].
+#[tauri::command]
+async fn search_index_status(
+    state: tauri::State<'_, AppState>,
+    req: SearchVaultRequest,
+) -> Result<SearchIndexStatusDto, CubicalError> {
+    commands::search::search_index_status(state.inner(), req).await
+}
+
+/// Tauri shim — see [`commands::search::search_rebuild_index`].
+#[tauri::command]
+async fn search_rebuild_index(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    req: SearchVaultRequest,
+) -> Result<(), CubicalError> {
+    commands::search::search_rebuild_index(state.inner(), &app, req).await
+}
+
+/// Tauri shim — see [`commands::search::search_get_health`].
+#[tauri::command]
+async fn search_get_health(
+    state: tauri::State<'_, AppState>,
+    req: SearchVaultRequest,
+) -> Result<SearchHealthDto, CubicalError> {
+    commands::search::search_get_health(state.inner(), req).await
 }
 
 /// Tauri shim — see [`commands::vault::close_vault`].

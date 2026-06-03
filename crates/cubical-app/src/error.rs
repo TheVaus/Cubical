@@ -147,6 +147,17 @@ impl From<FileTypeError> for CubicalError {
     }
 }
 
+impl From<cubical_search::SearchError> for CubicalError {
+    /// L4-A — direct fold of search errors into the IPC enum. The
+    /// existing `VaultError::Search` path covers errors that surface
+    /// through `Vault::open`; this impl covers the IPC commands that
+    /// call `run_search` / index mutators directly without going
+    /// through `VaultError`.
+    fn from(value: cubical_search::SearchError) -> Self {
+        Self::Search(value.to_string())
+    }
+}
+
 impl From<libsql::Error> for CubicalError {
     fn from(value: libsql::Error) -> Self {
         Self::Db(value.to_string())

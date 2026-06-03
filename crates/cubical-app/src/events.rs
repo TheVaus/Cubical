@@ -266,7 +266,7 @@ pub fn spawn_scan_dispatcher(
 
         let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
 
-        let new_status = match scan_outcome {
+        let (new_status, new_search_state) = match scan_outcome {
             Ok(Ok(file_count)) => {
                 emit_scan_complete(
                     &app,
@@ -276,7 +276,10 @@ pub fn spawn_scan_dispatcher(
                         duration_ms: elapsed_ms,
                     },
                 );
-                ScanStatusBackend::Complete
+                (
+                    ScanStatusBackend::Complete,
+                    cubical_search::IndexState::Ready,
+                )
             }
             Ok(Err(VaultError::ScanCancelled)) => {
                 emit_scan_cancelled(
@@ -285,7 +288,14 @@ pub fn spawn_scan_dispatcher(
                         vault_id: vault_id.clone(),
                     },
                 );
-                ScanStatusBackend::Cancelled
+                // Cancellation leaves the index in whatever shape the scan
+                // reached. Mark as `Error` so polling clients know the
+                // index is not authoritatively up to date — a follow-up
+                // rebuild or close+reopen is the way to recover.
+                (
+                    ScanStatusBackend::Cancelled,
+                    cubical_search::IndexState::Error,
+                )
             }
             Ok(Err(e)) => {
                 tracing::error!(error = %e, vault_id = %vault_id, "scan failed");
@@ -295,7 +305,10 @@ pub fn spawn_scan_dispatcher(
                         vault_id: vault_id.clone(),
                     },
                 );
-                ScanStatusBackend::Cancelled
+                (
+                    ScanStatusBackend::Cancelled,
+                    cubical_search::IndexState::Error,
+                )
             }
             Err(join_err) => {
                 tracing::error!(error = %join_err, vault_id = %vault_id, "scan task join failed");
@@ -305,13 +318,19 @@ pub fn spawn_scan_dispatcher(
                         vault_id: vault_id.clone(),
                     },
                 );
-                ScanStatusBackend::Cancelled
+                (
+                    ScanStatusBackend::Cancelled,
+                    cubical_search::IndexState::Error,
+                )
             }
         };
 
         let mut guard = state.write().await;
         if let Some(open) = guard.get_mut(&vault_id) {
             open.scan_status = new_status;
+            if let Ok(mut cell) = open.search_state.lock() {
+                cell.state = new_search_state;
+            }
         }
     });
 }

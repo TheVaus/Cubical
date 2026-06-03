@@ -162,6 +162,29 @@ impl SearchIndex {
         Ok(self.reader.searcher().num_docs())
     }
 
+    /// Active segment count (after the most recent reload). Surfaced by
+    /// the `search_get_health` IPC command for the dev console + future
+    /// settings UI.
+    pub fn segment_count(&self) -> u64 {
+        self.reader.searcher().segment_readers().len() as u64
+    }
+
+    /// Wipe every document from the index. Caller commits — typically
+    /// followed by a fresh scan that re-populates from the source-of-truth
+    /// `.md` files. Used by `search_rebuild_index`.
+    ///
+    /// Holds the writer guard while marking the deletion so this races
+    /// safely against `upsert` / `delete_path` callers on other threads
+    /// — they'll either land before or after the mark.
+    pub fn delete_all(&self) -> Result<(), SearchError> {
+        let writer = self
+            .writer
+            .lock()
+            .map_err(|_| SearchError::WriterPoisoned)?;
+        writer.delete_all_documents()?;
+        Ok(())
+    }
+
     /// Cheap-clone access to a fresh `IndexReader` for the query module.
     pub(crate) fn reader_clone(&self) -> IndexReader {
         self.reader.clone()

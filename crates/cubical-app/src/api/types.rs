@@ -776,3 +776,33 @@ pub struct UndoRenameResponse {
     /// New total pending-rewrites count for the vault.
     pub pending_count: i64,
 }
+
+// -- search ---------------------------------------------------------------
+//
+// L4-A IPC surface. The wire DTOs are the `cubical_search` types verbatim
+// — re-exported here so the frontend has a single import path and so the
+// future TS-types generator can derive everything from `api::types`.
+
+pub use cubical_search::{
+    FieldScope as SearchFieldScope, IndexHealth as SearchHealthDto, IndexState as SearchIndexState,
+    IndexStatus as SearchIndexStatusDto, MatchedField as SearchMatchedField, SearchHit,
+    SearchQuery, SearchResponse, SortMode as SearchSortMode,
+};
+
+/// Request payload for `search` — wraps the bare `SearchQuery` with the
+/// vault id, matching the other multi-vault commands in this module.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SearchRequest {
+    /// Vault to query.
+    pub vault_id: String,
+    /// Inner query.
+    pub query: SearchQuery,
+}
+
+/// Request payload for `search_index_status` / `search_rebuild_index` /
+/// `search_get_health` — all just need the vault id.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SearchVaultRequest {
+    /// Vault to query / mutate.
+    pub vault_id: String,
+}

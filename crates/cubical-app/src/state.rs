@@ -16,6 +16,7 @@ use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use cubical_core::{Vault, WatcherHandle};
+use cubical_search::{IndexState, IndexStatus};
 
 /// One open vault, including its scan lifecycle handles.
 ///
@@ -52,6 +53,55 @@ pub struct OpenVault {
     /// before the synchronous close-time flush so the timer task exits
     /// cleanly rather than racing the index handle drop.
     pub flush_timer_cancel: CancellationToken,
+    /// L4-A — per-vault Tantivy index state. Set to `Building` while the
+    /// initial scan (or a rebuild) is in flight; the scan dispatcher
+    /// transitions it to `Ready` on success. `Arc<Mutex<...>>` so the
+    /// dispatcher task and the IPC handlers can share a stable handle
+    /// across `await` points without cloning the whole `OpenVault`.
+    pub search_state: Arc<std::sync::Mutex<SearchStateInner>>,
+}
+
+/// L4-A — per-vault Tantivy index state, shared across handlers and the
+/// scan dispatcher. Mirrors the wire shape of `IndexStatus` so polling
+/// is a single guard read.
+#[derive(Debug, Clone)]
+pub struct SearchStateInner {
+    /// Current high-level state.
+    pub state: IndexState,
+    /// Files indexed so far this session (best-effort; updated by the
+    /// scan + watcher refresh hooks once those plumb in — Task 12 lands
+    /// only the state cell + state transitions).
+    pub indexed_files: u64,
+    /// Total file count the most recent scan enumerated.
+    pub total_files: u64,
+    /// Unix seconds of the most recent commit, if any.
+    pub last_commit_secs: Option<i64>,
+}
+
+impl Default for SearchStateInner {
+    fn default() -> Self {
+        // Vault open always kicks off an initial scan, so the wire-correct
+        // starting state is `Building`. The scan dispatcher flips this to
+        // `Ready` (or `Error`) when the scan terminates.
+        Self {
+            state: IndexState::Building,
+            indexed_files: 0,
+            total_files: 0,
+            last_commit_secs: None,
+        }
+    }
+}
+
+impl SearchStateInner {
+    /// Snapshot as a wire-shaped `IndexStatus`.
+    pub fn to_status(&self) -> IndexStatus {
+        IndexStatus {
+            state: self.state,
+            indexed_files: self.indexed_files,
+            total_files: self.total_files,
+            last_commit_secs: self.last_commit_secs,
+        }
+    }
 }
 
 impl OpenVault {
@@ -74,6 +124,7 @@ impl OpenVault {
             flush_own_writes: Arc::new(Mutex::new(HashSet::new())),
             flush_in_progress: Arc::new(Mutex::new(())),
             flush_timer_cancel: CancellationToken::new(),
+            search_state: Arc::new(std::sync::Mutex::new(SearchStateInner::default())),
         }
     }
 }
