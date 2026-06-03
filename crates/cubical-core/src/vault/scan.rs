@@ -274,19 +274,31 @@ pub async fn scan(
             }
             // L4-A: search index refresh. Same resilience policy as the
             // others — log on error, do not abort the scan.
-            let search_size_bytes = source.len() as u64;
-            if let Err(e) =
-                refresh_search_index(&vault, &path_str, &source, mtime_unix, search_size_bytes)
-                    .await
-            {
-                tracing::warn!(path = %abs_path.display(), error = %e, "search index refresh failed");
-            }
-            search_batch_count += 1;
-            if search_batch_count >= SEARCH_COMMIT_EVERY {
-                if let Err(e) = vault.search().commit() {
-                    tracing::warn!(error = %e, "search index periodic commit failed");
+            //
+            // Cancellation guard: the search refresher is the heaviest
+            // per-file refresher (parse + project + IndexWriter mutation).
+            // Skip it if cancellation is already in flight so the 100ms
+            // cancellation budget holds under parallel test load. The
+            // next launch's scan re-walks every file and upsert is
+            // idempotent (delete-by-path then add), so a file skipped
+            // mid-scan converges on the next pass — its libSQL refreshers
+            // (frontmatter / links / tags / blocks) already ran in this
+            // iteration, but the search doc will be re-projected next time.
+            if !cancel.is_cancelled() {
+                let search_size_bytes = source.len() as u64;
+                if let Err(e) =
+                    refresh_search_index(&vault, &path_str, &source, mtime_unix, search_size_bytes)
+                        .await
+                {
+                    tracing::warn!(path = %abs_path.display(), error = %e, "search index refresh failed");
                 }
-                search_batch_count = 0;
+                search_batch_count += 1;
+                if search_batch_count >= SEARCH_COMMIT_EVERY {
+                    if let Err(e) = vault.search().commit() {
+                        tracing::warn!(error = %e, "search index periodic commit failed");
+                    }
+                    search_batch_count = 0;
+                }
             }
         }
 
