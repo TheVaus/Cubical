@@ -492,6 +492,24 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) -> O
                 if let Err(e) = refresh_block_refs_for_file(vault, &path_str).await {
                     tracing::warn!(path = %path_str, error = %e, "watcher: block_refs refresh failed");
                 }
+                // L4-A: keep the Tantivy index in sync with create/modify
+                // events. Same best-effort policy as the libSQL refreshers
+                // — log on error, do not take the dispatcher down. Caller
+                // commits the SearchIndex once at the end of this
+                // dispatcher invocation (per-event the watcher is already
+                // debounced upstream).
+                let search_size_bytes = source.len() as u64;
+                if let Err(e) = cubical_core::vault::search_refresh::refresh_search_index(
+                    vault,
+                    &path_str,
+                    &source,
+                    mtime,
+                    search_size_bytes,
+                )
+                .await
+                {
+                    tracing::warn!(path = %path_str, error = %e, "watcher: search refresh failed");
+                }
             }
 
             if hash.is_empty() {
@@ -515,6 +533,15 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) -> O
             {
                 tracing::warn!(path = %path_str, error = %e, "watcher: files last_seen update failed");
             }
+            // L4-A: remove the file from the Tantivy index. The libSQL
+            // `files` row sticks around (see above) but the search doc
+            // should not — stale snippets pointing at a deleted file
+            // would break ranking + click-through.
+            if let Err(e) =
+                cubical_core::vault::search_refresh::delete_search_index(vault, &path_str).await
+            {
+                tracing::warn!(path = %path_str, error = %e, "watcher: search delete failed");
+            }
             None
         }
         WatchEvent::Renamed { from, to: _ } => {
@@ -534,6 +561,16 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) -> O
             {
                 tracing::warn!(path = %from_str, error = %e, "watcher: rename last_seen update failed");
             }
+            // L4-A: drop the old path's search doc. The new path will
+            // be re-indexed via the paired Created/Modified event the
+            // watcher emits on a rename (same convergence the L3
+            // refreshers rely on). Upsert is idempotent so a follow-up
+            // Modified is the right ownership boundary for the new doc.
+            if let Err(e) =
+                cubical_core::vault::search_refresh::delete_search_index(vault, &from_str).await
+            {
+                tracing::warn!(path = %from_str, error = %e, "watcher: search delete (rename old) failed");
+            }
             None
         }
     };
@@ -551,6 +588,14 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) -> O
         // TODO(L0+): auto-prune to 10000 rows per spec §7. Skipped for
         // now; the table grows unbounded until that lands.
         tracing::warn!(error = %e, "watcher: audit_log insert failed");
+    }
+
+    // L4-A: commit the Tantivy index for this dispatcher invocation.
+    // The watcher's debounce is upstream, so each call here corresponds
+    // to one user-visible change worth a search-side commit. Errors are
+    // logged and swallowed — same policy as the rest of the dispatcher.
+    if let Err(e) = vault.search().commit() {
+        tracing::warn!(error = %e, "watcher: search commit failed");
     }
 
     new_content_hash
@@ -1003,5 +1048,120 @@ mod tests {
         assert!(payload.new_content_hash.is_none());
         assert_eq!(payload.from_path.as_deref(), Some("a.md"));
         assert_eq!(payload.path, "b.md");
+    }
+
+    // ------------------------------------------------------------------
+    // L4-A: watcher → Tantivy fan-out.
+    //
+    // The dispatcher commits the search index once per invocation, so
+    // these tests query directly after the dispatcher returns — no
+    // explicit `vault.search().commit()` needed.
+
+    #[tokio::test]
+    async fn modified_event_refreshes_search_index() {
+        // Modify a markdown file via the dispatcher, then run a search
+        // and assert the new content is queryable. The Created event
+        // seeds an empty body; the Modified event introduces a unique
+        // token we can search for.
+        use cubical_search::query::run_search;
+        use cubical_search::{FieldScope, SearchQuery, SortMode};
+
+        let dir = tempdir().unwrap();
+        let p = dir.path().join("note.md");
+        std::fs::write(&p, "old body\n").unwrap();
+        let vault = Vault::open(dir.path()).await.expect("vault open");
+
+        // Seed Created, then rewrite the file and fire Modified. The
+        // dispatcher commits after each call so both upserts land.
+        apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("note.md"))).await;
+        std::fs::write(&p, "freshly indexed unicorn token\n").unwrap();
+        apply_watch_event_to_db(&vault, &WatchEvent::Modified(PathBuf::from("note.md"))).await;
+
+        // doc_count should be exactly 1 (upsert is delete-by-path then
+        // add, never duplicates).
+        assert_eq!(vault.search().doc_count().unwrap(), 1);
+
+        // The unique post-Modified token is queryable.
+        let resp = run_search(
+            vault.search(),
+            &SearchQuery {
+                text: "unicorn".into(),
+                limit: 10,
+                offset: 0,
+                fields: FieldScope::Default,
+                fuzzy: false,
+                sort: SortMode::Relevance,
+            },
+        )
+        .expect("run_search");
+        assert_eq!(resp.hits.len(), 1, "post-Modified body must be indexed");
+        assert_eq!(resp.hits[0].path, "note.md");
+
+        // And the pre-Modified token is NOT queryable — upsert replaced
+        // the doc, not appended to it.
+        let stale = run_search(
+            vault.search(),
+            &SearchQuery {
+                text: "old".into(),
+                limit: 10,
+                offset: 0,
+                fields: FieldScope::Default,
+                fuzzy: false,
+                sort: SortMode::Relevance,
+            },
+        )
+        .expect("run_search");
+        assert!(
+            stale.hits.is_empty(),
+            "Modified must replace, not append: {:?}",
+            stale.hits,
+        );
+    }
+
+    #[tokio::test]
+    async fn removed_event_drops_doc_from_search_index() {
+        // Delete a file via the dispatcher, then assert doc_count drops
+        // from 1 to 0. The libSQL `files` row stays (per the existing
+        // Removed branch policy) but the search doc must go — no stale
+        // results pointing at a deleted file.
+        let (_dir, vault) = fresh_vault_with_one_md("gone.md").await;
+        apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("gone.md"))).await;
+        assert_eq!(
+            vault.search().doc_count().unwrap(),
+            1,
+            "Created should seed exactly one search doc",
+        );
+
+        apply_watch_event_to_db(&vault, &WatchEvent::Removed(PathBuf::from("gone.md"))).await;
+        assert_eq!(
+            vault.search().doc_count().unwrap(),
+            0,
+            "Removed should drop the search doc",
+        );
+    }
+
+    #[tokio::test]
+    async fn renamed_event_drops_old_path_from_search_index() {
+        // Rename = delete old in this dispatcher invocation. The new
+        // path's doc lands via the paired Created/Modified event the
+        // watcher emits next; we don't simulate it here — what matters
+        // is that the OLD path is gone after the Renamed call.
+        let (_dir, vault) = fresh_vault_with_one_md("a.md").await;
+        apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("a.md"))).await;
+        assert_eq!(vault.search().doc_count().unwrap(), 1);
+
+        apply_watch_event_to_db(
+            &vault,
+            &WatchEvent::Renamed {
+                from: PathBuf::from("a.md"),
+                to: PathBuf::from("b.md"),
+            },
+        )
+        .await;
+        assert_eq!(
+            vault.search().doc_count().unwrap(),
+            0,
+            "Renamed must remove the old path's search doc",
+        );
     }
 }
