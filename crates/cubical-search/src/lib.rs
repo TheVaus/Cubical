@@ -20,4 +20,4 @@ pub use doc::IndexDoc;
 pub use error::SearchError;
 pub use index::SearchIndex;
 // TODO(l4-a Task 8): pub use query::{FieldScope, MatchedField, SearchHit, SearchQuery, SearchResponse, SortMode};
-// TODO(l4-a Task 7): pub use status::{IndexHealth, IndexState, IndexStatus};
+pub use status::{IndexHealth, IndexState, IndexStatus};
