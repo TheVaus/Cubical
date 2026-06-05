@@ -176,7 +176,7 @@ function buildDecorations(state: EditorState): DecorationSet {
  * DOM is remounted. This means unrelated edits (or sibling-embed
  * fetches) don't tear down embeds that haven't actually changed.
  */
-const embedBlockField = StateField.define<DecorationSet>({
+export const embedBlockField = StateField.define<DecorationSet>({
   create: (state) => buildDecorations(state),
   update: (deco, tr) => {
     const resolverChanged = tr.effects.some((e) => e.is(embedResolverUpdated));
@@ -200,7 +200,7 @@ const embedBlockField = StateField.define<DecorationSet>({
   provide: (f) => EditorView.decorations.from(f),
 });
 
-const embedBaseTheme = EditorView.baseTheme({
+export const embedBaseTheme = EditorView.baseTheme({
   ".cm-md-embed-frame": {
     margin: "var(--space-2) 0",
     padding: "var(--space-2) var(--space-3)",

@@ -9,7 +9,6 @@ import { normalize } from "./ast/normalize";
 import { scanWikilinks } from "./ast/wikilink";
 import type { CanonicalDocument } from "./ast/types";
 import {
-  livePreviewDecorations,
   wikilinkResolverFacet,
   wikilinkResolverUpdated,
   type WikiLinkResolverFacetValue,
@@ -29,11 +28,11 @@ import {
 import type { WikiLinkResolver } from "./editor/wikilinkResolver";
 import type { EmbedResolver } from "./editor/embedResolver";
 import {
-  embedExtension,
   embedResolverFacet,
   embedResolverUpdated,
   openNotePathFacet,
 } from "./editor/embed";
+import { livePreviewBundle } from "./editor/livePreview";
 import { autocompletion } from "@codemirror/autocomplete";
 import {
   blockCompletionSource,
@@ -394,7 +393,7 @@ const Editor: Component<EditorProps> = (props) => {
           ]),
           markdown({ extensions: [wikilinkExtension, tagExtension] }),
           decorationCompartment.of(
-            props.rawSource ? [] : livePreviewDecorations,
+            props.rawSource ? [] : livePreviewBundle,
           ),
           wikilinkResolverCompartment.of(
             wikilinkResolverFacet.of(facetValueFor(props.wikilinkResolver)),
@@ -405,7 +404,6 @@ const Editor: Component<EditorProps> = (props) => {
           openNotePathCompartment.of(
             openNotePathFacet.of(props.openNotePath ?? null),
           ),
-          embedExtension,
           autocompleteCompartment.of(
             autocompleteExtensionFor(props.autocompleteProvider),
           ),
@@ -556,7 +554,7 @@ const Editor: Component<EditorProps> = (props) => {
       (raw) => {
         view?.dispatch({
           effects: decorationCompartment.reconfigure(
-            raw ? [] : livePreviewDecorations,
+            raw ? [] : livePreviewBundle,
           ),
         });
       },
