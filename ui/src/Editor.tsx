@@ -45,6 +45,14 @@ import { buildCmTheme } from "./editor/cm-theme";
 import type { ResolvedAnchor } from "./api/ipc";
 import type { ResolvedTheme } from "./styles/theme";
 
+/**
+ * Dev-only diagnostic handle for the L4-A-fix bug #5 decision tree
+ * (`docs/superpowers/specs/2026-06-04-l4a-fix-design.md` §3.3) and
+ * any future async-cache instrumentation. Stripped from production
+ * bundles via `import.meta.env.DEV`. The global is set in `onMount`,
+ * mirrored on vault swap via the resolver `createEffect`s, and
+ * deleted in `onCleanup`.
+ */
 declare global {
   interface Window {
     __cubical?: {
@@ -483,6 +491,7 @@ const Editor: Component<EditorProps> = (props) => {
     subscribeResolver(props.wikilinkResolver, view);
     subscribeEmbedResolver(props.embedResolver, view);
 
+    // Dev-only diagnostic handle — see `declare global` block above for context.
     if (import.meta.env.DEV) {
       window.__cubical = {
         embedResolver: props.embedResolver ?? null,
