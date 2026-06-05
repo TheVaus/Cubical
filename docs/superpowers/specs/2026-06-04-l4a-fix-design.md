@@ -194,6 +194,53 @@ lands (commit 4b) with a regression test against *that* cause. The
 fix is not pre-specified — kickoff is explicit: don't propose one
 until evidence narrows it.
 
+**Bug #5 diagnostic decision tree.** Run in the dev console with the
+smoke vault open and `A.md` selected. Wait ~3 seconds after open.
+
+```
+Step 1 — inspect __cubical.embedResolver.debug():
+
+  inFlight non-empty after 3s
+    → fetch never settled. Confirm by checking lastSettleAt
+      for the stuck key (should be absent if fetch hung).
+    → Cause is in the promise chain, the IPC layer (Tauri
+      serialization, command registration), or the Rust handler.
+    → Next: subscribe onEvent and capture whether fetch-started
+      fired without a matching fetch-settled or fetch-errored.
+
+  inFlight empty AND lastError populated for stuck key
+    → Fetch settled with an error. Cache holds UNRESOLVED.
+    → Cause is the render branch in renderEmbedBody mis-handling
+      UNRESOLVED, OR the StateField not rebuilding on the
+      embedResolverUpdated effect.
+    → Next: confirm the StateField's update fn ran (DecorationSet
+      version differs between transactions).
+
+  inFlight empty AND lastSettleAt populated AND lastError absent
+    → Fetch settled successfully but UI still stuck on "Loading…".
+    → Cache holds a resolved entry but the editor never rebuilt.
+    → Cause is in the onUpdate subscription (Editor.tsx) or
+      the embedResolverUpdated effect dispatch / handling.
+    → Next: confirm the subscription is wired
+      (subscribeEmbedResolver ran for this view) and that
+      embedResolverUpdated effects landed (inspect transaction log).
+
+Step 2 — subscribe onEvent for a clean cycle:
+
+  const log = [];
+  const unsub = __cubical.embedResolver.onEvent(e => log.push(e));
+  __cubical.embedResolver.invalidate();   // clear, force refetch
+  // wait ~3s, then:
+  console.table(log);
+  unsub();
+
+  Expected sequence per target: fetch-started → fetch-settled
+  (or fetch-errored). Missing entries identify the broken link.
+```
+
+The diagnostic step's observations are recorded in the executed
+smoke runbook before commit 4b is drafted.
+
 **What this closes.** Bug #5, once the diagnostic runs. The lasting
 observability + abort interface remains as the pattern future async
 caches inherit.
@@ -293,7 +340,14 @@ considered and rejected for now, not just an absence.
      of bug #5. Fix lands wherever the evidence points (IPC handler,
      resolver promise chain, StateField effect handling, response
      deserialization, or other).
-   - Regression test grounded in the diagnostic evidence.
+   - Regression test grounded in the diagnostic evidence. Test file
+     location is determined by the root-cause layer:
+       * resolver-side  → ui/src/editor/embedResolver.test.ts
+       * Editor wiring  → ui/src/Editor.test.tsx
+       * IPC TS layer   → ui/src/api/embed.test.ts (new if absent)
+       * Rust handler   → crates/cubical-core/tests/get_embed.rs
+       * Tauri command  → crates/cubical-app/tests/embed_ipc.rs
+     The commit message names the cause + the test file path.
    - Closes bug #5.
 
 5. docs(l4a-fix): conventions.md Sessions section (Contract E)
@@ -440,9 +494,20 @@ value, recorded so future readers see *why* these contracts exist:
 
 - **Bug #5's actual cause is unknown.** Contract 4 lands
   instrumentation; the fix lands after diagnostic evidence narrows
-  the cause. If the cause is in the Rust IPC handler, this session's
-  "no Rust changes" scope expands to that one fix. Recorded as
-  acceptable scope-creep when evidence demands it.
+  the cause. **Circuit-breaker:** if the diagnostic in §3.3 points
+  outside `ui/` (Rust handler, Tauri command shim, IPC serialization,
+  or any other layer the session's stated scope excludes), the
+  session *pauses* before commit 4b. A spec amendment commit lands
+  first that:
+    - names the implicated layer + the diagnostic observation
+      establishing it,
+    - records the estimated additional effort,
+    - and explicitly extends scope.
+
+  Only then does commit 4b land. This protects against silent
+  scope-expansion — a one-line resolver fix and a multi-hour Rust
+  adventure cannot share the same "fix bug #5" commit without an
+  intermediate amendment.
 - **Cursor-line suppression for embeds may surprise users.** Pattern
   matches existing Live Preview (Emphasis, Link), but embeds are
   block-sized, so the layout shift on cursor crossing the host line
