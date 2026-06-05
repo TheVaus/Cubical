@@ -149,3 +149,97 @@ describe("createEmbedResolver", () => {
     expect(r.get("Daily#Intro")?.content).toBe("for Daily#Intro");
   });
 });
+
+describe("observability interface (Contract 4a)", () => {
+  it("debug() reports an empty initial state", () => {
+    const r = createEmbedResolver("v1", makeIpc(RESOLVED));
+    const dbg = r.debug();
+    expect(dbg.cacheSize).toBe(0);
+    expect(dbg.inFlight).toEqual([]);
+    expect(dbg.lastFetchAt.size).toBe(0);
+    expect(dbg.lastSettleAt.size).toBe(0);
+    expect(dbg.lastError.size).toBe(0);
+  });
+
+  it("debug() reflects in-flight state during a pending fetch", () => {
+    const d = deferred<GetEmbedResponse>();
+    const ipc = vi.fn().mockReturnValue(d.promise);
+    const r = createEmbedResolver("v1", ipc);
+    r.fetch("Daily");
+    const dbg = r.debug();
+    expect(dbg.inFlight).toEqual(["Daily"]);
+    expect(dbg.lastFetchAt.get("Daily")).toBeGreaterThan(0);
+    expect(dbg.lastSettleAt.has("Daily")).toBe(false);
+    d.resolve(RESOLVED);
+  });
+
+  it("debug() reflects settled state after fetch completion", async () => {
+    const r = createEmbedResolver("v1", makeIpc(RESOLVED));
+    await r.resolve("Daily");
+    const dbg = r.debug();
+    expect(dbg.cacheSize).toBe(1);
+    expect(dbg.inFlight).toEqual([]);
+    expect(dbg.lastSettleAt.get("Daily")).toBeGreaterThan(0);
+    expect(dbg.lastError.has("Daily")).toBe(false);
+  });
+
+  it("debug() records lastError on IPC rejection", async () => {
+    const r = createEmbedResolver("v1", makeIpc(new Error("boom")));
+    await r.resolve("Daily");
+    const dbg = r.debug();
+    expect(dbg.lastError.get("Daily")).toBe("boom");
+  });
+
+  it("onEvent emits fetch-started, fetch-settled in order for a successful fetch", async () => {
+    const r = createEmbedResolver("v1", makeIpc(RESOLVED));
+    const log: { kind: string; key: string | undefined }[] = [];
+    const unsub = r.onEvent((e) => log.push({ kind: e.kind, key: e.key }));
+    await r.resolve("Daily");
+    unsub();
+    expect(log).toEqual([
+      { kind: "fetch-started", key: "Daily" },
+      { kind: "fetch-settled", key: "Daily" },
+    ]);
+  });
+
+  it("onEvent emits fetch-errored for a failing fetch", async () => {
+    const r = createEmbedResolver("v1", makeIpc(new Error("boom")));
+    const log: {
+      kind: string;
+      key: string | undefined;
+      error: string | undefined;
+    }[] = [];
+    const unsub = r.onEvent((e) =>
+      log.push({ kind: e.kind, key: e.key, error: e.error }),
+    );
+    await r.resolve("Daily");
+    unsub();
+    expect(log).toEqual([
+      { kind: "fetch-started", key: "Daily", error: undefined },
+      { kind: "fetch-errored", key: "Daily", error: "boom" },
+    ]);
+  });
+
+  it("onEvent emits invalidate when invalidate() is called", () => {
+    const r = createEmbedResolver("v1", makeIpc(RESOLVED));
+    const log: { kind: string }[] = [];
+    r.onEvent((e) => log.push({ kind: e.kind }));
+    r.invalidate();
+    expect(log).toEqual([{ kind: "invalidate" }]);
+  });
+
+  it("abort() aborts in-flight fetches and the late IPC response is discarded", async () => {
+    const d = deferred<GetEmbedResponse>();
+    const ipc = vi.fn().mockReturnValue(d.promise);
+    const r = createEmbedResolver("v1", ipc);
+    const log: { kind: string; key: string | undefined }[] = [];
+    r.onEvent((e) => log.push({ kind: e.kind, key: e.key }));
+    r.fetch("Daily");
+    r.abort();
+    d.resolve(RESOLVED);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(r.get("Daily")).toBeUndefined();
+    expect(log.some((e) => e.kind === "abort")).toBe(true);
+  });
+});

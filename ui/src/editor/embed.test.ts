@@ -23,6 +23,15 @@ function makeStubResolver(resp: EmbedResolution): EmbedResolver {
     resolve: async () => resp,
     invalidate: () => undefined,
     onUpdate: () => () => undefined,
+    debug: () => ({
+      cacheSize: 0,
+      inFlight: [],
+      lastFetchAt: new Map(),
+      lastSettleAt: new Map(),
+      lastError: new Map(),
+    }),
+    onEvent: () => () => undefined,
+    abort: () => undefined,
   };
 }
 
@@ -33,6 +42,15 @@ function stubResolver(entries: Record<string, EmbedResolution>): EmbedResolver {
     resolve: () => Promise.reject(new Error("not used")),
     invalidate: () => undefined,
     onUpdate: () => () => undefined,
+    debug: () => ({
+      cacheSize: 0,
+      inFlight: [],
+      lastFetchAt: new Map(),
+      lastSettleAt: new Map(),
+      lastError: new Map(),
+    }),
+    onEvent: () => () => undefined,
+    abort: () => undefined,
   };
 }
 
@@ -116,6 +134,15 @@ describe("embedExtension", () => {
       resolve: () => Promise.reject(new Error("not used")),
       invalidate: () => undefined,
       onUpdate: () => () => undefined,
+      debug: () => ({
+        cacheSize: 0,
+        inFlight: [],
+        lastFetchAt: new Map(),
+        lastSettleAt: new Map(),
+        lastError: new Map(),
+      }),
+      onEvent: () => () => undefined,
+      abort: () => undefined,
     };
     const view = makeView("![[Daily]]\n", r);
     expect(
@@ -196,6 +223,15 @@ describe("embedExtension", () => {
       resolve: () => Promise.reject(new Error("not used")),
       invalidate: () => undefined,
       onUpdate: () => () => undefined,
+      debug: () => ({
+        cacheSize: 0,
+        inFlight: [],
+        lastFetchAt: new Map(),
+        lastSettleAt: new Map(),
+        lastError: new Map(),
+      }),
+      onEvent: () => () => undefined,
+      abort: () => undefined,
     };
     const view = makeView("![[Daily]]\n", r);
     const loadingFrame = view.contentDOM.querySelector(".cm-md-embed-frame");

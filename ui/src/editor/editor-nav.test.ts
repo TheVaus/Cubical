@@ -125,6 +125,15 @@ function makeResolver() {
     resolve: async () => RESOLVED_EMBED,
     invalidate: () => undefined,
     onUpdate: () => () => undefined,
+    debug: () => ({
+      cacheSize: 0,
+      inFlight: [],
+      lastFetchAt: new Map(),
+      lastSettleAt: new Map(),
+      lastError: new Map(),
+    }),
+    onEvent: () => () => undefined,
+    abort: () => undefined,
   };
 }
 

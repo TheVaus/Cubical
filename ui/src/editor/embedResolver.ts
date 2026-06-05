@@ -1,5 +1,6 @@
 /**
- * Per-vault embed resolution cache (L3 Session H.2, spec §2.8).
+ * Per-vault embed resolution cache (L3 Session H.2, spec §2.8;
+ * extended in L4-A-fix Contract 4a).
  *
  * A small in-memory store over the L3 Session H.1 `get_embed` IPC.
  * Each editor session is given one resolver bound to the open vault;
@@ -16,6 +17,17 @@
  *
  * Failures cache an `unresolved` entry so a failing target does not
  * re-enter the IPC on every rebuild.
+ *
+ * **Contract 4a (L4-A-fix) additions.**
+ *   - `debug()` returns a snapshot of cache + in-flight + last-fetch
+ *     timestamps + last-error map for diagnostic.
+ *   - `onEvent` emits granular events (`fetch-started`,
+ *     `fetch-settled`, `fetch-errored`, `invalidate`, `abort`) so the
+ *     operator + future dev panels can trace async behavior.
+ *   - `abort()` cancels in-flight fetches at the cache-write side
+ *     (the underlying IPC keeps running on the Rust side; the
+ *     response is discarded). Used at vault swap; lays the pattern
+ *     for L6 plugin sandbox async cancellation.
  */
 
 import {
@@ -32,6 +44,28 @@ const UNRESOLVED: EmbedResolution = {
   content: null,
 };
 
+/** Snapshot of resolver state for diagnostic / dev-tools inspection. */
+export interface ResolverDebugState {
+  cacheSize: number;
+  inFlight: string[];
+  lastFetchAt: Map<string, number>;
+  lastSettleAt: Map<string, number>;
+  lastError: Map<string, string>;
+}
+
+/** One event in the resolver's audit stream. */
+export interface ResolverEvent {
+  kind:
+    | "fetch-started"
+    | "fetch-settled"
+    | "fetch-errored"
+    | "invalidate"
+    | "abort";
+  key?: string;
+  error?: string;
+  at: number;
+}
+
 export interface EmbedResolver {
   /** Sync lookup. Returns `undefined` for targets not yet fetched. */
   get(targetRaw: string): EmbedResolution | undefined;
@@ -43,6 +77,12 @@ export interface EmbedResolver {
   invalidate(): void;
   /** Subscribe to cache-change notifications. Returns unsubscribe. */
   onUpdate(handler: () => void): () => void;
+  /** Snapshot of resolver state (Contract 4a). */
+  debug(): ResolverDebugState;
+  /** Subscribe to granular resolver events (Contract 4a). */
+  onEvent(handler: (e: ResolverEvent) => void): () => void;
+  /** Abort in-flight fetches; cache + subscribers untouched (Contract 4a). */
+  abort(): void;
 }
 
 export function createEmbedResolver(
@@ -50,11 +90,19 @@ export function createEmbedResolver(
   ipc: (req: GetEmbedRequest) => Promise<GetEmbedResponse> = defaultGetEmbed,
 ): EmbedResolver {
   const cache = new Map<string, EmbedResolution>();
-  const inFlight = new Set<string>();
+  const inFlight = new Map<string, { aborted: boolean }>();
   const subscribers = new Set<() => void>();
+  const eventSubscribers = new Set<(e: ResolverEvent) => void>();
+  const lastFetchAt = new Map<string, number>();
+  const lastSettleAt = new Map<string, number>();
+  const lastError = new Map<string, string>();
 
   const notify = () => {
     for (const fn of subscribers) fn();
+  };
+
+  const emit = (e: ResolverEvent) => {
+    for (const fn of eventSubscribers) fn(e);
   };
 
   const resolver: EmbedResolver = {
@@ -63,17 +111,37 @@ export function createEmbedResolver(
     },
     fetch(targetRaw) {
       if (cache.has(targetRaw) || inFlight.has(targetRaw)) return;
-      inFlight.add(targetRaw);
+      const handle = { aborted: false };
+      inFlight.set(targetRaw, handle);
+      const startedAt = Date.now();
+      lastFetchAt.set(targetRaw, startedAt);
+      emit({ kind: "fetch-started", key: targetRaw, at: startedAt });
       ipc({ vault_id: vaultId, target_raw: targetRaw })
         .then((resp) => {
+          if (handle.aborted) return;
           cache.set(targetRaw, resp);
+          lastError.delete(targetRaw);
+          const at = Date.now();
+          lastSettleAt.set(targetRaw, at);
+          emit({ kind: "fetch-settled", key: targetRaw, at });
         })
-        .catch(() => {
+        .catch((err: unknown) => {
+          if (handle.aborted) return;
           cache.set(targetRaw, UNRESOLVED);
+          const msg = err instanceof Error ? err.message : String(err);
+          lastError.set(targetRaw, msg);
+          const at = Date.now();
+          lastSettleAt.set(targetRaw, at);
+          emit({
+            kind: "fetch-errored",
+            key: targetRaw,
+            error: msg,
+            at,
+          });
         })
         .finally(() => {
           inFlight.delete(targetRaw);
-          notify();
+          if (!handle.aborted) notify();
         });
     },
     resolve(targetRaw) {
@@ -101,6 +169,8 @@ export function createEmbedResolver(
     },
     invalidate() {
       cache.clear();
+      lastError.clear();
+      emit({ kind: "invalidate", at: Date.now() });
       notify();
     },
     onUpdate(handler) {
@@ -108,6 +178,29 @@ export function createEmbedResolver(
       return () => {
         subscribers.delete(handler);
       };
+    },
+    debug() {
+      return {
+        cacheSize: cache.size,
+        inFlight: [...inFlight.keys()],
+        lastFetchAt: new Map(lastFetchAt),
+        lastSettleAt: new Map(lastSettleAt),
+        lastError: new Map(lastError),
+      };
+    },
+    onEvent(handler) {
+      eventSubscribers.add(handler);
+      return () => {
+        eventSubscribers.delete(handler);
+      };
+    },
+    abort() {
+      const at = Date.now();
+      for (const [key, handle] of inFlight.entries()) {
+        handle.aborted = true;
+        emit({ kind: "abort", key, at });
+      }
+      inFlight.clear();
     },
   };
 

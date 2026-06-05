@@ -17,6 +17,15 @@ function stubResolver(entries: Record<string, EmbedResolution>): {
       resolve: () => Promise.reject(new Error("not used")),
       invalidate: () => undefined,
       onUpdate: () => () => undefined,
+      debug: () => ({
+        cacheSize: 0,
+        inFlight: [],
+        lastFetchAt: new Map(),
+        lastSettleAt: new Map(),
+        lastError: new Map(),
+      }),
+      onEvent: () => () => undefined,
+      abort: () => undefined,
     },
   };
 }
