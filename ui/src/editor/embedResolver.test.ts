@@ -242,4 +242,36 @@ describe("observability interface (Contract 4a)", () => {
     expect(r.get("Daily")).toBeUndefined();
     expect(log.some((e) => e.kind === "abort")).toBe(true);
   });
+
+  it("abort() does not hang pending resolve() calls — they re-kick after the next event", async () => {
+    let pendingResolve!: (resp: GetEmbedResponse) => void;
+    const ipc = vi
+      .fn<(req: GetEmbedRequest) => Promise<GetEmbedResponse>>()
+      .mockImplementationOnce(
+        () =>
+          new Promise((res) => {
+            pendingResolve = res;
+          }),
+      )
+      .mockImplementationOnce(() => Promise.resolve(RESOLVED));
+    const r = createEmbedResolver("v1", ipc);
+
+    // Kick the first fetch via resolve(); it's pending.
+    const resolvePromise = r.resolve("Daily");
+
+    // Abort while the first fetch is in flight.
+    r.abort();
+
+    // The first fetch's late response is discarded (handle.aborted).
+    pendingResolve(RESOLVED);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // The resolve() subscriber should have re-kicked a fresh fetch
+    // (via the notify() abort() now emits). That second fetch was
+    // wired to resolve immediately with RESOLVED.
+    const result = await resolvePromise;
+    expect(result).toEqual(RESOLVED);
+    expect(ipc).toHaveBeenCalledTimes(2);
+  });
 });

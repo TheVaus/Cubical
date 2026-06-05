@@ -201,6 +201,7 @@ export function createEmbedResolver(
         emit({ kind: "abort", key, at });
       }
       inFlight.clear();
+      notify();
     },
   };
 
