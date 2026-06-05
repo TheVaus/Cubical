@@ -53,12 +53,7 @@ describe("livePreviewBundle", () => {
     expect(() => state.field(embedBlockField)).not.toThrow();
   });
 
-  // Task 2 enables this test: it asserts the new atomic block-replace
-  // behavior. The current embed.ts emits `Decoration.widget({ block: true,
-  // side: 1 }).range(line.to)` — a non-replace widget at the line's end
-  // position. Task 2 switches to `Decoration.replace({ widget, block: true })`
-  // and this assertion will then hold.
-  it.skip("emits a block-replace decoration over an embed token when the cursor is elsewhere", () => {
+  it("emits a block-replace decoration over an embed token when the cursor is elsewhere", () => {
     const state = EditorState.create({
       doc: "# Heading\n\n![[Daily]]\n\ntail\n",
       selection: { anchor: 0 },

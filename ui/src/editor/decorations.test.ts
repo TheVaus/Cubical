@@ -227,13 +227,21 @@ describe("collectDecorations — wiki-links (L3 Session B)", () => {
     expect(hidden).toEqual(["[[", "#^id]]"]);
   });
 
-  it("![[diagram]] off-cursor: embed indicator + visible target", () => {
+  it("![[diagram]] off-cursor: visible target + hidden brackets (no inline embed indicator — retired in L4-A-fix Contract 2)", () => {
     const src = "![[diagram]]\n";
     const entries = run(src, 99, resolvedAll);
     expect(slice(src, one(ofKind(entries, "mark-wikilink")))).toBe("diagram");
-    expect(ofKind(entries, "mark-wikilink-embed")).toHaveLength(1);
     const hidden = ofKind(entries, "hide").map((e) => slice(src, e));
     expect(hidden).toEqual(["![[", "]]"]);
+  });
+
+  it("does not emit mark-wikilink-embed for embed tokens (retired in L4-A-fix Contract 2)", () => {
+    const doc = Text.of(["paragraph", "", "![[Daily]]", "", "tail"]);
+    const tree = parser.parse(doc.toString());
+    const entries = collectDecorations(tree, doc, 1);
+    for (const e of entries) {
+      expect(e.kind).not.toBe("mark-wikilink-embed");
+    }
   });
 
   it("unresolved target gets mark-wikilink-unresolved instead of mark-wikilink", () => {
@@ -260,7 +268,6 @@ describe("collectDecorations — wiki-links (L3 Session B)", () => {
     const entries = run(src, 1, unresolvedAll);
     expect(ofKind(entries, "mark-wikilink")).toHaveLength(0);
     expect(ofKind(entries, "mark-wikilink-unresolved")).toHaveLength(0);
-    expect(ofKind(entries, "mark-wikilink-embed")).toHaveLength(0);
     expect(ofKind(entries, "hide")).toHaveLength(0);
     // Brackets + content all muted. We don't assert exact substring
     // splits here — the cursor-line behaviour is "reveal raw source",

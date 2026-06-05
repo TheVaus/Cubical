@@ -6,13 +6,25 @@ import { markdown } from "@codemirror/lang-markdown";
 import { syntaxTree } from "@codemirror/language";
 
 import { wikilinkExtension } from "./wikilink";
+import { tagExtension } from "./tag";
 import {
+  embedBlockField,
   embedExtension,
   embedResolverFacet,
   openNotePathFacet,
   embedResolverUpdated,
 } from "./embed";
 import type { EmbedResolver, EmbedResolution } from "./embedResolver";
+
+function makeStubResolver(resp: EmbedResolution): EmbedResolver {
+  return {
+    get: () => resp,
+    fetch: () => undefined,
+    resolve: async () => resp,
+    invalidate: () => undefined,
+    onUpdate: () => () => undefined,
+  };
+}
 
 function stubResolver(entries: Record<string, EmbedResolution>): EmbedResolver {
   return {
@@ -24,12 +36,22 @@ function stubResolver(entries: Record<string, EmbedResolution>): EmbedResolver {
   };
 }
 
-function makeView(doc: string, resolver: EmbedResolver | null): EditorView {
+function makeView(
+  doc: string,
+  resolver: EmbedResolver | null,
+  selectionAnchor?: number,
+): EditorView {
   const host = document.createElement("div");
+  // Default the cursor to doc end so the embed's host line is *not*
+  // the active line — otherwise the Contract 2 cursor-line suppression
+  // would hide every embed under test. Tests that need cursor-on-host
+  // -line behavior set `selectionAnchor` explicitly.
+  const anchor = selectionAnchor ?? doc.length;
   const view = new EditorView({
     parent: host,
     state: EditorState.create({
       doc,
+      selection: { anchor },
       extensions: [
         markdown({ extensions: [wikilinkExtension] }),
         embedResolverFacet.of(resolver),
@@ -122,6 +144,9 @@ describe("embedExtension", () => {
       parent: host,
       state: EditorState.create({
         doc: "![[Self]]\n",
+        // Cursor at end (line 2 — blank) so Contract 2 cursor-line
+        // suppression does not hide the widget under test.
+        selection: { anchor: "![[Self]]\n".length },
         extensions: [
           markdown({ extensions: [wikilinkExtension] }),
           embedResolverFacet.of(r),
@@ -204,5 +229,108 @@ describe("embedExtension", () => {
     });
     expect(found).toBe(1);
     view.destroy();
+  });
+
+  it("emits a block-replace decoration over the WikiLink node's byte span", () => {
+    const state = EditorState.create({
+      doc: "para 1\n\n![[Daily]]\n\npara 2\n",
+      extensions: [
+        markdown({ extensions: [wikilinkExtension, tagExtension] }),
+        embedResolverFacet.of(makeStubResolver({
+          kind: "note",
+          target_path: "Daily.md",
+          content: "loaded",
+        })),
+        openNotePathFacet.of(null),
+        embedBlockField,
+      ],
+    });
+
+    const embedFrom = "para 1\n\n".length;
+    const embedTo = embedFrom + "![[Daily]]".length;
+    let foundReplace: { from: number; to: number; block: boolean } | null = null;
+
+    state.field(embedBlockField).between(
+      0,
+      state.doc.length,
+      (from, to, value) => {
+        if (value.spec?.widget && value.spec?.block === true) {
+          foundReplace = { from, to, block: true };
+        }
+      },
+    );
+
+    expect(foundReplace).not.toBeNull();
+    expect(foundReplace).toEqual({ from: embedFrom, to: embedTo, block: true });
+  });
+
+  it("suppresses the block-replace when the cursor is on the embed's host line", () => {
+    const state = EditorState.create({
+      doc: "para 1\n\n![[Daily]]\n\npara 2\n",
+      extensions: [
+        markdown({ extensions: [wikilinkExtension, tagExtension] }),
+        embedResolverFacet.of(makeStubResolver({
+          kind: "note",
+          target_path: "Daily.md",
+          content: "loaded",
+        })),
+        openNotePathFacet.of(null),
+        embedBlockField,
+      ],
+      selection: { anchor: "para 1\n\n".length + 2 }, // inside ![[Daily]]
+    });
+
+    let anyReplaceOverEmbed = false;
+    const embedFrom = "para 1\n\n".length;
+    const embedTo = embedFrom + "![[Daily]]".length;
+    state.field(embedBlockField).between(
+      embedFrom,
+      embedTo,
+      (_from, _to, value) => {
+        if (value.spec?.widget && value.spec?.block === true) {
+          anyReplaceOverEmbed = true;
+        }
+      },
+    );
+    expect(anyReplaceOverEmbed).toBe(false);
+  });
+
+  it("rebuilds when the cursor crosses the embed line boundary", () => {
+    const state0 = EditorState.create({
+      doc: "para 1\n\n![[Daily]]\n\npara 2\n",
+      extensions: [
+        markdown({ extensions: [wikilinkExtension, tagExtension] }),
+        embedResolverFacet.of(makeStubResolver({
+          kind: "note",
+          target_path: "Daily.md",
+          content: "loaded",
+        })),
+        openNotePathFacet.of(null),
+        embedBlockField,
+      ],
+      selection: { anchor: 0 }, // line 1 — far from embed
+    });
+
+    const set0 = state0.field(embedBlockField);
+
+    const embedLineFrom = "para 1\n\n".length;
+    const tr = state0.update({
+      selection: { anchor: embedLineFrom + 1 },
+    });
+    const state1 = tr.state;
+    const set1 = state1.field(embedBlockField);
+
+    expect(set0).not.toBe(set1);
+
+    let off = false;
+    set0.between(embedLineFrom, embedLineFrom + "![[Daily]]".length, (_f, _t, v) => {
+      if (v.spec?.widget && v.spec?.block === true) off = true;
+    });
+    let on = false;
+    set1.between(embedLineFrom, embedLineFrom + "![[Daily]]".length, (_f, _t, v) => {
+      if (v.spec?.widget && v.spec?.block === true) on = true;
+    });
+    expect(off).toBe(true);
+    expect(on).toBe(false);
   });
 });

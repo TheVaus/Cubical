@@ -68,7 +68,6 @@ export type DecoKind =
   | "mark-link"
   | "mark-wikilink"
   | "mark-wikilink-unresolved"
-  | "mark-wikilink-embed"
   | "mark-tag"
   | "mark-blockid"
   | "mark-marker-muted"
@@ -423,8 +422,10 @@ export function collectDecorations(
         }
 
         // Off-cursor: hide everything except the visible range; mark
-        // the visible range as resolved / unresolved; add an embed
-        // indicator widget for `![[…]]`.
+        // the visible range as resolved / unresolved. Embed tokens
+        // `![[…]]` get a separate atomic block-replace widget from
+        // `embedBlockField` (L4-A-fix Contract 2); the legacy `⎘`
+        // indicator that used to live here has retired.
         if (visibleFrom > node.from) {
           visible.push({ from: node.from, to: visibleFrom, kind: "hide" });
         }
@@ -436,14 +437,6 @@ export function collectDecorations(
         visible.push({ from: visibleFrom, to: visibleTo, kind: visibleKind });
         if (visibleTo < node.to) {
           visible.push({ from: visibleTo, to: node.to, kind: "hide" });
-        }
-        if (tok.embed) {
-          // Zero-width widget at the token start.
-          visible.push({
-            from: node.from,
-            to: node.from,
-            kind: "mark-wikilink-embed",
-          });
         }
         return;
       }
@@ -504,24 +497,6 @@ const hideDeco = Decoration.replace({});
 const hideBlockDeco = Decoration.replace({ block: true });
 const bulletDeco = Decoration.replace({ widget: new BulletWidget() });
 
-/** Small icon glyph standing in for an `![[…]]` embed marker. */
-class EmbedIndicatorWidget extends WidgetType {
-  override toDOM(): HTMLElement {
-    const span = document.createElement("span");
-    span.className = "cm-md-wikilink-embed";
-    span.textContent = "⎘";
-    span.setAttribute("aria-hidden", "true");
-    return span;
-  }
-  override eq(): boolean {
-    return true;
-  }
-}
-const wikilinkEmbedDeco = Decoration.widget({
-  widget: new EmbedIndicatorWidget(),
-  side: -1,
-});
-
 /** Turn the flat entry list into a sorted CM6 `DecorationSet`. */
 function buildDecorationSet(entries: DecoEntry[]): DecorationSet {
   const ranges: Range<Decoration>[] = [];
@@ -563,9 +538,6 @@ function buildDecorationSet(entries: DecoEntry[]): DecorationSet {
         break;
       case "mark-wikilink-unresolved":
         ranges.push(wikilinkUnresolvedDeco.range(e.from, e.to));
-        break;
-      case "mark-wikilink-embed":
-        ranges.push(wikilinkEmbedDeco.range(e.from));
         break;
       case "mark-tag":
         ranges.push(tagMarkDeco.range(e.from, e.to));
@@ -736,11 +708,6 @@ const decorationBaseTheme = EditorView.baseTheme({
     color: "var(--c-warning, var(--c-accent))",
     textDecoration: "underline dashed",
     cursor: "pointer",
-  },
-  ".cm-md-wikilink-embed": {
-    color: "var(--c-accent)",
-    marginRight: "var(--space-1)",
-    fontSize: "0.85em",
   },
   ".cm-md-tag": {
     color: "var(--c-accent)",

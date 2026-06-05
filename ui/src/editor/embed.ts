@@ -2,23 +2,26 @@
  * Live-Preview embed widget (L3 Session H.2, spec §2.8).
  *
  * Walks the Lezer tree for every `WikiLink` node whose raw source is an
- * embed token (`![[…]]`) and emits one block-widget decoration per
- * token, attached at the end of the token's *line* with `side: 1`. The
- * widget mounts a frame and asks `renderEmbedBody` to fill it.
+ * embed token (`![[…]]`) and emits one atomic block-replace decoration
+ * per token covering the node's byte span `[node.from, node.to)`. CM6
+ * treats the range as a single steppable unit — cursor up / down / find
+ * traverse it cleanly (closes bug #6: up-arrow used to jump to doc
+ * start because the old `Decoration.widget({ block: true, side: 1 })`
+ * at `line.to` had no traversal semantics).
+ *
+ * Cursor-line suppression: when the cursor is on the embed's host
+ * line, no replace decoration is emitted — the raw `![[…]]` text
+ * stays visible for direct editing. Matches the established Live
+ * Preview pattern for Emphasis and Link.
  *
  * Block decorations can only come from a `StateField` (CM6 forbids
- * them in `ViewPlugin`s). The field rebuilds on doc / tree changes
- * and on the `embedResolverUpdated` `StateEffect` — that effect is
- * dispatched by `Editor.tsx`'s `onUpdate` subscription whenever the
- * `EmbedResolver` cache changes (fetch completion or `invalidate()`).
+ * them in `ViewPlugin`s). The field rebuilds on doc / tree changes,
+ * the `embedResolverUpdated` `StateEffect`, facet swaps, and active-
+ * line changes (the suppression trigger).
  *
  * Resolver and open-note-path live in Facets so a vault swap (handled
  * by `Compartment.reconfigure` in `Editor.tsx`) flows the new resolver
  * and seed-chain entry to the widget without rebuilding the editor.
- *
- * The inline `mark-wikilink-embed` `⎘` glyph in `decorations.ts` is
- * unchanged — it stays as a marker on the source token; this widget
- * adds the *content* below.
  */
 
 import {
@@ -122,6 +125,19 @@ class EmbedBlockWidget extends WidgetType {
     // real on layout.
     return 60;
   }
+
+  override coordsAt(
+    dom: HTMLElement,
+    _pos: number,
+    _side: number,
+  ): { top: number; bottom: number; left: number; right: number } | null {
+    const r = dom.getBoundingClientRect();
+    return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
+  }
+
+  override ignoreEvent(_event: Event): boolean {
+    return false;
+  }
 }
 
 function buildDecorations(state: EditorState): DecorationSet {
@@ -130,6 +146,8 @@ function buildDecorations(state: EditorState): DecorationSet {
   const openNotePath = state.facet(openNotePathFacet);
   const tree = syntaxTree(state);
   const doc = state.doc;
+  const head = state.selection.main.head;
+  const activeLineNumber = doc.lineAt(head).number;
   const ranges: Range<Decoration>[] = [];
 
   tree.iterate({
@@ -138,7 +156,11 @@ function buildDecorations(state: EditorState): DecorationSet {
       const raw = doc.sliceString(node.from, node.to);
       const tok = scanWikilinks(raw).find((t) => t.kind === "wiki_link");
       if (!tok || tok.kind !== "wiki_link" || !tok.embed) return;
-      const line = doc.lineAt(node.from);
+      const embedLine = doc.lineAt(node.from).number;
+      // Cursor-line suppression: when the cursor sits on the embed's
+      // host line, expose the raw `![[…]]` text for editing — matches
+      // the established Live Preview pattern for Emphasis / Link.
+      if (embedLine === activeLineNumber) return;
       const targetRaw = targetRawOf(tok);
       const widget = new EmbedBlockWidget(
         resolver,
@@ -146,12 +168,14 @@ function buildDecorations(state: EditorState): DecorationSet {
         openNotePath,
         resolver.get(targetRaw),
       );
+      // Atomic block-replace over the WikiLink node's byte span.
+      // CM6 treats the range as a single steppable unit for cursor
+      // traversal — closes bug #6 (up-arrow jumping to doc start).
       ranges.push(
-        Decoration.widget({
+        Decoration.replace({
           widget,
           block: true,
-          side: 1,
-        }).range(line.to),
+        }).range(node.from, node.to),
       );
     },
   });
@@ -187,11 +211,18 @@ export const embedBlockField = StateField.define<DecorationSet>({
         tr.state.facet(embedResolverFacet) ||
       tr.startState.facet(openNotePathFacet) !==
         tr.state.facet(openNotePathFacet);
+    // Cursor-line suppression (Contract 2): when the active line flips
+    // onto or off the embed's host line, the decoration set must
+    // rebuild to surface or hide the raw `![[…]]` token bytes.
+    const activeLineChanged =
+      tr.startState.doc.lineAt(tr.startState.selection.main.head).number !==
+      tr.state.doc.lineAt(tr.state.selection.main.head).number;
     if (
       !tr.docChanged &&
       !treeChanged &&
       !resolverChanged &&
-      !facetChanged
+      !facetChanged &&
+      !activeLineChanged
     ) {
       return deco;
     }
