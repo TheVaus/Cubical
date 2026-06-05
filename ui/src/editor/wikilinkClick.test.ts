@@ -21,6 +21,15 @@ function resolverWith(
     },
     invalidate: () => {},
     onUpdate: () => () => {},
+    debug: () => ({
+      cacheSize: 0,
+      inFlight: [],
+      lastFetchAt: new Map(),
+      lastSettleAt: new Map(),
+      lastError: new Map(),
+    }),
+    onEvent: () => () => undefined,
+    abort: () => undefined,
   };
 }
 
@@ -92,6 +101,15 @@ describe("handleWikiLinkClick", () => {
       resolve: () => lateFetch,
       invalidate: () => {},
       onUpdate: () => () => {},
+      debug: () => ({
+        cacheSize: 0,
+        inFlight: [],
+        lastFetchAt: new Map(),
+        lastSettleAt: new Map(),
+        lastError: new Map(),
+      }),
+      onEvent: () => () => undefined,
+      abort: () => undefined,
     };
     const onNavigate = vi.fn();
     const onOfferCreate = vi.fn();
