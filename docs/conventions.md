@@ -33,6 +33,21 @@ Code-style rules enforced by review and (where noted) by tooling. Load this when
 - One logical change per commit.
 - Layer transitions get a tag (`l0`, `l1`, …).
 
+## Sessions
+
+- Every session that touches user-facing surface area has an
+  interactive `cargo tauri dev` smoke pass *executed* against a real
+  vault before the layer or fix tag lands.
+- Recorded recipes alone do not satisfy session close. The smoke
+  is performed by a human operator; the executed runbook is
+  committed alongside the spec with the operator's identifier and
+  the build commit.
+- A session that cannot run the smoke in its own context (automated
+  harness, no operator) records the recipes and *blocks the tag*
+  on a follow-up interactive session that runs them.
+- Layer transitions get a tag (`l0`, `l1`, …); structural-fix
+  sessions use a descriptive suffix (`l4a-fix`).
+
 ## Documentation
 
 - Every public Rust item has rustdoc.
