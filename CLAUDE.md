@@ -68,10 +68,46 @@ Crates without Tauri deps (`cubical-core`, `cubical-ast`, `cubical-index`, `cubi
 
 Current layer: 4 — Search (in progress).
 
-**L4-A closed 2026-06-03** (`l4a` tag). Tantivy backend live: per-file index with structural fields (`title`, `headings`, `body`, `code`, `tags`, `frontmatter`, plus `mtime_secs` + `size_bytes` fast fields), `en_stem` + `code` tokenizers, five-refresher scan loop (frontmatter + links + tags + blocks + search) with 5000-doc commit boundary, watcher fan-out (create/modify → upsert; delete/rename → delete_path), four IPC commands (`search`, `search_index_status`, `search_rebuild_index`, `search_get_health`) with `vault_id`-keyed envelopes + TS wrappers. Schema-version stamp at `<vault>/.cubical/search/schema.json` (v1); mismatch wipes + rebuilds. L4-A smoke vault at `~/Developer/sandbox/cubical-l4a-smoke/` (L3 carry-over + `code/rust_examples.md` + `code/python_examples.md` + `data/frontmatter_rich.md` + `Aliased Note.md`). Spec: `docs/layer-4-spec.md` §9.1; design: `docs/superpowers/specs/2026-06-02-l4-a-tantivy-design.md`.
+**L4-A-fix code-complete; tag PENDING on operator-driven steps.** Three
+architectural contracts landed between L4-A and L4-B: `livePreviewBundle`
+(Contract 1) makes preview-only transformations a named bundle inside
+`decorationCompartment`, structurally closing bug #4; embed
+atomic-replace at `[node.from, node.to)` (Contract 2) makes the byte
+range *be* the widget, closing bug #6 and retiring the deferred `⎘`
+indicator; resolver observability (Contract 4a) adds symmetric
+`debug()` / `onEvent()` / `abort()` across `EmbedResolver` and
+`WikiLinkResolver`, with dev-only `window.__cubical` exposure for
+diagnostic.
 
-Final L4-A test counts: **458 Rust + 356 vitest** (+52 Rust / +4 vitest over L3 close). All gates green: `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`, `npx tsc --noEmit`, `npm run build`, `npx vitest run`. L0 closed 2026-05-13 (`l0`); L1 closed 2026-05-09 (`l1`); L2 closed 2026-05-22 (`l2`); L3 closed 2026-06-01 (`l3`); L4-A closed 2026-06-03 (`l4a`).
+`docs/conventions.md` now requires executed smoke before any
+layer/fix tag — Contract E (closes the four-sessions-of-unverified-UI
+loophole that birthed this session).
 
-Deferred at L4-A close: persistent panel UI (L4-B), `Cmd/Ctrl+K` Omni-Bar (L4-C), Dataview-style libSQL queries (L4-D), regex / NEAR / date-range query syntax (out of L4 scope), multi-term fuzzy (L4-D), snippet coverage on non-stored fields (§5 deviation #1 — L4-B picks store-more vs re-read), interactive smoke against `cargo tauri dev` (same protocol as L3 — recorded recipes in §9.1), perf benchmark numbers (driver lives at `crates/cubical-search/examples/bench.rs`; 30k-vault Tantivy index not built on this machine). L3-close deferrals (H.3 polish, K-polish, §5.5 triple-parse) still live — none on the §6 critical path.
+**Pending operator-driven work before `l4a-fix` tags:**
+1. Bug #5 diagnostic per spec §3.3 decision tree, run against
+   `~/Developer/sandbox/cubical-l4a-smoke/` from the dev console.
+2. Bug #5 fix (Contract 4b) grounded in the diagnostic evidence;
+   spec §8 circuit-breaker fires if cause is outside `ui/`.
+3. Execute the consolidated smoke runbook
+   (`docs/superpowers/2026-06-04-l4a-fix-smoke-runbook.md`) against
+   the L4-A smoke vault; commit the filled-in `-executed.md` version.
+4. Apply the `l4a-fix` tag.
 
-Next: **Session L4-B — persistent left-panel search results UI** (per `docs/build-order.md`). L4-B is the first consumer of L4-A's IPC; resolves the snippet-stored-field limitation when the panel's UX requirements lock down.
+**Deferred from L4-A-fix:** navigation path split (Contract C) —
+bugs #2, #3 not reproducing against the live vault; revisit at L4-C
+when Omni-Bar surfaces the funnel as load-bearing. Bug #1
+(`^block-id` rendering): operator confirmed current smaller+grayer
+treatment is intended.
+
+L4-A-fix test counts at code-complete checkpoint: **383 vitest + 458
+Rust** (+27 vitest / 0 Rust over L4-A close). All six gates green at
+every commit boundary: `cargo test --workspace`, `cargo clippy
+--workspace --all-targets -- -D warnings`, `cargo fmt --all --check`,
+`npx tsc --noEmit`, `npm run build`, `npx vitest run`. L0 closed
+2026-05-13 (`l0`); L1 closed 2026-05-09 (`l1`); L2 closed 2026-05-22
+(`l2`); L3 closed 2026-06-01 (`l3`); L4-A closed 2026-06-03 (`l4a`);
+L4-A-fix tag pending.
+
+Next: complete bug #5 diagnostic + fix + smoke, then tag `l4a-fix`.
+L4-B (persistent left-panel search results UI) remains gated until
+the tag lands.
