@@ -45,6 +45,15 @@ import { buildCmTheme } from "./editor/cm-theme";
 import type { ResolvedAnchor } from "./api/ipc";
 import type { ResolvedTheme } from "./styles/theme";
 
+declare global {
+  interface Window {
+    __cubical?: {
+      embedResolver: EmbedResolver | null;
+      wikilinkResolver: WikiLinkResolver | null;
+    };
+  }
+}
+
 /**
  * Holds the Live Preview decoration extension. L2 Session E (raw-source
  * toggle) reconfigures this compartment to a no-op extension (`[]`) to
@@ -474,6 +483,13 @@ const Editor: Component<EditorProps> = (props) => {
     subscribeResolver(props.wikilinkResolver, view);
     subscribeEmbedResolver(props.embedResolver, view);
 
+    if (import.meta.env.DEV) {
+      window.__cubical = {
+        embedResolver: props.embedResolver ?? null,
+        wikilinkResolver: props.wikilinkResolver ?? null,
+      };
+    }
+
     // Fire the initial AST synchronously so consumers don't have to
     // wait for the first keystroke to know what's loaded.
     fireAst(props.value);
@@ -591,6 +607,9 @@ const Editor: Component<EditorProps> = (props) => {
           ),
         });
         subscribeResolver(resolver, view);
+        if (import.meta.env.DEV && window.__cubical) {
+          window.__cubical.wikilinkResolver = resolver ?? null;
+        }
       },
       { defer: true },
     ),
@@ -610,6 +629,9 @@ const Editor: Component<EditorProps> = (props) => {
           ),
         });
         subscribeEmbedResolver(resolver, view);
+        if (import.meta.env.DEV && window.__cubical) {
+          window.__cubical.embedResolver = resolver ?? null;
+        }
       },
       { defer: true },
     ),
@@ -650,6 +672,9 @@ const Editor: Component<EditorProps> = (props) => {
   );
 
   onCleanup(() => {
+    if (import.meta.env.DEV) {
+      delete window.__cubical;
+    }
     unsubResolver?.();
     unsubEmbedResolver?.();
     if (astPending !== undefined) clearTimeout(astPending);
