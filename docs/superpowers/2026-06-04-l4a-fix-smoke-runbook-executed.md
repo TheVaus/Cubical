@@ -88,8 +88,16 @@ broader L1 file-watcher recipes likewise saw no code change.
   operator-confirmed fixed in the running app. Editor surface this
   session touched is verified. No regressions observed in the
   exercised behaviours.
-- **Outstanding follow-ups:** none blocking. The search / watcher /
-  properties recipe sweep stays as standing backfill for the next
-  session touching those surfaces (per Contract E).
+- **Outstanding follow-ups:**
+  - *Embed re-render scroll jump on autosave* (operator-reported,
+    non-blocking): typing in a file with a rendered embed occasionally
+    jumps the viewport to the top (cursor stays put). Root cause:
+    unconditional `embedResolver().invalidate()` on the open file's own
+    autosave writes → embed remount/height-thrash → viewport re-anchor.
+    Documented in `docs/layer-4-spec.md` §9.2 "Known issue (deferred)".
+    Recommended as a focused follow-up before L4-B.
+  - The search / watcher / properties recipe sweep stays as standing
+    backfill for the next session touching those surfaces (per
+    Contract E).
 - **Tag decision:** `l4a-fix` cleared to land — the session's own
   surface is operator-verified.

@@ -328,6 +328,38 @@ recipes and L1/L2 watcher/properties recipes saw no code change this
 session and remain standing backfill under the new Sessions ritual
 for the next session touching those surfaces.
 
+**Known issue (deferred) — embed re-render scroll jump on autosave.**
+*Symptom (operator-reported):* while typing in a file that contains a
+rendered embed, the **viewport** occasionally jumps to the top of the
+document. The **cursor stays in place** — this is a scroll/anchor jump,
+not a cursor bug. Intermittent, tied to the autosave cadence.
+
+*Root cause:* the `vault:file-changed` handler in
+`ui/src/App.tsx` calls `embedResolver()?.invalidate()` **unconditionally**
+at the top of the handler (around line 770), *before* the own-write
+suppression check (around line 801, which today only guards the
+conflict-banner logic). Autosave (~300 ms debounce) writes the open
+file; the OS watcher reports that **own write** back as
+`vault:file-changed`; the unconditional `invalidate()` clears the embed
+cache and bumps `EmbedResolver.version()`; every rendered embed
+remounts and re-fetches, collapsing to its `estimatedHeight` (~60 px)
+and re-expanding to full height. That height thrash above the cursor
+makes CM6 re-anchor the viewport — the jump to top.
+
+*Pre-existing, amplified here:* the unconditional invalidate predates
+this session (L3 Session H.2). The L4-A-fix block-card rendering +
+`version()`-driven remount amplified its visibility (the prior inline
+rendering thrashed height far less).
+
+*Proposed fix (its own task + smoke):* don't invalidate the embed
+resolver on the user's own writes — move `embedResolver().invalidate()`
+below the own-write-hash check (`incoming === lastWrittenHash`), or
+scope invalidation to only the **changed target** rather than clearing
+the whole cache. Small, localized change in the `App.tsx`
+`vault:file-changed` handler. Out of scope for this session (it's the
+watcher/resolver interaction, not the editor-surface contracts) and
+recommended as a focused follow-up before L4-B.
+
 **Test counts at close:** 386 vitest + 458 Rust (+30 vitest / 0 Rust
 over L4-A close). All six gates green at every commit boundary:
 `cargo test --workspace`, `cargo clippy --workspace --all-targets --
