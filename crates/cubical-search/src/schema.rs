@@ -49,7 +49,7 @@ pub fn build_schema() -> (Schema, Fields) {
         .set_index_option(IndexRecordOption::WithFreqsAndPositions);
 
     let en_stem_stored = TextOptions::default()
-        .set_indexing_options(en_stem_indexing.clone())
+        .set_indexing_options(en_stem_indexing)
         .set_stored();
     let code_stored = TextOptions::default()
         .set_indexing_options(code_indexing)

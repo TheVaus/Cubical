@@ -295,7 +295,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn health_reports_schema_version_1() {
+    async fn health_reports_schema_version_2() {
         let (_dir, vault, state) = fresh_state_with_vault("v1").await;
         // Seed one doc so the health endpoint sees a non-trivial index;
         // the schema_version assertion is the load-bearing one.

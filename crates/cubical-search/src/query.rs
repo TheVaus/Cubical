@@ -617,6 +617,10 @@ mod tests {
             },
         )
         .unwrap();
+        assert!(
+            !h.hits.is_empty(),
+            "expected hits for 'Heading' in HeadingsOnly scope"
+        );
         assert!(h.hits[0]
             .matched_fields
             .iter()
@@ -634,10 +638,53 @@ mod tests {
             },
         )
         .unwrap();
+        assert!(
+            !c.hits.is_empty(),
+            "expected hits for 'alpha' in CodeOnly scope"
+        );
         assert!(c.hits[0]
             .matched_fields
             .iter()
             .any(|m| m.field == "code" && m.snippet.contains("<mark>")));
+    }
+
+    #[test]
+    fn frontmatter_match_produces_snippet() {
+        let tmp = TempDir::new().unwrap();
+        let idx = SearchIndex::open(tmp.path()).unwrap();
+        idx.upsert(&IndexDoc {
+            path: "fm.md".into(),
+            title: "FM Doc".into(),
+            headings: String::new(),
+            body: String::new(),
+            code: String::new(),
+            tags: vec![],
+            frontmatter: "author znamarand".into(),
+            mtime_secs: 1_717_000_000,
+            size_bytes: 64,
+        })
+        .unwrap();
+        idx.commit().unwrap();
+        let r = run_search(
+            &idx,
+            &SearchQuery {
+                text: "znamarand".into(),
+                limit: 0,
+                offset: 0,
+                fields: FieldScope::Default,
+                fuzzy: false,
+                sort: SortMode::Relevance,
+            },
+        )
+        .unwrap();
+        assert!(
+            !r.hits.is_empty(),
+            "expected a hit for the frontmatter term"
+        );
+        assert!(r.hits[0]
+            .matched_fields
+            .iter()
+            .any(|m| m.field == "frontmatter" && m.snippet.contains("<mark>")));
     }
 
     #[test]
