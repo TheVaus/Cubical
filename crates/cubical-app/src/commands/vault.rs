@@ -67,6 +67,24 @@ pub async fn open_vault(
     app: &AppHandle,
     req: OpenVaultRequest,
 ) -> Result<OpenVaultResponse, CubicalError> {
+    // Idempotent re-open: if this folder is already open in-process,
+    // return the existing session rather than constructing a second
+    // Vault (and a second Tantivy IndexWriter) on the same directory,
+    // which throws LockBusy. Identity is the canonical path; a failed
+    // canonicalize (missing path, etc.) falls through to Vault::open,
+    // which reports the proper VaultError.
+    if let Ok(incoming) = std::fs::canonicalize(&req.path) {
+        let guard = state.vaults().read().await;
+        if let Some((existing_id, status)) =
+            find_open_vault_by_canonical_path(&guard, &incoming)
+        {
+            return Ok(OpenVaultResponse {
+                vault_id: existing_id,
+                scan_status: status.into(),
+            });
+        }
+    }
+
     let vault = Vault::open(&req.path).await?;
     let vault_id = state.new_vault_id();
     let cancel = CancellationToken::new();
