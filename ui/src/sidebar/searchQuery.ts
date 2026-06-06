@@ -9,12 +9,7 @@ import type { FieldScope, SearchQuery, SortMode } from "../api/ipc";
  * scope reinterprets the query box as whitespace-separated tag names
  * (AND-matched, lowercased backend-side).
  */
-export type ScopeKind =
-  | "default"
-  | "headings_only"
-  | "body_only"
-  | "code_only"
-  | "tags";
+export type ScopeKind = FieldScope["kind"];
 
 export interface QueryInput {
   text: string;
@@ -38,7 +33,6 @@ function buildFieldScope(scope: ScopeKind, text: string): FieldScope {
         tags: text.split(/\s+/).filter((t) => t.length > 0),
       };
     case "default":
-    default:
       return { kind: "default" };
   }
 }

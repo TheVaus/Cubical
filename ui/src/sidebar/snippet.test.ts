@@ -21,6 +21,10 @@ describe("pickSnippet", () => {
   it("returns null for an empty list", () => {
     expect(pickSnippet([])).toBeNull();
   });
+
+  it("falls back to the first field when no priority field is present", () => {
+    expect(pickSnippet([{ field: "weird", snippet: "w" }])?.field).toBe("weird");
+  });
 });
 
 describe("parseHighlights", () => {
@@ -54,5 +58,12 @@ describe("parseHighlights", () => {
 
   it("returns an empty array for an empty string", () => {
     expect(parseHighlights("")).toEqual([]);
+  });
+
+  it("handles a snippet that starts with a mark", () => {
+    expect(parseHighlights("<mark>word</mark> rest")).toEqual([
+      { text: "word", mark: true },
+      { text: " rest", mark: false },
+    ]);
   });
 });
