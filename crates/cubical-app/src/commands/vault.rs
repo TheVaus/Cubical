@@ -40,6 +40,22 @@ impl From<ScanStatusBackend> for ScanStatus {
     }
 }
 
+/// Find an already-open vault whose canonical root matches `incoming`
+/// (a path the caller has already canonicalized), for an idempotent
+/// re-open. `Vault` stores its root un-canonicalized, so each stored
+/// root is canonicalized here for comparison; a stored root that no
+/// longer canonicalizes (e.g. its directory was removed) simply does
+/// not match. Returns the existing vault id and its current scan status.
+fn find_open_vault_by_canonical_path(
+    vaults: &std::collections::HashMap<String, OpenVault>,
+    incoming: &std::path::Path,
+) -> Option<(String, ScanStatusBackend)> {
+    vaults.iter().find_map(|(id, ov)| {
+        let root = std::fs::canonicalize(ov.vault.root()).ok()?;
+        (root.as_path() == incoming).then(|| (id.clone(), ov.scan_status))
+    })
+}
+
 /// Open the vault at `req.path` and start its initial scan.
 ///
 /// Returns immediately — the scan runs as a background task whose
@@ -725,6 +741,26 @@ mod tests {
             ),
         );
         (dir, vault, state)
+    }
+
+    #[tokio::test]
+    async fn reopen_same_path_returns_existing_vault() {
+        let (dir, _vault, state) = fresh_state_with_vault("v1").await;
+        // `incoming` is canonicalized the way open_vault canonicalizes req.path.
+        let incoming = std::fs::canonicalize(dir.path()).unwrap();
+        let guard = state.vaults().read().await;
+        let found = find_open_vault_by_canonical_path(&guard, &incoming);
+        assert_eq!(found, Some(("v1".to_string(), ScanStatusBackend::Complete)));
+    }
+
+    #[tokio::test]
+    async fn reopen_different_path_returns_none() {
+        let (_dir_a, _vault_a, state) = fresh_state_with_vault("v1").await;
+        // A directory that is NOT registered in state.
+        let dir_b = tempdir().unwrap();
+        let incoming = std::fs::canonicalize(dir_b.path()).unwrap();
+        let guard = state.vaults().read().await;
+        assert_eq!(find_open_vault_by_canonical_path(&guard, &incoming), None);
     }
 
     /// Insert a `files` row + a couple of `frontmatter` rows for
