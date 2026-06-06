@@ -33,6 +33,7 @@ import {
   openNotePathFacet,
 } from "./editor/embed";
 import { livePreviewBundle } from "./editor/livePreview";
+import { verticalDocLineMotion } from "./editor/embedNav";
 import { autocompletion } from "@codemirror/autocomplete";
 import {
   blockCompletionSource,
@@ -404,6 +405,21 @@ const Editor: Component<EditorProps> = (props) => {
                 props.onCopyBlockRef?.(byteOffsetOf(text, head));
                 return true;
               },
+            },
+            // Correct vertical cursor motion around tall block embeds.
+            // CM6's geometric Up/Down overshoots a multi-row embed card
+            // (one document line, many screen rows); these handlers
+            // detect the overshoot and step exactly one document line so
+            // the cursor can land on the embed line. No-op for normal
+            // lines (returns false → default motion runs). Must precede
+            // defaultKeymap so it wins for Arrow keys.
+            {
+              key: "ArrowUp",
+              run: (view) => verticalDocLineMotion(view, false),
+            },
+            {
+              key: "ArrowDown",
+              run: (view) => verticalDocLineMotion(view, true),
             },
             ...defaultKeymap,
             ...historyKeymap,
