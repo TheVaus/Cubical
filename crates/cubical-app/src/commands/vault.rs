@@ -75,9 +75,7 @@ pub async fn open_vault(
     // which reports the proper VaultError.
     if let Ok(incoming) = std::fs::canonicalize(&req.path) {
         let guard = state.vaults().read().await;
-        if let Some((existing_id, status)) =
-            find_open_vault_by_canonical_path(&guard, &incoming)
-        {
+        if let Some((existing_id, status)) = find_open_vault_by_canonical_path(&guard, &incoming) {
             return Ok(OpenVaultResponse {
                 vault_id: existing_id,
                 scan_status: status.into(),
