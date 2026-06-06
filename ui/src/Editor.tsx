@@ -291,6 +291,16 @@ const Editor: Component<EditorProps> = (props) => {
     if (resolver && targetView) {
       unsubEmbedResolver = resolver.onUpdate(() => {
         targetView.dispatch({ effects: embedResolverUpdated.of(null) });
+        // The embed is an inline atomic replace whose card content
+        // grows when the fetch settles (cold "Loading…" → resolved
+        // body, and again for each nested level as the chain resolves).
+        // CM6 measures line heights during the dispatch above, but the
+        // freshly-remounted, taller widget DOM isn't laid out yet — so
+        // without a follow-up measure the host line stays collapsed and
+        // the card is clipped until the next user interaction (the
+        // "embeds invisible until you click" bug). Force a re-measure
+        // now so a resolved embed paints immediately.
+        targetView.requestMeasure();
       });
     }
   };
