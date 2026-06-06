@@ -2,22 +2,26 @@
  * Live-Preview embed widget (L3 Session H.2, spec §2.8).
  *
  * Walks the Lezer tree for every `WikiLink` node whose raw source is an
- * embed token (`![[…]]`) and emits one atomic block-replace decoration
- * per token covering the node's byte span `[node.from, node.to)`. CM6
- * treats the range as a single steppable unit — cursor up / down / find
- * traverse it cleanly (closes bug #6: up-arrow used to jump to doc
- * start because the old `Decoration.widget({ block: true, side: 1 })`
- * at `line.to` had no traversal semantics).
+ * embed token (`![[…]]`) and emits one atomic INLINE replace decoration
+ * per token covering the node's byte span `[node.from, node.to)`.
+ *
+ * Embeds are written inline (`embeds: ![[B]]`), so the token is a
+ * sub-line range. An inline atomic replace is valid over any such range
+ * and CM6 steps the cursor over it as a single unit (closes bug #6: the
+ * earlier `block: true` variants — both `Decoration.widget` at
+ * `line.to` and a mid-line block replace — were malformed because block
+ * decorations must cover whole lines, which broke vertical cursor
+ * traversal). The widget DOM is block-styled via CSS so it still reads
+ * as a card.
  *
  * Cursor-line suppression: when the cursor is on the embed's host
  * line, no replace decoration is emitted — the raw `![[…]]` text
  * stays visible for direct editing. Matches the established Live
  * Preview pattern for Emphasis and Link.
  *
- * Block decorations can only come from a `StateField` (CM6 forbids
- * them in `ViewPlugin`s). The field rebuilds on doc / tree changes,
- * the `embedResolverUpdated` `StateEffect`, facet swaps, and active-
- * line changes (the suppression trigger).
+ * The field (a `StateField`) rebuilds on doc / tree changes, the
+ * `embedResolverUpdated` `StateEffect`, facet swaps, and active-line
+ * changes (the suppression trigger).
  *
  * Resolver and open-note-path live in Facets so a vault swap (handled
  * by `Compartment.reconfigure` in `Editor.tsx`) flows the new resolver
@@ -41,7 +45,7 @@ import {
 import { syntaxTree } from "@codemirror/language";
 
 import { scanWikilinks } from "../ast/wikilink";
-import type { EmbedResolver, EmbedResolution } from "./embedResolver";
+import type { EmbedResolver } from "./embedResolver";
 import { renderEmbedBody } from "./embedRender";
 
 /**
@@ -82,17 +86,19 @@ function targetRawOf(
   return `${tok.target}${prefix}${tok.anchor.value}`;
 }
 
-class EmbedBlockWidget extends WidgetType {
+class EmbedWidget extends WidgetType {
   constructor(
     private readonly resolver: EmbedResolver,
     private readonly targetRaw: string,
     private readonly openNotePath: string | null,
-    // Carried purely for `eq()` identity — the resolver replaces this
-    // entry reference via `cache.set` on fetch completion, so reference
-    // equality cleanly distinguishes "same state" from "needs remount"
-    // without diffing widget innards. The renderer inside `toDOM()`
-    // still reads the live resolver; this field is identity-only.
-    private readonly entry: EmbedResolution | undefined,
+    // Folded into `eq()` identity. The resolver's `version()` bumps on
+    // every cache mutation anywhere — including nested embeds resolved
+    // deep in `toDOM()`'s recursive render. Keying identity on the
+    // version (rather than only this target's own cache entry) means a
+    // descendant resolution forces a remount, so nested `Loading…`
+    // placeholders clear (closes bug #5). The version is stable across
+    // unrelated edits (no cache mutation → no remount on keystroke).
+    private readonly version: number,
   ) {
     super();
   }
@@ -111,30 +117,16 @@ class EmbedBlockWidget extends WidgetType {
     return frame;
   }
 
-  override eq(other: EmbedBlockWidget): boolean {
+  override eq(other: EmbedWidget): boolean {
     return (
       this.targetRaw === other.targetRaw &&
       this.openNotePath === other.openNotePath &&
-      this.entry === other.entry
+      this.version === other.version
     );
   }
 
-  override get estimatedHeight(): number {
-    // Best-effort guess so CM6's scroll calculations don't thrash; the
-    // widget rerenders on resolver updates and CM6 will measure for
-    // real on layout.
-    return 60;
-  }
-
-  override coordsAt(
-    dom: HTMLElement,
-    _pos: number,
-    _side: number,
-  ): { top: number; bottom: number; left: number; right: number } | null {
-    const r = dom.getBoundingClientRect();
-    return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
-  }
-
+  // Let click events on the widget bubble to the capture-phase
+  // mousedown handler in Editor.tsx (which routes wiki-link clicks).
   override ignoreEvent(_event: Event): boolean {
     return false;
   }
@@ -162,20 +154,22 @@ function buildDecorations(state: EditorState): DecorationSet {
       // the established Live Preview pattern for Emphasis / Link.
       if (embedLine === activeLineNumber) return;
       const targetRaw = targetRawOf(tok);
-      const widget = new EmbedBlockWidget(
+      const widget = new EmbedWidget(
         resolver,
         targetRaw,
         openNotePath,
-        resolver.get(targetRaw),
+        resolver.version(),
       );
-      // Atomic block-replace over the WikiLink node's byte span.
-      // CM6 treats the range as a single steppable unit for cursor
-      // traversal — closes bug #6 (up-arrow jumping to doc start).
+      // Atomic INLINE replace over the WikiLink node's byte span.
+      // Embeds are written inline (`embeds: ![[B]]`), so the token is
+      // a sub-line range; a `block: true` replace would be a malformed
+      // block decoration (block decorations must cover whole lines),
+      // which broke cursor traversal (bug #6). An inline atomic replace
+      // is valid over any sub-line range and CM6 steps the cursor over
+      // it cleanly. The widget's DOM is block-styled via CSS so it
+      // still reads as a card.
       ranges.push(
-        Decoration.replace({
-          widget,
-          block: true,
-        }).range(node.from, node.to),
+        Decoration.replace({ widget }).range(node.from, node.to),
       );
     },
   });
@@ -192,13 +186,16 @@ function buildDecorations(state: EditorState): DecorationSet {
  *   - the `embedResolverUpdated` effect (cache mutated)
  *   - any facet change reaching it (vault swap via Compartment)
  *
- * Widget identity is anchored to each target's resolver cache *entry*
- * reference (see `EmbedBlockWidget.eq`). When a rebuild produces a
- * widget whose entry reference matches its predecessor's, CM6 reuses
- * the existing DOM; when the resolver flips the entry via `cache.set`
- * on fetch completion, the new widget's `eq()` returns false and the
- * DOM is remounted. This means unrelated edits (or sibling-embed
- * fetches) don't tear down embeds that haven't actually changed.
+ * Widget identity (`EmbedWidget.eq`) folds in the resolver's
+ * `version()`, which bumps on every cache mutation anywhere. A rebuild
+ * with an unchanged version reuses the existing DOM (so plain edits
+ * don't tear embeds down); any resolution change — including a *nested*
+ * embed deep in the recursive render — bumps the version, so `eq()`
+ * returns false and the widget remounts, picking up the freshly
+ * resolved descendant. This is what closes bug #5: keying identity on
+ * only the top-level cache entry left nested `Loading…` placeholders
+ * frozen because the parent's entry never changed when a child
+ * resolved.
  */
 export const embedBlockField = StateField.define<DecorationSet>({
   create: (state) => buildDecorations(state),

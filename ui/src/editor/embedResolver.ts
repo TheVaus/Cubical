@@ -77,6 +77,18 @@ export interface EmbedResolver {
   invalidate(): void;
   /** Subscribe to cache-change notifications. Returns unsubscribe. */
   onUpdate(handler: () => void): () => void;
+  /**
+   * Monotonic counter bumped on every cache mutation (fetch settle,
+   * fetch error, invalidate). Embed widgets fold this into their CM6
+   * identity (`eq`) so that ANY resolution change — including a
+   * *nested* embed deep in the recursive render tree — forces a
+   * remount. Without this, a widget keyed only on its own top-level
+   * cache entry never re-renders when a descendant embed resolves,
+   * leaving nested `Loading…` placeholders stuck forever (the L4-A
+   * smoke bug #5: A/B/C embeds froze while the depth-1 D embed
+   * worked).
+   */
+  version(): number;
   /** Snapshot of resolver state (Contract 4a). */
   debug(): ResolverDebugState;
   /** Subscribe to granular resolver events (Contract 4a). */
@@ -96,6 +108,9 @@ export function createEmbedResolver(
   const lastFetchAt = new Map<string, number>();
   const lastSettleAt = new Map<string, number>();
   const lastError = new Map<string, string>();
+  // Bumped on every cache mutation; folded into widget identity so
+  // nested-embed resolutions force a remount (see `version()` doc).
+  let cacheVersion = 0;
 
   const notify = () => {
     for (const fn of subscribers) fn();
@@ -120,6 +135,7 @@ export function createEmbedResolver(
         .then((resp) => {
           if (handle.aborted) return;
           cache.set(targetRaw, resp);
+          cacheVersion++;
           lastError.delete(targetRaw);
           const at = Date.now();
           lastSettleAt.set(targetRaw, at);
@@ -128,6 +144,7 @@ export function createEmbedResolver(
         .catch((err: unknown) => {
           if (handle.aborted) return;
           cache.set(targetRaw, UNRESOLVED);
+          cacheVersion++;
           const msg = err instanceof Error ? err.message : String(err);
           lastError.set(targetRaw, msg);
           const at = Date.now();
@@ -169,6 +186,7 @@ export function createEmbedResolver(
     },
     invalidate() {
       cache.clear();
+      cacheVersion++;
       lastError.clear();
       emit({ kind: "invalidate", at: Date.now() });
       notify();
@@ -178,6 +196,9 @@ export function createEmbedResolver(
       return () => {
         subscribers.delete(handler);
       };
+    },
+    version() {
+      return cacheVersion;
     },
     debug() {
       return {

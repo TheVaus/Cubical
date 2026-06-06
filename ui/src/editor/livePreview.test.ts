@@ -36,6 +36,7 @@ const stubEmbedResolver = {
   }),
   onEvent: () => () => undefined,
   abort: () => undefined,
+  version: () => 0,
 };
 
 describe("livePreviewBundle", () => {
@@ -53,9 +54,12 @@ describe("livePreviewBundle", () => {
     expect(() => state.field(embedBlockField)).not.toThrow();
   });
 
-  it("emits a block-replace decoration over an embed token when the cursor is elsewhere", () => {
+  it("emits an inline embed replace over the token when the cursor is elsewhere", () => {
+    // Mid-line embed (real vault shape). The bundle must emit an inline
+    // (non-block) atomic replace over exactly the token bytes.
+    const doc = "# Heading\n\nsee ![[Daily]] inline\n\ntail\n";
     const state = EditorState.create({
-      doc: "# Heading\n\n![[Daily]]\n\ntail\n",
+      doc,
       selection: { anchor: 0 },
       extensions: [
         markdown({ extensions: [wikilinkExtension, tagExtension] }),
@@ -67,7 +71,7 @@ describe("livePreviewBundle", () => {
     });
 
     const set = state.field(embedBlockField);
-    const embedFrom = "# Heading\n\n".length;
+    const embedFrom = doc.indexOf("![[Daily]]");
     const embedTo = embedFrom + "![[Daily]]".length;
 
     let found = false;
@@ -76,7 +80,7 @@ describe("livePreviewBundle", () => {
         from === embedFrom &&
         to === embedTo &&
         value.spec?.widget !== undefined &&
-        value.spec?.block === true
+        value.spec?.block !== true
       ) {
         found = true;
       }

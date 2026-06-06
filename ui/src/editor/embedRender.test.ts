@@ -26,6 +26,7 @@ function stubResolver(entries: Record<string, EmbedResolution>): {
       }),
       onEvent: () => () => undefined,
       abort: () => undefined,
+      version: () => 0,
     },
   };
 }

@@ -32,6 +32,7 @@ function makeStubResolver(resp: EmbedResolution): EmbedResolver {
     }),
     onEvent: () => () => undefined,
     abort: () => undefined,
+    version: () => 0,
   };
 }
 
@@ -51,6 +52,7 @@ function stubResolver(entries: Record<string, EmbedResolution>): EmbedResolver {
     }),
     onEvent: () => () => undefined,
     abort: () => undefined,
+    version: () => 0,
   };
 }
 
@@ -128,6 +130,9 @@ describe("embedExtension", () => {
   it("rebuilds on embedResolverUpdated effect (no doc change)", () => {
     // Cold cache first — widget renders a Loading placeholder.
     const entries: Record<string, EmbedResolution> = {};
+    // `ver` mirrors the real resolver: bumps on every cache mutation,
+    // which is what drives the widget's remount (Contract 2 / bug #5).
+    let ver = 0;
     const r: EmbedResolver = {
       get: (t) => entries[t],
       fetch: () => undefined,
@@ -143,6 +148,7 @@ describe("embedExtension", () => {
       }),
       onEvent: () => () => undefined,
       abort: () => undefined,
+      version: () => ver,
     };
     const view = makeView("![[Daily]]\n", r);
     expect(
@@ -156,6 +162,7 @@ describe("embedExtension", () => {
       target_path: "Daily.md",
       content: "hi",
     };
+    ver++;
     view.dispatch({ effects: embedResolverUpdated.of(null) });
     expect(view.contentDOM.querySelector(".cm-md-embed-body")).not.toBeNull();
     expect(view.contentDOM.querySelector(".cm-md-embed-loading")).toBeNull();
@@ -212,11 +219,12 @@ describe("embedExtension", () => {
     view.destroy();
   });
 
-  it("remounts the widget when its resolver entry changes", () => {
+  it("remounts the widget when the resolver version bumps (cold → resolved)", () => {
     // Companion to the identity-preservation test: when the resolver
-    // cache *does* flip the entry (cold → resolved), the new widget's
-    // `eq()` returns false and CM6 remounts the DOM.
+    // cache mutates (cold → resolved) it bumps `version()`, the new
+    // widget's `eq()` returns false, and CM6 remounts the DOM.
     const entries: Record<string, EmbedResolution> = {};
+    let ver = 0;
     const r: EmbedResolver = {
       get: (t) => entries[t],
       fetch: () => undefined,
@@ -232,6 +240,7 @@ describe("embedExtension", () => {
       }),
       onEvent: () => () => undefined,
       abort: () => undefined,
+      version: () => ver,
     };
     const view = makeView("![[Daily]]\n", r);
     const loadingFrame = view.contentDOM.querySelector(".cm-md-embed-frame");
@@ -242,6 +251,7 @@ describe("embedExtension", () => {
       target_path: "Daily.md",
       content: "hi",
     };
+    ver++;
     view.dispatch({ effects: embedResolverUpdated.of(null) });
 
     const resolvedFrame = view.contentDOM.querySelector(".cm-md-embed-frame");
@@ -267,9 +277,19 @@ describe("embedExtension", () => {
     view.destroy();
   });
 
-  it("emits a block-replace decoration over the WikiLink node's byte span", () => {
+  // Fixtures use a MID-LINE embed (`see ![[Daily]] inline`) — the real
+  // vault shape (`embeds: ![[B]]`). The token is a sub-line range, so a
+  // `block: true` replace would be a malformed block decoration. These
+  // tests assert an INLINE atomic replace over exactly the token bytes
+  // (bug #6). The earlier fixtures put the embed alone on its line,
+  // where node-range == line-range, masking the malformed-block bug.
+  const MIDLINE_DOC = "para 1\n\nsee ![[Daily]] inline\n\npara 2\n";
+  const EMBED_FROM = MIDLINE_DOC.indexOf("![[Daily]]");
+  const EMBED_TO = EMBED_FROM + "![[Daily]]".length;
+
+  it("emits an inline (non-block) replace over the embed token's byte span", () => {
     const state = EditorState.create({
-      doc: "para 1\n\n![[Daily]]\n\npara 2\n",
+      doc: MIDLINE_DOC,
       extensions: [
         markdown({ extensions: [wikilinkExtension, tagExtension] }),
         embedResolverFacet.of(makeStubResolver({
@@ -280,29 +300,59 @@ describe("embedExtension", () => {
         openNotePathFacet.of(null),
         embedBlockField,
       ],
+      selection: { anchor: 0 }, // cursor off the embed line
     });
 
-    const embedFrom = "para 1\n\n".length;
-    const embedTo = embedFrom + "![[Daily]]".length;
-    let foundReplace: { from: number; to: number; block: boolean } | null = null;
-
+    let found: { from: number; to: number; block: unknown } | null = null;
     state.field(embedBlockField).between(
       0,
       state.doc.length,
       (from, to, value) => {
-        if (value.spec?.widget && value.spec?.block === true) {
-          foundReplace = { from, to, block: true };
+        if (value.spec?.widget) {
+          found = { from, to, block: value.spec.block };
         }
       },
     );
 
-    expect(foundReplace).not.toBeNull();
-    expect(foundReplace).toEqual({ from: embedFrom, to: embedTo, block: true });
+    expect(found).not.toBeNull();
+    // Exactly the token bytes, and NOT a block decoration.
+    expect(found).toEqual({ from: EMBED_FROM, to: EMBED_TO, block: undefined });
   });
 
-  it("suppresses the block-replace when the cursor is on the embed's host line", () => {
+  it("the embed replace mounts in a real EditorView without throwing (mid-line range)", () => {
+    // A `block: true` replace over a mid-line range threw / mis-rendered
+    // on a real view. The inline replace must mount cleanly.
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const view = new EditorView({
+      state: EditorState.create({
+        doc: MIDLINE_DOC,
+        extensions: [
+          markdown({ extensions: [wikilinkExtension, tagExtension] }),
+          embedResolverFacet.of(makeStubResolver({
+            kind: "note",
+            target_path: "Daily.md",
+            content: "loaded",
+          })),
+          openNotePathFacet.of(null),
+          embedBlockField,
+        ],
+        selection: { anchor: 0 },
+      }),
+      parent: host,
+    });
+    try {
+      // The embed frame rendered somewhere in the view DOM.
+      expect(view.dom.querySelector(".cm-md-embed-frame")).not.toBeNull();
+    } finally {
+      view.destroy();
+      host.remove();
+    }
+  });
+
+  it("suppresses the replace when the cursor is on the embed's host line", () => {
     const state = EditorState.create({
-      doc: "para 1\n\n![[Daily]]\n\npara 2\n",
+      doc: MIDLINE_DOC,
       extensions: [
         markdown({ extensions: [wikilinkExtension, tagExtension] }),
         embedResolverFacet.of(makeStubResolver({
@@ -313,27 +363,19 @@ describe("embedExtension", () => {
         openNotePathFacet.of(null),
         embedBlockField,
       ],
-      selection: { anchor: "para 1\n\n".length + 2 }, // inside ![[Daily]]
+      selection: { anchor: EMBED_FROM + 1 }, // inside ![[Daily]]
     });
 
     let anyReplaceOverEmbed = false;
-    const embedFrom = "para 1\n\n".length;
-    const embedTo = embedFrom + "![[Daily]]".length;
-    state.field(embedBlockField).between(
-      embedFrom,
-      embedTo,
-      (_from, _to, value) => {
-        if (value.spec?.widget && value.spec?.block === true) {
-          anyReplaceOverEmbed = true;
-        }
-      },
-    );
+    state.field(embedBlockField).between(EMBED_FROM, EMBED_TO, (_f, _t, v) => {
+      if (v.spec?.widget) anyReplaceOverEmbed = true;
+    });
     expect(anyReplaceOverEmbed).toBe(false);
   });
 
   it("rebuilds when the cursor crosses the embed line boundary", () => {
     const state0 = EditorState.create({
-      doc: "para 1\n\n![[Daily]]\n\npara 2\n",
+      doc: MIDLINE_DOC,
       extensions: [
         markdown({ extensions: [wikilinkExtension, tagExtension] }),
         embedResolverFacet.of(makeStubResolver({
@@ -348,25 +390,86 @@ describe("embedExtension", () => {
     });
 
     const set0 = state0.field(embedBlockField);
-
-    const embedLineFrom = "para 1\n\n".length;
-    const tr = state0.update({
-      selection: { anchor: embedLineFrom + 1 },
-    });
-    const state1 = tr.state;
-    const set1 = state1.field(embedBlockField);
+    const tr = state0.update({ selection: { anchor: EMBED_FROM + 1 } });
+    const set1 = tr.state.field(embedBlockField);
 
     expect(set0).not.toBe(set1);
 
     let off = false;
-    set0.between(embedLineFrom, embedLineFrom + "![[Daily]]".length, (_f, _t, v) => {
-      if (v.spec?.widget && v.spec?.block === true) off = true;
+    set0.between(EMBED_FROM, EMBED_TO, (_f, _t, v) => {
+      if (v.spec?.widget) off = true;
     });
     let on = false;
-    set1.between(embedLineFrom, embedLineFrom + "![[Daily]]".length, (_f, _t, v) => {
-      if (v.spec?.widget && v.spec?.block === true) on = true;
+    set1.between(EMBED_FROM, EMBED_TO, (_f, _t, v) => {
+      if (v.spec?.widget) on = true;
     });
     expect(off).toBe(true);
     expect(on).toBe(false);
+  });
+
+  it("bug #5: widget identity changes when the resolver version bumps (nested embed resolves)", () => {
+    // A embeds B; B's content embeds C. Initially only B is cached and
+    // the resolver reports version 0. When the nested C resolves the
+    // resolver bumps its version — the top-level widget's identity must
+    // change so CM6 remounts and re-renders the now-resolved nested
+    // embed (instead of freezing on `Loading [[C]]…`).
+    let version = 0;
+    const cache: Record<string, EmbedResolution> = {
+      B: { kind: "note", target_path: "B.md", content: "see ![[C]] nested" },
+    };
+    const resolver: EmbedResolver = {
+      get: (t) => cache[t],
+      fetch: () => undefined,
+      resolve: async () =>
+        cache.B ?? { kind: "unresolved", target_path: null, content: null },
+      invalidate: () => undefined,
+      onUpdate: () => () => undefined,
+      debug: () => ({
+        cacheSize: Object.keys(cache).length,
+        inFlight: [],
+        lastFetchAt: new Map(),
+        lastSettleAt: new Map(),
+        lastError: new Map(),
+      }),
+      onEvent: () => () => undefined,
+      abort: () => undefined,
+      version: () => version,
+    };
+
+    const doc = "host\n\nsee ![[B]] here\n\n\n";
+    const state = EditorState.create({
+      doc,
+      selection: { anchor: 0 },
+      extensions: [
+        markdown({ extensions: [wikilinkExtension, tagExtension] }),
+        embedResolverFacet.of(resolver),
+        openNotePathFacet.of("A.md"),
+        embedBlockField,
+      ],
+    });
+
+    type EqWidget = { eq: (o: unknown) => boolean };
+    const widgetOf = (s: EditorState): EqWidget | null => {
+      let w: EqWidget | null = null;
+      s.field(embedBlockField).between(0, doc.length, (_f, _t, v) => {
+        const widget = v.spec?.widget;
+        if (widget) w = widget as unknown as EqWidget;
+      });
+      return w;
+    };
+
+    const w1 = widgetOf(state);
+    expect(w1).not.toBeNull();
+
+    // Nested C resolves: cache grows and the version bumps.
+    cache.C = { kind: "note", target_path: "C.md", content: "C body" };
+    version++;
+
+    const tr = state.update({ effects: embedResolverUpdated.of(null) });
+    const w2 = widgetOf(tr.state);
+    expect(w2).not.toBeNull();
+
+    // Identity MUST differ → CM6 remounts → nested embed re-renders.
+    expect(w1!.eq(w2)).toBe(false);
   });
 });

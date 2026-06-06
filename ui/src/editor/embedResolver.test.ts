@@ -67,6 +67,32 @@ describe("createEmbedResolver", () => {
     expect(r.get("Ghost")).toEqual(entry);
   });
 
+  it("version() bumps on every cache mutation (fetch settle, error, invalidate)", async () => {
+    const ipc = makeIpc(RESOLVED);
+    const r = createEmbedResolver("v1", ipc);
+    expect(r.version()).toBe(0);
+
+    // Successful fetch → one bump.
+    await r.resolve("Daily");
+    const afterFetch = r.version();
+    expect(afterFetch).toBeGreaterThan(0);
+
+    // A cached re-resolve does NOT fetch → no bump.
+    await r.resolve("Daily");
+    expect(r.version()).toBe(afterFetch);
+
+    // A failing fetch → bump.
+    const failing = createEmbedResolver("v1", makeIpc(new Error("boom")));
+    const v0 = failing.version();
+    await failing.resolve("Ghost");
+    expect(failing.version()).toBeGreaterThan(v0);
+
+    // invalidate → bump.
+    const beforeInvalidate = r.version();
+    r.invalidate();
+    expect(r.version()).toBeGreaterThan(beforeInvalidate);
+  });
+
   it("notifies subscribers on fetch completion and on invalidate", async () => {
     const ipc = makeIpc(RESOLVED);
     const r = createEmbedResolver("v1", ipc);

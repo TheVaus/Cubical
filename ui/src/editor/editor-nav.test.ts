@@ -134,6 +134,7 @@ function makeResolver() {
     }),
     onEvent: () => () => undefined,
     abort: () => undefined,
+    version: () => 0,
   };
 }
 
@@ -161,7 +162,7 @@ function mountView(doc: string, selectionAnchor: number): {
 
 describe("cursor navigation across embed widgets (bug #6 regression)", () => {
   it("up-arrow from the line after the embed lands on the embed's host line, not doc start", () => {
-    const doc = "para 1\n\n![[Daily]]\n\npara 2\n";
+    const doc = "para 1\n\nsee ![[Daily]] inline\n\npara 2\n";
     const para2Start = doc.indexOf("para 2");
     const { view, host } = mountView(doc, para2Start + 2);
     try {
@@ -176,7 +177,7 @@ describe("cursor navigation across embed widgets (bug #6 regression)", () => {
   });
 
   it("down-arrow from the line before the embed traverses toward the embed", () => {
-    const doc = "para 1\n\n![[Daily]]\n\npara 2\n";
+    const doc = "para 1\n\nsee ![[Daily]] inline\n\npara 2\n";
     const para1Mid = "para".length;
     const { view, host } = mountView(doc, para1Mid);
     try {
