@@ -278,66 +278,65 @@ Final test counts: **458 Rust + 356 vitest.** Delta from L3 close: +52 Rust (sea
 
 Every L4-A DoD box is ticked. `CLAUDE.md` "Project state" rewritten to L4-A-closed / L4-B-next. The `l4a` tag is applied on the closeout commit (2026-06-03).
 
-### 9.2 L4-A-fix — Editor surface contracts (code-complete, `l4a-fix` tag PENDING)
+### 9.2 L4-A-fix — Editor surface contracts (closed 2026-06-06, `l4a-fix` tag)
 
 Structural-debt session between L4-A close and L4-B open. Three
-architectural contracts closing bugs #4 and #6 from the kickoff
-(`docs/superpowers/2026-06-03-l4a-fix-kickoff.md`); instrumentation
-landed for bug #5's diagnostic. Ritual change to `docs/conventions.md`
-requires executed smoke before tagging.
+architectural contracts closing bugs #4, #5, #6 from the kickoff
+(`docs/superpowers/2026-06-03-l4a-fix-kickoff.md`); ritual change to
+`docs/conventions.md` requiring executed smoke before tagging. All
+three bugs operator-confirmed fixed in the running app
+(`docs/superpowers/2026-06-04-l4a-fix-smoke-runbook-executed.md`).
 
-**Contracts landed (code/docs):**
+**Contracts landed:**
 - **Contract 1** — `livePreviewBundle` is the named extension for
   preview-only transformations; `embedExtension` no longer in the
   base extension list. Raw-source toggle structurally swaps the
-  bundle to `[]`. Closes bug #4.
-- **Contract 2** — embed widget is now atomic
-  `Decoration.replace({ block: true })` over `[node.from, node.to)`.
-  Cursor-line suppression matches existing Live-Preview pattern.
-  `⎘` indicator retires. Closes bug #6.
-- **Contract 4a (instrumentation only)** — `EmbedResolver` and
-  `WikiLinkResolver` gain symmetric `debug()`, `onEvent()`, `abort()`.
-  `ResolverDebugState` / `ResolverEvent` shared types in
-  `embedResolver.ts`. `abort()` ends with `notify()` so pending
-  `resolve()` callers re-kick via the existing subscriber logic.
-  Dev-only `window.__cubical = { embedResolver, wikilinkResolver }`
-  exposes the live resolvers to the devtools console for diagnostic.
+  bundle to `[]`. **Closes bug #4** (operator-confirmed).
+- **Contract 2** — embed widget is an atomic **inline**
+  `Decoration.replace({ widget })` over `[node.from, node.to)`.
+  (Originally specified as a *block* replace; corrected after smoke —
+  real embeds are mid-line, and a block decoration over a sub-line
+  range is malformed, which itself caused a cursor-jump. See spec
+  §3.2 CORRECTION.) `coordsAt` / `estimatedHeight` overrides removed;
+  `EmbedBlockWidget` → `EmbedWidget`. Cursor-line suppression matches
+  existing Live-Preview pattern. `⎘` indicator retires. **Closes bug
+  #6** (operator-confirmed).
+- **Contract 4** — `EmbedResolver` and `WikiLinkResolver` gain
+  symmetric `debug()`, `onEvent()`, `abort()` (instrumentation), plus
+  `EmbedResolver.version()` — a cache-mutation counter folded into the
+  embed widget's identity so nested-embed resolutions force a remount.
+  Dev-only `window.__cubical` exposes the live resolvers. **Closes bug
+  #5** (operator-confirmed): nested embeds (A/B/C) froze on "Loading…"
+  because the widget identity tracked only its top-level cache entry
+  and nested embeds have no independent re-render path; D worked
+  because its embed was depth-1. Diagnostic + fix in spec §3.3.
 - **Contract E** — `docs/conventions.md` grows a `## Sessions`
   section requiring executed smoke before any layer/fix tag lands.
-  Going forward, recorded-only smoke no longer satisfies session
-  close.
-
-**Pending (operator-driven):**
-- **Bug #5 diagnostic** — per spec §3.3 decision tree, run the
-  dev-console diagnostic against `~/Developer/sandbox/cubical-l4a-smoke/`
-  to localize the cause of embeds stuck on "Loading…". Results record
-  in spec §3.3 before Contract 4b's fix.
-- **Bug #5 fix (Contract 4b)** — diagnostic-driven; test location
-  per spec §5.1 commit 4 mapping. Spec §8 circuit-breaker fires if
-  cause is outside `ui/`.
-- **Smoke runbook execution** — operator runs
-  `docs/superpowers/2026-06-04-l4a-fix-smoke-runbook.md` against the
-  L4-A smoke vault, commits the filled-in
-  `-executed.md` runbook alongside.
-- **`l4a-fix` tag** — gated on the three pending items above per the
-  new conventions.md §Sessions ritual.
+  Recorded-only smoke no longer satisfies session close.
 
 **Contract C deferred** to L4-C (Omni-Bar). Bugs #2, #3 not
-reproducing against live vault; navigation path split saved for
-the trigger condition.
+reproducing against live vault; navigation path split saved for the
+trigger condition.
 
-**Bug #1** — operator decision in brainstorming: keep current
-smaller+grayer `^block-id` rendering. No code change.
+**Bug #1** — operator decision: keep current smaller+grayer
+`^block-id` rendering. No code change.
 
-**Test counts at code-complete checkpoint:** 383 vitest + 458 Rust
-(+27 vitest over L4-A close). All six gates green at every commit
-boundary: `cargo test --workspace`, `cargo clippy --workspace
---all-targets -- -D warnings`, `cargo fmt --all --check`, `npx tsc
---noEmit`, `npm run build`, `npx vitest run`.
+**Smoke scope (honest):** this session changed only the editor
+surface; the executed smoke concentrates there (bugs #4/#5/#6 plus
+L2/L3 editor behaviours exercised while fixing). The L4-A search
+recipes and L1/L2 watcher/properties recipes saw no code change this
+session and remain standing backfill under the new Sessions ritual
+for the next session touching those surfaces.
+
+**Test counts at close:** 386 vitest + 458 Rust (+30 vitest / 0 Rust
+over L4-A close). All six gates green at every commit boundary:
+`cargo test --workspace`, `cargo clippy --workspace --all-targets --
+-D warnings`, `cargo fmt --all --check`, `npx tsc --noEmit`, `npm run
+build`, `npx vitest run`.
 
 **Design spec:** `docs/superpowers/specs/2026-06-04-l4a-fix-design.md`
 **Implementation plan:** `docs/superpowers/plans/2026-06-04-l4a-fix.md`
-**Smoke runbook (blank):** `docs/superpowers/2026-06-04-l4a-fix-smoke-runbook.md`
+**Executed smoke:** `docs/superpowers/2026-06-04-l4a-fix-smoke-runbook-executed.md`
 
-**Next:** complete Tasks 6–7–10 then tag `l4a-fix`. L4-B remains
-gated until the tag exists.
+**Next:** L4-B (persistent left-panel search results UI) — now
+unblocked.

@@ -68,46 +68,53 @@ Crates without Tauri deps (`cubical-core`, `cubical-ast`, `cubical-index`, `cubi
 
 Current layer: 4 — Search (in progress).
 
-**L4-A-fix code-complete; tag PENDING on operator-driven steps.** Three
-architectural contracts landed between L4-A and L4-B: `livePreviewBundle`
+**L4-A-fix closed 2026-06-06 (`l4a-fix` tag).** Three architectural
+contracts landed between L4-A and L4-B, all three motivating bugs
+operator-confirmed fixed in the running app. `livePreviewBundle`
 (Contract 1) makes preview-only transformations a named bundle inside
-`decorationCompartment`, structurally closing bug #4; embed
-atomic-replace at `[node.from, node.to)` (Contract 2) makes the byte
-range *be* the widget, closing bug #6 and retiring the deferred `⎘`
-indicator; resolver observability (Contract 4a) adds symmetric
-`debug()` / `onEvent()` / `abort()` across `EmbedResolver` and
-`WikiLinkResolver`, with dev-only `window.__cubical` exposure for
-diagnostic.
+`decorationCompartment`, structurally closing bug #4. Embed rendering
+(Contract 2) is an atomic **inline** replace over `[node.from,
+node.to)` — *corrected from the originally-specified block replace,
+which was malformed for mid-line embeds and itself caused the bug #6
+cursor jump*; closes bug #6 and retires the deferred `⎘` indicator.
+Resolver work (Contract 4) adds symmetric `debug()` / `onEvent()` /
+`abort()` across both resolvers, plus `EmbedResolver.version()` folded
+into the embed widget's identity — this closes bug #5 (nested embeds
+A/B/C froze on "Loading…" because the widget tracked only its
+top-level cache entry and nested embeds had no independent re-render
+path; D worked because it was depth-1). Dev-only `window.__cubical`
+exposes the live resolvers.
+
+Two methodology notes for future sessions: (1) the bug #5/#6
+root-causes were found via `superpowers:systematic-debugging` with
+empirical jsdom probes after an initial guess-shaped fix failed
+operator smoke — *don't ship editor fixes on unit tests alone*; jsdom
+has no layout engine, so cursor-geometry bugs only surface in
+`cargo tauri dev`. (2) Test fixtures must mirror real document shapes
+— the Task 2 fixture put `![[X]]` alone on its line and masked the
+mid-line bug.
 
 `docs/conventions.md` now requires executed smoke before any
 layer/fix tag — Contract E (closes the four-sessions-of-unverified-UI
 loophole that birthed this session).
 
-**Pending operator-driven work before `l4a-fix` tags:**
-1. Bug #5 diagnostic per spec §3.3 decision tree, run against
-   `~/Developer/sandbox/cubical-l4a-smoke/` from the dev console.
-2. Bug #5 fix (Contract 4b) grounded in the diagnostic evidence;
-   spec §8 circuit-breaker fires if cause is outside `ui/`.
-3. Execute the consolidated smoke runbook
-   (`docs/superpowers/2026-06-04-l4a-fix-smoke-runbook.md`) against
-   the L4-A smoke vault; commit the filled-in `-executed.md` version.
-4. Apply the `l4a-fix` tag.
-
 **Deferred from L4-A-fix:** navigation path split (Contract C) —
 bugs #2, #3 not reproducing against the live vault; revisit at L4-C
 when Omni-Bar surfaces the funnel as load-bearing. Bug #1
 (`^block-id` rendering): operator confirmed current smaller+grayer
-treatment is intended.
+treatment is intended. Standing backfill (no code change this
+session): L4-A search recipes + L1/L2 watcher/properties recipes —
+the next session touching those surfaces runs them per the Sessions
+ritual.
 
-L4-A-fix test counts at code-complete checkpoint: **383 vitest + 458
-Rust** (+27 vitest / 0 Rust over L4-A close). All six gates green at
-every commit boundary: `cargo test --workspace`, `cargo clippy
---workspace --all-targets -- -D warnings`, `cargo fmt --all --check`,
-`npx tsc --noEmit`, `npm run build`, `npx vitest run`. L0 closed
-2026-05-13 (`l0`); L1 closed 2026-05-09 (`l1`); L2 closed 2026-05-22
-(`l2`); L3 closed 2026-06-01 (`l3`); L4-A closed 2026-06-03 (`l4a`);
-L4-A-fix tag pending.
+L4-A-fix test counts at close: **386 vitest + 458 Rust** (+30 vitest /
+0 Rust over L4-A close). All six gates green at every commit boundary:
+`cargo test --workspace`, `cargo clippy --workspace --all-targets --
+-D warnings`, `cargo fmt --all --check`, `npx tsc --noEmit`, `npm run
+build`, `npx vitest run`. L0 closed 2026-05-13 (`l0`); L1 closed
+2026-05-09 (`l1`); L2 closed 2026-05-22 (`l2`); L3 closed 2026-06-01
+(`l3`); L4-A closed 2026-06-03 (`l4a`); L4-A-fix closed 2026-06-06
+(`l4a-fix`).
 
-Next: complete bug #5 diagnostic + fix + smoke, then tag `l4a-fix`.
-L4-B (persistent left-panel search results UI) remains gated until
-the tag lands.
+Next: **L4-B — persistent left-panel search results UI**, now
+unblocked. First UI consumer of L4-A's search IPC.
