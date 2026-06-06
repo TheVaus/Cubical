@@ -118,6 +118,17 @@ The visible scroll effect is jsdom-untestable; operator smoke confirmed
 "it works" (viewport no longer jumps). Runbook + verification in
 `docs/layer-4-spec.md` §9.2. Contract E satisfied.
 
+**`open_vault` re-open `LockBusy` fix landed 2026-06-06 (code complete;
+operator smoke pending).** Re-opening an already-open vault folder threw
+`search index error: … LockBusy` because `open_vault` constructed a
+second `Vault` (a second Tantivy `IndexWriter`) on the same
+`.cubical/search` dir before any path dedup. Fix: a pure
+`find_open_vault_by_canonical_path` helper (2 unit tests) lets
+`open_vault` return the existing `vault_id` + `scan_status` when the
+canonical path is already open. Rust-only; cross-process LockBusy
+messaging deferred. Design/plan:
+`docs/superpowers/specs/2026-06-06-idempotent-open-vault-design.md`.
+
 **Deferred from L4-A-fix:** navigation path split (Contract C) —
 bugs #2, #3 not reproducing against the live vault; revisit at L4-C
 when Omni-Bar surfaces the funnel as load-bearing. Bug #1
