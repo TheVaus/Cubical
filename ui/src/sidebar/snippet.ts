@@ -18,7 +18,7 @@ export function pickSnippet(matched: MatchedField[]): MatchedField | null {
     const found = matched.find((m) => m.field === field);
     if (found) return found;
   }
-  return matched.length > 0 ? matched[0] : null;
+  return matched.length > 0 ? (matched[0] ?? null) : null;
 }
 
 /** One run of snippet text, flagged as highlighted or not. */
