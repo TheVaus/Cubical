@@ -249,7 +249,21 @@ export const embedBlockField = StateField.define<DecorationSet>({
     }
     return buildDecorations(tr.state);
   },
-  provide: (f) => EditorView.decorations.from(f),
+  provide: (f) => [
+    EditorView.decorations.from(f),
+    // Register the embed block-replace ranges as ATOMIC so cursor
+    // motion — including vertical arrow keys — skips cleanly over each
+    // rendered card instead of trying to navigate *into* the block
+    // decoration (which jumped the cursor: the root cause behind every
+    // block-rendering attempt). This is CM6's documented mechanism for
+    // cursor-vs-decoration. Because suppression drops the decoration on
+    // the active line, the range is non-atomic exactly when the cursor
+    // is editing that line — so click-to-edit still works, and arrows
+    // skip embeds elsewhere (the Obsidian-style behaviour).
+    EditorView.atomicRanges.of(
+      (view) => view.state.field(f, false) ?? Decoration.none,
+    ),
+  ],
 });
 
 export const embedBaseTheme = EditorView.baseTheme({
