@@ -108,12 +108,16 @@ keymap), not by swapping decoration types.
 layer/fix tag — Contract E (closes the four-sessions-of-unverified-UI
 loophole that birthed this session).
 
-**Known issue (deferred, documented):** typing in a file with a
-rendered embed occasionally jumps the viewport to the top (cursor
-stays put) — autosave's own-write watcher event unconditionally
-invalidates the embed cache, remounting every embed (height thrash).
-Root cause + fix options in `docs/layer-4-spec.md` §9.2; recommended
-as a focused follow-up before L4-B.
+**Embed scroll-jump fix landed 2026-06-06 (L4-A-fix.1 follow-up,
+code complete; operator smoke pending the tag).** The autosave
+own-write watcher echo no longer invalidates the embed/wiki-link
+resolvers: a pure `isOwnWriteEcho(...)` (`ui/src/ownWrite.ts`, 6 unit
+tests) gates both `invalidate()` calls in `onVaultFileChanged`, so
+rendered embeds stop remounting per keystroke while other-file changes
+and genuine external edits still invalidate. The visible scroll effect
+is jsdom-untestable; the operator smoke runbook + best-available
+verification are in `docs/layer-4-spec.md` §9.2. No `l4a-fix.1` tag
+until that smoke runs (Contract E).
 
 **Deferred from L4-A-fix:** navigation path split (Contract C) —
 bugs #2, #3 not reproducing against the live vault; revisit at L4-C
@@ -124,8 +128,9 @@ session): L4-A search recipes + L1/L2 watcher/properties recipes —
 the next session touching those surfaces runs them per the Sessions
 ritual.
 
-L4-A-fix test counts at close: **394 vitest + 458 Rust** (+38 vitest /
-0 Rust over L4-A close). All six gates green at every commit boundary:
+Test counts after the L4-A-fix.1 scroll-jump fix: **400 vitest + 458
+Rust** (+6 vitest / 0 Rust over L4-A-fix close; the fix is UI-only).
+All six gates green at every commit boundary:
 `cargo test --workspace`, `cargo clippy --workspace --all-targets --
 -D warnings`, `cargo fmt --all --check`, `npx tsc --noEmit`, `npm run
 build`, `npx vitest run`. L0 closed 2026-05-13 (`l0`); L1 closed
