@@ -108,16 +108,15 @@ keymap), not by swapping decoration types.
 layer/fix tag — Contract E (closes the four-sessions-of-unverified-UI
 loophole that birthed this session).
 
-**Embed scroll-jump fix landed 2026-06-06 (L4-A-fix.1 follow-up,
-code complete; operator smoke pending the tag).** The autosave
-own-write watcher echo no longer invalidates the embed/wiki-link
-resolvers: a pure `isOwnWriteEcho(...)` (`ui/src/ownWrite.ts`, 6 unit
-tests) gates both `invalidate()` calls in `onVaultFileChanged`, so
-rendered embeds stop remounting per keystroke while other-file changes
-and genuine external edits still invalidate. The visible scroll effect
-is jsdom-untestable; the operator smoke runbook + best-available
-verification are in `docs/layer-4-spec.md` §9.2. No `l4a-fix.1` tag
-until that smoke runs (Contract E).
+**Embed scroll-jump fix landed 2026-06-06 (`l4a-fix.1` tag,
+operator-confirmed).** The autosave own-write watcher echo no longer
+invalidates the embed/wiki-link resolvers: a pure `isOwnWriteEcho(...)`
+(`ui/src/ownWrite.ts`, 6 unit tests) gates both `invalidate()` calls in
+`onVaultFileChanged`, so rendered embeds stop remounting per keystroke
+while other-file changes and genuine external edits still invalidate.
+The visible scroll effect is jsdom-untestable; operator smoke confirmed
+"it works" (viewport no longer jumps). Runbook + verification in
+`docs/layer-4-spec.md` §9.2. Contract E satisfied.
 
 **Deferred from L4-A-fix:** navigation path split (Contract C) —
 bugs #2, #3 not reproducing against the live vault; revisit at L4-C

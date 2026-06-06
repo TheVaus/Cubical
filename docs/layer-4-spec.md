@@ -363,10 +363,12 @@ recipes and L1/L2 watcher/properties recipes saw no code change this
 session and remain standing backfill under the new Sessions ritual
 for the next session touching those surfaces.
 
-**Known issue — RESOLVED 2026-06-06 (own-write-echo guard; operator
-smoke pending).** *Code landed; the visible scroll effect is
-operator-smoke-only (jsdom has no layout engine) and is confirmed by
-the runbook below before the optional `l4a-fix.1` tag.*
+**Known issue — RESOLVED 2026-06-06 (own-write-echo guard;
+operator-confirmed).** *Code landed; the visible scroll effect is
+operator-smoke-only (jsdom has no layout engine) and was confirmed by
+the operator via the runbook below ("it works" — viewport no longer
+jumps while typing in a file with a rendered embed). Contract E
+satisfied.*
 
 *Symptom (operator-reported):* while typing in a file that contains a
 rendered embed, the **viewport** occasionally jumps to the top of the
@@ -405,7 +407,7 @@ from a cold cache regardless). Design spec
 `docs/superpowers/specs/2026-06-06-embed-invalidation-scroll-fix-design.md`;
 plan `docs/superpowers/plans/2026-06-06-embed-invalidation-scroll-fix.md`.
 
-*Operator smoke runbook (Contract E — run before the optional tag).*
+*Operator smoke runbook (Contract E — executed, passed).*
 `cargo tauri dev` → open `~/Developer/sandbox/cubical-l4a-smoke/` →
 open A.md (own-line `![[…]]` card). (1) Type continuously ~30 s with the
 card visible — the viewport must **not** jump to top and the card must
