@@ -34,6 +34,8 @@ export interface SearchPanelProps {
 const DEBOUNCE_MS = 200;
 const PAGE_LIMIT = 50;
 const RESULT_ROW_HEIGHT = 80;
+// 80px rows fit fewer per viewport than the 32px file list, so a
+// smaller overscan than App.tsx's FILE_LIST_OVERSCAN (8) suffices.
 const RESULT_OVERSCAN = 6;
 const STATUS_POLL_MS = 500;
 
@@ -75,8 +77,6 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
   );
 
   let statusTimer: ReturnType<typeof setInterval> | undefined;
-
-  const building = () => status()?.state === "building";
 
   const pollStatus = async () => {
     const id = props.vaultId;
@@ -149,6 +149,7 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
   };
 
   onMount(() => {
+    if (!props.vaultId) return;
     void pollStatus();
     ensurePolling();
   });
@@ -221,19 +222,21 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
         </div>
       </div>
 
-      <Show when={building()}>
-        <div
-          role="status"
-          style={{
-            padding: "var(--space-1) var(--space-3)",
-            "font-size": "var(--text-xs)",
-            color: "var(--c-fg-secondary)",
-            "border-top": "1px solid var(--c-border-subtle)",
-            "border-bottom": "1px solid var(--c-border-subtle)",
-          }}
-        >
-          Indexing… {status()!.indexed_files} / {status()!.total_files}
-        </div>
+      <Show when={status()?.state === "building" ? status() : undefined}>
+        {(s) => (
+          <div
+            role="status"
+            style={{
+              padding: "var(--space-1) var(--space-3)",
+              "font-size": "var(--text-xs)",
+              color: "var(--c-fg-secondary)",
+              "border-top": "1px solid var(--c-border-subtle)",
+              "border-bottom": "1px solid var(--c-border-subtle)",
+            }}
+          >
+            Indexing… {s().indexed_files} / {s().total_files}
+          </div>
+        )}
       </Show>
 
       <Show when={error()}>
