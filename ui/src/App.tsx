@@ -42,6 +42,7 @@ import {
   createEmbedResolver,
   type EmbedResolver,
 } from "./editor/embedResolver";
+import { isOwnWriteEcho } from "./ownWrite";
 import {
   createAutocompleteProvider,
   type AutocompleteProvider,
@@ -759,15 +760,26 @@ const App: Component = () => {
       if (p.vault_id !== vaultId()) return;
       scheduleRefresh();
 
-      // L3 Session B: any vault file change may have created or
-      // removed a wiki-link target. Drop the resolver cache so the
-      // next decoration rebuild re-resolves.
-      wikilinkResolver()?.invalidate();
-
-      // L3 Session H.2: any vault file change may have altered embed
-      // targets or their contents. Drop the resolver cache so the next
-      // widget rebuild re-fetches.
-      embedResolver()?.invalidate();
+      // L4-A-fix.1: skip resolver invalidation on the open file's own
+      // autosave echo. An own write can't have changed another file's
+      // content, so cached embed / wiki-link resolutions stay valid;
+      // invalidating here would only thrash embed-card height and jump
+      // the viewport (layer-4-spec §9.2). Other-file changes and
+      // genuine external edits to the open file still invalidate.
+      const ownWrite = isOwnWriteEcho({
+        changedPath: p.path,
+        selectedPath: selectedPath(),
+        incomingHash: p.new_content_hash,
+        lastWrittenHash,
+      });
+      if (!ownWrite) {
+        // L3 Session B: a change may have created or removed a wiki-link
+        // target — re-resolve on the next decoration rebuild.
+        wikilinkResolver()?.invalidate();
+        // L3 Session H.2: a change may have altered embed targets or
+        // their contents — re-fetch on the next widget rebuild.
+        embedResolver()?.invalidate();
+      }
 
       // L3 Sessions C + I: any vault file change may have added/removed
       // a link pointing at the open note (Backlinks) or a plain-text

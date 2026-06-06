@@ -363,37 +363,65 @@ recipes and L1/L2 watcher/properties recipes saw no code change this
 session and remain standing backfill under the new Sessions ritual
 for the next session touching those surfaces.
 
-**Known issue (deferred) — embed re-render scroll jump on autosave.**
+**Known issue — RESOLVED 2026-06-06 (own-write-echo guard;
+operator-confirmed).** *Code landed; the visible scroll effect is
+operator-smoke-only (jsdom has no layout engine) and was confirmed by
+the operator via the runbook below ("it works" — viewport no longer
+jumps while typing in a file with a rendered embed). Contract E
+satisfied.*
+
 *Symptom (operator-reported):* while typing in a file that contains a
 rendered embed, the **viewport** occasionally jumps to the top of the
 document. The **cursor stays in place** — this is a scroll/anchor jump,
 not a cursor bug. Intermittent, tied to the autosave cadence.
 
 *Root cause:* the `vault:file-changed` handler in
-`ui/src/App.tsx` calls `embedResolver()?.invalidate()` **unconditionally**
-at the top of the handler (around line 770), *before* the own-write
-suppression check (around line 801, which today only guards the
-conflict-banner logic). Autosave (~300 ms debounce) writes the open
-file; the OS watcher reports that **own write** back as
-`vault:file-changed`; the unconditional `invalidate()` clears the embed
-cache and bumps `EmbedResolver.version()`; every rendered embed
-remounts and re-fetches, collapsing to its `estimatedHeight` (~60 px)
+`ui/src/App.tsx` called `embedResolver()?.invalidate()` (and
+`wikilinkResolver()?.invalidate()`) **unconditionally** near the top of
+the handler, *before* the own-write suppression check (which only
+guarded the conflict-banner logic). Autosave (~300 ms debounce) writes
+the open file; the OS watcher reports that **own write** back as
+`vault:file-changed`; the unconditional `invalidate()` cleared the
+embed cache and bumped `EmbedResolver.version()`; every rendered embed
+remounted and re-fetched, collapsing to its `estimatedHeight` (~60 px)
 and re-expanding to full height. That height thrash above the cursor
-makes CM6 re-anchor the viewport — the jump to top.
+made CM6 re-anchor the viewport — the jump to top.
 
-*Pre-existing, amplified here:* the unconditional invalidate predates
-this session (L3 Session H.2). The L4-A-fix block-card rendering +
+*Pre-existing, amplified here:* the unconditional invalidate predated
+the fix (L3 Session H.2). The L4-A-fix block-card rendering +
 `version()`-driven remount amplified its visibility (the prior inline
 rendering thrashed height far less).
 
-*Proposed fix (its own task + smoke):* don't invalidate the embed
-resolver on the user's own writes — move `embedResolver().invalidate()`
-below the own-write-hash check (`incoming === lastWrittenHash`), or
-scope invalidation to only the **changed target** rather than clearing
-the whole cache. Small, localized change in the `App.tsx`
-`vault:file-changed` handler. Out of scope for this session (it's the
-watcher/resolver interaction, not the editor-surface contracts) and
-recommended as a focused follow-up before L4-B.
+*Fix (landed — Option 1 of the kickoff):* a pure `isOwnWriteEcho(...)`
+helper (`ui/src/ownWrite.ts`, 6 unit tests) encodes "this
+`vault:file-changed` event is the open file's own autosave echo"
+(changed path is the open file, the event carries a hash, and the hash
+equals our most recent `lastWrittenHash`). `onVaultFileChanged` computes
+it once and wraps **both** the wiki-link and embed `invalidate()` calls
+in `if (!ownWrite) { … }`. Own autosave echoes no longer invalidate, so
+rendered embeds stop remounting per keystroke; other-file changes and
+genuine external edits to the open file still invalidate exactly as
+before (an own write can only change the open file's own bytes, so other
+files' cached resolutions stay valid, and a newly-typed embed resolves
+from a cold cache regardless). Design spec
+`docs/superpowers/specs/2026-06-06-embed-invalidation-scroll-fix-design.md`;
+plan `docs/superpowers/plans/2026-06-06-embed-invalidation-scroll-fix.md`.
+
+*Operator smoke runbook (Contract E — executed, passed).*
+`cargo tauri dev` → open `~/Developer/sandbox/cubical-l4a-smoke/` →
+open A.md (own-line `![[…]]` card). (1) Type continuously ~30 s with the
+card visible — the viewport must **not** jump to top and the card must
+stay rendered (no `Loading…` flicker / collapse). (2) From another
+terminal `echo "" >> ~/Developer/sandbox/cubical-l4a-smoke/A.md` — the
+open file's embeds must still refresh (live-refresh substrate intact).
+If a jump persists, add a dev-only `EditorView.updateListener` logging
+`view.scrollDOM.scrollTop` + embed remount events and diagnose **before**
+touching `estimatedHeight` (same discipline as the L4-A-fix cursor bug).
+*Best-available automated verification at code-close:* 6 new unit tests
+pin the own-write decision; all six gates green (`cargo test
+--workspace`, `clippy -D warnings`, `fmt --check`, `tsc --noEmit`,
+`npm run build`, `vitest` 400 passed); `cubical-app` + the Vite bundle
+compile clean.
 
 **Test counts at close:** 394 vitest + 458 Rust (+38 vitest / 0 Rust
 over L4-A close). All six gates green at every commit boundary:
