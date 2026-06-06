@@ -278,16 +278,19 @@ describe("embedExtension", () => {
   });
 
   // Fixtures use a MID-LINE embed (`see ![[Daily]] inline`) — the real
-  // vault shape (`embeds: ![[B]]`). The token is a sub-line range, so a
-  // `block: true` replace would be a malformed block decoration. These
-  // tests assert an INLINE atomic replace over exactly the token bytes
-  // (bug #6). The earlier fixtures put the embed alone on its line,
-  // where node-range == line-range, masking the malformed-block bug.
+  // vault shape (`embeds: ![[B]]`). The two-decoration block model emits
+  // (1) an inline NON-widget replace hiding the token bytes [bug #6:
+  // cursor steps over it], and (2) a BLOCK widget at the host line's end
+  // rendering the card [no "invisible until click"]. Earlier fixtures
+  // put the embed alone on its line, masking the mid-line cases.
   const MIDLINE_DOC = "para 1\n\nsee ![[Daily]] inline\n\npara 2\n";
   const EMBED_FROM = MIDLINE_DOC.indexOf("![[Daily]]");
   const EMBED_TO = EMBED_FROM + "![[Daily]]".length;
+  // End of the host line ("see ![[Daily]] inline") — where the block
+  // widget anchors.
+  const HOST_LINE_TO = MIDLINE_DOC.indexOf("\n", EMBED_TO);
 
-  it("emits an inline (non-block) replace over the embed token's byte span", () => {
+  it("emits an inline token-hide AND a block widget at the host line end", () => {
     const state = EditorState.create({
       doc: MIDLINE_DOC,
       extensions: [
@@ -303,25 +306,23 @@ describe("embedExtension", () => {
       selection: { anchor: 0 }, // cursor off the embed line
     });
 
-    let found: { from: number; to: number; block: unknown } | null = null;
-    state.field(embedBlockField).between(
-      0,
-      state.doc.length,
-      (from, to, value) => {
-        if (value.spec?.widget) {
-          found = { from, to, block: value.spec.block };
-        }
-      },
-    );
+    let inlineHide: { from: number; to: number } | null = null;
+    let blockWidget: { from: number; to: number } | null = null;
+    state.field(embedBlockField).between(0, state.doc.length, (from, to, v) => {
+      if (v.spec?.widget && v.spec?.block === true) {
+        blockWidget = { from, to };
+      } else if (!v.spec?.widget) {
+        inlineHide = { from, to };
+      }
+    });
 
-    expect(found).not.toBeNull();
-    // Exactly the token bytes, and NOT a block decoration.
-    expect(found).toEqual({ from: EMBED_FROM, to: EMBED_TO, block: undefined });
+    // 1. Inline hide over exactly the token bytes, NOT block.
+    expect(inlineHide).toEqual({ from: EMBED_FROM, to: EMBED_TO });
+    // 2. Block widget anchored at the host line's end.
+    expect(blockWidget).toEqual({ from: HOST_LINE_TO, to: HOST_LINE_TO });
   });
 
-  it("the embed replace mounts in a real EditorView without throwing (mid-line range)", () => {
-    // A `block: true` replace over a mid-line range threw / mis-rendered
-    // on a real view. The inline replace must mount cleanly.
+  it("renders the embed card in a real EditorView without throwing", () => {
     const host = document.createElement("div");
     document.body.appendChild(host);
     const view = new EditorView({
@@ -342,7 +343,7 @@ describe("embedExtension", () => {
       parent: host,
     });
     try {
-      // The embed frame rendered somewhere in the view DOM.
+      // The block widget's card frame rendered somewhere in the view.
       expect(view.dom.querySelector(".cm-md-embed-frame")).not.toBeNull();
     } finally {
       view.destroy();
@@ -350,7 +351,7 @@ describe("embedExtension", () => {
     }
   });
 
-  it("suppresses the replace when the cursor is on the embed's host line", () => {
+  it("suppresses both decorations when the cursor is on the embed's host line", () => {
     const state = EditorState.create({
       doc: MIDLINE_DOC,
       extensions: [
@@ -366,14 +367,14 @@ describe("embedExtension", () => {
       selection: { anchor: EMBED_FROM + 1 }, // inside ![[Daily]]
     });
 
-    let anyReplaceOverEmbed = false;
-    state.field(embedBlockField).between(EMBED_FROM, EMBED_TO, (_f, _t, v) => {
-      if (v.spec?.widget) anyReplaceOverEmbed = true;
+    let count = 0;
+    state.field(embedBlockField).between(0, state.doc.length, () => {
+      count++;
     });
-    expect(anyReplaceOverEmbed).toBe(false);
+    expect(count).toBe(0);
   });
 
-  it("rebuilds when the cursor crosses the embed line boundary", () => {
+  it("rebuilds and toggles both decorations when the cursor crosses the line", () => {
     const state0 = EditorState.create({
       doc: MIDLINE_DOC,
       extensions: [
@@ -395,16 +396,17 @@ describe("embedExtension", () => {
 
     expect(set0).not.toBe(set1);
 
-    let off = false;
-    set0.between(EMBED_FROM, EMBED_TO, (_f, _t, v) => {
-      if (v.spec?.widget) off = true;
-    });
-    let on = false;
-    set1.between(EMBED_FROM, EMBED_TO, (_f, _t, v) => {
-      if (v.spec?.widget) on = true;
-    });
-    expect(off).toBe(true);
-    expect(on).toBe(false);
+    const countOf = (set: typeof set0) => {
+      let n = 0;
+      set.between(0, MIDLINE_DOC.length, () => {
+        n++;
+      });
+      return n;
+    };
+    // Off the line: inline hide + block widget = 2 decorations.
+    expect(countOf(set0)).toBe(2);
+    // On the line: suppressed → 0.
+    expect(countOf(set1)).toBe(0);
   });
 
   it("bug #5: widget identity changes when the resolver version bumps (nested embed resolves)", () => {
