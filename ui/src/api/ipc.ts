@@ -256,7 +256,9 @@ export type Setting =
   | { key: "ui.right_sidebar_collapsed"; value: boolean }
   | { key: "ui.right_sidebar_panel"; value: "backlinks" | "unlinked_mentions" }
   // L3 Session J — periodic flush interval (seconds). Default 300.
-  | { key: "pending_rewrites.flush_interval_secs"; value: number };
+  | { key: "pending_rewrites.flush_interval_secs"; value: number }
+  // L4-B — which left-column pane is active (file tree vs search panel).
+  | { key: "ui.left_pane_mode"; value: "files" | "search" };
 
 /** Narrows a `Setting` key to its corresponding value type. */
 export type SettingValue<K extends Setting["key"]> = Extract<
