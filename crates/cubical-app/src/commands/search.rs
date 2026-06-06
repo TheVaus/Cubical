@@ -325,7 +325,7 @@ mod tests {
             cubical_search::index::SCHEMA_VERSION,
             "health must report the current schema version",
         );
-        assert_eq!(h.schema_version, 1, "L4-A locks SCHEMA_VERSION at 1");
+        assert_eq!(h.schema_version, 2, "L4-B bumps SCHEMA_VERSION to 2");
         assert_eq!(h.doc_count, 1, "the seeded doc must be visible");
         assert!(h.disk_bytes > 0, "non-empty index has on-disk bytes");
     }

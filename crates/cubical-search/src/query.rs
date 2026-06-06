@@ -572,13 +572,80 @@ mod tests {
     }
 
     #[test]
+    fn body_match_produces_highlighted_snippet() {
+        // Regression for L4-B (§5 deviation #1 → option (a)): once
+        // `body` is STORED, a body hit must yield a <mark>-bearing
+        // snippet, not just a title snippet.
+        let (_t, idx) = fixture_index();
+        let r = run_search(
+            &idx,
+            &SearchQuery {
+                text: "fox".into(),
+                limit: 0,
+                offset: 0,
+                fields: FieldScope::Default,
+                fuzzy: false,
+                sort: SortMode::Relevance,
+            },
+        )
+        .unwrap();
+        assert_eq!(r.hits[0].path, "a.md");
+        let body = r.hits[0]
+            .matched_fields
+            .iter()
+            .find(|m| m.field == "body")
+            .map(|m| m.snippet.as_str())
+            .expect("body field should produce a snippet once STORED");
+        assert!(
+            body.contains("<mark>") && body.contains("</mark>"),
+            "expected <mark> highlights in body snippet, got: {body}"
+        );
+    }
+
+    #[test]
+    fn headings_and_code_matches_produce_snippets() {
+        let (_t, idx) = fixture_index();
+        let h = run_search(
+            &idx,
+            &SearchQuery {
+                text: "Heading".into(),
+                limit: 0,
+                offset: 0,
+                fields: FieldScope::HeadingsOnly,
+                fuzzy: false,
+                sort: SortMode::Relevance,
+            },
+        )
+        .unwrap();
+        assert!(h.hits[0]
+            .matched_fields
+            .iter()
+            .any(|m| m.field == "headings" && m.snippet.contains("<mark>")));
+
+        let c = run_search(
+            &idx,
+            &SearchQuery {
+                text: "alpha".into(),
+                limit: 0,
+                offset: 0,
+                fields: FieldScope::CodeOnly,
+                fuzzy: false,
+                sort: SortMode::Relevance,
+            },
+        )
+        .unwrap();
+        assert!(c.hits[0]
+            .matched_fields
+            .iter()
+            .any(|m| m.field == "code" && m.snippet.contains("<mark>")));
+    }
+
+    #[test]
     fn snippet_contains_mark_tags() {
-        // `title` is the only stored text field in the schema (the rest
-        // are indexed-only — see `docs/superpowers/specs/2026-06-02-l4-a-tantivy-design.md`
-        // §schema), so snippet content is only available for hits on
-        // `title`. The test query is chosen to match `title` on the
-        // "Alpha Notes" fixture so we exercise the `<b>` → `<mark>`
-        // post-processing.
+        // As of L4-B all prose fields are STORED, so any matched text
+        // field can yield a snippet. This test pins the title path: the
+        // query matches `title` on "Alpha Notes" so we exercise the
+        // `<b>` → `<mark>` post-processing on a title snippet.
         let (_t, idx) = fixture_index();
         let r = run_search(
             &idx,

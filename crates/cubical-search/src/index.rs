@@ -11,7 +11,7 @@ use tantivy::{doc, Index, IndexReader, IndexWriter, ReloadPolicy, Term};
 
 /// Current on-disk schema version. Bump on any schema change; mismatch
 /// wipes `<vault>/.cubical/search/` and forces a rebuild.
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 const SCHEMA_JSON: &str = "schema.json";
 
