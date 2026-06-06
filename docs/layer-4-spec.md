@@ -287,20 +287,54 @@ architectural contracts closing bugs #4, #5, #6 from the kickoff
 three bugs operator-confirmed fixed in the running app
 (`docs/superpowers/2026-06-04-l4a-fix-smoke-runbook-executed.md`).
 
-**Contracts landed:**
+**Contracts landed** (final shape — several evolved past the design
+spec during operator smoke; the spec's CORRECTION notes are
+superseded by what is recorded here):
+
 - **Contract 1** — `livePreviewBundle` is the named extension for
   preview-only transformations; `embedExtension` no longer in the
   base extension list. Raw-source toggle structurally swaps the
   bundle to `[]`. **Closes bug #4** (operator-confirmed).
-- **Contract 2** — embed widget is an atomic **inline**
-  `Decoration.replace({ widget })` over `[node.from, node.to)`.
-  (Originally specified as a *block* replace; corrected after smoke —
-  real embeds are mid-line, and a block decoration over a sub-line
-  range is malformed, which itself caused a cursor-jump. See spec
-  §3.2 CORRECTION.) `coordsAt` / `estimatedHeight` overrides removed;
-  `EmbedBlockWidget` → `EmbedWidget`. Cursor-line suppression matches
-  existing Live-Preview pattern. `⎘` indicator retires. **Closes bug
-  #6** (operator-confirmed).
+
+- **Contract 2 — embed rendering (final: whole-line block replace).**
+  When the `![[…]]` token is **alone on its line** (the by-convention
+  shape — operator-confirmed embeds are written on their own line),
+  the whole line is replaced with an atomic block decoration,
+  `Decoration.replace({ widget, block: true }).range(line.from,
+  line.to)`. This is the cursor-safe primitive (same shape as the
+  frontmatter-hide block replace). Mid-line embeds stay raw text (no
+  card) to avoid block content inside a line. `EmbedWidget` keeps
+  `estimatedHeight`; `ignoreEvent` lets clicks bubble; the `⎘`
+  indicator retires; cursor-line suppression reveals raw source on
+  the active line.
+
+  *The render path took several iterations under smoke* (recorded so
+  they aren't retried): inline-replace *widget* (cursor OK, card
+  invisible — block content unmeasured); block *widget* at line end
+  (card OK, cursor jumped); whole-line block replace (both right).
+  **Closes the embed-render half of #4/#6.**
+
+- **Contract 2b — cursor traversal (added under smoke, not in the
+  original spec).** Two pieces, because a rendered card is one
+  *document* line spanning many *screen* rows:
+  - `EditorView.atomicRanges` provided from `embedBlockField` so
+    *logical/horizontal* cursor motion skips the card (CM6's
+    documented mechanism).
+  - `ui/src/editor/embedNav.ts` — a custom `ArrowUp`/`ArrowDown`
+    keymap (precedes `defaultKeymap`) that corrects *vertical*
+    motion. CM6 computes Up/Down from screen geometry; one
+    line-height of motion lands *inside* a tall card and overshoots
+    the whole block. `correctedVerticalHead` (pure, unit-tested
+    against the operator-captured jumps) detects an overshoot of
+    >1 document line and steps exactly one document line instead, so
+    the cursor lands on the embed line. Normal/soft-wrapped lines
+    never overshoot, so their default motion is untouched.
+  **Closes bug #6** (operator-confirmed: cursor walks through embeds
+  one line per press). *Methodology note:* the fix was derived from a
+  dev-only diagnostic listener that logged real-app before/after
+  cursor head + line — jsdom has no layout engine, so the geometric
+  overshoot only surfaced in `cargo tauri dev`.
+
 - **Contract 4** — `EmbedResolver` and `WikiLinkResolver` gain
   symmetric `debug()`, `onEvent()`, `abort()` (instrumentation), plus
   `EmbedResolver.version()` — a cache-mutation counter folded into the
@@ -310,6 +344,7 @@ three bugs operator-confirmed fixed in the running app
   because the widget identity tracked only its top-level cache entry
   and nested embeds have no independent re-render path; D worked
   because its embed was depth-1. Diagnostic + fix in spec §3.3.
+
 - **Contract E** — `docs/conventions.md` grows a `## Sessions`
   section requiring executed smoke before any layer/fix tag lands.
   Recorded-only smoke no longer satisfies session close.
@@ -360,11 +395,19 @@ the whole cache. Small, localized change in the `App.tsx`
 watcher/resolver interaction, not the editor-surface contracts) and
 recommended as a focused follow-up before L4-B.
 
-**Test counts at close:** 386 vitest + 458 Rust (+30 vitest / 0 Rust
+**Test counts at close:** 394 vitest + 458 Rust (+38 vitest / 0 Rust
 over L4-A close). All six gates green at every commit boundary:
 `cargo test --workspace`, `cargo clippy --workspace --all-targets --
 -D warnings`, `cargo fmt --all --check`, `npx tsc --noEmit`, `npm run
 build`, `npx vitest run`.
+
+**Note on the closeout history.** An interim closeout + `l4a-fix` tag
+landed early (the editor surface verified at that point); operator
+re-smoke then surfaced the embed render/cursor iterations and the
+nested-loading fix above, which landed as further `l4a-fix` commits.
+The tag was moved forward to include them. The design spec's §3.2/§3.3
+CORRECTION notes capture the mid-journey reasoning but are superseded
+by the "final shape" recorded in this §9.2.
 
 **Design spec:** `docs/superpowers/specs/2026-06-04-l4a-fix-design.md`
 **Implementation plan:** `docs/superpowers/plans/2026-06-04-l4a-fix.md`

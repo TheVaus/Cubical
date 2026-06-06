@@ -68,35 +68,52 @@ Crates without Tauri deps (`cubical-core`, `cubical-ast`, `cubical-index`, `cubi
 
 Current layer: 4 — Search (in progress).
 
-**L4-A-fix closed 2026-06-06 (`l4a-fix` tag).** Three architectural
-contracts landed between L4-A and L4-B, all three motivating bugs
+**L4-A-fix closed 2026-06-06 (`l4a-fix` tag).** Editor-surface
+structural-debt session between L4-A and L4-B; all motivating bugs
 operator-confirmed fixed in the running app. `livePreviewBundle`
 (Contract 1) makes preview-only transformations a named bundle inside
 `decorationCompartment`, structurally closing bug #4. Embed rendering
-(Contract 2) is an atomic **inline** replace over `[node.from,
-node.to)` — *corrected from the originally-specified block replace,
-which was malformed for mid-line embeds and itself caused the bug #6
-cursor jump*; closes bug #6 and retires the deferred `⎘` indicator.
-Resolver work (Contract 4) adds symmetric `debug()` / `onEvent()` /
-`abort()` across both resolvers, plus `EmbedResolver.version()` folded
-into the embed widget's identity — this closes bug #5 (nested embeds
-A/B/C froze on "Loading…" because the widget tracked only its
-top-level cache entry and nested embeds had no independent re-render
-path; D worked because it was depth-1). Dev-only `window.__cubical`
-exposes the live resolvers.
+(Contract 2, final form): when `![[…]]` is **alone on its line** (the
+by-convention shape), the whole line is replaced with an atomic
+**block** decoration `Decoration.replace({ widget, block: true })`
+over `[line.from, line.to)` — the cursor-safe primitive (same as
+frontmatter hiding); mid-line embeds stay raw. Cursor traversal across
+the rendered card (Contract 2b, added under smoke): `atomicRanges`
+handles horizontal motion, and `ui/src/editor/embedNav.ts` adds a
+custom `ArrowUp`/`ArrowDown` keymap that corrects CM6's *geometric*
+vertical motion — a tall card is one document line spanning many
+screen rows, so default Up/Down overshoots it; `correctedVerticalHead`
+detects an overshoot of >1 document line and steps exactly one
+document line. Resolver work (Contract 4) adds `debug()` / `onEvent()`
+/ `abort()` plus `EmbedResolver.version()` folded into the embed
+widget identity — closes bug #5 (nested embeds A/B/C froze on
+"Loading…"; the widget tracked only its top-level cache entry and
+nested embeds have no independent re-render path; D worked because it
+was depth-1). Dev-only `window.__cubical` exposes the live resolvers.
 
-Two methodology notes for future sessions: (1) the bug #5/#6
-root-causes were found via `superpowers:systematic-debugging` with
-empirical jsdom probes after an initial guess-shaped fix failed
-operator smoke — *don't ship editor fixes on unit tests alone*; jsdom
-has no layout engine, so cursor-geometry bugs only surface in
-`cargo tauri dev`. (2) Test fixtures must mirror real document shapes
-— the Task 2 fixture put `![[X]]` alone on its line and masked the
-mid-line bug.
+Three methodology notes for future sessions: (1) **don't ship editor
+fixes on unit tests alone** — jsdom has no layout engine, so the
+cursor-geometry bugs only surfaced in `cargo tauri dev`; the embed
+render/cursor work took *five* operator re-smoke rounds, and the
+final vertical-motion fix was derived from a dev-only diagnostic
+listener logging real before/after cursor positions. (2) **Test
+fixtures must mirror real document shapes** — an early fixture put
+`![[X]]` alone on its line and masked the mid-line bug. (3) **Match
+the framework, don't fight it** — block-sized content needs block
+decorations; the cursor tension was only resolved by reading how CM6
+(and Obsidian) actually handle it (`atomicRanges` + a custom arrow
+keymap), not by swapping decoration types.
 
 `docs/conventions.md` now requires executed smoke before any
 layer/fix tag — Contract E (closes the four-sessions-of-unverified-UI
 loophole that birthed this session).
+
+**Known issue (deferred, documented):** typing in a file with a
+rendered embed occasionally jumps the viewport to the top (cursor
+stays put) — autosave's own-write watcher event unconditionally
+invalidates the embed cache, remounting every embed (height thrash).
+Root cause + fix options in `docs/layer-4-spec.md` §9.2; recommended
+as a focused follow-up before L4-B.
 
 **Deferred from L4-A-fix:** navigation path split (Contract C) —
 bugs #2, #3 not reproducing against the live vault; revisit at L4-C
@@ -107,7 +124,7 @@ session): L4-A search recipes + L1/L2 watcher/properties recipes —
 the next session touching those surfaces runs them per the Sessions
 ritual.
 
-L4-A-fix test counts at close: **386 vitest + 458 Rust** (+30 vitest /
+L4-A-fix test counts at close: **394 vitest + 458 Rust** (+38 vitest /
 0 Rust over L4-A close). All six gates green at every commit boundary:
 `cargo test --workspace`, `cargo clippy --workspace --all-targets --
 -D warnings`, `cargo fmt --all --check`, `npx tsc --noEmit`, `npm run
