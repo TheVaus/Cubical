@@ -101,16 +101,35 @@ find-next-across-embed have the same root.
 **Contract.** The `![[…]]` token's actual byte span renders as the
 widget. The `WikiLink` Lezer node spans the full `![[…]]` (verified —
 `ui/src/editor/wikilink.ts::parseWikiLink` includes the leading `!`
-in `cx.elt("WikiLink", pos, tokenEnd)`). `buildDecorations` switches
-from `Decoration.widget({ block: true, side: 1 }).range(line.to)` to
-`Decoration.replace({ widget, block: true }).range(node.from, node.to)`.
+in `cx.elt("WikiLink", pos, tokenEnd)`). `buildDecorations` emits an
+atomic **inline** replace over the token: `Decoration.replace({ widget
+}).range(node.from, node.to)`.
 
-`EmbedBlockWidget` gains:
+> **CORRECTION (post-smoke, 2026-06-06).** This contract originally
+> prescribed an atomic *block* replace (`Decoration.replace({ widget,
+> block: true })`). Operator smoke proved that wrong: every embed in a
+> real note is written mid-line (`embeds: ![[B]]`), so the token is a
+> *sub-line* range, and a `block: true` replace over a sub-line range
+> is a **malformed block decoration** — block decorations must cover
+> whole lines. That malformed range is what produced the "cursor jumps
+> to row 2" regression (bug #6, second sighting). An empirical jsdom
+> probe confirmed: range `[13,19)` over line `[5,19)`, and the block
+> variant threw `getClientRects` on mount. The landed fix is an atomic
+> **inline** replace, which is valid over any sub-line range and which
+> CM6 steps the cursor over cleanly. The original Task 2 test fixture
+> (`![[Daily]]` alone on its own line, where node-range == line-range)
+> masked the bug; fixtures now use the real mid-line shape.
 
-- `coordsAt(dom, side)` — delegates to the frame's bounding rect.
+`EmbedWidget` (renamed from `EmbedBlockWidget`):
+
 - `ignoreEvent(_event) → false` — lets clicks bubble to the existing
   capture-phase mousedown handler.
-- existing `estimatedHeight` stays.
+- `coordsAt` and `estimatedHeight` overrides REMOVED — both were
+  block-widget concepts (the `coordsAt` returned a bogus uniform
+  full-frame rect for every position, which actively confused vertical
+  cursor motion). CM6 measures the inline widget's DOM directly.
+- Identity (`eq`) folds in the resolver's `version()` (see §3.3) so
+  nested-embed resolutions force a remount.
 
 **Cursor-line behavior.** Same pattern as `Emphasis`, `StrongEmphasis`,
 `Link` already use: when the cursor is on the line containing the
@@ -132,12 +151,11 @@ the visual, the `⎘` is redundant. This naturally closes the deferred
 `wikilinkEmbedDeco`, and the `.cm-md-wikilink-embed` CSS rule all
 delete.
 
-**What this closes.** Bug #6: CM6 treats atomic block-replace ranges
-as steppable units. Up-arrow from a line below the embed lands on the
-embed's host line; up-arrow from that line lands on the previous
-logical line of the actual document. Latent bugs in click-into-embed,
-selection-across-embed, and find-within-buffer also resolve as
-side-effects.
+**What this closes.** Bug #6: CM6 treats an atomic inline replace as a
+steppable unit with valid measurable geometry, so vertical cursor
+motion computes the adjacent line correctly instead of landing on a
+spurious row. (jsdom cannot verify pixel geometry; final confirmation
+is the operator's interactive smoke — see §8 risk note.)
 
 ### 3.3 Contract 4 — Resolver introspection + abort (closes #5)
 
@@ -241,9 +259,41 @@ Step 2 — subscribe onEvent for a clean cycle:
 The diagnostic step's observations are recorded in the executed
 smoke runbook before commit 4b is drafted.
 
-**What this closes.** Bug #5, once the diagnostic runs. The lasting
-observability + abort interface remains as the pattern future async
-caches inherit.
+**Bug #5 diagnostic observation (recorded 2026-06-06).** The operator
+smoke localized the cause WITHOUT needing the console tree above —
+the failure was *structural*, visible from the embed chain alone:
+
+- Smoke vault embeds form a chain `A→B→C→D→E`, depth-capped at 4 (E
+  is the leaf). A/B/C froze on "Loading…"; **D worked**.
+- D works because its embed (E) is **depth-1** — the top-level
+  widget's cache entry *is* what changes when E resolves, so eq()
+  flips and CM6 remounts. A/B/C embed content nested **≥2 deep**.
+- An empirical jsdom probe confirmed: after a nested target resolves,
+  the top-level widget's `eq()` returns `true` (no remount). Nested
+  embeds are plain DOM built inside the parent's `toDOM()` with **no
+  independent re-render path** — their only refresh is a parent
+  remount, which is gated on the parent's *own* cache entry. That
+  entry never changes when a descendant resolves, so the nested
+  `Loading…` freezes forever.
+
+**Cause layer: `ui/` (resolver + widget identity).** Inside the
+session's stated scope — the §8 circuit-breaker does NOT fire; no
+Rust / IPC change needed.
+
+**Fix landed (commit `88bd614`).** `EmbedResolver` gains a
+`version()` counter bumped on every cache mutation (settle / error /
+invalidate). `EmbedWidget.eq()` folds `version` in, so ANY resolution
+change — including a deep nested one — forces a remount and a full
+recursive re-render, which picks up the resolved descendant and kicks
+the next cold fetch down the chain until it converges (or hits the
+depth cap). Version is stable across unrelated edits, so steady-state
+keystrokes don't remount embeds. Regression test:
+`ui/src/editor/embed.test.ts` ("bug #5: widget identity changes when
+the resolver version bumps") + `ui/src/editor/embedResolver.test.ts`
+("version() bumps on every cache mutation").
+
+**What this closes.** Bug #5. The lasting observability + abort
+interface remains as the pattern future async caches inherit.
 
 ### 3.4 Contract E — Smoke ritual in `docs/conventions.md`
 
@@ -492,6 +542,18 @@ value, recorded so future readers see *why* these contracts exist:
 
 ## 8. Open risks
 
+- **Bug #6's fix is unverified for pixel geometry (RESIDUAL).** jsdom
+  has no layout engine (`getClientRects` is unimplemented), so the
+  `editor-nav.test.ts` regression can only assert structure (inline
+  replace, mounts without throwing, cursor head does not collapse to
+  0) — NOT that up-arrow lands on the pixel-correct adjacent line.
+  The malformed-block-decoration root cause is solid and the inline
+  replace is the idiomatic CM6 fix, but **final confirmation is the
+  operator's interactive smoke**. This is the *third* approach to bug
+  #6 (block-widget-at-line-end → mid-line block replace → inline
+  replace). Per `superpowers:systematic-debugging` Phase 4.5: if the
+  re-smoke still shows a cursor problem, the embed rendering model
+  gets an architecture review, NOT a fourth patch.
 - **Bug #5's actual cause is unknown.** Contract 4 lands
   instrumentation; the fix lands after diagnostic evidence narrows
   the cause. **Circuit-breaker:** if the diagnostic in §3.3 points
