@@ -54,11 +54,10 @@ describe("livePreviewBundle", () => {
     expect(() => state.field(embedBlockField)).not.toThrow();
   });
 
-  it("emits the embed block widget when the cursor is elsewhere", () => {
-    // Mid-line embed (real vault shape). The bundle must emit the
-    // two-decoration block model: an inline token-hide plus a block
-    // widget rendering the card.
-    const doc = "# Heading\n\nsee ![[Daily]] inline\n\ntail\n";
+  it("emits the embed block card when the embed is alone on its line", () => {
+    // Embed alone on its line (the by-convention shape). The bundle must
+    // emit a whole-line block replace rendering the card.
+    const doc = "# Heading\n\n![[Daily]]\n\ntail\n";
     const state = EditorState.create({
       doc,
       selection: { anchor: 0 },
@@ -72,14 +71,11 @@ describe("livePreviewBundle", () => {
     });
 
     const set = state.field(embedBlockField);
-    let blockWidget = false;
-    let inlineHide = false;
+    let blockReplace = false;
     set.between(0, doc.length, (_from, _to, value) => {
-      if (value.spec?.widget && value.spec?.block === true) blockWidget = true;
-      else if (!value.spec?.widget) inlineHide = true;
+      if (value.spec?.widget && value.spec?.block === true) blockReplace = true;
     });
-    expect(blockWidget).toBe(true);
-    expect(inlineHide).toBe(true);
+    expect(blockReplace).toBe(true);
   });
 
   it("the bundle is the contract: outside the bundle, embedBlockField is not registered", () => {

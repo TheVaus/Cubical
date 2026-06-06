@@ -101,12 +101,21 @@ describe("embedExtension", () => {
     view.destroy();
   });
 
-  it("emits a widget for an ![[…]] token", () => {
+  it("emits a card for an ![[…]] token alone on its line", () => {
+    const r = stubResolver({
+      Daily: { kind: "note", target_path: "Daily.md", content: "hi" },
+    });
+    const view = makeView("![[Daily]]\n", r);
+    expect(widgetCount(view)).toBe(1);
+    view.destroy();
+  });
+
+  it("does NOT emit a card for a mid-line ![[…]] token (stays raw)", () => {
     const r = stubResolver({
       Daily: { kind: "note", target_path: "Daily.md", content: "hi" },
     });
     const view = makeView("see ![[Daily]] please\n", r);
-    expect(widgetCount(view)).toBe(1);
+    expect(widgetCount(view)).toBe(0);
     view.destroy();
   });
 
@@ -117,12 +126,12 @@ describe("embedExtension", () => {
     view.destroy();
   });
 
-  it("emits one widget per ![[…]] on a multi-embed line", () => {
+  it("emits one card per ![[…]] when each is alone on its own line", () => {
     const r = stubResolver({
       A: { kind: "note", target_path: "A.md", content: "a" },
       B: { kind: "note", target_path: "B.md", content: "b" },
     });
-    const view = makeView("![[A]] and ![[B]]\n", r);
+    const view = makeView("![[A]]\n\n![[B]]\n", r);
     expect(widgetCount(view)).toBe(2);
     view.destroy();
   });
@@ -277,22 +286,23 @@ describe("embedExtension", () => {
     view.destroy();
   });
 
-  // Fixtures use a MID-LINE embed (`see ![[Daily]] inline`) — the real
-  // vault shape (`embeds: ![[B]]`). The two-decoration block model emits
-  // (1) an inline NON-widget replace hiding the token bytes [bug #6:
-  // cursor steps over it], and (2) a BLOCK widget at the host line's end
-  // rendering the card [no "invisible until click"]. Earlier fixtures
-  // put the embed alone on its line, masking the mid-line cases.
-  const MIDLINE_DOC = "para 1\n\nsee ![[Daily]] inline\n\npara 2\n";
-  const EMBED_FROM = MIDLINE_DOC.indexOf("![[Daily]]");
-  const EMBED_TO = EMBED_FROM + "![[Daily]]".length;
-  // End of the host line ("see ![[Daily]] inline") — where the block
-  // widget anchors.
-  const HOST_LINE_TO = MIDLINE_DOC.indexOf("\n", EMBED_TO);
+  // The card renders only when the embed is ALONE on its line (the
+  // by-convention shape). The whole line is replaced with an atomic
+  // BLOCK decoration — the cursor-safe primitive (same as frontmatter
+  // hiding). Mid-line embeds stay raw (no card) to avoid block content
+  // inside a line, which is the cursor tension.
+  const ALONE_DOC = "para 1\n\n![[Daily]]\n\npara 2\n";
+  const EMBED_FROM = ALONE_DOC.indexOf("![[Daily]]");
+  const EMBED_LINE = (() => {
+    const from = EMBED_FROM;
+    const lineStart = ALONE_DOC.lastIndexOf("\n", from - 1) + 1;
+    const lineEnd = ALONE_DOC.indexOf("\n", from);
+    return { from: lineStart, to: lineEnd };
+  })();
 
-  it("emits an inline token-hide AND a block widget at the host line end", () => {
+  it("replaces the whole line with a block decoration when the embed is alone on its line", () => {
     const state = EditorState.create({
-      doc: MIDLINE_DOC,
+      doc: ALONE_DOC,
       extensions: [
         markdown({ extensions: [wikilinkExtension, tagExtension] }),
         embedResolverFacet.of(makeStubResolver({
@@ -306,20 +316,37 @@ describe("embedExtension", () => {
       selection: { anchor: 0 }, // cursor off the embed line
     });
 
-    let inlineHide: { from: number; to: number } | null = null;
-    let blockWidget: { from: number; to: number } | null = null;
+    let blockReplace: { from: number; to: number } | null = null;
     state.field(embedBlockField).between(0, state.doc.length, (from, to, v) => {
       if (v.spec?.widget && v.spec?.block === true) {
-        blockWidget = { from, to };
-      } else if (!v.spec?.widget) {
-        inlineHide = { from, to };
+        blockReplace = { from, to };
       }
     });
+    // The block replace covers the whole host line.
+    expect(blockReplace).toEqual({ from: EMBED_LINE.from, to: EMBED_LINE.to });
+  });
 
-    // 1. Inline hide over exactly the token bytes, NOT block.
-    expect(inlineHide).toEqual({ from: EMBED_FROM, to: EMBED_TO });
-    // 2. Block widget anchored at the host line's end.
-    expect(blockWidget).toEqual({ from: HOST_LINE_TO, to: HOST_LINE_TO });
+  it("does NOT render a card for a mid-line embed (stays raw)", () => {
+    const midline = "para 1\n\nsee ![[Daily]] inline\n\npara 2\n";
+    const state = EditorState.create({
+      doc: midline,
+      extensions: [
+        markdown({ extensions: [wikilinkExtension, tagExtension] }),
+        embedResolverFacet.of(makeStubResolver({
+          kind: "note",
+          target_path: "Daily.md",
+          content: "loaded",
+        })),
+        openNotePathFacet.of(null),
+        embedBlockField,
+      ],
+      selection: { anchor: 0 },
+    });
+    let count = 0;
+    state.field(embedBlockField).between(0, state.doc.length, () => {
+      count++;
+    });
+    expect(count).toBe(0);
   });
 
   it("renders the embed card in a real EditorView without throwing", () => {
@@ -327,7 +354,7 @@ describe("embedExtension", () => {
     document.body.appendChild(host);
     const view = new EditorView({
       state: EditorState.create({
-        doc: MIDLINE_DOC,
+        doc: ALONE_DOC,
         extensions: [
           markdown({ extensions: [wikilinkExtension, tagExtension] }),
           embedResolverFacet.of(makeStubResolver({
@@ -343,7 +370,6 @@ describe("embedExtension", () => {
       parent: host,
     });
     try {
-      // The block widget's card frame rendered somewhere in the view.
       expect(view.dom.querySelector(".cm-md-embed-frame")).not.toBeNull();
     } finally {
       view.destroy();
@@ -351,9 +377,9 @@ describe("embedExtension", () => {
     }
   });
 
-  it("suppresses both decorations when the cursor is on the embed's host line", () => {
+  it("suppresses the card when the cursor is on the embed's host line", () => {
     const state = EditorState.create({
-      doc: MIDLINE_DOC,
+      doc: ALONE_DOC,
       extensions: [
         markdown({ extensions: [wikilinkExtension, tagExtension] }),
         embedResolverFacet.of(makeStubResolver({
@@ -374,9 +400,9 @@ describe("embedExtension", () => {
     expect(count).toBe(0);
   });
 
-  it("rebuilds and toggles both decorations when the cursor crosses the line", () => {
+  it("rebuilds and toggles the card when the cursor crosses the line", () => {
     const state0 = EditorState.create({
-      doc: MIDLINE_DOC,
+      doc: ALONE_DOC,
       extensions: [
         markdown({ extensions: [wikilinkExtension, tagExtension] }),
         embedResolverFacet.of(makeStubResolver({
@@ -398,13 +424,13 @@ describe("embedExtension", () => {
 
     const countOf = (set: typeof set0) => {
       let n = 0;
-      set.between(0, MIDLINE_DOC.length, () => {
+      set.between(0, ALONE_DOC.length, () => {
         n++;
       });
       return n;
     };
-    // Off the line: inline hide + block widget = 2 decorations.
-    expect(countOf(set0)).toBe(2);
+    // Off the line: one whole-line block replace.
+    expect(countOf(set0)).toBe(1);
     // On the line: suppressed → 0.
     expect(countOf(set1)).toBe(0);
   });
@@ -438,7 +464,7 @@ describe("embedExtension", () => {
       version: () => version,
     };
 
-    const doc = "host\n\nsee ![[B]] here\n\n\n";
+    const doc = "host\n\n![[B]]\n\n\n"; // embed alone on its line
     const state = EditorState.create({
       doc,
       selection: { anchor: 0 },

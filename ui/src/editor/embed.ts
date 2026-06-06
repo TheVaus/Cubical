@@ -2,24 +2,32 @@
  * Live-Preview embed widget (L3 Session H.2, spec §2.8).
  *
  * Walks the Lezer tree for every `WikiLink` node whose raw source is an
- * embed token (`![[…]]`) and emits TWO decorations per token (the
- * proven CM6 embed pattern):
+ * embed token (`![[…]]`). When the token is ALONE on its line (the
+ * by-convention shape), the whole line is replaced with an atomic
+ * BLOCK replace `[line.from, line.to)` rendering the embed card.
  *
- *   1. An atomic INLINE replace over the token's byte span `[node.from,
- *      node.to)` hides the raw `![[…]]` text. No widget, no height, so
- *      it's valid over a sub-line range and CM6 steps the cursor over
- *      it as a single unit. (A `block: true` replace over a sub-line
- *      range is malformed — block decorations must cover whole lines —
- *      and was the bug #6 cursor-jump.)
- *   2. A BLOCK widget at the host line's end renders the embed card
- *      below the line. Block widgets measure their own DOM height, so
- *      the card always reserves space. (An inline-replace *widget* left
- *      block content unmeasured → "embeds invisible until you click".)
+ * Whole-line block replace is the cursor-safe primitive — the same
+ * shape as the frontmatter-hide block replace, which has never had a
+ * cursor bug. CM6 treats the replaced line as a single atomic block,
+ * so vertical cursor motion steps over it cleanly, and the widget
+ * measures its own DOM height so the card always reserves space.
+ *
+ * Two earlier approaches failed and are recorded so they aren't
+ * retried: an inline-replace *widget* over the token (cursor-correct
+ * but block content never got height → "invisible until click"), and a
+ * zero-length block *widget* at the line end (rendered fine but jumped
+ * the cursor — it fought a line that still held text). The whole-line
+ * block replace avoids both: there is no competing line text and no
+ * sub-line block range.
+ *
+ * Mid-line embeds (`text ![[X]] text`, rare by convention) are NOT
+ * rendered as cards — block content inside a line is the cursor
+ * tension — they stay as raw text.
  *
  * Cursor-line suppression: when the cursor is on the embed's host
- * line, neither decoration is emitted — the raw `![[…]]` text stays
- * visible for direct editing. Matches the established Live Preview
- * pattern for Emphasis and Link.
+ * line, no decoration is emitted — the raw `![[…]]` text stays visible
+ * for direct editing. Matches the established Live Preview pattern for
+ * Emphasis and Link.
  *
  * The field (a `StateField`) rebuilds on doc / tree changes, the
  * `embedResolverUpdated` `StateEffect`, facet swaps, and active-line
@@ -158,6 +166,13 @@ function buildDecorations(state: EditorState): DecorationSet {
       const tok = scanWikilinks(raw).find((t) => t.kind === "wiki_link");
       if (!tok || tok.kind !== "wiki_link" || !tok.embed) return;
       const line = doc.lineAt(node.from);
+      // Only render a block card when the embed token is ALONE on its
+      // line (the by-convention shape). Rendering block-sized content
+      // inside a line that also holds text is the root of the
+      // inline-vs-block cursor tension — a mid-line embed therefore
+      // stays as raw text (no decoration here). Whitespace-only padding
+      // around the token still counts as "alone".
+      if (line.text.trim() !== raw.trim()) return;
       // Cursor-line suppression: when the cursor sits on the embed's
       // host line, expose the raw `![[…]]` text for editing — matches
       // the established Live Preview pattern for Emphasis / Link.
@@ -169,24 +184,16 @@ function buildDecorations(state: EditorState): DecorationSet {
         openNotePath,
         resolver.version(),
       );
-      // Two-decoration block model (the proven CM6 embed pattern):
-      //
-      //   1. An atomic INLINE replace over the token's byte span hides
-      //      the raw `![[…]]` text. No widget, no height — valid over a
-      //      sub-line range, and CM6 steps the cursor over it as one
-      //      unit (keeps bug #6 fixed; a `block: true` replace over a
-      //      sub-line range would be a malformed block decoration).
-      //   2. A BLOCK widget at the host line's end renders the embed
-      //      card below the line. Block widgets measure their own DOM
-      //      height, so the card is never clipped/invisible — the
-      //      inline-replace-only model left block content unmeasured
-      //      ("embeds invisible until you click").
-      //
-      // Sorted by `from` below: the inline hide (node.from) precedes
-      // the block widget (line.to).
-      ranges.push(Decoration.replace({}).range(node.from, node.to));
+      // Whole-line atomic BLOCK replace over `[line.from, line.to)`.
+      // This is the cursor-safe primitive — the same shape as the
+      // frontmatter-hide block replace, which has never had a cursor
+      // bug. CM6 treats the replaced line as a single atomic block, so
+      // vertical motion steps over it cleanly (unlike a zero-length
+      // block *widget* attached to a line that still holds text, which
+      // jumped the cursor). The widget measures its own DOM height, so
+      // the card always reserves space (no "invisible until click").
       ranges.push(
-        Decoration.widget({ widget, block: true, side: 1 }).range(line.to),
+        Decoration.replace({ widget, block: true }).range(line.from, line.to),
       );
     },
   });
