@@ -13,7 +13,7 @@ use crate::schema::Fields;
 use serde::{Deserialize, Serialize};
 use tantivy::collector::TopDocs;
 use tantivy::query::{BooleanQuery, FuzzyTermQuery, Occur, Query, QueryParser, TermQuery};
-use tantivy::schema::{IndexRecordOption, TantivyDocument, Value};
+use tantivy::schema::{Field, IndexRecordOption, TantivyDocument, Value};
 use tantivy::{DocAddress, Order, Searcher, SnippetGenerator, Term};
 
 /// Hard cap on `limit`.
@@ -158,31 +158,46 @@ pub fn run_search(idx: &SearchIndex, q: &SearchQuery) -> Result<SearchResponse, 
 
     // Build the parsed query for the chosen scope.
     let parsed: Box<dyn Query> = match &q.fields {
-        FieldScope::Default => {
-            let mut p = QueryParser::for_index(
-                idx.index(),
-                vec![f.title, f.headings, f.body, f.tags, f.frontmatter],
-            );
-            p.set_field_boost(f.title, 3.0);
-            p.set_field_boost(f.headings, 2.0);
-            p.set_field_boost(f.tags, 2.0);
-            p.parse_query(&prepare_query_text(&q.text))
-                .map_err(|e| SearchError::QueryParse(e.to_string()))?
-        }
-        FieldScope::HeadingsOnly => {
-            let p = QueryParser::for_index(idx.index(), vec![f.headings]);
-            p.parse_query(&prepare_query_text(&q.text))
-                .map_err(|e| SearchError::QueryParse(e.to_string()))?
-        }
-        FieldScope::BodyOnly => {
-            let p = QueryParser::for_index(idx.index(), vec![f.body]);
-            p.parse_query(&prepare_query_text(&q.text))
-                .map_err(|e| SearchError::QueryParse(e.to_string()))?
-        }
-        FieldScope::CodeOnly => {
-            let p = QueryParser::for_index(idx.index(), vec![f.code]);
-            p.parse_query(&prepare_query_text(&q.text))
-                .map_err(|e| SearchError::QueryParse(e.to_string()))?
+        FieldScope::Default
+        | FieldScope::HeadingsOnly
+        | FieldScope::BodyOnly
+        | FieldScope::CodeOnly => {
+            let scope_fields: Vec<Field> = match &q.fields {
+                FieldScope::Default => vec![f.title, f.headings, f.body, f.tags, f.frontmatter],
+                FieldScope::HeadingsOnly => vec![f.headings],
+                FieldScope::BodyOnly => vec![f.body],
+                FieldScope::CodeOnly => vec![f.code],
+                FieldScope::Tags { .. } => unreachable!("tags handled below"),
+            };
+            // Build the QueryParser query (stemmed-exact matches, field
+            // boosts, and the term queries `SnippetGenerator` highlights
+            // from).
+            let mut p = QueryParser::for_index(idx.index(), scope_fields.clone());
+            if matches!(q.fields, FieldScope::Default) {
+                p.set_field_boost(f.title, 3.0);
+                p.set_field_boost(f.headings, 2.0);
+                p.set_field_boost(f.tags, 2.0);
+            }
+            let exact = p
+                .parse_query(&prepare_query_text(&q.text))
+                .map_err(|e| SearchError::QueryParse(e.to_string()))?;
+
+            // Plain word queries (no operator punctuation) ALSO get
+            // search-as-you-type prefix matching, OR'd with the exact
+            // query so a token's prefix matches the whole token while
+            // stemmed whole-word matches and snippet highlighting keep
+            // working. Queries with operator syntax (quotes, `-`, `tag:`,
+            // …) skip prefix expansion and use the parser alone.
+            match simple_terms(&q.text) {
+                Some(terms) => {
+                    let prefix = build_prefix_query(&searcher, &terms, &scope_fields)?;
+                    Box::new(BooleanQuery::new(vec![
+                        (Occur::Should, exact),
+                        (Occur::Should, prefix),
+                    ]))
+                }
+                None => exact,
+            }
         }
         FieldScope::Tags { tags } => {
             // Exact-match AND across all requested tags. Tags are
@@ -275,6 +290,88 @@ pub fn run_search(idx: &SearchIndex, q: &SearchQuery) -> Result<SearchResponse, 
         took_ms: started.elapsed().as_millis() as u64,
         still_indexing: false,
     })
+}
+
+/// Split `text` into lowercased terms iff it is a "simple" query —
+/// whitespace-separated tokens of only alphanumeric characters. Returns
+/// `None` for anything containing operator punctuation (`:`, `-`, `"`,
+/// `#`, …), which routes to the full `QueryParser` so phrase / negation /
+/// field-prefix syntax still works. Alphanumeric-only tokens are also
+/// safe to splice into a regex without escaping.
+fn simple_terms(text: &str) -> Option<Vec<String>> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let mut terms = Vec::new();
+    for tok in trimmed.split_whitespace() {
+        if tok.chars().all(char::is_alphanumeric) {
+            terms.push(tok.to_lowercase());
+        } else {
+            return None;
+        }
+    }
+    (!terms.is_empty()).then_some(terms)
+}
+
+/// Build an AND-of-terms prefix query over `fields`: every term must
+/// prefix-match the term dictionary of at least one field. Powers
+/// search-as-you-type — a token's prefix matches the whole token.
+///
+/// Each prefix is expanded against the live term dictionary into the
+/// concrete matching terms, and every match becomes a `TermQuery`. Using
+/// real `TermQuery` leaves (rather than a `RegexQuery`) is what lets
+/// `SnippetGenerator` highlight prefix hits — it extracts terms from the
+/// query. The indexed dictionaries are lowercased and `simple_terms`
+/// lowercased the query terms, so the byte ranges align.
+fn build_prefix_query(
+    searcher: &Searcher,
+    terms: &[String],
+    fields: &[Field],
+) -> Result<Box<dyn Query>, SearchError> {
+    let mut must: Vec<(Occur, Box<dyn Query>)> = Vec::with_capacity(terms.len());
+    for term in terms {
+        let mut per_field: Vec<(Occur, Box<dyn Query>)> = Vec::new();
+        for &field in fields {
+            for expanded in expand_prefix(searcher, field, term)? {
+                let tq = TermQuery::new(expanded, IndexRecordOption::WithFreqs);
+                per_field.push((Occur::Should, Box::new(tq)));
+            }
+        }
+        // An empty clause (no dictionary term shares this prefix in any
+        // field) matches nothing, so the AND correctly yields no hits.
+        must.push((Occur::Must, Box::new(BooleanQuery::new(per_field))));
+    }
+    Ok(Box::new(BooleanQuery::new(must)))
+}
+
+/// Stream the `field` term dictionary for every term beginning with
+/// `prefix` (across all segments, de-duplicated) and return them as
+/// `Term`s.
+fn expand_prefix(
+    searcher: &Searcher,
+    field: Field,
+    prefix: &str,
+) -> Result<Vec<Term>, SearchError> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for reader in searcher.segment_readers() {
+        let inverted = reader.inverted_index(field)?;
+        let dict = inverted.terms();
+        let mut stream = dict.range().ge(prefix.as_bytes()).into_stream()?;
+        while stream.advance() {
+            let key = stream.key();
+            if !key.starts_with(prefix.as_bytes()) {
+                break;
+            }
+            if let Ok(s) = std::str::from_utf8(key) {
+                if seen.insert(s.to_string()) {
+                    out.push(Term::from_field_text(field, s));
+                }
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// Strip raw `#` from query text (`#project` → `project`) and lowercase
@@ -444,6 +541,59 @@ mod tests {
             1,
             "fuzzy OFF searches all default fields → finds the body word"
         );
+    }
+
+    #[test]
+    fn prefix_of_a_word_matches() {
+        // Reproduces the reported bug: a prefix of an indexed token must
+        // match (search-as-you-type), not only the whole token.
+        let (_t, idx) = fixture_index();
+        let run = |text: &str| {
+            run_search(
+                &idx,
+                &SearchQuery {
+                    text: text.into(),
+                    limit: 0,
+                    offset: 0,
+                    fields: FieldScope::Default,
+                    fuzzy: false,
+                    sort: SortMode::Relevance,
+                },
+            )
+            .unwrap()
+            .hits
+            .len()
+        };
+        // a.md body is "the quick brown fox".
+        assert_eq!(run("quick"), 1, "exact word still matches");
+        assert_eq!(run("qui"), 1, "prefix of a body word matches");
+        assert_eq!(run("brow"), 1, "prefix of another body word matches");
+        assert_eq!(run("zzz"), 0, "non-matching prefix returns nothing");
+    }
+
+    #[test]
+    fn prefix_matches_across_scoped_fields() {
+        let (_t, idx) = fixture_index();
+        let run = |text: &str, fields: FieldScope| {
+            run_search(
+                &idx,
+                &SearchQuery {
+                    text: text.into(),
+                    limit: 0,
+                    offset: 0,
+                    fields,
+                    fuzzy: false,
+                    sort: SortMode::Relevance,
+                },
+            )
+            .unwrap()
+            .hits
+            .len()
+        };
+        // headings: c.md "Search"; code: a.md "fn alpha()".
+        assert_eq!(run("sear", FieldScope::HeadingsOnly), 1);
+        assert_eq!(run("alph", FieldScope::CodeOnly), 1);
+        assert_eq!(run("brow", FieldScope::BodyOnly), 1);
     }
 
     #[test]
