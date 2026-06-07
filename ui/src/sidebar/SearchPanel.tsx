@@ -1,7 +1,9 @@
 import {
+  createEffect,
   createMemo,
   createSignal,
   For,
+  on,
   onCleanup,
   onMount,
   Show,
@@ -38,6 +40,12 @@ export interface SearchPanelProps {
   onNavigate: (path: string) => void;
   /** The file tree, shown when the query is below the search threshold. */
   children: JSX.Element;
+  /**
+   * Monotonic counter bumped by the parent when vault content changes.
+   * The active query re-runs on each change so an edit that now matches
+   * (or no longer matches) is reflected without re-typing.
+   */
+  refreshSignal: number;
 }
 
 const DEBOUNCE_MS = 200;
@@ -163,6 +171,19 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
     setScope(id);
     void runQuery();
   };
+
+  // Re-run the active query when the parent signals a vault content
+  // change. `defer: true` skips the initial run (nothing to refresh yet);
+  // only re-query while actually searching (≥ MIN_QUERY_LEN).
+  createEffect(
+    on(
+      () => props.refreshSignal,
+      () => {
+        if (isSearching()) void runQuery();
+      },
+      { defer: true },
+    ),
+  );
 
   onMount(() => {
     const onKey = (e: KeyboardEvent) => {

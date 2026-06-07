@@ -226,6 +226,24 @@ const App: Component = () => {
   const [rightSidebarRefreshTick, setRightSidebarRefreshTick] = createSignal(0);
   let rightSidebarRefreshTimer: ReturnType<typeof setTimeout> | undefined;
   const RIGHT_SIDEBAR_REFRESH_DEBOUNCE_MS = 200;
+
+  // L4-B: a monotonic counter the SearchPanel watches to re-run its
+  // active query when vault content changes (an edit may now match, or
+  // no longer match, the live query). Bumped — debounced — on any
+  // `vault:file-changed` and after the open file's own autosave (whose
+  // file-changed event is suppressed as an own-write). The search index
+  // is already committed by the watcher before the event fires, so the
+  // re-query sees fresh results.
+  const [searchRefreshTick, setSearchRefreshTick] = createSignal(0);
+  let searchRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+  const SEARCH_REFRESH_DEBOUNCE_MS = 250;
+  const scheduleSearchRefresh = () => {
+    if (searchRefreshTimer !== undefined) clearTimeout(searchRefreshTimer);
+    searchRefreshTimer = setTimeout(() => {
+      searchRefreshTimer = undefined;
+      setSearchRefreshTick((n) => n + 1);
+    }, SEARCH_REFRESH_DEBOUNCE_MS);
+  };
   // L3 Session I: which right-sidebar panel is currently rendered.
   // Persisted as `ui.right_sidebar_panel` (default `backlinks`).
   type RightSidebarPanel = "backlinks" | "unlinked_mentions";
@@ -323,6 +341,11 @@ const App: Component = () => {
       if (editorApi.getContent() === content) {
         dirty = false;
       }
+      // L4-B: the watcher commits this own-write to the search index but
+      // suppresses its file-changed event, so refresh the search panel
+      // here — editing the open file may change what the active query
+      // matches.
+      scheduleSearchRefresh();
     } catch (e) {
       const message =
         typeof e === "object" && e !== null && "message" in e
@@ -789,6 +812,10 @@ const App: Component = () => {
       // a 200ms debounce so both panels refetch.
       scheduleRightSidebarRefresh();
 
+      // L4-B: the change may now match (or stop matching) the active
+      // search query — re-run it (debounced).
+      scheduleSearchRefresh();
+
       // L3 Session G: a change may have created or healed a broken
       // block ref anywhere in the vault.
       scheduleBrokenBlockRefsRefresh();
@@ -891,6 +918,7 @@ const App: Component = () => {
     if (autosaveTimer !== undefined) clearTimeout(autosaveTimer);
     if (rightSidebarRefreshTimer !== undefined)
       clearTimeout(rightSidebarRefreshTimer);
+    if (searchRefreshTimer !== undefined) clearTimeout(searchRefreshTimer);
   });
 
   const handleOpen = async () => {
@@ -1190,6 +1218,7 @@ const App: Component = () => {
               <SearchPanel
                 vaultId={vaultId()}
                 onNavigate={(path) => void handleNavigateWikilink(path, null)}
+                refreshSignal={searchRefreshTick()}
               >
               <div
               role="listbox"
