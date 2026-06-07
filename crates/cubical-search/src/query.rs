@@ -416,6 +416,37 @@ mod tests {
     }
 
     #[test]
+    fn single_term_default_fuzzy_is_title_only_known_limitation() {
+        // Regression guard documenting the L4-A behaviour that broke the
+        // L4-B panel: with `fuzzy: true`, a single-term (≥4-char)
+        // default-scope query is rewritten to a FuzzyTermQuery against
+        // `title` ONLY, discarding the multi-field parsed query. So a
+        // body-only word is found with fuzzy OFF but missed with fuzzy
+        // ON. The L4-B panel therefore sends `fuzzy: false`
+        // (ui/src/sidebar/searchQuery.ts). Revisit when L4-A's fuzzy is
+        // generalised to span fields.
+        let (_t, idx) = fixture_index();
+        let q = |fuzzy: bool| SearchQuery {
+            text: "quick".into(), // body of a.md; title is "Alpha Notes"
+            limit: 0,
+            offset: 0,
+            fields: FieldScope::Default,
+            fuzzy,
+            sort: SortMode::Relevance,
+        };
+        assert_eq!(
+            run_search(&idx, &q(true)).unwrap().hits.len(),
+            0,
+            "fuzzy ON wrongly searches title only → misses the body word"
+        );
+        assert_eq!(
+            run_search(&idx, &q(false)).unwrap().hits.len(),
+            1,
+            "fuzzy OFF searches all default fields → finds the body word"
+        );
+    }
+
+    #[test]
     fn empty_query_returns_empty() {
         let (_t, idx) = fixture_index();
         let r = run_search(

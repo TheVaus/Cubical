@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildSearchQuery } from "./searchQuery";
 
 describe("buildSearchQuery", () => {
-  it("maps default scope and passes sort/limit/offset through, fuzzy on", () => {
+  it("maps default scope and passes sort/limit/offset through, fuzzy off", () => {
     const q = buildSearchQuery({
       text: "hello world",
       sort: "relevance",
@@ -15,9 +15,17 @@ describe("buildSearchQuery", () => {
       limit: 50,
       offset: 0,
       fields: { kind: "default" },
-      fuzzy: true,
+      fuzzy: false,
       sort: "relevance",
     });
+  });
+
+  it("never requests fuzzy (avoids L4-A's title-only single-term rewrite)", () => {
+    for (const scope of ["default", "headings_only", "body_only", "code_only", "tags"] as const) {
+      expect(
+        buildSearchQuery({ text: "frontmatter", sort: "relevance", scope, limit: 50, offset: 0 }).fuzzy,
+      ).toBe(false);
+    }
   });
 
   it("maps single-field scopes", () => {
