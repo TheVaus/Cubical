@@ -6,6 +6,7 @@ import {
   onMount,
   Show,
   type Component,
+  type JSX,
 } from "solid-js";
 import {
   search,
@@ -21,15 +22,22 @@ import { buildSearchQuery, type ScopeKind } from "./searchQuery";
 import { formatRelativeTime } from "./relativeTime";
 
 /**
- * L4-B persistent search panel. Lives in the left column behind the
- * `Files | Search` toggle. Debounced query into the L4-A `search` IPC;
- * sort + scope chips drive the `SearchQuery`; results render as
- * fixed-height, virtualised, `<mark>`-highlighted cards. A polled
- * `search_index_status` banner shows while the index is still building.
+ * L4-B search surface for the left column. A persistent search bar sits
+ * above the file tree (passed as `children`); a filter popover to the
+ * right of the bar holds the sort + scope controls. Once the query
+ * reaches `MIN_QUERY_LEN` characters the file tree is replaced by a
+ * virtualised, `<mark>`-highlighted result list (debounced into the
+ * L4-A `search` IPC); below that threshold the file tree shows. A polled
+ * `search_index_status` banner appears above results while the index is
+ * still building. The column width is fixed by the parent — every text
+ * surface here truncates (`min-width: 0` + ellipsis) so a long path or
+ * snippet never widens the sidebar.
  */
 export interface SearchPanelProps {
   vaultId: string | null;
   onNavigate: (path: string) => void;
+  /** The file tree, shown when the query is below the search threshold. */
+  children: JSX.Element;
 }
 
 const DEBOUNCE_MS = 200;
@@ -39,6 +47,8 @@ const RESULT_ROW_HEIGHT = 80;
 // smaller overscan than App.tsx's FILE_LIST_OVERSCAN (8) suffices.
 const RESULT_OVERSCAN = 6;
 const STATUS_POLL_MS = 500;
+/** Minimum characters before a search fires; below this the tree shows. */
+const MIN_QUERY_LEN = 3;
 
 const SORTS: { id: SortMode; label: string }[] = [
   { id: "relevance", label: "Relevance" },
@@ -60,7 +70,12 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
   const [hits, setHits] = createSignal<SearchHit[]>([]);
   const [error, setError] = createSignal<string | null>(null);
   const [status, setStatus] = createSignal<IndexStatus | null>(null);
-  const [hasQueried, setHasQueried] = createSignal(false);
+  const [showFilters, setShowFilters] = createSignal(false);
+
+  /** True once the query is long enough to search (drives tree↔results). */
+  const isSearching = () => queryText().trim().length >= MIN_QUERY_LEN;
+  /** Non-default sort/scope → badge the filter button. */
+  const filtersActive = () => sort() !== "relevance" || scope() !== "default";
 
   const [scrollTop, setScrollTop] = createSignal(0);
   const [viewportHeight, setViewportHeight] = createSignal(400);
@@ -104,13 +119,13 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
     const id = props.vaultId;
     const text = queryText().trim();
     if (!id) return;
-    if (text.length === 0) {
+    // Below the threshold we show the file tree, not results — clear any
+    // stale hits and issue no IPC (comment: ≥3 chars to search).
+    if (text.length < MIN_QUERY_LEN) {
       setHits([]);
-      setHasQueried(false);
       setError(null);
       return;
     }
-    setHasQueried(true);
     try {
       const resp = await search({
         vault_id: id,
@@ -150,9 +165,16 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
   };
 
   onMount(() => {
-    if (!props.vaultId) return;
-    void pollStatus();
-    ensurePolling();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setShowFilters(false);
+    };
+    window.addEventListener("keydown", onKey);
+    onCleanup(() => window.removeEventListener("keydown", onKey));
+
+    if (props.vaultId) {
+      void pollStatus();
+      ensurePolling();
+    }
   });
 
   onCleanup(() => {
@@ -165,147 +187,260 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
       style={{
         flex: 1,
         "min-height": 0,
+        "min-width": 0,
         display: "flex",
         "flex-direction": "column",
         gap: "var(--space-2)",
-        border: "1px solid var(--c-border-subtle)",
-        "border-radius": "var(--radius-md)",
-        background: "var(--c-bg-secondary)",
-        overflow: "hidden",
       }}
     >
-      <div style={{ padding: "var(--space-2)" }}>
-        <input
-          type="text"
-          value={queryText()}
-          placeholder="Search notes…"
-          aria-label="Search notes"
-          onInput={(e) => onInput(e.currentTarget.value)}
-          style={{
-            width: "100%",
-            "box-sizing": "border-box",
-            padding: "var(--space-2) var(--space-3)",
-            "font-family": "var(--font-body)",
-            "font-size": "var(--text-sm)",
-            color: "var(--c-fg-primary)",
-            background: "var(--c-bg-primary)",
-            border: "1px solid var(--c-border-subtle)",
-            "border-radius": "var(--radius-sm, var(--radius-md))",
-          }}
-        />
+      {/* Search bar + filter popover trigger. */}
+      <div style={{ position: "relative", "min-width": 0 }}>
         <div
           style={{
             display: "flex",
-            "flex-wrap": "wrap",
+            "align-items": "center",
             gap: "var(--space-1)",
-            "margin-top": "var(--space-2)",
+            "min-width": 0,
           }}
         >
-          <For each={SORTS}>
-            {(s) => (
-              <Chip
-                label={s.label}
-                selected={sort() === s.id}
-                onClick={() => onSort(s.id)}
-              />
-            )}
-          </For>
-          <span style={{ width: "var(--space-2)" }} />
-          <For each={SCOPES}>
-            {(s) => (
-              <Chip
-                label={s.label}
-                selected={scope() === s.id}
-                onClick={() => onScope(s.id)}
-              />
-            )}
-          </For>
-        </div>
-      </div>
-
-      <Show when={status()?.state === "building" ? status() : undefined}>
-        {(s) => (
-          <div
-            role="status"
+          <input
+            type="text"
+            value={queryText()}
+            placeholder="Search notes…"
+            aria-label="Search notes"
+            onInput={(e) => onInput(e.currentTarget.value)}
             style={{
-              padding: "var(--space-1) var(--space-3)",
-              "font-size": "var(--text-xs)",
-              color: "var(--c-fg-secondary)",
-              "border-top": "1px solid var(--c-border-subtle)",
-              "border-bottom": "1px solid var(--c-border-subtle)",
+              flex: 1,
+              "min-width": 0,
+              "box-sizing": "border-box",
+              padding: "var(--space-2) var(--space-3)",
+              "font-family": "var(--font-body)",
+              "font-size": "var(--text-sm)",
+              color: "var(--c-fg-primary)",
+              background: "var(--c-bg-primary)",
+              border: "1px solid var(--c-border-subtle)",
+              "border-radius": "var(--radius-sm, var(--radius-md))",
+            }}
+          />
+          <button
+            type="button"
+            aria-label="Search filters"
+            aria-expanded={showFilters()}
+            title="Filters (sort & scope)"
+            onClick={() => setShowFilters((v) => !v)}
+            style={{
+              display: "flex",
+              "align-items": "center",
+              "justify-content": "center",
+              "flex-shrink": 0,
+              width: "2rem",
+              height: "2rem",
+              color:
+                filtersActive() || showFilters()
+                  ? "var(--c-fg-inverse)"
+                  : "var(--c-fg-secondary)",
+              background:
+                filtersActive() || showFilters()
+                  ? "var(--c-accent)"
+                  : "var(--c-bg-secondary)",
+              border: "1px solid var(--c-border-subtle)",
+              "border-radius": "var(--radius-sm, var(--radius-md))",
+              cursor: "pointer",
             }}
           >
-            Indexing… {s().indexed_files} / {s().total_files}
-          </div>
-        )}
-      </Show>
-
-      <Show when={error()}>
-        <div
-          role="alert"
-          style={{
-            padding: "var(--space-1) var(--space-3)",
-            "font-size": "var(--text-xs)",
-            color: "var(--c-error)",
-          }}
-        >
-          {error()}
-        </div>
-      </Show>
-
-      <div
-        role="listbox"
-        aria-label="Search results"
-        ref={(el) => setViewportHeight(el.clientHeight || 400)}
-        onScroll={(e) => {
-          setScrollTop(e.currentTarget.scrollTop);
-          setViewportHeight(e.currentTarget.clientHeight);
-        }}
-        style={{
-          flex: 1,
-          "min-height": 0,
-          "overflow-y": "auto",
-          position: "relative",
-        }}
-      >
-        <Show
-          when={hits().length > 0}
-          fallback={
-            <div
-              style={{
-                padding: "var(--space-3)",
-                "font-size": "var(--text-sm)",
-                color: "var(--c-fg-muted)",
-              }}
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 16 16"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linejoin="round"
+              aria-hidden="true"
             >
-              {hasQueried() ? "No matches" : "Type to search"}
-            </div>
-          }
-        >
+              <path d="M1.5 2.5h13l-5 6v4.5l-3 1.5V8.5z" />
+            </svg>
+          </button>
+        </div>
+
+        <Show when={showFilters()}>
+          {/* Click-away backdrop (mirrors App.tsx's context-menu pattern). */}
           <div
+            onClick={() => setShowFilters(false)}
             style={{
-              height: `${resultWindow().totalHeight}px`,
-              position: "relative",
+              position: "fixed",
+              inset: 0,
+              "z-index": 12,
+              background: "transparent",
+            }}
+          />
+          <div
+            role="group"
+            aria-label="Search filters"
+            style={{
+              position: "absolute",
+              top: "calc(100% + var(--space-1))",
+              right: 0,
+              "z-index": 13,
+              "min-width": "12rem",
+              padding: "var(--space-3)",
+              display: "flex",
+              "flex-direction": "column",
+              gap: "var(--space-3)",
+              background: "var(--c-bg-primary)",
+              border: "1px solid var(--c-border-subtle)",
+              "border-radius": "var(--radius-md)",
+              "box-shadow": "var(--shadow-md, 0 6px 24px rgba(0,0,0,0.2))",
             }}
           >
-            <div
-              style={{ transform: `translateY(${resultWindow().offsetY}px)` }}
-            >
-              <For each={visibleHits()}>
-                {(hit) => (
-                  <ResultRow
-                    hit={hit}
-                    onClick={() => props.onNavigate(hit.path)}
+            <FilterGroup label="Sort">
+              <For each={SORTS}>
+                {(s) => (
+                  <Chip
+                    label={s.label}
+                    selected={sort() === s.id}
+                    onClick={() => onSort(s.id)}
                   />
                 )}
               </For>
-            </div>
+            </FilterGroup>
+            <FilterGroup label="Scope">
+              <For each={SCOPES}>
+                {(s) => (
+                  <Chip
+                    label={s.label}
+                    selected={scope() === s.id}
+                    onClick={() => onScope(s.id)}
+                  />
+                )}
+              </For>
+            </FilterGroup>
           </div>
         </Show>
       </div>
+
+      {/* Below threshold → file tree; at/over → results. */}
+      <Show when={isSearching()} fallback={props.children}>
+        <div
+          style={{
+            flex: 1,
+            "min-height": 0,
+            "min-width": 0,
+            display: "flex",
+            "flex-direction": "column",
+            border: "1px solid var(--c-border-subtle)",
+            "border-radius": "var(--radius-md)",
+            background: "var(--c-bg-secondary)",
+            overflow: "hidden",
+          }}
+        >
+          <Show when={status()?.state === "building" ? status() : undefined}>
+            {(s) => (
+              <div
+                role="status"
+                style={{
+                  padding: "var(--space-1) var(--space-3)",
+                  "font-size": "var(--text-xs)",
+                  color: "var(--c-fg-secondary)",
+                  "border-bottom": "1px solid var(--c-border-subtle)",
+                }}
+              >
+                Indexing… {s().indexed_files} / {s().total_files}
+              </div>
+            )}
+          </Show>
+
+          <Show when={error()}>
+            <div
+              role="alert"
+              style={{
+                padding: "var(--space-1) var(--space-3)",
+                "font-size": "var(--text-xs)",
+                color: "var(--c-error)",
+              }}
+            >
+              {error()}
+            </div>
+          </Show>
+
+          <div
+            role="listbox"
+            aria-label="Search results"
+            ref={(el) => setViewportHeight(el.clientHeight || 400)}
+            onScroll={(e) => {
+              setScrollTop(e.currentTarget.scrollTop);
+              setViewportHeight(e.currentTarget.clientHeight);
+            }}
+            style={{
+              flex: 1,
+              "min-height": 0,
+              "min-width": 0,
+              "overflow-y": "auto",
+              position: "relative",
+            }}
+          >
+            <Show
+              when={hits().length > 0}
+              fallback={
+                <div
+                  style={{
+                    padding: "var(--space-3)",
+                    "font-size": "var(--text-sm)",
+                    color: "var(--c-fg-muted)",
+                  }}
+                >
+                  No matches
+                </div>
+              }
+            >
+              <div
+                style={{
+                  height: `${resultWindow().totalHeight}px`,
+                  position: "relative",
+                }}
+              >
+                <div
+                  style={{
+                    transform: `translateY(${resultWindow().offsetY}px)`,
+                  }}
+                >
+                  <For each={visibleHits()}>
+                    {(hit) => (
+                      <ResultRow
+                        hit={hit}
+                        onClick={() => props.onNavigate(hit.path)}
+                      />
+                    )}
+                  </For>
+                </div>
+              </div>
+            </Show>
+          </div>
+        </div>
+      </Show>
     </div>
   );
 };
+
+const FilterGroup: Component<{ label: string; children: JSX.Element }> = (
+  props,
+) => (
+  <div style={{ display: "flex", "flex-direction": "column", gap: "var(--space-1)" }}>
+    <span
+      style={{
+        "font-size": "var(--text-xs)",
+        "text-transform": "uppercase",
+        "letter-spacing": "0.05em",
+        color: "var(--c-fg-muted)",
+      }}
+    >
+      {props.label}
+    </span>
+    <div style={{ display: "flex", "flex-wrap": "wrap", gap: "var(--space-1)" }}>
+      {props.children}
+    </div>
+  </div>
+);
 
 const Chip: Component<{
   label: string;
@@ -343,6 +478,7 @@ const ResultRow: Component<{ hit: SearchHit; onClick: () => void }> = (
       style={{
         height: `${RESULT_ROW_HEIGHT}px`,
         "box-sizing": "border-box",
+        "min-width": 0,
         padding: "var(--space-2) var(--space-3)",
         "border-bottom": "1px solid var(--c-border-subtle)",
         display: "flex",
@@ -400,6 +536,7 @@ const ResultRow: Component<{ hit: SearchHit; onClick: () => void }> = (
           display: "flex",
           "justify-content": "space-between",
           gap: "var(--space-2)",
+          "min-width": 0,
           "font-family": "var(--font-mono)",
           "font-size": "var(--text-xs)",
           color: "var(--c-fg-muted)",
@@ -407,6 +544,7 @@ const ResultRow: Component<{ hit: SearchHit; onClick: () => void }> = (
       >
         <span
           style={{
+            "min-width": 0,
             overflow: "hidden",
             "text-overflow": "ellipsis",
             "white-space": "nowrap",

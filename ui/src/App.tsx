@@ -231,20 +231,6 @@ const App: Component = () => {
   type RightSidebarPanel = "backlinks" | "unlinked_mentions";
   const [rightSidebarPanel, setRightSidebarPanel] =
     createSignal<RightSidebarPanel>("backlinks");
-  // L4-B: which left-column pane is shown — the file tree or the search
-  // panel. Persisted per vault as `ui.left_pane_mode` (default `files`).
-  type LeftPaneMode = "files" | "search";
-  const [leftPaneMode, setLeftPaneMode] = createSignal<LeftPaneMode>("files");
-
-  const handleLeftPaneMode = (mode: LeftPaneMode) => {
-    setLeftPaneMode(mode);
-    const id = vaultId();
-    if (id) {
-      setSetting(id, "ui.left_pane_mode", mode).catch((e) => {
-        console.error("persisting ui.left_pane_mode failed", e);
-      });
-    }
-  };
 
   // L3 Session G: broken block refs surfaced in the footer status bar.
   const [brokenBlockRefs, setBrokenBlockRefs] = createSignal<BrokenBlockRef[]>(
@@ -938,7 +924,6 @@ const App: Component = () => {
       setView({ kind: "file" });
       setRightSidebarCollapsed(false);
       setRightSidebarPanel("backlinks");
-      setLeftPaneMode("files");
       setWikilinkResolver(null);
       setEmbedResolver(null);
       setAutocompleteProvider(null);
@@ -1002,15 +987,6 @@ const App: Component = () => {
         if (stored !== null) setRightSidebarPanel(stored);
       } catch (e) {
         console.error("loading ui.right_sidebar_panel failed", e);
-      }
-
-      // L4-B: seed which left-column pane is selected. Absent key →
-      // `files` (the file tree is the default surface).
-      try {
-        const stored = await getSetting(resp.vault_id, "ui.left_pane_mode");
-        if (stored === "files" || stored === "search") setLeftPaneMode(stored);
-      } catch (e) {
-        console.error("loading ui.left_pane_mode failed", e);
       }
     } catch (e) {
       const message =
@@ -1208,82 +1184,12 @@ const App: Component = () => {
                 display: "flex",
                 "flex-direction": "column",
                 "min-height": 0,
-                gap: "var(--space-2)",
+                "min-width": 0,
               }}
             >
-              <div
-                role="tablist"
-                aria-label="Left pane"
-                style={{
-                  display: "flex",
-                  gap: "var(--space-1)",
-                }}
-              >
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={leftPaneMode() === "files"}
-                  onClick={() => handleLeftPaneMode("files")}
-                  style={{
-                    flex: 1,
-                    padding: "var(--space-1) var(--space-2)",
-                    "font-family": "var(--font-body)",
-                    "font-size": "var(--text-xs)",
-                    "text-transform": "uppercase",
-                    "letter-spacing": "0.05em",
-                    color:
-                      leftPaneMode() === "files"
-                        ? "var(--c-fg-inverse)"
-                        : "var(--c-fg-secondary)",
-                    background:
-                      leftPaneMode() === "files"
-                        ? "var(--c-accent)"
-                        : "transparent",
-                    border: "1px solid var(--c-border-subtle)",
-                    "border-radius": "var(--radius-sm, var(--radius-md))",
-                    cursor: "pointer",
-                  }}
-                >
-                  Files
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={leftPaneMode() === "search"}
-                  onClick={() => handleLeftPaneMode("search")}
-                  style={{
-                    flex: 1,
-                    padding: "var(--space-1) var(--space-2)",
-                    "font-family": "var(--font-body)",
-                    "font-size": "var(--text-xs)",
-                    "text-transform": "uppercase",
-                    "letter-spacing": "0.05em",
-                    color:
-                      leftPaneMode() === "search"
-                        ? "var(--c-fg-inverse)"
-                        : "var(--c-fg-secondary)",
-                    background:
-                      leftPaneMode() === "search"
-                        ? "var(--c-accent)"
-                        : "transparent",
-                    border: "1px solid var(--c-border-subtle)",
-                    "border-radius": "var(--radius-sm, var(--radius-md))",
-                    cursor: "pointer",
-                  }}
-                >
-                  Search
-                </button>
-              </div>
-              <Show
-                when={leftPaneMode() === "files"}
-                fallback={
-                  <SearchPanel
-                    vaultId={vaultId()}
-                    onNavigate={(path) =>
-                      void handleNavigateWikilink(path, null)
-                    }
-                  />
-                }
+              <SearchPanel
+                vaultId={vaultId()}
+                onNavigate={(path) => void handleNavigateWikilink(path, null)}
               >
               <div
               role="listbox"
@@ -1298,6 +1204,7 @@ const App: Component = () => {
                 position: "relative",
                 flex: 1,
                 "min-height": 0,
+                "min-width": 0,
                 border: "1px solid var(--c-border-subtle)",
                 "border-radius": "var(--radius-md)",
                 background: "var(--c-bg-secondary)",
@@ -1440,7 +1347,7 @@ const App: Component = () => {
                 </div>
               </Show>
             </div>
-              </Show>
+              </SearchPanel>
             </div>
             <div
               style={{
