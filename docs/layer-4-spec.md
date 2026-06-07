@@ -453,21 +453,26 @@ task, plus a final holistic review — all on `feat/l4b-search-panel`).
 
 #### What landed
 
-- **`Files | Search` segmented toggle in the left column** (`App.tsx`),
-  mirroring the right-sidebar's tablist. Exactly one pane is mounted at
-  a time; the editor stays full-width. Choice persisted per vault as
-  `ui.left_pane_mode` (default `files`; reset+seeded in `handleOpen`
-  like `ui.right_sidebar_panel`). Added to the typed `Setting` union in
-  `ui/src/api/ipc.ts`.
-- **`ui/src/sidebar/SearchPanel.tsx`** — debounced (200 ms) query into
-  `search`; sort chips (Relevance / Recent) + scope chips (All /
-  Headings / Body / Code / Tags) re-run immediately; a virtualised,
+> **Layout note:** the original `Files | Search` segmented toggle +
+> `ui.left_pane_mode` persistence was replaced after the first operator
+> smoke (see "Post-smoke revisions" below). The current shape is a
+> persistent search bar above the file tree.
+
+- **`ui/src/sidebar/SearchPanel.tsx`** — a persistent search bar at the
+  top of the left column (`App.tsx` renders the file tree as its
+  `children`). Below `MIN_QUERY_LEN` (3) chars the tree shows; at/over
+  it the tree is replaced by results. Debounced (200 ms) query into
+  `search`; sort + scope controls live in a **filter popover** opened
+  from a button right of the bar (click-away + `Esc` to close; the
+  button badges when a non-default sort/scope is active). A virtualised,
   fixed-height (`80px`) result list reusing `computeWindow` unchanged;
   per-card title + best `<mark>`-highlighted snippet + path + relative
   recency; click navigates via `handleNavigateWikilink` (reuses the
   open-file/autosave path). A polled (`500 ms`) `search_index_status`
-  "Indexing… N/M" banner shows while `Building` and stops at `ready`;
-  idle/empty/error states handled (errors keep prior hits visible).
+  "Indexing… N/M" banner shows above results while `Building` and stops
+  at `ready`; empty/error states handled (errors keep prior hits
+  visible). `min-width: 0` runs down the column so a long path/snippet
+  truncates instead of widening the fixed 18rem sidebar.
 - **Pure, unit-tested modules:** `debounce.ts`, `snippet.ts`
   (`pickSnippet` priority body→headings→code→frontmatter→title;
   `parseHighlights` splits `<mark>` + unescapes entities, **no
@@ -498,25 +503,51 @@ bumped to 2. `SearchPanel.tsx` has **no component unit test by design**
 — the repo has no Solid render library and UI is operator-smoke-only
 (Contract E); all its testable logic lives in the four pure modules.
 
-Totals at code-complete: **464 Rust + 421 vitest**.
+Totals after the post-smoke revisions: **465 Rust + 422 vitest**.
+
+#### Post-smoke revisions (2026-06-07, first operator pass)
+
+The first operator smoke surfaced bugs + UX changes, fixed before close:
+
+- **Search found files/tags/text only intermittently (root-caused).** The
+  panel sent `fuzzy: true`; L4-A rewrites any single-term, ≥4-char,
+  default-scope query into a `FuzzyTermQuery` against **`title` only**,
+  discarding the multi-field parsed query — so words present only in
+  body/headings/tags/frontmatter were silently missed, and the "no
+  pattern" was single-word (title-only) vs multi-word (all fields). Fix:
+  `buildSearchQuery` sends **`fuzzy: false`** so every default-scope
+  query searches all fields; Rust regression guard
+  `single_term_default_fuzzy_is_title_only_known_limitation` documents
+  the L4-A behaviour (generalising backend fuzzy across fields deferred
+  to an L4-A revisit). Evidence: fixture query `quick` (body word) →
+  0 hits fuzzy-on, 1 hit fuzzy-off.
+- **Layout reworked (replaces the segmented toggle):** persistent search
+  bar above the file tree; tree shows below 3 chars, results at/over;
+  `leftPaneMode` + `ui.left_pane_mode` removed.
+- **Filter popover:** sort + scope moved into a popover button right of
+  the search bar (click-away + `Esc`; badges when non-default).
+- **Fixed sidebar width:** `min-width: 0` added down the column so long
+  paths/snippets truncate instead of widening the 18rem column.
+- **3-char threshold** before any search fires.
 
 #### Gate results (2026-06-07, automated — all green)
 
-`cargo test --workspace` (464) · `cargo clippy --workspace
+`cargo test --workspace` (465) · `cargo clippy --workspace
 --all-targets -- -D warnings` (clean) · `cargo fmt --all --check`
-(clean) · `npx tsc --noEmit` (clean) · `npx vitest run` (421) · `npm
+(clean) · `npx tsc --noEmit` (clean) · `npx vitest run` (422) · `npm
 run build` (clean).
 
-#### Operator smoke — REQUIRED before the `l4b` tag (Contract E)
+#### Operator smoke — RE-SMOKE REQUIRED before the `l4b` tag (Contract E)
 
-Not yet executed (needs `cargo tauri dev` on the operator's machine).
-Run and record:
+First pass (2026-06-07) found the fuzzy bug + UX changes above; all
+fixed. A clean re-smoke against `cargo tauri dev` is still owed. Run and
+record:
 
-1. **Per-field highlighted snippets** — use **multi-term or non-fuzzy**
-   queries (single-term default-scope fuzzy rewrites to `title`-only,
-   an L4-A quirk) and confirm body / heading / code / frontmatter
-   matches each show a `<mark>` snippet. This is the payoff of the
-   STORED change.
+1. **Per-field matches found + highlighted** — with the fuzzy fix, plain
+   single-word queries must now find body / heading / tags / frontmatter
+   matches (not just titles) and show a `<mark>` snippet per matched
+   field. Re-test the cases that failed first pass (e.g. the
+   `Frontmatter` file, tag-only matches).
 2. **One-time rebuild after the version bump** — open a vault last
    indexed at SCHEMA_VERSION 1; confirm wipe+rebuild (banner shows,
    results converge), no stale/empty index, no `LockBusy`.
@@ -525,18 +556,17 @@ Run and record:
    re-open the same folder → no `LockBusy`, stays on that vault; open a
    different folder → distinct vault. Record there + flip the CLAUDE.md
    "operator smoke pending" line.
-4. **Virtualised scroll** on a large result set (no blank flashes);
+4. **Search bar UX** — typing <3 chars keeps the file tree; ≥3 chars
+   shows results; the filter popover opens/closes (click-away + `Esc`)
+   and sort/scope changes re-run; a long path/snippet does **not**
+   widen the sidebar.
+5. **Virtualised scroll** on a large result set (no blank flashes);
    click a hit outside the initial window → correct file opens, view
-   returns to the editor.
-5. **Toggle lifecycle** — Files↔Search repeatedly while a file is open:
-   no runaway polling (interval stops on Files / at ready), navigation
-   from a result still autosaves the open buffer.
-6. **`ui.left_pane_mode` persistence** — set Search, reopen vault →
-   restores; query box starts empty (no search fired on open).
-7. **Indexing banner** during `Building` on a fresh/large vault
+   returns to the editor; navigation still autosaves the open buffer.
+6. **Indexing banner** during `Building` on a fresh/large vault
    (Recipe 11).
-8. **Disk footprint** — eyeball `.cubical/search` before/after ≈ 2-3×.
-9. **L4-A search recipes 1–11** against
+7. **Disk footprint** — eyeball `.cubical/search` before/after ≈ 2-3×.
+8. **L4-A search recipes 1–11** against
    `~/Developer/sandbox/cubical-l4a-smoke/` (standing backfill — L4-B
    makes them load-bearing).
 
@@ -546,11 +576,8 @@ Holistic review = "ready to merge", all findings Minor:
 - **Keyboard a11y:** search result rows are mouse-only (file-list rows
   have `onKeyDown`). Captured as a follow-up task (chip
   `task_bd4e47f4`), not a blocker.
-- `role="tab"` lacks `tabpanel`/`aria-controls` linkage (consistent
-  with the existing RightSidebar pattern) — cosmetic.
-- Toggling Files↔Search discards query/hits (spec only promised "fresh
-  each launch", not "each toggle") — expected.
-- Single-term fuzzy is `title`-only (L4-A) — see smoke step 1.
+- Single-term default-scope fuzzy is `title`-only (L4-A) — worked around
+  by sending `fuzzy: false`; generalising it is an L4-A revisit.
 
 #### Status
 

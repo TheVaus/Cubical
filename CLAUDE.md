@@ -69,16 +69,19 @@ Crates without Tauri deps (`cubical-core`, `cubical-ast`, `cubical-index`, `cubi
 Current layer: 4 — Search (in progress).
 
 **L4-B — persistent left-panel search UI — code complete 2026-06-07 on
-`feat/l4b-search-panel`; operator smoke pending (not yet merged/tagged).**
-First UI consumer of L4-A's search IPC. A `Files | Search` segmented
-toggle in the left column (persisted as `ui.left_pane_mode`) swaps the
-file tree for `ui/src/sidebar/SearchPanel.tsx`: debounced query, sort +
-scope chips, a virtualised fixed-height result list reusing
-`computeWindow`, `<mark>`-highlighted snippets (+ relative recency), and
-a polled `search_index_status` "Indexing…" banner; clicking a hit reuses
-`handleNavigateWikilink`. Pure logic is unit-tested in `debounce.ts` /
-`snippet.ts` / `searchQuery.ts` / `relativeTime.ts`; the component is
-operator-smoke-only (no Solid render lib; Contract E).
+`feat/l4b-search-panel`; first operator smoke done (found bugs, all
+fixed); re-smoke owed before merge/tag.** First UI consumer of L4-A's
+search IPC. A persistent search bar sits above the file tree in the left
+column; `ui/src/sidebar/SearchPanel.tsx` renders the tree (App's
+`children`) below 3 chars and replaces it with results at/over 3 chars —
+debounced query, sort+scope in a filter **popover** to the right of the
+bar, a virtualised fixed-height result list reusing `computeWindow`,
+`<mark>`-highlighted snippets (+ relative recency), a polled
+`search_index_status` "Indexing…" banner; clicking a hit reuses
+`handleNavigateWikilink`. `min-width: 0` runs down the column so long
+text never widens the 18rem sidebar. Pure logic unit-tested in
+`debounce.ts` / `snippet.ts` / `searchQuery.ts` / `relativeTime.ts`; the
+component is operator-smoke-only (no Solid render lib; Contract E).
 
 **§5 deviation #1 resolved (option a):** `cubical-search` promotes
 `headings`/`body`/`code`/`frontmatter` to `STORED` and bumps
@@ -88,19 +91,28 @@ all fields → schema-flags + version bump only; the bump auto-fires the
 existing wipe+rebuild on next open (index is derived state; `.md` is
 truth). ~2-3× index disk.
 
-**Remaining to close L4-B (Contract E — tag only after executed smoke):**
-run + record the operator smoke in `docs/layer-4-spec.md` §9.3 (per-field
-highlighted snippets via multi-term queries; one-time rebuild after the
-version bump; the pending `open_vault` re-open `LockBusy` smoke from
-2026-06-06; virtualised scroll + navigation; toggle/polling lifecycle;
-`ui.left_pane_mode` persistence; indexing banner; ~2-3× disk; L4-A
-recipes 1–11). Then tick §6 L4-B, merge to `main`, tag `l4b`. Follow-up
-chip filed: keyboard nav for search result rows (`task_bd4e47f4`).
-Single-term default-scope fuzzy is `title`-only (L4-A quirk) — smoke with
-multi-term queries.
+**First-smoke fixes:** search was finding files/tags/text only
+intermittently because the panel sent `fuzzy: true` and L4-A rewrites
+single-term (≥4-char) default-scope queries to `title`-only fuzzy,
+discarding the multi-field search — fixed by sending `fuzzy: false`
+(Rust regression guard
+`single_term_default_fuzzy_is_title_only_known_limitation`; generalising
+backend fuzzy across fields deferred to an L4-A revisit). Also: replaced
+the `Files|Search` tab with the search-bar-above-tree model (dropped
+`ui.left_pane_mode`), moved filters into a popover, fixed the
+sidebar-widening bug, and gated search at ≥3 chars.
 
-Test counts at code-complete: **421 vitest + 464 Rust** (+21 vitest /
-+6 Rust over L4-A-fix.1). All six gates green on the branch:
+**Remaining to close L4-B (Contract E — tag only after executed smoke):**
+run + record the **re-smoke** in `docs/layer-4-spec.md` §9.3 (single-word
+body/tag/frontmatter matches now found + highlighted; one-time rebuild
+after the version bump; the pending `open_vault` re-open `LockBusy` smoke
+from 2026-06-06; search-bar UX incl. fixed width; virtualised scroll +
+navigation; indexing banner; ~2-3× disk; L4-A recipes 1–11). Then tick §6
+L4-B, merge to `main`, tag `l4b`. Follow-up chip filed: keyboard nav for
+search result rows (`task_bd4e47f4`).
+
+Test counts: **422 vitest + 465 Rust** (+22 vitest / +7 Rust over
+L4-A-fix.1). All six gates green on the branch:
 `cargo test --workspace`, `cargo clippy --workspace --all-targets --
 -D warnings`, `cargo fmt --all --check`, `npx tsc --noEmit`, `npm run
 build`, `npx vitest run`. L0 `l0` (2026-05-13); L1 `l1` (2026-05-09);
