@@ -469,6 +469,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn scan_indexes_every_markdown_file_for_search() {
+        use cubical_search::query::{run_search, FieldScope, SearchQuery, SortMode};
+        let n = 60usize;
+        let dir = tempdir().unwrap();
+        for i in 0..n {
+            let p = dir.path().join(format!("note-{i:03}.md"));
+            fs::write(&p, format!("# Title {i}\n\nzzqx{i:03} body content\n")).unwrap();
+        }
+        let vault = Vault::open(dir.path()).await.expect("open");
+        let (tx, _rx) = mpsc::channel::<ScanProgress>(256);
+        let cancel = CancellationToken::new();
+        let count = scan(vault.clone(), cancel, tx).await.expect("scan");
+        assert_eq!(count as usize, n);
+        assert_eq!(
+            vault.search().doc_count().unwrap(),
+            n as u64,
+            "every markdown file must land in the search index"
+        );
+        for i in 0..n {
+            let q = SearchQuery {
+                text: format!("zzqx{i:03}"),
+                limit: 0,
+                offset: 0,
+                fields: FieldScope::Default,
+                fuzzy: false,
+                sort: SortMode::Relevance,
+            };
+            let r = run_search(vault.search(), &q).unwrap();
+            assert_eq!(
+                r.hits.len(),
+                1,
+                "token zzqx{i:03} should find exactly its file, got {}",
+                r.hits.len()
+            );
+            assert_eq!(r.hits[0].path, format!("note-{i:03}.md"));
+        }
+    }
+
+    #[tokio::test]
     async fn scan_inserts_a_row_per_file_without_modifying_content() {
         let (dir, vault) = fixture_vault(10, &[]).await;
         // Capture file content + hashes before scan.
