@@ -18,6 +18,7 @@ import { computeWindow } from "../virtualList";
 import { debounce } from "./debounce";
 import { parseHighlights, pickSnippet } from "./snippet";
 import { buildSearchQuery, type ScopeKind } from "./searchQuery";
+import { formatRelativeTime } from "./relativeTime";
 
 /**
  * L4-B persistent search panel. Lives in the left column behind the
@@ -396,15 +397,26 @@ const ResultRow: Component<{ hit: SearchHit; onClick: () => void }> = (
       </Show>
       <span
         style={{
+          display: "flex",
+          "justify-content": "space-between",
+          gap: "var(--space-2)",
           "font-family": "var(--font-mono)",
           "font-size": "var(--text-xs)",
           color: "var(--c-fg-muted)",
-          overflow: "hidden",
-          "text-overflow": "ellipsis",
-          "white-space": "nowrap",
         }}
       >
-        {props.hit.path}
+        <span
+          style={{
+            overflow: "hidden",
+            "text-overflow": "ellipsis",
+            "white-space": "nowrap",
+          }}
+        >
+          {props.hit.path}
+        </span>
+        <span style={{ "flex-shrink": 0 }}>
+          {formatRelativeTime(props.hit.mtime_secs)}
+        </span>
       </span>
     </div>
   );
