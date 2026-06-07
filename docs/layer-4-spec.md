@@ -441,5 +441,123 @@ by the "final shape" recorded in this §9.2.
 **Implementation plan:** `docs/superpowers/plans/2026-06-04-l4a-fix.md`
 **Executed smoke:** `docs/superpowers/2026-06-04-l4a-fix-smoke-runbook-executed.md`
 
-**Next:** L4-B (persistent left-panel search results UI) — now
-unblocked.
+---
+
+### 9.3 Session B — persistent left-panel search results UI (code complete 2026-06-07; operator smoke pending)
+
+First UI consumer of L4-A's search IPC. Design spec:
+`docs/superpowers/specs/2026-06-07-l4b-search-panel-design.md`. Plan:
+`docs/superpowers/plans/2026-06-07-l4b-search-panel.md`. Built
+subagent-driven (implementer + spec review + code-quality review per
+task, plus a final holistic review — all on `feat/l4b-search-panel`).
+
+#### What landed
+
+- **`Files | Search` segmented toggle in the left column** (`App.tsx`),
+  mirroring the right-sidebar's tablist. Exactly one pane is mounted at
+  a time; the editor stays full-width. Choice persisted per vault as
+  `ui.left_pane_mode` (default `files`; reset+seeded in `handleOpen`
+  like `ui.right_sidebar_panel`). Added to the typed `Setting` union in
+  `ui/src/api/ipc.ts`.
+- **`ui/src/sidebar/SearchPanel.tsx`** — debounced (200 ms) query into
+  `search`; sort chips (Relevance / Recent) + scope chips (All /
+  Headings / Body / Code / Tags) re-run immediately; a virtualised,
+  fixed-height (`80px`) result list reusing `computeWindow` unchanged;
+  per-card title + best `<mark>`-highlighted snippet + path + relative
+  recency; click navigates via `handleNavigateWikilink` (reuses the
+  open-file/autosave path). A polled (`500 ms`) `search_index_status`
+  "Indexing… N/M" banner shows while `Building` and stops at `ready`;
+  idle/empty/error states handled (errors keep prior hits visible).
+- **Pure, unit-tested modules:** `debounce.ts`, `snippet.ts`
+  (`pickSnippet` priority body→headings→code→frontmatter→title;
+  `parseHighlights` splits `<mark>` + unescapes entities, **no
+  innerHTML**), `searchQuery.ts` (`buildSearchQuery`; `ScopeKind`
+  derived from the wire `FieldScope["kind"]`; tags scope =
+  whitespace-split), `relativeTime.ts` (`formatRelativeTime`).
+
+#### §5 deviation #1 resolved — option (a)
+
+Promoted `headings` / `body` / `code` / `frontmatter` to **`STORED`** in
+`cubical-search` `schema.rs` and bumped `SCHEMA_VERSION` `1 → 2`.
+Tantivy now generates tokenizer-correct `<mark>` snippets for every
+matched field, not just `title`. The doc writer (`index.rs`) and
+`collect_snippets` (`query.rs`) already handled all fields, so **no
+query-logic change** was needed — only the schema flags + the version
+bump, which auto-fires the existing wipe+rebuild path on next open
+(`.md` files are the source of truth; index is derived state). Cost:
+~2-3× index disk (verify in smoke). This closes §5 deviation #1; the
+spec row there can be marked resolved at L4 close.
+
+#### Tests
+
+**+25 vitest** (415 → 421 net after the recency module; counts:
+debounce 2, snippet 10, searchQuery 5, relativeTime 4) and **+6 Rust**
+in `cubical-search` (body/headings+code/frontmatter snippet tests,
+`prose_fields_are_stored`) plus a `cubical-app` health-version test
+bumped to 2. `SearchPanel.tsx` has **no component unit test by design**
+— the repo has no Solid render library and UI is operator-smoke-only
+(Contract E); all its testable logic lives in the four pure modules.
+
+Totals at code-complete: **464 Rust + 421 vitest**.
+
+#### Gate results (2026-06-07, automated — all green)
+
+`cargo test --workspace` (464) · `cargo clippy --workspace
+--all-targets -- -D warnings` (clean) · `cargo fmt --all --check`
+(clean) · `npx tsc --noEmit` (clean) · `npx vitest run` (421) · `npm
+run build` (clean).
+
+#### Operator smoke — REQUIRED before the `l4b` tag (Contract E)
+
+Not yet executed (needs `cargo tauri dev` on the operator's machine).
+Run and record:
+
+1. **Per-field highlighted snippets** — use **multi-term or non-fuzzy**
+   queries (single-term default-scope fuzzy rewrites to `title`-only,
+   an L4-A quirk) and confirm body / heading / code / frontmatter
+   matches each show a `<mark>` snippet. This is the payoff of the
+   STORED change.
+2. **One-time rebuild after the version bump** — open a vault last
+   indexed at SCHEMA_VERSION 1; confirm wipe+rebuild (banner shows,
+   results converge), no stale/empty index, no `LockBusy`.
+3. **`open_vault` re-open `LockBusy` smoke** (pending from 2026-06-06,
+   `docs/superpowers/specs/2026-06-06-idempotent-open-vault-design.md`):
+   re-open the same folder → no `LockBusy`, stays on that vault; open a
+   different folder → distinct vault. Record there + flip the CLAUDE.md
+   "operator smoke pending" line.
+4. **Virtualised scroll** on a large result set (no blank flashes);
+   click a hit outside the initial window → correct file opens, view
+   returns to the editor.
+5. **Toggle lifecycle** — Files↔Search repeatedly while a file is open:
+   no runaway polling (interval stops on Files / at ready), navigation
+   from a result still autosaves the open buffer.
+6. **`ui.left_pane_mode` persistence** — set Search, reopen vault →
+   restores; query box starts empty (no search fired on open).
+7. **Indexing banner** during `Building` on a fresh/large vault
+   (Recipe 11).
+8. **Disk footprint** — eyeball `.cubical/search` before/after ≈ 2-3×.
+9. **L4-A search recipes 1–11** against
+   `~/Developer/sandbox/cubical-l4a-smoke/` (standing backfill — L4-B
+   makes them load-bearing).
+
+#### Final-review findings (minor)
+
+Holistic review = "ready to merge", all findings Minor:
+- **Keyboard a11y:** search result rows are mouse-only (file-list rows
+  have `onKeyDown`). Captured as a follow-up task (chip
+  `task_bd4e47f4`), not a blocker.
+- `role="tab"` lacks `tabpanel`/`aria-controls` linkage (consistent
+  with the existing RightSidebar pattern) — cosmetic.
+- Toggling Files↔Search discards query/hits (spec only promised "fresh
+  each launch", not "each toggle") — expected.
+- Single-term fuzzy is `title`-only (L4-A) — see smoke step 1.
+
+#### Status
+
+Code complete on `feat/l4b-search-panel`; all six automated gates green.
+**Remaining before close:** execute the operator smoke above, record it,
+flip the `open_vault` smoke-pending line, then tick §6 L4-B + the
+session-close gate rows, merge to `main`, and tag `l4b` (tag only after
+executed smoke, per Contract E).
+
+**Next:** L4-C (`Cmd/Ctrl+K` Omni-Bar).
