@@ -4,9 +4,12 @@ use crate::doc::IndexDoc;
 use crate::error::SearchError;
 use crate::schema::{build_schema, register_tokenizers, Fields};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use tantivy::schema::Schema;
+use tantivy::collector::DocSetCollector;
+use tantivy::query::AllQuery;
+use tantivy::schema::{Schema, TantivyDocument, Value};
 use tantivy::{doc, Index, IndexReader, IndexWriter, ReloadPolicy, Term};
 
 /// Current on-disk schema version. Bump on any schema change; mismatch
@@ -141,6 +144,34 @@ impl SearchIndex {
         let term = Term::from_field_text(self.fields.path, path);
         writer.delete_term(term);
         Ok(())
+    }
+
+    /// Remove every indexed document whose `path` is not in `keep`.
+    /// Returns the number deleted. Caller commits.
+    ///
+    /// Reconciles the index with the authoritative on-disk file set after
+    /// a scan: files renamed or deleted while the app wasn't watching
+    /// leave no watcher event, so their docs would otherwise linger and
+    /// surface stale hits. The index is derived state — the `.md` files
+    /// are truth — so dropping orphans is always safe.
+    pub fn retain_paths(&self, keep: &HashSet<String>) -> Result<usize, SearchError> {
+        let searcher = self.reader.searcher();
+        let addrs = searcher.search(&AllQuery, &DocSetCollector)?;
+        let writer = self
+            .writer
+            .lock()
+            .map_err(|_| SearchError::WriterPoisoned)?;
+        let mut removed = 0;
+        for addr in addrs {
+            let doc: TantivyDocument = searcher.doc(addr)?;
+            if let Some(path) = doc.get_first(self.fields.path).and_then(|v| v.as_str()) {
+                if !keep.contains(path) {
+                    writer.delete_term(Term::from_field_text(self.fields.path, path));
+                    removed += 1;
+                }
+            }
+        }
+        Ok(removed)
     }
 
     /// Commit buffered writes + reload the reader so subsequent queries
