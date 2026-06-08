@@ -110,7 +110,7 @@ const THEME_ICON: Record<ThemeMode, string> = {
 
 const App: Component = () => {
   const [vaultId, setVaultId] = createSignal<string | null>(null);
-  const [vaultPath, setVaultPath] = createSignal<string | null>(null);
+  const [, setVaultPath] = createSignal<string | null>(null);
   const [scanStatus, setScanStatus] = createSignal<ScanStatus>("in_progress");
   const [filesProcessed, setFilesProcessed] = createSignal(0);
   const [filesTotalEstimate, setFilesTotalEstimate] = createSignal(0);
@@ -121,7 +121,6 @@ const App: Component = () => {
   const [selectedContent, setSelectedContent] = createSignal<string | null>(
     null,
   );
-  const [astSummary, setAstSummary] = createSignal<string>("");
   // Parsed frontmatter from the latest AST tick, fed to the Properties
   // UI (L2 Session F). Reset on file selection so a freshly opened doc
   // never briefly shows the previous file's rows before the first tick.
@@ -507,13 +506,6 @@ const App: Component = () => {
 
   const handleAstChange = (doc: CanonicalDocument) => {
     setPropertiesFrontmatter(doc.frontmatter);
-    setAstSummary(
-      `${doc.blocks.length} block${doc.blocks.length === 1 ? "" : "s"}, ` +
-        `${doc.source_len} byte${doc.source_len === 1 ? "" : "s"}` +
-        (doc.frontmatter
-          ? `, frontmatter: ${doc.frontmatter.entries.length} key${doc.frontmatter.entries.length === 1 ? "" : "s"}`
-          : ""),
-    );
   };
 
   /**
@@ -938,7 +930,6 @@ const App: Component = () => {
       setVaultPath(picked);
       setSelectedPath(null);
       setSelectedContent(null);
-      setAstSummary("");
       setPropertiesFrontmatter(null);
       setConflictExternalHash(null);
       setRawOverride(null);
@@ -1048,18 +1039,7 @@ const App: Component = () => {
           gap: "var(--space-4)",
         }}
       >
-        <div>
-          <h1 style={{ "font-size": "var(--text-2xl)", margin: 0 }}>Cubical</h1>
-          <p
-            style={{
-              color: "var(--c-fg-secondary)",
-              "font-size": "var(--text-sm)",
-              margin: 0,
-            }}
-          >
-            Layer 2 — Editing
-          </p>
-        </div>
+        <h1 style={{ "font-size": "var(--text-lg)", margin: 0 }}>Cubical</h1>
         <div
           style={{
             display: "flex",
@@ -1187,17 +1167,6 @@ const App: Component = () => {
             flex: 1,
           }}
         >
-          <p
-            style={{
-              color: "var(--c-fg-secondary)",
-              "font-size": "var(--text-xs)",
-              "font-family": "var(--font-mono)",
-              margin: 0,
-              "word-break": "break-all",
-            }}
-          >
-            {vaultPath()}
-          </p>
           <div
             style={{
               display: "flex",
@@ -1515,16 +1484,6 @@ const App: Component = () => {
                     editorApi = api;
                   }}
                 />
-                <p
-                  style={{
-                    color: "var(--c-fg-secondary)",
-                    "font-size": "var(--text-xs)",
-                    "font-family": "var(--font-mono)",
-                    margin: 0,
-                  }}
-                >
-                  AST: {astSummary()}
-                </p>
               </Show>
               </Show>
             </div>
