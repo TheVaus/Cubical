@@ -68,85 +68,73 @@ Crates without Tauri deps (`cubical-core`, `cubical-ast`, `cubical-index`, `cubi
 
 Current layer: 4 — Search (in progress).
 
-**L4-A-fix closed 2026-06-06 (`l4a-fix` tag).** Editor-surface
-structural-debt session between L4-A and L4-B; all motivating bugs
-operator-confirmed fixed in the running app. `livePreviewBundle`
-(Contract 1) makes preview-only transformations a named bundle inside
-`decorationCompartment`, structurally closing bug #4. Embed rendering
-(Contract 2, final form): when `![[…]]` is **alone on its line** (the
-by-convention shape), the whole line is replaced with an atomic
-**block** decoration `Decoration.replace({ widget, block: true })`
-over `[line.from, line.to)` — the cursor-safe primitive (same as
-frontmatter hiding); mid-line embeds stay raw. Cursor traversal across
-the rendered card (Contract 2b, added under smoke): `atomicRanges`
-handles horizontal motion, and `ui/src/editor/embedNav.ts` adds a
-custom `ArrowUp`/`ArrowDown` keymap that corrects CM6's *geometric*
-vertical motion — a tall card is one document line spanning many
-screen rows, so default Up/Down overshoots it; `correctedVerticalHead`
-detects an overshoot of >1 document line and steps exactly one
-document line. Resolver work (Contract 4) adds `debug()` / `onEvent()`
-/ `abort()` plus `EmbedResolver.version()` folded into the embed
-widget identity — closes bug #5 (nested embeds A/B/C froze on
-"Loading…"; the widget tracked only its top-level cache entry and
-nested embeds have no independent re-render path; D worked because it
-was depth-1). Dev-only `window.__cubical` exposes the live resolvers.
+**L4-B — persistent left-panel search UI — CLOSED 2026-06-08, tagged
+`l4b`, merged to `main`.** Grouped-results rework + ✕ clear button added
+2026-06-08 on operator request; operator confirmed search/grouping/clear
+interactively and elected to tag (see §9.3 closeout for the honest
+smoke record + carried-forward items). First UI consumer of L4-A's search IPC.
+A persistent search bar sits above the file tree in the left column;
+`ui/src/sidebar/SearchPanel.tsx` renders the tree (App's `children`)
+below 3 chars and replaces it with results at/over 3 chars — debounced
+query, sort+scope in a filter **popover** to the right of the bar,
+results **grouped by file** (Obsidian-core-search style: collapsible
+title header + match-count badge + one `<mark>` snippet card per matched
+field, "N results" line, chevron collapse, title/card click opens), a
+polled `search_index_status` "Indexing…" banner; an inline clear (✕)
+button in the search box empties+refocuses it; clicking a hit reuses
+`handleNavigateWikilink`. `min-width: 0` runs down the column so long
+text never widens the 18rem sidebar. Pure logic unit-tested in
+`debounce.ts` / `snippet.ts` / `searchQuery.ts` / `relativeTime.ts` /
+`resultGroups.ts`; the component is operator-smoke-only (no Solid render
+lib; Contract E).
 
-Three methodology notes for future sessions: (1) **don't ship editor
-fixes on unit tests alone** — jsdom has no layout engine, so the
-cursor-geometry bugs only surfaced in `cargo tauri dev`; the embed
-render/cursor work took *five* operator re-smoke rounds, and the
-final vertical-motion fix was derived from a dev-only diagnostic
-listener logging real before/after cursor positions. (2) **Test
-fixtures must mirror real document shapes** — an early fixture put
-`![[X]]` alone on its line and masked the mid-line bug. (3) **Match
-the framework, don't fight it** — block-sized content needs block
-decorations; the cursor tension was only resolved by reading how CM6
-(and Obsidian) actually handle it (`atomicRanges` + a custom arrow
-keymap), not by swapping decoration types.
+**§5 deviation #1 resolved (option a):** `cubical-search` promotes
+`headings`/`body`/`code`/`frontmatter` to `STORED` and bumps
+`SCHEMA_VERSION` `1 → 2`, so Tantivy emits tokenizer-correct snippets for
+every matched field. The doc writer + `collect_snippets` already handled
+all fields → schema-flags + version bump only; the bump auto-fires the
+existing wipe+rebuild on next open (index is derived state; `.md` is
+truth). ~2-3× index disk.
 
-`docs/conventions.md` now requires executed smoke before any
-layer/fix tag — Contract E (closes the four-sessions-of-unverified-UI
-loophole that birthed this session).
+**First-smoke fixes:** search was finding files/tags/text only
+intermittently because the panel sent `fuzzy: true` and L4-A rewrites
+single-term (≥4-char) default-scope queries to `title`-only fuzzy,
+discarding the multi-field search — fixed by sending `fuzzy: false`
+(Rust regression guard
+`single_term_default_fuzzy_is_title_only_known_limitation`; generalising
+backend fuzzy across fields deferred to an L4-A revisit). Also: replaced
+the `Files|Search` tab with the search-bar-above-tree model (dropped
+`ui.left_pane_mode`), moved filters into a popover, fixed the
+sidebar-widening bug, and gated search at ≥3 chars.
 
-**Embed scroll-jump fix landed 2026-06-06 (`l4a-fix.1` tag,
-operator-confirmed).** The autosave own-write watcher echo no longer
-invalidates the embed/wiki-link resolvers: a pure `isOwnWriteEcho(...)`
-(`ui/src/ownWrite.ts`, 6 unit tests) gates both `invalidate()` calls in
-`onVaultFileChanged`, so rendered embeds stop remounting per keystroke
-while other-file changes and genuine external edits still invalidate.
-The visible scroll effect is jsdom-untestable; operator smoke confirmed
-"it works" (viewport no longer jumps). Runbook + verification in
-`docs/layer-4-spec.md` §9.2. Contract E satisfied.
+**Grouped results (2026-06-08):** `resultGroups.ts` (`buildFileGroups`,
++7 vitest) maps each `SearchHit` → a `FileGroup` of ordered snippet
+cards; `SearchPanel` renders collapsible per-file groups. Virtualisation
+removed for the grouped view (variable-height groups; list capped at 50
+files, rendered directly; `computeWindow` still used by App's tree).
+Dead `pickSnippet` deleted (−4 tests). **Deferred to an L4-A search
+revisit** (chip `task_256abd1c`): (a) typo-tolerance — generalise backend fuzzy
+across all fields (today `title`-only → `fuzzy:false`), the
+Obsidian-Omnisearch behaviour the operator wants; (b) per-occurrence
+cards (one card per match *location* — Tantivy yields one fragment/field
+today).
 
-**`open_vault` re-open `LockBusy` fix landed 2026-06-06 (code complete;
-operator smoke pending).** Re-opening an already-open vault folder threw
-`search index error: … LockBusy` because `open_vault` constructed a
-second `Vault` (a second Tantivy `IndexWriter`) on the same
-`.cubical/search` dir before any path dedup. Fix: a pure
-`find_open_vault_by_canonical_path` helper (2 unit tests) lets
-`open_vault` return the existing `vault_id` + `scan_status` when the
-canonical path is already open. Rust-only; cross-process LockBusy
-messaging deferred. Design/plan:
-`docs/superpowers/specs/2026-06-06-idempotent-open-vault-design.md`.
+**Carried forward from L4-B (not formally smoked — do at L4 layer-close /
+L4-C kickoff):** one-time wipe+rebuild on opening a SCHEMA_VERSION-1
+vault; the `open_vault` re-open `LockBusy` smoke from 2026-06-06 (still
+pending — line **not** flipped); indexing banner on a large vault; ~2-3×
+disk; L4-A recipes 1–11. Open follow-up chips: keyboard nav for search
+result rows (`task_bd4e47f4`); cross-field fuzzy + per-occurrence cards
+(`task_256abd1c`).
 
-**Deferred from L4-A-fix:** navigation path split (Contract C) —
-bugs #2, #3 not reproducing against the live vault; revisit at L4-C
-when Omni-Bar surfaces the funnel as load-bearing. Bug #1
-(`^block-id` rendering): operator confirmed current smaller+grayer
-treatment is intended. Standing backfill (no code change this
-session): L4-A search recipes + L1/L2 watcher/properties recipes —
-the next session touching those surfaces runs them per the Sessions
-ritual.
-
-Test counts after the L4-A-fix.1 scroll-jump fix: **400 vitest + 458
-Rust** (+6 vitest / 0 Rust over L4-A-fix close; the fix is UI-only).
-All six gates green at every commit boundary:
+Test counts: **425 vitest + 465 Rust** (frontend-only grouping pass: +7
+−4 vitest, 0 Rust). All six gates green on the branch:
 `cargo test --workspace`, `cargo clippy --workspace --all-targets --
 -D warnings`, `cargo fmt --all --check`, `npx tsc --noEmit`, `npm run
-build`, `npx vitest run`. L0 closed 2026-05-13 (`l0`); L1 closed
-2026-05-09 (`l1`); L2 closed 2026-05-22 (`l2`); L3 closed 2026-06-01
-(`l3`); L4-A closed 2026-06-03 (`l4a`); L4-A-fix closed 2026-06-06
-(`l4a-fix`).
+build`, `npx vitest run` (cargo gates unaffected by the frontend change;
+re-confirmed tsc/vitest/build 2026-06-08). L0 `l0` (2026-05-13); L1 `l1`
+(2026-05-09); L2 `l2` (2026-05-22); L3 `l3` (2026-06-01); L4-A `l4a`
+(2026-06-03); L4-A-fix `l4a-fix` + `l4a-fix.1` (2026-06-06); L4-B `l4b`
+(2026-06-08).
 
-Next: **L4-B — persistent left-panel search results UI**, now
-unblocked. First UI consumer of L4-A's search IPC.
+Next: **L4-C — `Cmd/Ctrl+K` Omni-Bar.**

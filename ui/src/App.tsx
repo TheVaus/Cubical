@@ -63,6 +63,7 @@ import {
 import RightSidebar from "./RightSidebar";
 import Backlinks from "./sidebar/Backlinks";
 import UnlinkedMentions from "./sidebar/UnlinkedMentions";
+import SearchPanel from "./sidebar/SearchPanel";
 import TagPage from "./TagPage";
 
 /**
@@ -109,7 +110,7 @@ const THEME_ICON: Record<ThemeMode, string> = {
 
 const App: Component = () => {
   const [vaultId, setVaultId] = createSignal<string | null>(null);
-  const [vaultPath, setVaultPath] = createSignal<string | null>(null);
+  const [, setVaultPath] = createSignal<string | null>(null);
   const [scanStatus, setScanStatus] = createSignal<ScanStatus>("in_progress");
   const [filesProcessed, setFilesProcessed] = createSignal(0);
   const [filesTotalEstimate, setFilesTotalEstimate] = createSignal(0);
@@ -120,7 +121,6 @@ const App: Component = () => {
   const [selectedContent, setSelectedContent] = createSignal<string | null>(
     null,
   );
-  const [astSummary, setAstSummary] = createSignal<string>("");
   // Parsed frontmatter from the latest AST tick, fed to the Properties
   // UI (L2 Session F). Reset on file selection so a freshly opened doc
   // never briefly shows the previous file's rows before the first tick.
@@ -225,11 +225,30 @@ const App: Component = () => {
   const [rightSidebarRefreshTick, setRightSidebarRefreshTick] = createSignal(0);
   let rightSidebarRefreshTimer: ReturnType<typeof setTimeout> | undefined;
   const RIGHT_SIDEBAR_REFRESH_DEBOUNCE_MS = 200;
+
+  // L4-B: a monotonic counter the SearchPanel watches to re-run its
+  // active query when vault content changes (an edit may now match, or
+  // no longer match, the live query). Bumped — debounced — on any
+  // `vault:file-changed` and after the open file's own autosave (whose
+  // file-changed event is suppressed as an own-write). The search index
+  // is already committed by the watcher before the event fires, so the
+  // re-query sees fresh results.
+  const [searchRefreshTick, setSearchRefreshTick] = createSignal(0);
+  let searchRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+  const SEARCH_REFRESH_DEBOUNCE_MS = 250;
+  const scheduleSearchRefresh = () => {
+    if (searchRefreshTimer !== undefined) clearTimeout(searchRefreshTimer);
+    searchRefreshTimer = setTimeout(() => {
+      searchRefreshTimer = undefined;
+      setSearchRefreshTick((n) => n + 1);
+    }, SEARCH_REFRESH_DEBOUNCE_MS);
+  };
   // L3 Session I: which right-sidebar panel is currently rendered.
   // Persisted as `ui.right_sidebar_panel` (default `backlinks`).
   type RightSidebarPanel = "backlinks" | "unlinked_mentions";
   const [rightSidebarPanel, setRightSidebarPanel] =
     createSignal<RightSidebarPanel>("backlinks");
+
   // L3 Session G: broken block refs surfaced in the footer status bar.
   const [brokenBlockRefs, setBrokenBlockRefs] = createSignal<BrokenBlockRef[]>(
     [],
@@ -321,6 +340,11 @@ const App: Component = () => {
       if (editorApi.getContent() === content) {
         dirty = false;
       }
+      // L4-B: the watcher commits this own-write to the search index but
+      // suppresses its file-changed event, so refresh the search panel
+      // here — editing the open file may change what the active query
+      // matches.
+      scheduleSearchRefresh();
     } catch (e) {
       const message =
         typeof e === "object" && e !== null && "message" in e
@@ -482,13 +506,6 @@ const App: Component = () => {
 
   const handleAstChange = (doc: CanonicalDocument) => {
     setPropertiesFrontmatter(doc.frontmatter);
-    setAstSummary(
-      `${doc.blocks.length} block${doc.blocks.length === 1 ? "" : "s"}, ` +
-        `${doc.source_len} byte${doc.source_len === 1 ? "" : "s"}` +
-        (doc.frontmatter
-          ? `, frontmatter: ${doc.frontmatter.entries.length} key${doc.frontmatter.entries.length === 1 ? "" : "s"}`
-          : ""),
-    );
   };
 
   /**
@@ -787,6 +804,10 @@ const App: Component = () => {
       // a 200ms debounce so both panels refetch.
       scheduleRightSidebarRefresh();
 
+      // L4-B: the change may now match (or stop matching) the active
+      // search query — re-run it (debounced).
+      scheduleSearchRefresh();
+
       // L3 Session G: a change may have created or healed a broken
       // block ref anywhere in the vault.
       scheduleBrokenBlockRefsRefresh();
@@ -889,6 +910,7 @@ const App: Component = () => {
     if (autosaveTimer !== undefined) clearTimeout(autosaveTimer);
     if (rightSidebarRefreshTimer !== undefined)
       clearTimeout(rightSidebarRefreshTimer);
+    if (searchRefreshTimer !== undefined) clearTimeout(searchRefreshTimer);
   });
 
   const handleOpen = async () => {
@@ -908,7 +930,6 @@ const App: Component = () => {
       setVaultPath(picked);
       setSelectedPath(null);
       setSelectedContent(null);
-      setAstSummary("");
       setPropertiesFrontmatter(null);
       setConflictExternalHash(null);
       setRawOverride(null);
@@ -1018,18 +1039,7 @@ const App: Component = () => {
           gap: "var(--space-4)",
         }}
       >
-        <div>
-          <h1 style={{ "font-size": "var(--text-2xl)", margin: 0 }}>Cubical</h1>
-          <p
-            style={{
-              color: "var(--c-fg-secondary)",
-              "font-size": "var(--text-sm)",
-              margin: 0,
-            }}
-          >
-            Layer 2 — Editing
-          </p>
-        </div>
+        <h1 style={{ "font-size": "var(--text-lg)", margin: 0 }}>Cubical</h1>
         <div
           style={{
             display: "flex",
@@ -1157,17 +1167,6 @@ const App: Component = () => {
             flex: 1,
           }}
         >
-          <p
-            style={{
-              color: "var(--c-fg-secondary)",
-              "font-size": "var(--text-xs)",
-              "font-family": "var(--font-mono)",
-              margin: 0,
-              "word-break": "break-all",
-            }}
-          >
-            {vaultPath()}
-          </p>
           <div
             style={{
               display: "flex",
@@ -1177,6 +1176,20 @@ const App: Component = () => {
             }}
           >
             <div
+              style={{
+                flex: "0 0 18rem",
+                display: "flex",
+                "flex-direction": "column",
+                "min-height": 0,
+                "min-width": 0,
+              }}
+            >
+              <SearchPanel
+                vaultId={vaultId()}
+                onNavigate={(path) => void handleNavigateWikilink(path, null)}
+                refreshSignal={searchRefreshTick()}
+              >
+              <div
               role="listbox"
               aria-label="Vault files"
               ref={(el) => setViewportHeight(el.clientHeight || 600)}
@@ -1187,7 +1200,9 @@ const App: Component = () => {
               style={{
                 "overflow-y": "auto",
                 position: "relative",
-                flex: "0 0 18rem",
+                flex: 1,
+                "min-height": 0,
+                "min-width": 0,
                 border: "1px solid var(--c-border-subtle)",
                 "border-radius": "var(--radius-md)",
                 background: "var(--c-bg-secondary)",
@@ -1330,6 +1345,8 @@ const App: Component = () => {
                 </div>
               </Show>
             </div>
+              </SearchPanel>
+            </div>
             <div
               style={{
                 flex: 1,
@@ -1467,16 +1484,6 @@ const App: Component = () => {
                     editorApi = api;
                   }}
                 />
-                <p
-                  style={{
-                    color: "var(--c-fg-secondary)",
-                    "font-size": "var(--text-xs)",
-                    "font-family": "var(--font-mono)",
-                    margin: 0,
-                  }}
-                >
-                  AST: {astSummary()}
-                </p>
               </Show>
               </Show>
             </div>

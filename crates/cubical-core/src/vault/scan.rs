@@ -83,6 +83,11 @@ pub async fn scan(
     let mut tx = conn.transaction().await.map_err(IndexError::from)?;
     let mut batch_count: u32 = 0;
     let mut search_batch_count: usize = 0;
+    // Every markdown path indexed this scan — used to reconcile the
+    // search index (drop docs for files renamed/deleted while the app
+    // wasn't watching) once the walk is complete.
+    let mut indexed_search_paths: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
 
     // Pass-1 buffer: link occurrences per source file. Resolution is
     // deferred to Pass 2 (after the walk) so it sees the COMPLETE file
@@ -292,6 +297,7 @@ pub async fn scan(
                 {
                     tracing::warn!(path = %abs_path.display(), error = %e, "search index refresh failed");
                 }
+                indexed_search_paths.insert(path_str.clone());
                 search_batch_count += 1;
                 if search_batch_count >= SEARCH_COMMIT_EVERY {
                     if let Err(e) = vault.search().commit() {
@@ -328,6 +334,25 @@ pub async fn scan(
     // L4-A: final search commit so the scan's last batch is queryable.
     if let Err(e) = vault.search().commit() {
         tracing::warn!(error = %e, "search index final commit failed");
+    }
+
+    // L4-B: reconcile the search index with the on-disk file set — drop
+    // docs for markdown files renamed or deleted while the app wasn't
+    // watching (no watcher event fired), which would otherwise surface
+    // stale hits. Skip under cancellation: the walk is incomplete, so
+    // `indexed_search_paths` is partial and would wrongly drop live docs.
+    if !cancel.is_cancelled() {
+        match vault.search().retain_paths(&indexed_search_paths) {
+            Ok(removed) if removed > 0 => {
+                if let Err(e) = vault.search().commit() {
+                    tracing::warn!(error = %e, "search index reconcile commit failed");
+                } else {
+                    tracing::info!(removed, "search index reconciled (dropped orphan docs)");
+                }
+            }
+            Ok(_) => {}
+            Err(e) => tracing::warn!(error = %e, "search index reconcile failed"),
+        }
     }
 
     // ---- Pass 2: resolve all buffered links against the complete file
@@ -466,6 +491,88 @@ mod tests {
         let mut rows = conn.query(sql, ()).await.expect("query");
         let row = rows.next().await.expect("next").expect("row");
         row.get::<i64>(0).expect("get")
+    }
+
+    #[tokio::test]
+    async fn scan_indexes_every_markdown_file_for_search() {
+        use cubical_search::query::{run_search, FieldScope, SearchQuery, SortMode};
+        let n = 60usize;
+        let dir = tempdir().unwrap();
+        for i in 0..n {
+            let p = dir.path().join(format!("note-{i:03}.md"));
+            fs::write(&p, format!("# Title {i}\n\nzzqx{i:03} body content\n")).unwrap();
+        }
+        let vault = Vault::open(dir.path()).await.expect("open");
+        let (tx, _rx) = mpsc::channel::<ScanProgress>(256);
+        let cancel = CancellationToken::new();
+        let count = scan(vault.clone(), cancel, tx).await.expect("scan");
+        assert_eq!(count as usize, n);
+        assert_eq!(
+            vault.search().doc_count().unwrap(),
+            n as u64,
+            "every markdown file must land in the search index"
+        );
+        for i in 0..n {
+            let q = SearchQuery {
+                text: format!("zzqx{i:03}"),
+                limit: 0,
+                offset: 0,
+                fields: FieldScope::Default,
+                fuzzy: false,
+                sort: SortMode::Relevance,
+            };
+            let r = run_search(vault.search(), &q).unwrap();
+            assert_eq!(
+                r.hits.len(),
+                1,
+                "token zzqx{i:03} should find exactly its file, got {}",
+                r.hits.len()
+            );
+            assert_eq!(r.hits[0].path, format!("note-{i:03}.md"));
+        }
+    }
+
+    #[tokio::test]
+    async fn scan_reconciles_orphan_search_docs() {
+        use cubical_search::query::{run_search, FieldScope, SearchQuery, SortMode};
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("live.md"), "alpha live note\n").unwrap();
+        let vault = Vault::open(dir.path()).await.expect("open");
+
+        // Simulate a doc left behind for a file that no longer exists
+        // (e.g. renamed/deleted while the app wasn't watching).
+        cubical_core_index_doc(&vault, "ghost.md", "alpha ghost note").await;
+        vault.search().commit().unwrap();
+        let q = SearchQuery {
+            text: "alpha".into(),
+            limit: 0,
+            offset: 0,
+            fields: FieldScope::Default,
+            fuzzy: false,
+            sort: SortMode::Relevance,
+        };
+        let before = run_search(vault.search(), &q).unwrap().hits;
+        assert_eq!(before.len(), 1);
+        assert_eq!(before[0].path, "ghost.md", "orphan present pre-scan");
+
+        // A scan walks only `live.md`; it indexes live.md and reconcile
+        // must drop the orphan `ghost.md`.
+        let (tx, _rx) = mpsc::channel::<ScanProgress>(8);
+        scan(vault.clone(), CancellationToken::new(), tx)
+            .await
+            .expect("scan");
+
+        let after = run_search(vault.search(), &q).unwrap().hits;
+        assert_eq!(after.len(), 1, "ghost doc reconciled away, live indexed");
+        assert_eq!(after[0].path, "live.md");
+    }
+
+    /// Index a doc directly into the search index (test helper for
+    /// simulating orphans).
+    async fn cubical_core_index_doc(vault: &Vault, path: &str, body: &str) {
+        super::super::search_refresh::refresh_search_index(vault, path, body, 0, body.len() as u64)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]

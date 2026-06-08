@@ -13,7 +13,7 @@ use crate::schema::Fields;
 use serde::{Deserialize, Serialize};
 use tantivy::collector::TopDocs;
 use tantivy::query::{BooleanQuery, FuzzyTermQuery, Occur, Query, QueryParser, TermQuery};
-use tantivy::schema::{IndexRecordOption, TantivyDocument, Value};
+use tantivy::schema::{Field, IndexRecordOption, TantivyDocument, Value};
 use tantivy::{DocAddress, Order, Searcher, SnippetGenerator, Term};
 
 /// Hard cap on `limit`.
@@ -158,31 +158,46 @@ pub fn run_search(idx: &SearchIndex, q: &SearchQuery) -> Result<SearchResponse, 
 
     // Build the parsed query for the chosen scope.
     let parsed: Box<dyn Query> = match &q.fields {
-        FieldScope::Default => {
-            let mut p = QueryParser::for_index(
-                idx.index(),
-                vec![f.title, f.headings, f.body, f.tags, f.frontmatter],
-            );
-            p.set_field_boost(f.title, 3.0);
-            p.set_field_boost(f.headings, 2.0);
-            p.set_field_boost(f.tags, 2.0);
-            p.parse_query(&prepare_query_text(&q.text))
-                .map_err(|e| SearchError::QueryParse(e.to_string()))?
-        }
-        FieldScope::HeadingsOnly => {
-            let p = QueryParser::for_index(idx.index(), vec![f.headings]);
-            p.parse_query(&prepare_query_text(&q.text))
-                .map_err(|e| SearchError::QueryParse(e.to_string()))?
-        }
-        FieldScope::BodyOnly => {
-            let p = QueryParser::for_index(idx.index(), vec![f.body]);
-            p.parse_query(&prepare_query_text(&q.text))
-                .map_err(|e| SearchError::QueryParse(e.to_string()))?
-        }
-        FieldScope::CodeOnly => {
-            let p = QueryParser::for_index(idx.index(), vec![f.code]);
-            p.parse_query(&prepare_query_text(&q.text))
-                .map_err(|e| SearchError::QueryParse(e.to_string()))?
+        FieldScope::Default
+        | FieldScope::HeadingsOnly
+        | FieldScope::BodyOnly
+        | FieldScope::CodeOnly => {
+            let scope_fields: Vec<Field> = match &q.fields {
+                FieldScope::Default => vec![f.title, f.headings, f.body, f.tags, f.frontmatter],
+                FieldScope::HeadingsOnly => vec![f.headings],
+                FieldScope::BodyOnly => vec![f.body],
+                FieldScope::CodeOnly => vec![f.code],
+                FieldScope::Tags { .. } => unreachable!("tags handled below"),
+            };
+            // Build the QueryParser query (stemmed-exact matches, field
+            // boosts, and the term queries `SnippetGenerator` highlights
+            // from).
+            let mut p = QueryParser::for_index(idx.index(), scope_fields.clone());
+            if matches!(q.fields, FieldScope::Default) {
+                p.set_field_boost(f.title, 3.0);
+                p.set_field_boost(f.headings, 2.0);
+                p.set_field_boost(f.tags, 2.0);
+            }
+            let exact = p
+                .parse_query(&prepare_query_text(&q.text))
+                .map_err(|e| SearchError::QueryParse(e.to_string()))?;
+
+            // Plain word queries (no operator punctuation) ALSO get
+            // search-as-you-type prefix matching, OR'd with the exact
+            // query so a token's prefix matches the whole token while
+            // stemmed whole-word matches and snippet highlighting keep
+            // working. Queries with operator syntax (quotes, `-`, `tag:`,
+            // …) skip prefix expansion and use the parser alone.
+            match simple_terms(&q.text) {
+                Some(terms) => {
+                    let prefix = build_prefix_query(&searcher, &terms, &scope_fields)?;
+                    Box::new(BooleanQuery::new(vec![
+                        (Occur::Should, exact),
+                        (Occur::Should, prefix),
+                    ]))
+                }
+                None => exact,
+            }
         }
         FieldScope::Tags { tags } => {
             // Exact-match AND across all requested tags. Tags are
@@ -275,6 +290,88 @@ pub fn run_search(idx: &SearchIndex, q: &SearchQuery) -> Result<SearchResponse, 
         took_ms: started.elapsed().as_millis() as u64,
         still_indexing: false,
     })
+}
+
+/// Split `text` into lowercased terms iff it is a "simple" query —
+/// whitespace-separated tokens of only alphanumeric characters. Returns
+/// `None` for anything containing operator punctuation (`:`, `-`, `"`,
+/// `#`, …), which routes to the full `QueryParser` so phrase / negation /
+/// field-prefix syntax still works. Alphanumeric-only tokens are also
+/// safe to splice into a regex without escaping.
+fn simple_terms(text: &str) -> Option<Vec<String>> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let mut terms = Vec::new();
+    for tok in trimmed.split_whitespace() {
+        if tok.chars().all(char::is_alphanumeric) {
+            terms.push(tok.to_lowercase());
+        } else {
+            return None;
+        }
+    }
+    (!terms.is_empty()).then_some(terms)
+}
+
+/// Build an AND-of-terms prefix query over `fields`: every term must
+/// prefix-match the term dictionary of at least one field. Powers
+/// search-as-you-type — a token's prefix matches the whole token.
+///
+/// Each prefix is expanded against the live term dictionary into the
+/// concrete matching terms, and every match becomes a `TermQuery`. Using
+/// real `TermQuery` leaves (rather than a `RegexQuery`) is what lets
+/// `SnippetGenerator` highlight prefix hits — it extracts terms from the
+/// query. The indexed dictionaries are lowercased and `simple_terms`
+/// lowercased the query terms, so the byte ranges align.
+fn build_prefix_query(
+    searcher: &Searcher,
+    terms: &[String],
+    fields: &[Field],
+) -> Result<Box<dyn Query>, SearchError> {
+    let mut must: Vec<(Occur, Box<dyn Query>)> = Vec::with_capacity(terms.len());
+    for term in terms {
+        let mut per_field: Vec<(Occur, Box<dyn Query>)> = Vec::new();
+        for &field in fields {
+            for expanded in expand_prefix(searcher, field, term)? {
+                let tq = TermQuery::new(expanded, IndexRecordOption::WithFreqs);
+                per_field.push((Occur::Should, Box::new(tq)));
+            }
+        }
+        // An empty clause (no dictionary term shares this prefix in any
+        // field) matches nothing, so the AND correctly yields no hits.
+        must.push((Occur::Must, Box::new(BooleanQuery::new(per_field))));
+    }
+    Ok(Box::new(BooleanQuery::new(must)))
+}
+
+/// Stream the `field` term dictionary for every term beginning with
+/// `prefix` (across all segments, de-duplicated) and return them as
+/// `Term`s.
+fn expand_prefix(
+    searcher: &Searcher,
+    field: Field,
+    prefix: &str,
+) -> Result<Vec<Term>, SearchError> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for reader in searcher.segment_readers() {
+        let inverted = reader.inverted_index(field)?;
+        let dict = inverted.terms();
+        let mut stream = dict.range().ge(prefix.as_bytes()).into_stream()?;
+        while stream.advance() {
+            let key = stream.key();
+            if !key.starts_with(prefix.as_bytes()) {
+                break;
+            }
+            if let Ok(s) = std::str::from_utf8(key) {
+                if seen.insert(s.to_string()) {
+                    out.push(Term::from_field_text(field, s));
+                }
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// Strip raw `#` from query text (`#project` → `project`) and lowercase
@@ -413,6 +510,90 @@ mod tests {
         }
         idx.commit().unwrap();
         (tmp, idx)
+    }
+
+    #[test]
+    fn single_term_default_fuzzy_is_title_only_known_limitation() {
+        // Regression guard documenting the L4-A behaviour that broke the
+        // L4-B panel: with `fuzzy: true`, a single-term (≥4-char)
+        // default-scope query is rewritten to a FuzzyTermQuery against
+        // `title` ONLY, discarding the multi-field parsed query. So a
+        // body-only word is found with fuzzy OFF but missed with fuzzy
+        // ON. The L4-B panel therefore sends `fuzzy: false`
+        // (ui/src/sidebar/searchQuery.ts). Revisit when L4-A's fuzzy is
+        // generalised to span fields.
+        let (_t, idx) = fixture_index();
+        let q = |fuzzy: bool| SearchQuery {
+            text: "quick".into(), // body of a.md; title is "Alpha Notes"
+            limit: 0,
+            offset: 0,
+            fields: FieldScope::Default,
+            fuzzy,
+            sort: SortMode::Relevance,
+        };
+        assert_eq!(
+            run_search(&idx, &q(true)).unwrap().hits.len(),
+            0,
+            "fuzzy ON wrongly searches title only → misses the body word"
+        );
+        assert_eq!(
+            run_search(&idx, &q(false)).unwrap().hits.len(),
+            1,
+            "fuzzy OFF searches all default fields → finds the body word"
+        );
+    }
+
+    #[test]
+    fn prefix_of_a_word_matches() {
+        // Reproduces the reported bug: a prefix of an indexed token must
+        // match (search-as-you-type), not only the whole token.
+        let (_t, idx) = fixture_index();
+        let run = |text: &str| {
+            run_search(
+                &idx,
+                &SearchQuery {
+                    text: text.into(),
+                    limit: 0,
+                    offset: 0,
+                    fields: FieldScope::Default,
+                    fuzzy: false,
+                    sort: SortMode::Relevance,
+                },
+            )
+            .unwrap()
+            .hits
+            .len()
+        };
+        // a.md body is "the quick brown fox".
+        assert_eq!(run("quick"), 1, "exact word still matches");
+        assert_eq!(run("qui"), 1, "prefix of a body word matches");
+        assert_eq!(run("brow"), 1, "prefix of another body word matches");
+        assert_eq!(run("zzz"), 0, "non-matching prefix returns nothing");
+    }
+
+    #[test]
+    fn prefix_matches_across_scoped_fields() {
+        let (_t, idx) = fixture_index();
+        let run = |text: &str, fields: FieldScope| {
+            run_search(
+                &idx,
+                &SearchQuery {
+                    text: text.into(),
+                    limit: 0,
+                    offset: 0,
+                    fields,
+                    fuzzy: false,
+                    sort: SortMode::Relevance,
+                },
+            )
+            .unwrap()
+            .hits
+            .len()
+        };
+        // headings: c.md "Search"; code: a.md "fn alpha()".
+        assert_eq!(run("sear", FieldScope::HeadingsOnly), 1);
+        assert_eq!(run("alph", FieldScope::CodeOnly), 1);
+        assert_eq!(run("brow", FieldScope::BodyOnly), 1);
     }
 
     #[test]
@@ -572,13 +753,127 @@ mod tests {
     }
 
     #[test]
+    fn body_match_produces_highlighted_snippet() {
+        // Regression for L4-B (§5 deviation #1 → option (a)): once
+        // `body` is STORED, a body hit must yield a <mark>-bearing
+        // snippet, not just a title snippet.
+        let (_t, idx) = fixture_index();
+        let r = run_search(
+            &idx,
+            &SearchQuery {
+                text: "fox".into(),
+                limit: 0,
+                offset: 0,
+                fields: FieldScope::Default,
+                fuzzy: false,
+                sort: SortMode::Relevance,
+            },
+        )
+        .unwrap();
+        assert_eq!(r.hits[0].path, "a.md");
+        let body = r.hits[0]
+            .matched_fields
+            .iter()
+            .find(|m| m.field == "body")
+            .map(|m| m.snippet.as_str())
+            .expect("body field should produce a snippet once STORED");
+        assert!(
+            body.contains("<mark>") && body.contains("</mark>"),
+            "expected <mark> highlights in body snippet, got: {body}"
+        );
+    }
+
+    #[test]
+    fn headings_and_code_matches_produce_snippets() {
+        let (_t, idx) = fixture_index();
+        let h = run_search(
+            &idx,
+            &SearchQuery {
+                text: "Heading".into(),
+                limit: 0,
+                offset: 0,
+                fields: FieldScope::HeadingsOnly,
+                fuzzy: false,
+                sort: SortMode::Relevance,
+            },
+        )
+        .unwrap();
+        assert!(
+            !h.hits.is_empty(),
+            "expected hits for 'Heading' in HeadingsOnly scope"
+        );
+        assert!(h.hits[0]
+            .matched_fields
+            .iter()
+            .any(|m| m.field == "headings" && m.snippet.contains("<mark>")));
+
+        let c = run_search(
+            &idx,
+            &SearchQuery {
+                text: "alpha".into(),
+                limit: 0,
+                offset: 0,
+                fields: FieldScope::CodeOnly,
+                fuzzy: false,
+                sort: SortMode::Relevance,
+            },
+        )
+        .unwrap();
+        assert!(
+            !c.hits.is_empty(),
+            "expected hits for 'alpha' in CodeOnly scope"
+        );
+        assert!(c.hits[0]
+            .matched_fields
+            .iter()
+            .any(|m| m.field == "code" && m.snippet.contains("<mark>")));
+    }
+
+    #[test]
+    fn frontmatter_match_produces_snippet() {
+        let tmp = TempDir::new().unwrap();
+        let idx = SearchIndex::open(tmp.path()).unwrap();
+        idx.upsert(&IndexDoc {
+            path: "fm.md".into(),
+            title: "FM Doc".into(),
+            headings: String::new(),
+            body: String::new(),
+            code: String::new(),
+            tags: vec![],
+            frontmatter: "author znamarand".into(),
+            mtime_secs: 1_717_000_000,
+            size_bytes: 64,
+        })
+        .unwrap();
+        idx.commit().unwrap();
+        let r = run_search(
+            &idx,
+            &SearchQuery {
+                text: "znamarand".into(),
+                limit: 0,
+                offset: 0,
+                fields: FieldScope::Default,
+                fuzzy: false,
+                sort: SortMode::Relevance,
+            },
+        )
+        .unwrap();
+        assert!(
+            !r.hits.is_empty(),
+            "expected a hit for the frontmatter term"
+        );
+        assert!(r.hits[0]
+            .matched_fields
+            .iter()
+            .any(|m| m.field == "frontmatter" && m.snippet.contains("<mark>")));
+    }
+
+    #[test]
     fn snippet_contains_mark_tags() {
-        // `title` is the only stored text field in the schema (the rest
-        // are indexed-only — see `docs/superpowers/specs/2026-06-02-l4-a-tantivy-design.md`
-        // §schema), so snippet content is only available for hits on
-        // `title`. The test query is chosen to match `title` on the
-        // "Alpha Notes" fixture so we exercise the `<b>` → `<mark>`
-        // post-processing.
+        // As of L4-B all prose fields are STORED, so any matched text
+        // field can yield a snippet. This test pins the title path: the
+        // query matches `title` on "Alpha Notes" so we exercise the
+        // `<b>` → `<mark>` post-processing on a title snippet.
         let (_t, idx) = fixture_index();
         let r = run_search(
             &idx,

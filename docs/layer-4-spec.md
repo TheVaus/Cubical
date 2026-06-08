@@ -89,7 +89,7 @@ L4-A introduced three load-bearing calls beyond the design. Promotion to `docs/a
 L4 closes when L4-A + L4-B + L4-C + L4-D are all signed off and the `l4` tag is applied. L4-A's per-session DoD is in [`docs/superpowers/specs/2026-06-02-l4-a-tantivy-design.md`](superpowers/specs/2026-06-02-l4-a-tantivy-design.md) § Definition of Done; this section is the layer-level rollup.
 
 - [x] **L4-A:** Tantivy backend landed; four IPC commands; scan + watcher fan-out; schema-version stamp; smoke vault built. Closed 2026-06-03 (`l4a` tag). §9.1.
-- [ ] **L4-B:** Persistent left-panel search UI; virtualised result list; debounced query input; "still indexing…" banner.
+- [x] **L4-B:** Persistent left-panel search UI; grouped-by-file result list; debounced query input; "still indexing…" banner. Closed 2026-06-08 (`l4b` tag). §9.3.
 - [ ] **L4-C:** `Cmd/Ctrl+K` Omni-Bar; aggregates notes, headings, tags, commands.
 - [ ] **L4-D:** Dataview-style libSQL queries; `list` / `table` / `count` blocks.
 - [ ] L3 carry-over smoke confirmed at every session kickoff.
@@ -441,5 +441,219 @@ by the "final shape" recorded in this §9.2.
 **Implementation plan:** `docs/superpowers/plans/2026-06-04-l4a-fix.md`
 **Executed smoke:** `docs/superpowers/2026-06-04-l4a-fix-smoke-runbook-executed.md`
 
-**Next:** L4-B (persistent left-panel search results UI) — now
-unblocked.
+---
+
+### 9.3 Session B — persistent left-panel search results UI (closed 2026-06-08, `l4b` tag)
+
+First UI consumer of L4-A's search IPC. Design spec:
+`docs/superpowers/specs/2026-06-07-l4b-search-panel-design.md`. Plan:
+`docs/superpowers/plans/2026-06-07-l4b-search-panel.md`. Built
+subagent-driven (implementer + spec review + code-quality review per
+task, plus a final holistic review — all on `feat/l4b-search-panel`).
+
+#### What landed
+
+> **Layout note:** the original `Files | Search` segmented toggle +
+> `ui.left_pane_mode` persistence was replaced after the first operator
+> smoke (see "Post-smoke revisions" below). The current shape is a
+> persistent search bar above the file tree.
+
+- **`ui/src/sidebar/SearchPanel.tsx`** — a persistent search bar at the
+  top of the left column (`App.tsx` renders the file tree as its
+  `children`). Below `MIN_QUERY_LEN` (3) chars the tree shows; at/over
+  it the tree is replaced by results. Debounced (200 ms) query into
+  `search`; sort + scope controls live in a **filter popover** opened
+  from a button right of the bar (click-away + `Esc` to close; the
+  button badges when a non-default sort/scope is active). A virtualised,
+  fixed-height (`80px`) result list reusing `computeWindow` unchanged;
+  per-card title + best `<mark>`-highlighted snippet + path + relative
+  recency; click navigates via `handleNavigateWikilink` (reuses the
+  open-file/autosave path). A polled (`500 ms`) `search_index_status`
+  "Indexing… N/M" banner shows above results while `Building` and stops
+  at `ready`; empty/error states handled (errors keep prior hits
+  visible). `min-width: 0` runs down the column so a long path/snippet
+  truncates instead of widening the fixed 18rem sidebar.
+- **Pure, unit-tested modules:** `debounce.ts`, `snippet.ts`
+  (`pickSnippet` priority body→headings→code→frontmatter→title;
+  `parseHighlights` splits `<mark>` + unescapes entities, **no
+  innerHTML**), `searchQuery.ts` (`buildSearchQuery`; `ScopeKind`
+  derived from the wire `FieldScope["kind"]`; tags scope =
+  whitespace-split), `relativeTime.ts` (`formatRelativeTime`).
+
+#### §5 deviation #1 resolved — option (a)
+
+Promoted `headings` / `body` / `code` / `frontmatter` to **`STORED`** in
+`cubical-search` `schema.rs` and bumped `SCHEMA_VERSION` `1 → 2`.
+Tantivy now generates tokenizer-correct `<mark>` snippets for every
+matched field, not just `title`. The doc writer (`index.rs`) and
+`collect_snippets` (`query.rs`) already handled all fields, so **no
+query-logic change** was needed — only the schema flags + the version
+bump, which auto-fires the existing wipe+rebuild path on next open
+(`.md` files are the source of truth; index is derived state). Cost:
+~2-3× index disk (verify in smoke). This closes §5 deviation #1; the
+spec row there can be marked resolved at L4 close.
+
+#### Tests
+
+**+25 vitest** (415 → 421 net after the recency module; counts:
+debounce 2, snippet 10, searchQuery 5, relativeTime 4) and **+6 Rust**
+in `cubical-search` (body/headings+code/frontmatter snippet tests,
+`prose_fields_are_stored`) plus a `cubical-app` health-version test
+bumped to 2. `SearchPanel.tsx` has **no component unit test by design**
+— the repo has no Solid render library and UI is operator-smoke-only
+(Contract E); all its testable logic lives in the four pure modules.
+
+Totals after the post-smoke revisions: **465 Rust + 422 vitest**.
+
+#### Post-smoke revisions (2026-06-07, first operator pass)
+
+The first operator smoke surfaced bugs + UX changes, fixed before close:
+
+- **Search found files/tags/text only intermittently (root-caused).** The
+  panel sent `fuzzy: true`; L4-A rewrites any single-term, ≥4-char,
+  default-scope query into a `FuzzyTermQuery` against **`title` only**,
+  discarding the multi-field parsed query — so words present only in
+  body/headings/tags/frontmatter were silently missed, and the "no
+  pattern" was single-word (title-only) vs multi-word (all fields). Fix:
+  `buildSearchQuery` sends **`fuzzy: false`** so every default-scope
+  query searches all fields; Rust regression guard
+  `single_term_default_fuzzy_is_title_only_known_limitation` documents
+  the L4-A behaviour (generalising backend fuzzy across fields deferred
+  to an L4-A revisit). Evidence: fixture query `quick` (body word) →
+  0 hits fuzzy-on, 1 hit fuzzy-off.
+- **Layout reworked (replaces the segmented toggle):** persistent search
+  bar above the file tree; tree shows below 3 chars, results at/over;
+  `leftPaneMode` + `ui.left_pane_mode` removed.
+- **Filter popover:** sort + scope moved into a popover button right of
+  the search bar (click-away + `Esc`; badges when non-default).
+- **Fixed sidebar width:** `min-width: 0` added down the column so long
+  paths/snippets truncate instead of widening the 18rem column.
+- **3-char threshold** before any search fires.
+
+#### Grouped results — Obsidian-core-search layout (2026-06-08)
+
+After the first re-smoke (operator confirmed search "works well"), the
+flat one-row-per-file result list was reworked into **file groups**, on
+operator request, modelled on Obsidian's core-search panel:
+
+- **`ui/src/sidebar/resultGroups.ts`** (new, pure + unit-tested) —
+  `buildFileGroups(hits)` turns each `SearchHit` into a `FileGroup`
+  (`path` / `title` / `mtime_secs` / `cards`). Each matched field becomes
+  a `ResultCard` (field + parsed `<mark>` segments), ordered
+  body→headings→code→frontmatter→title (unknown fields last, stable);
+  empty-snippet cards dropped. **+7 vitest.**
+- **`SearchPanel.tsx`** — renders each group as a **collapsible header**
+  (chevron toggles; title opens the file) carrying the title, relative
+  recency, and a **match-count badge** (= number of snippet cards), over
+  one wrapped **snippet card** per matched field (each opens the file). A
+  **"N results"** line sits above the list (`N+` when the backend pulled
+  a full `PAGE_LIMIT` window — never shown as a true total, per
+  `SearchResponse`). `pickSnippet` (single-snippet selection) deleted as
+  dead code; its 4 tests removed.
+- **Virtualisation removed for the grouped view.** Variable-height
+  collapsible groups don't fit the fixed-row windowing L4-B shipped; the
+  list is capped at `PAGE_LIMIT` (50) files and rendered directly (50
+  groups × a few cards is a small DOM). `computeWindow` is untouched and
+  still used by App's file tree.
+- **Deferred to the L4-A search revisit** (filed as a follow-up): (a)
+  **typo-tolerance** — generalise backend fuzzy across all fields (today
+  it's `title`-only, hence `fuzzy:false`), the Obsidian-Omnisearch
+  behaviour the operator asked for; (b) **per-occurrence cards** — one
+  card per match *location* within a field (Tantivy currently yields one
+  best fragment per field, so a file with 4 body hits shows 1 body card,
+  not 4); (c) windowed scrolling for the grouped list if huge result
+  sets ever need it.
+
+Net test deltas this pass: **+7 vitest / −4 vitest** (425 total),
+**0 Rust** (frontend-only).
+
+#### Gate results (2026-06-08, automated)
+
+L4-B baseline (2026-06-07): `cargo test --workspace` (465) · `cargo
+clippy --workspace --all-targets -- -D warnings` (clean) · `cargo fmt
+--all --check` (clean) — unaffected by the frontend-only grouping
+change. Re-run after grouping: `npx tsc --noEmit` (clean) · `npx vitest
+run` (**425**) · `npm run build` (clean).
+
+#### Operator smoke — RE-SMOKE REQUIRED before the `l4b` tag (Contract E)
+
+First pass (2026-06-07) found the fuzzy bug + UX changes above; all
+fixed. A clean re-smoke against `cargo tauri dev` is still owed. Run and
+record:
+
+1. **Per-field matches found + highlighted, grouped by file** — with the
+   fuzzy fix, plain single-word queries must find body / heading / tags /
+   frontmatter matches (not just titles). Each file now renders as a
+   group: title header + match-count badge + one `<mark>` snippet card
+   per matched field. Re-test the cases that failed first pass (e.g. the
+   `Frontmatter` file, tag-only matches).
+   - **Grouped UI (new 2026-06-08):** count badge = number of cards;
+     chevron collapses/expands a group; clicking the title or any card
+     opens the file; "N results" line shows above the list (`N+` when
+     capped at 50). Confirm a file matching in several fields shows
+     several cards.
+2. **One-time rebuild after the version bump** — open a vault last
+   indexed at SCHEMA_VERSION 1; confirm wipe+rebuild (banner shows,
+   results converge), no stale/empty index, no `LockBusy`.
+3. **`open_vault` re-open `LockBusy` smoke** (pending from 2026-06-06,
+   `docs/superpowers/specs/2026-06-06-idempotent-open-vault-design.md`):
+   re-open the same folder → no `LockBusy`, stays on that vault; open a
+   different folder → distinct vault. Record there + flip the CLAUDE.md
+   "operator smoke pending" line.
+4. **Search bar UX** — typing <3 chars keeps the file tree; ≥3 chars
+   shows results; the filter popover opens/closes (click-away + `Esc`)
+   and sort/scope changes re-run; a long path/snippet does **not**
+   widen the sidebar. The inline **clear (✕) button** appears only while
+   the box has text and, on click, empties it immediately (tree returns)
+   and refocuses the input.
+5. **Grouped-list scroll** on a large result set (capped at 50 files,
+   rendered directly — virtualisation removed for the grouped view);
+   click a card on a file far down the list → correct file opens, view
+   returns to the editor; navigation still autosaves the open buffer.
+6. **Indexing banner** during `Building` on a fresh/large vault
+   (Recipe 11).
+7. **Disk footprint** — eyeball `.cubical/search` before/after ≈ 2-3×.
+8. **L4-A search recipes 1–11** against
+   `~/Developer/sandbox/cubical-l4a-smoke/` (standing backfill — L4-B
+   makes them load-bearing).
+
+#### Final-review findings (minor)
+
+Holistic review = "ready to merge", all findings Minor:
+- **Keyboard a11y:** search result rows are mouse-only (file-list rows
+  have `onKeyDown`). Captured as a follow-up task (chip
+  `task_bd4e47f4`), not a blocker.
+- Single-term default-scope fuzzy is `title`-only (L4-A) — worked around
+  by sending `fuzzy: false`; generalising it is an L4-A revisit.
+
+#### Closeout (2026-06-08 — `l4b` tagged)
+
+Merged to `main` and tagged `l4b`. All six automated gates green at
+close: `cargo test --workspace` (465), `cargo clippy --workspace
+--all-targets -- -D warnings` (clean), `cargo fmt --all --check`
+(clean), `npx tsc --noEmit` (clean), `npx vitest run` (**425**), `npm
+run build` (clean).
+
+**Operator smoke — what was actually confirmed (honest record).** The
+operator drove `cargo tauri dev` across this session and interactively
+confirmed: search returns results; the fuzzy fix surfaces single-word
+body/heading/tag/frontmatter matches with `<mark>` highlights; the
+**grouped-by-file** layout (collapsible title headers, per-field snippet
+cards, match-count badges, "N results" line); and the **✕ clear
+button**. On that basis the operator elected to tag `l4b` (overriding
+the Contract E "full formal re-smoke first" default — operator's call).
+
+**Carried forward — not separately executed/recorded this session** (fold
+into the L4 layer-close smoke / L4-C kickoff): the one-time wipe+rebuild
+on opening a SCHEMA_VERSION-1 vault; the `open_vault` re-open `LockBusy`
+check (still pending from 2026-06-06,
+`docs/superpowers/specs/2026-06-06-idempotent-open-vault-design.md` — its
+smoke-pending line is **not** flipped); the indexing banner on a large
+vault; the ~2–3× disk-footprint eyeball; and L4-A recipes 1–11 against
+`~/Developer/sandbox/cubical-l4a-smoke/`.
+
+**Deferred features** (chip `task_256abd1c`): cross-field typo-tolerance
+(Omnisearch-style) and per-occurrence snippet cards — both `cubical-search`
+backend work.
+
+**Next:** L4-C (`Cmd/Ctrl+K` Omni-Bar).

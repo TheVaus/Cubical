@@ -21,15 +21,15 @@ pub struct Fields {
     pub path: Field,
     /// Title text. `TEXT` + `en_stem`. Stored.
     pub title: Field,
-    /// Concatenated heading text. `TEXT` + `en_stem`. Not stored.
+    /// Concatenated heading text. `TEXT` + `en_stem`. Stored.
     pub headings: Field,
-    /// Prose body. `TEXT` + `en_stem`. Not stored.
+    /// Prose body. `TEXT` + `en_stem`. Stored.
     pub body: Field,
-    /// Code text. `TEXT` + `code`. Not stored.
+    /// Code text. `TEXT` + `code`. Stored.
     pub code: Field,
     /// Multi-valued lowercase tag strings. `STRING`. Stored.
     pub tags: Field,
-    /// Flattened frontmatter scalars. `TEXT` + `en_stem`. Not stored.
+    /// Flattened frontmatter scalars. `TEXT` + `en_stem`. Stored.
     pub frontmatter: Field,
     /// Unix seconds. `i64` `INDEXED|STORED|FAST`.
     pub mtime_secs: Field,
@@ -49,18 +49,19 @@ pub fn build_schema() -> (Schema, Fields) {
         .set_index_option(IndexRecordOption::WithFreqsAndPositions);
 
     let en_stem_stored = TextOptions::default()
-        .set_indexing_options(en_stem_indexing.clone())
+        .set_indexing_options(en_stem_indexing)
         .set_stored();
-    let en_stem_not_stored = TextOptions::default().set_indexing_options(en_stem_indexing.clone());
-    let code_not_stored = TextOptions::default().set_indexing_options(code_indexing);
+    let code_stored = TextOptions::default()
+        .set_indexing_options(code_indexing)
+        .set_stored();
 
     let path = sb.add_text_field("path", STRING | STORED);
-    let title = sb.add_text_field("title", en_stem_stored);
-    let headings = sb.add_text_field("headings", en_stem_not_stored.clone());
-    let body = sb.add_text_field("body", en_stem_not_stored.clone());
-    let code = sb.add_text_field("code", code_not_stored);
+    let title = sb.add_text_field("title", en_stem_stored.clone());
+    let headings = sb.add_text_field("headings", en_stem_stored.clone());
+    let body = sb.add_text_field("body", en_stem_stored.clone());
+    let code = sb.add_text_field("code", code_stored);
     let tags = sb.add_text_field("tags", STRING | STORED);
-    let frontmatter = sb.add_text_field("frontmatter", en_stem_not_stored);
+    let frontmatter = sb.add_text_field("frontmatter", en_stem_stored);
     let mtime_secs = sb.add_i64_field("mtime_secs", INDEXED | STORED | FAST);
     let size_bytes = sb.add_u64_field("size_bytes", INDEXED | STORED | FAST);
 
@@ -109,6 +110,18 @@ mod tests {
         assert_eq!(schema.get_field_name(f.frontmatter), "frontmatter");
         assert_eq!(schema.get_field_name(f.mtime_secs), "mtime_secs");
         assert_eq!(schema.get_field_name(f.size_bytes), "size_bytes");
+    }
+
+    #[test]
+    fn prose_fields_are_stored() {
+        let (schema, f) = build_schema();
+        for field in [f.headings, f.body, f.code, f.frontmatter] {
+            assert!(
+                schema.get_field_entry(field).is_stored(),
+                "expected {} to be STORED",
+                schema.get_field_name(field)
+            );
+        }
     }
 
     #[test]

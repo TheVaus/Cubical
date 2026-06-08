@@ -24,6 +24,7 @@
 use std::path::PathBuf;
 
 use cubical_core::vault::pending::apply_pending;
+use cubical_core::vault::search_refresh::{delete_search_index, refresh_search_index};
 use cubical_core::{
     atomic_write, refresh_block_refs_for_file, refresh_blocks, refresh_frontmatter, refresh_links,
     refresh_tags, sha256_bytes_hex,
@@ -359,6 +360,27 @@ pub async fn rename_file<R: Runtime>(
     let _ = refresh_tags(&vault, &req.to_path, &on_disk).await;
     let _ = refresh_blocks(&vault, &req.to_path, &on_disk).await;
     let _ = refresh_block_refs_for_file(&vault, &req.to_path).await;
+
+    // L4-B: the Tantivy search index is a separate store and the rename
+    // command is its own mutation path — keep it in sync here rather than
+    // relying on the watcher (which lags / may coalesce app-initiated
+    // renames, leaving the old path's doc searchable). Drop the old
+    // path's doc, index the new path, commit. Idempotent vs. any later
+    // watcher event.
+    let _ = delete_search_index(&vault, &req.from_path).await;
+    let (mtime_secs, size_bytes) = std::fs::metadata(&to_abs)
+        .map(|m| {
+            let mtime = m
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
+                .unwrap_or(0);
+            (mtime, m.len())
+        })
+        .unwrap_or((0, on_disk.len() as u64));
+    let _ = refresh_search_index(&vault, &req.to_path, &on_disk, mtime_secs, size_bytes).await;
+    let _ = vault.search().commit();
 
     // >50-per-file fuse — spec §5.7. Per-referrer-file synchronous
     // flush when the post-enqueue count for that file exceeds 50.
@@ -1154,6 +1176,57 @@ mod tests {
         assert_eq!(p[0].new_token, "Journal");
         let n = pending_for_target(vault.index(), "Notes.md").await.unwrap();
         assert_eq!(n.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn rename_file_keeps_search_index_in_sync() {
+        use cubical_search::query::{run_search, FieldScope, SearchQuery, SortMode};
+        let (_d, vault, state) = fresh("v1").await;
+        seed_file(&vault, "Daily.md", "markdown").await;
+        let body = "uniquetoken body\n";
+        std::fs::write(vault.root().join("Daily.md"), body).unwrap();
+        // Index the file under its current path so it is searchable.
+        refresh_search_index(&vault, "Daily.md", body, 0, body.len() as u64)
+            .await
+            .unwrap();
+        vault.search().commit().unwrap();
+
+        let q = |text: &str| SearchQuery {
+            text: text.into(),
+            limit: 0,
+            offset: 0,
+            fields: FieldScope::Default,
+            fuzzy: false,
+            sort: SortMode::Relevance,
+        };
+        let before = run_search(vault.search(), &q("uniquetoken")).unwrap();
+        assert_eq!(before.hits.len(), 1);
+        assert_eq!(before.hits[0].path, "Daily.md");
+
+        rename_file(
+            &state,
+            &mock_app(),
+            RenameFileRequest {
+                vault_id: "v1".into(),
+                from_path: "Daily.md".into(),
+                to_path: "Journal.md".into(),
+            },
+        )
+        .await
+        .expect("ok");
+
+        // The search index must follow the rename: new path indexed, old
+        // path dropped — not left stale for the watcher to maybe fix.
+        let after = run_search(vault.search(), &q("uniquetoken")).unwrap();
+        assert_eq!(after.hits.len(), 1, "exactly one doc after rename");
+        assert_eq!(
+            after.hits[0].path, "Journal.md",
+            "doc must be searchable under the new path"
+        );
+        assert!(
+            after.hits.iter().all(|h| h.path != "Daily.md"),
+            "old path must be dropped from the search index"
+        );
     }
 
     #[tokio::test]
