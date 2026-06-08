@@ -240,9 +240,14 @@ mod tests {
         .await
         .unwrap();
 
-        let resp = list_tags(&state, ListTagsRequest { vault_id: "v1".into() })
-            .await
-            .expect("ok");
+        let resp = list_tags(
+            &state,
+            ListTagsRequest {
+                vault_id: "v1".into(),
+            },
+        )
+        .await
+        .expect("ok");
         assert_eq!(
             resp.tags,
             vec!["alpha".to_string(), "project/cubical".to_string()]

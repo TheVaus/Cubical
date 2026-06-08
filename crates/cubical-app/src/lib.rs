@@ -42,14 +42,13 @@ use api::types::{
     GetPendingRewritesCountResponse, GetSettingRequest, GetSettingResponse, GetVaultInfoRequest,
     GetVaultInfoResponse, LinkAutocompleteRequest, LinkAutocompleteResponse, ListFilesRequest,
     ListFilesResponse, ListRecentRenameOpsRequest, ListRecentRenameOpsResponse, ListTagsRequest,
-    ListTagsResponse, OpenVaultRequest,
-    OpenVaultResponse, QueryTagPageRequest, QueryTagPageResponse, ReadFileTextRequest,
-    ReadFileTextResponse, RenameBlockIdRequest, RenameBlockIdResponse, RenameFileRequest,
-    RenameFileResponse, RenameTagRequest, RenameTagResponse, ResolveLinkRequest,
-    ResolveLinkResponse, SearchHealthDto, SearchIndexStatusDto, SearchRequest, SearchResponse,
-    SearchVaultRequest, SetSettingRequest, SetSettingResponse, TagAutocompleteRequest,
-    TagAutocompleteResponse, UndoRenameRequest, UndoRenameResponse, WriteFileTextRequest,
-    WriteFileTextResponse,
+    ListTagsResponse, OpenVaultRequest, OpenVaultResponse, QueryTagPageRequest,
+    QueryTagPageResponse, ReadFileTextRequest, ReadFileTextResponse, RenameBlockIdRequest,
+    RenameBlockIdResponse, RenameFileRequest, RenameFileResponse, RenameTagRequest,
+    RenameTagResponse, ResolveLinkRequest, ResolveLinkResponse, SearchHealthDto,
+    SearchIndexStatusDto, SearchRequest, SearchResponse, SearchVaultRequest, SetSettingRequest,
+    SetSettingResponse, TagAutocompleteRequest, TagAutocompleteResponse, UndoRenameRequest,
+    UndoRenameResponse, WriteFileTextRequest, WriteFileTextResponse,
 };
 use error::CubicalError;
 use state::AppState;
