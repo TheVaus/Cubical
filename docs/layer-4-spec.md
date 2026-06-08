@@ -90,7 +90,7 @@ L4 closes when L4-A + L4-B + L4-C + L4-D are all signed off and the `l4` tag is 
 
 - [x] **L4-A:** Tantivy backend landed; four IPC commands; scan + watcher fan-out; schema-version stamp; smoke vault built. Closed 2026-06-03 (`l4a` tag). §9.1.
 - [x] **L4-B:** Persistent left-panel search UI; grouped-by-file result list; debounced query input; "still indexing…" banner. Closed 2026-06-08 (`l4b` tag). §9.3.
-- [ ] **L4-C:** `Cmd/Ctrl+K` Omni-Bar — fuzzy navigator over **notes + tags** (headings + commands deferred). Code complete 2026-06-08, operator smoke pending before `l4c` tag. §9.4.
+- [x] **L4-C:** `Cmd/Ctrl+K` Omni-Bar — fuzzy navigator over **notes + tags** (headings + commands deferred). Closed 2026-06-08 (`l4c` tag). §9.4. Companion: search typo tolerance shipped as `l4a-fix.2` (cross-field backend fuzzy).
 - [ ] **L4-D:** Dataview-style libSQL queries; `list` / `table` / `count` blocks.
 - [ ] L3 carry-over smoke confirmed at every session kickoff.
 - [ ] `cargo test --workspace` green at each session close.
@@ -660,7 +660,7 @@ backend work.
 
 ---
 
-### 9.4 Session C — `Cmd/Ctrl+K` Omni-Bar (code complete 2026-06-08; operator smoke pending)
+### 9.4 Session C — `Cmd/Ctrl+K` Omni-Bar (closed 2026-06-08, `l4c` tag)
 
 A keyboard-summoned fuzzy navigator over **notes + tags**. Design:
 `docs/superpowers/specs/2026-06-08-l4-c-omnibar-design.md`. Plan:
@@ -725,13 +725,35 @@ design (Contract E).
 `npx tsc --noEmit` (clean) · `npx vitest run` (**447**) · `npm run
 build` (clean).
 
-#### Operator smoke — pending before the `l4c` tag
+#### Companion: search typo tolerance (`l4a-fix.2`)
 
-Run + record against `cargo tauri dev`: `Cmd/Ctrl+K` opens (input
-focused); empty shows recent notes; typing fuzzy-ranks notes + tags with
-highlighted chars; a typo (e.g. `rdkng` → "Red King") still matches;
-↑/↓ + Enter jumps to the right note / tag and closes; Esc closes +
-restores focus; long paths don't blow out the card.
+Smoking the Omni-Bar surfaced that the operator's real want was
+typo-tolerant **search** — and that the L4-B left search bar still
+wasn't (a wrong letter returned nothing). That's the `task_256abd1c`
+cross-field-fuzzy item; it was implemented in the same session on
+`feat/search-fuzzy` and merged to `main` alongside L4-C. `cubical-search`
+`build_fuzzy_query` adds an edit-distance-1 (Damerau) `FuzzyTermQuery`
+across **all** scope fields when fuzzy is on and the query is a single
+term ≥`FUZZY_MIN_LEN`, OR'd with the exact+prefix query (exact still
+ranks top via BM25). The panel sends `fuzzy:true` again. Replaces the
+old `single_term_default_fuzzy_is_title_only_known_limitation` guard with
+`single_term_fuzzy_spans_all_fields`. Caveat: a purely-typo'd word may
+not be `<mark>`-highlighted (Tantivy highlights the literal typed term);
+the result still appears. The **per-occurrence cards** half of
+`task_256abd1c` remains deferred.
+
+#### Operator smoke (honest record)
+
+The operator drove `cargo tauri dev` across the session and found three
+issues that were fixed and landed: (1) the Omni-Bar needed *real*
+(substitution) typo tolerance — `ricj` didn't match (added
+`approxSubstringDistance`); (2) the left search bar wasn't typo-tolerant
+(the `l4a-fix.2` backend fuzzy above); (3) `Cmd/Ctrl+K` "did nothing" —
+a checkout-on-the-wrong-branch artifact, resolved by merging both
+feature branches to `main`. The operator then elected to tag `l4c` +
+`l4a-fix.2`. The **final merged `main` state was not separately
+re-smoked** after the last merge — carry a confirm-pass (Omni-Bar opens
++ navigates; search bar finds typos) into the next session.
 
 #### Out of scope (deferred)
 

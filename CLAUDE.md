@@ -68,10 +68,9 @@ Crates without Tauri deps (`cubical-core`, `cubical-ast`, `cubical-index`, `cubi
 
 Current layer: 4 — Search (in progress).
 
-**L4-C — `Cmd/Ctrl+K` Omni-Bar — CODE COMPLETE 2026-06-08 on
-`feat/l4c-omnibar`; operator smoke pending before the `l4c` tag.** A
-keyboard-summoned fuzzy navigator over **notes + tags** (headings +
-commands deferred). Client-side ranking (Approach A) over in-memory
+**L4-C — `Cmd/Ctrl+K` Omni-Bar — CLOSED 2026-06-08, tagged `l4c`, merged
+to `main`.** A keyboard-summoned fuzzy navigator over **notes + tags**
+(headings + commands deferred). Client-side ranking (Approach A) over in-memory
 sources — instant + typo-tolerant, sidestepping L4-A's title-only
 backend fuzzy. `ui/src/omnibar/ranker.ts` (pure: `OmniItem`,
 `fuzzyMatch` code-point subsequence, `scoreMatch` fzf-style,
@@ -90,9 +89,18 @@ global hotkey (no-op without a vault), a lazy tag cache invalidated on
 `handleNavigateTag`. Spec
 `docs/superpowers/specs/2026-06-08-l4-c-omnibar-design.md`; plan
 `docs/superpowers/plans/2026-06-08-l4c-omnibar.md`; closeout §9.4.
-**Smoke before tag:** `Cmd/Ctrl+K` opens + focuses; recent-notes empty
-state; fuzzy notes+tags w/ highlights; typo (`rdkng`→"Red King");
-↑/↓+Enter jumps + closes; Esc restores focus.
+
+**Search typo tolerance — SHIPPED 2026-06-08, tagged `l4a-fix.2`, merged
+to `main`** (the `task_256abd1c` cross-field-fuzzy item — done). The L4-B
+search bar wasn't typo-tolerant: a wrong letter (`ricj` for `rich`)
+returned nothing, because L4-A's fuzzy was `title`-only so the panel sent
+`fuzzy:false`. `cubical-search` `build_fuzzy_query` now adds an
+edit-distance-1 (Damerau) `FuzzyTermQuery` across **all** scope fields,
+OR'd with the exact+prefix query (exact still ranks top via BM25); single
+term ≥4 chars only. Panel flipped to `fuzzy:true`
+(`searchQuery.ts`). Caveat: a purely-typo'd word may not get a `<mark>`
+(Tantivy highlights the literal typed term). Test:
+`single_term_fuzzy_spans_all_fields`.
 
 **L4-B — CLOSED 2026-06-08, tagged `l4b`, merged to `main`.** Persistent
 left-panel search: bar above the file tree, filter popover (sort+scope),
@@ -103,19 +111,30 @@ results **grouped by file** (collapsible header + match-count badge +
 (`resultGroups`/`snippet`/`searchQuery`/`debounce`/`relativeTime`);
 component operator-smoke-only.
 
+**Operator smoke (honest record):** the operator drove `cargo tauri dev`
+across the session and found/`drove` three fixes that landed — Omni-Bar
+needed real (substitution) typo tolerance; the search bar needed the
+cross-field backend fuzzy; and `Cmd/Ctrl+K` "did nothing" was a
+checkout-on-the-wrong-branch artifact (resolved by merging both branches
+to `main`). The operator then elected to tag both. The **final merged
+`main` state was not separately re-smoked** after the last merge — carry
+a confirm-pass into the next session.
+
 **Carried forward (do at L4 layer-close):** L4-B's not-formally-smoked
 items — version-bump rebuild, `open_vault` re-open `LockBusy` (line
 **not** flipped), indexing banner on a big vault, ~2-3× disk, L4-A
-recipes 1–11 — plus L4-C's own operator smoke. Open chips: keyboard nav
-for search rows (`task_bd4e47f4`); cross-field fuzzy + per-occurrence
-cards (`task_256abd1c`).
+recipes 1–11 — plus the merged-`main` confirm-pass above. Open chips:
+keyboard nav for search rows (`task_bd4e47f4`); **per-occurrence snippet
+cards** (the remaining half of `task_256abd1c` — its fuzzy half shipped
+as `l4a-fix.2`).
 
-Test counts: **447 vitest + 468 Rust** (L4-C: +22 vitest, +3 Rust). All
-six gates green on `feat/l4c-omnibar`: `cargo test --workspace` (468),
-`cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt
---all --check`, `npx tsc --noEmit`, `npx vitest run` (447), `npm run
-build`. L0 `l0` (2026-05-13); L1 `l1` (2026-05-09); L2 `l2`
+Test counts: **447 vitest + 468 Rust** (L4-C: +22 vitest, +3 Rust;
+search fuzzy: net 0). All six gates green on merged `main`: `cargo test
+--workspace`, `cargo clippy --workspace --all-targets -- -D warnings`,
+`cargo fmt --all --check`, `npx tsc --noEmit`, `npx vitest run` (447),
+`npm run build`. L0 `l0` (2026-05-13); L1 `l1` (2026-05-09); L2 `l2`
 (2026-05-22); L3 `l3` (2026-06-01); L4-A `l4a` (2026-06-03); L4-A-fix
-`l4a-fix` + `l4a-fix.1` (2026-06-06); L4-B `l4b` (2026-06-08).
+`l4a-fix` + `l4a-fix.1` (2026-06-06); L4-B `l4b` (2026-06-08); L4-C
+`l4c` + search-fuzzy `l4a-fix.2` (2026-06-08).
 
-Next: **L4-D — Dataview-style libSQL queries** (after L4-C smoke + tag).
+Next: **L4-D — Dataview-style libSQL queries.**
