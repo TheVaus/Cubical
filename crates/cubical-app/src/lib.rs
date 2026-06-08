@@ -41,7 +41,8 @@ use api::types::{
     GetPendingRewritesBreakdownResponse, GetPendingRewritesCountRequest,
     GetPendingRewritesCountResponse, GetSettingRequest, GetSettingResponse, GetVaultInfoRequest,
     GetVaultInfoResponse, LinkAutocompleteRequest, LinkAutocompleteResponse, ListFilesRequest,
-    ListFilesResponse, ListRecentRenameOpsRequest, ListRecentRenameOpsResponse, OpenVaultRequest,
+    ListFilesResponse, ListRecentRenameOpsRequest, ListRecentRenameOpsResponse, ListTagsRequest,
+    ListTagsResponse, OpenVaultRequest,
     OpenVaultResponse, QueryTagPageRequest, QueryTagPageResponse, ReadFileTextRequest,
     ReadFileTextResponse, RenameBlockIdRequest, RenameBlockIdResponse, RenameFileRequest,
     RenameFileResponse, RenameTagRequest, RenameTagResponse, ResolveLinkRequest,
@@ -97,6 +98,7 @@ pub fn run() {
             query_tag_page,
             link_autocomplete,
             tag_autocomplete,
+            list_tags,
             block_id_autocomplete,
             create_block_ref,
             get_broken_block_refs,
@@ -286,6 +288,15 @@ async fn tag_autocomplete(
     req: TagAutocompleteRequest,
 ) -> Result<TagAutocompleteResponse, CubicalError> {
     commands::autocomplete::tag_autocomplete(state.inner(), req).await
+}
+
+/// Tauri shim — see [`commands::autocomplete::list_tags`].
+#[tauri::command]
+async fn list_tags(
+    state: tauri::State<'_, AppState>,
+    req: ListTagsRequest,
+) -> Result<ListTagsResponse, CubicalError> {
+    commands::autocomplete::list_tags(state.inner(), req).await
 }
 
 /// Tauri shim — see [`commands::autocomplete::block_id_autocomplete`].
