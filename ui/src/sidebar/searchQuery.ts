@@ -3,16 +3,15 @@ import type { FieldScope, SearchQuery, SortMode } from "../api/ipc";
 /**
  * Map the search panel's chip state into the wire `SearchQuery`.
  *
- * `fuzzy` is deliberately OFF. L4-A's backend rewrites a single-term,
- * ≥4-char, default-scope query with `fuzzy: true` into a FuzzyTermQuery
- * against `title` ONLY, discarding the multi-field parsed query — so a
- * word appearing only in body / headings / tags / frontmatter is
- * silently missed (see cubical-search query.rs
- * `single_term_default_fuzzy_is_title_only_known_limitation`). Until that
- * backend behaviour is generalised to span fields, the panel keeps fuzzy
- * off so every default-scope query searches all fields. The `tags` scope
- * reinterprets the query box as whitespace-separated tag names
- * (AND-matched, lowercased backend-side).
+ * `fuzzy` is ON: a single-term, ≥4-char query gets an edit-distance-1
+ * clause spanning ALL scope fields, OR'd with the exact + prefix query
+ * (see cubical-search query.rs `build_fuzzy_query` /
+ * `single_term_fuzzy_spans_all_fields`), so typos like `ricj` → `rich`
+ * still match. This used to be OFF because L4-A's fuzzy was `title`-only
+ * and discarded the multi-field query; that limitation was fixed in the
+ * L4-A revisit (task_256abd1c). The `tags` scope reinterprets the query
+ * box as whitespace-separated tag names (AND-matched, lowercased
+ * backend-side).
  */
 export type ScopeKind = FieldScope["kind"];
 
@@ -48,7 +47,7 @@ export function buildSearchQuery(input: QueryInput): SearchQuery {
     limit: input.limit,
     offset: input.offset,
     fields: buildFieldScope(input.scope, input.text),
-    fuzzy: false,
+    fuzzy: true,
     sort: input.sort,
   };
 }
