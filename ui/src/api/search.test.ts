@@ -20,6 +20,7 @@ import {
   searchIndexStatus,
   searchRebuildIndex,
   searchGetHealth,
+  listTags,
   type SearchRequest,
   type SearchVaultRequest,
 } from "./ipc";
@@ -105,5 +106,14 @@ describe("search ipc wrappers", () => {
     expect(mockInvoke).toHaveBeenCalledWith("search_get_health", {
       req: { vault_id: "vault-1" },
     });
+  });
+
+  it("listTags calls list_tags with `{ req }` and returns the tag list", async () => {
+    mockInvoke.mockResolvedValueOnce({ tags: ["alpha", "project/cubical"] });
+    const res = await listTags({ vault_id: "vault-1" });
+    expect(mockInvoke).toHaveBeenCalledWith("list_tags", {
+      req: { vault_id: "vault-1" },
+    });
+    expect(res.tags).toEqual(["alpha", "project/cubical"]);
   });
 });

@@ -505,6 +505,23 @@ export function tagAutocomplete(
   return invoke("tag_autocomplete", { req });
 }
 
+export interface ListTagsRequest {
+  vault_id: string;
+}
+export interface ListTagsResponse {
+  /** Every distinct tag path in the vault (no leading #). */
+  tags: string[];
+}
+
+/**
+ * All distinct vault tags — the full set, uncapped (unlike
+ * `tagAutocomplete`'s paged prefix matches) — for the L4-C Omni-Bar's
+ * client-side fuzzy ranking.
+ */
+export function listTags(req: ListTagsRequest): Promise<ListTagsResponse> {
+  return invoke("list_tags", { req });
+}
+
 // ---------------------------------------------------------------------------
 // block_id_autocomplete (L3 — [[#^ block-id completion)
 // ---------------------------------------------------------------------------
