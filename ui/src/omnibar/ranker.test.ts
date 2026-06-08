@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  approxSubstringDistance,
   fuzzyMatch,
   matchText,
   rankItems,
@@ -85,5 +86,40 @@ describe("rankItems", () => {
   it("carries matchedIndices through", () => {
     const r = rankItems("rk", [note("Red King")], 50);
     expect(r[0]!.matchedIndices).toEqual([0, 4]);
+  });
+});
+
+describe("approxSubstringDistance", () => {
+  it("is 0 when the query is an exact substring", () => {
+    expect(approxSubstringDistance("rich", "frontmatter_rich")).toBe(0);
+  });
+  it("counts a single substitution typo", () => {
+    expect(approxSubstringDistance("ricj", "frontmatter_rich")).toBe(1);
+  });
+  it("counts a single extra letter (query longer)", () => {
+    expect(approxSubstringDistance("riich", "rich")).toBe(1);
+  });
+  it("is the query length when nothing aligns", () => {
+    expect(approxSubstringDistance("xyz", "abcdef")).toBe(3);
+  });
+});
+
+describe("rankItems typo tolerance", () => {
+  it("matches a single-substitution typo (ricj → frontmatter_rich)", () => {
+    const r = rankItems("ricj", [note("frontmatter_rich"), note("Blue")], 50);
+    expect(r.map((x) => matchText(x.item))).toContain("frontmatter_rich");
+    expect(r.map((x) => matchText(x.item))).not.toContain("Blue");
+  });
+  it("ranks clean subsequence matches above typo'd ones", () => {
+    // "rich" is a subsequence of "rich_note"; for "ricj_note" it is not
+    // (no 'h'/'j' alignment) → fuzzy. Subsequence must win.
+    const r = rankItems("rich", [note("ricj_note"), note("rich_note")], 50);
+    expect(matchText(r[0]!.item)).toBe("rich_note");
+  });
+  it("does not fuzzy-match beyond the edit threshold", () => {
+    expect(rankItems("xyz", [note("Blue")], 50)).toEqual([]);
+  });
+  it("requires exactness for very short queries (no fuzzy under 3 chars)", () => {
+    expect(rankItems("rx", [note("ra")], 50)).toEqual([]);
   });
 });
