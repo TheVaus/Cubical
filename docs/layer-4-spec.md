@@ -679,8 +679,15 @@ A keyboard-summoned fuzzy navigator over **notes + tags**. Design:
 - **`ui/src/omnibar/ranker.ts`** (pure, the heart): `OmniItem` model,
   `matchText`, `fuzzyMatch` (case-insensitive, code-point subsequence),
   `scoreMatch` (fzf-style: contiguity, word-boundary, prefix/exact
-  bonuses, shorter-is-better), `rankItems` (deterministic ties: score →
-  shorter → note-before-tag → alpha; capped). **+13 vitest.**
+  bonuses, shorter-is-better), `approxSubstringDistance` (Sellers'
+  k-approximate substring edit distance — **real typo tolerance** for
+  *substituted* letters, not just skipped ones), `rankItems`
+  (subsequence first; if that fails, a bounded edit-distance fallback
+  within a length-scaled budget — 0 under 3 chars, 1 up to 5, else 2 —
+  with subsequence matches tiered above typo matches; deterministic
+  ties: score → shorter → note-before-tag → alpha; capped). **+21
+  vitest.** *(Edit-distance fallback added 2026-06-08 after first
+  operator smoke — subsequence alone missed typos like `ricj`→`rich`.)*
 - **`ui/src/omnibar/OmniBar.tsx`**: the modal — auto-focused input, a
   unified `listbox` of ranked rows (kind badge + matched-char
   highlights + path subtitle for notes), ↑/↓/Enter/Esc, click/hover,
@@ -706,15 +713,16 @@ close); no visible `⌘K` hint in v1. UX choices research-backed
 
 #### Tests
 
-**+13 vitest** (`ranker.test.ts`) **+1 vitest** (`listTags` shape) →
-**439 vitest**; **+3 Rust** (`all_tag_paths` ×2, `list_tags` ×1) →
-**468 Rust**. `OmniBar.tsx` has no component test by design (Contract E).
+**+21 vitest** (`ranker.test.ts`, incl. 8 typo-tolerance) **+1 vitest**
+(`listTags` shape) → **447 vitest**; **+3 Rust** (`all_tag_paths` ×2,
+`list_tags` ×1) → **468 Rust**. `OmniBar.tsx` has no component test by
+design (Contract E).
 
 #### Gate results (2026-06-08, automated)
 
 `cargo clippy --workspace --all-targets -- -D warnings` (clean) ·
 `cargo fmt --all --check` (clean) · `cargo test --workspace` (468) ·
-`npx tsc --noEmit` (clean) · `npx vitest run` (**439**) · `npm run
+`npx tsc --noEmit` (clean) · `npx vitest run` (**447**) · `npm run
 build` (clean).
 
 #### Operator smoke — pending before the `l4c` tag

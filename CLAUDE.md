@@ -74,8 +74,11 @@ keyboard-summoned fuzzy navigator over **notes + tags** (headings +
 commands deferred). Client-side ranking (Approach A) over in-memory
 sources — instant + typo-tolerant, sidestepping L4-A's title-only
 backend fuzzy. `ui/src/omnibar/ranker.ts` (pure: `OmniItem`,
-`fuzzyMatch` code-point subsequence, `scoreMatch` fzf-style, `rankItems`
-deterministic ties + cap; +13 vitest) feeds `OmniBar.tsx` (modal:
+`fuzzyMatch` code-point subsequence, `scoreMatch` fzf-style,
+`approxSubstringDistance` edit-distance for **real typo tolerance**
+(substitutions, not just skips — added after first smoke when `ricj`
+missed `rich`), `rankItems` subsequence-then-bounded-fuzzy with
+subsequence tiered above; +21 vitest) feeds `OmniBar.tsx` (modal:
 auto-focused input, unified `listbox`, kind badge + matched-char
 highlights + path subtitle, ↑/↓/Enter/Esc, recent-notes empty state;
 a11y: dialog/listbox/option + `aria-activedescendant` + focus-on-open /
@@ -107,10 +110,10 @@ recipes 1–11 — plus L4-C's own operator smoke. Open chips: keyboard nav
 for search rows (`task_bd4e47f4`); cross-field fuzzy + per-occurrence
 cards (`task_256abd1c`).
 
-Test counts: **439 vitest + 468 Rust** (L4-C: +14 vitest, +3 Rust). All
+Test counts: **447 vitest + 468 Rust** (L4-C: +22 vitest, +3 Rust). All
 six gates green on `feat/l4c-omnibar`: `cargo test --workspace` (468),
 `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt
---all --check`, `npx tsc --noEmit`, `npx vitest run` (439), `npm run
+--all --check`, `npx tsc --noEmit`, `npx vitest run` (447), `npm run
 build`. L0 `l0` (2026-05-13); L1 `l1` (2026-05-09); L2 `l2`
 (2026-05-22); L3 `l3` (2026-06-01); L4-A `l4a` (2026-06-03); L4-A-fix
 `l4a-fix` + `l4a-fix.1` (2026-06-06); L4-B `l4b` (2026-06-08).

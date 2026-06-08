@@ -109,8 +109,14 @@ export function rankItems(query: string, items: OmniItem[], limit: number): Rank
 ```
 
 - **Matching:** case-insensitive **subsequence** of `query` against the
-  item's match text (`title` for notes, `tag` for tags). If the query
-  chars do not all appear in order, the item is excluded.
+  item's match text (`title` for notes, `tag` for tags) is the primary
+  path. **Typo tolerance (added 2026-06-08 after first smoke):** when the
+  query is *not* a subsequence, fall back to `approxSubstringDistance`
+  (Sellers' k-approximate substring edit distance) and still match if it
+  is within a length-scaled edit budget (0 under 3 chars, 1 up to 5, else
+  2). This handles *substituted* letters (`ricj`→`rich`), which
+  subsequence matching alone misses. Subsequence matches are tiered above
+  all typo matches. Items matching neither are excluded.
 - **Scoring (fzf-style), higher is better:** reward (a) contiguous runs
   of matched chars, (b) matches at boundaries — start of string, after a
   space/`/`/`-`/`_`, or a camelCase upper — and (c) an earlier first
