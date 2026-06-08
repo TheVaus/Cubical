@@ -750,10 +750,9 @@ issues that were fixed and landed: (1) the Omni-Bar needed *real*
 `approxSubstringDistance`); (2) the left search bar wasn't typo-tolerant
 (the `l4a-fix.2` backend fuzzy above); (3) `Cmd/Ctrl+K` "did nothing" —
 a checkout-on-the-wrong-branch artifact, resolved by merging both
-feature branches to `main`. The operator then elected to tag `l4c` +
-`l4a-fix.2`. The **final merged `main` state was not separately
-re-smoked** after the last merge — carry a confirm-pass (Omni-Bar opens
-+ navigates; search bar finds typos) into the next session.
+feature branches to `main`. The operator tagged `l4c` + `l4a-fix.2` and
+then **confirmed the merged `main` build works** — `Cmd/Ctrl+K` opens +
+navigates and the search bar finds typos. L4-C closed.
 
 #### Out of scope (deferred)
 

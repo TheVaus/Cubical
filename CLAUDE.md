@@ -111,21 +111,21 @@ results **grouped by file** (collapsible header + match-count badge +
 (`resultGroups`/`snippet`/`searchQuery`/`debounce`/`relativeTime`);
 component operator-smoke-only.
 
-**Operator smoke (honest record):** the operator drove `cargo tauri dev`
-across the session and found/`drove` three fixes that landed — Omni-Bar
-needed real (substitution) typo tolerance; the search bar needed the
+**Operator smoke (record):** the operator drove `cargo tauri dev` across
+the session, which surfaced three fixes that landed — Omni-Bar needed
+real (substitution) typo tolerance; the search bar needed the
 cross-field backend fuzzy; and `Cmd/Ctrl+K` "did nothing" was a
 checkout-on-the-wrong-branch artifact (resolved by merging both branches
-to `main`). The operator then elected to tag both. The **final merged
-`main` state was not separately re-smoked** after the last merge — carry
-a confirm-pass into the next session.
+to `main`). After merging + tagging, the operator **confirmed the merged
+`main` build works** (Cmd/Ctrl+K opens + navigates; the search bar finds
+typos) — L4-C + `l4a-fix.2` fully closed.
 
-**Carried forward (do at L4 layer-close):** L4-B's not-formally-smoked
-items — version-bump rebuild, `open_vault` re-open `LockBusy` (line
-**not** flipped), indexing banner on a big vault, ~2-3× disk, L4-A
-recipes 1–11 — plus the merged-`main` confirm-pass above. Open chips:
-keyboard nav for search rows (`task_bd4e47f4`); **per-occurrence snippet
-cards** (the remaining half of `task_256abd1c` — its fuzzy half shipped
+**Carried forward to L4 layer-close (after L4-D):** L4-B's
+not-formally-smoked items — version-bump rebuild, `open_vault` re-open
+`LockBusy` (line **not** flipped), indexing banner on a big vault, ~2-3×
+disk, L4-A recipes 1–11. Open chips: keyboard nav for search rows
+(`task_bd4e47f4`); **per-occurrence snippet cards** (`task_b5f2f1ef` —
+the remaining half of the old `task_256abd1c`, whose fuzzy half shipped
 as `l4a-fix.2`).
 
 Test counts: **447 vitest + 468 Rust** (L4-C: +22 vitest, +3 Rust;
@@ -137,4 +137,5 @@ search fuzzy: net 0). All six gates green on merged `main`: `cargo test
 `l4a-fix` + `l4a-fix.1` (2026-06-06); L4-B `l4b` (2026-06-08); L4-C
 `l4c` + search-fuzzy `l4a-fix.2` (2026-06-08).
 
-Next: **L4-D — Dataview-style libSQL queries.**
+Next: **L4-D — Dataview-style libSQL queries** (the final L4 session).
+Kickoff prompt: `docs/superpowers/2026-06-08-l4d-kickoff.md`.
