@@ -1,7 +1,9 @@
 import {
+  createEffect,
   createMemo,
   createSignal,
   For,
+  on,
   onCleanup,
   onMount,
   Show,
@@ -18,6 +20,7 @@ import {
   getBrokenBlockRefs,
   getSetting,
   listFiles,
+  listTags,
   onVaultFileChanged,
   onVaultFlushComplete,
   onVaultPendingRewritesChanged,
@@ -65,6 +68,8 @@ import Backlinks from "./sidebar/Backlinks";
 import UnlinkedMentions from "./sidebar/UnlinkedMentions";
 import SearchPanel from "./sidebar/SearchPanel";
 import TagPage from "./TagPage";
+import OmniBar from "./omnibar/OmniBar";
+import { type OmniItem, type RankedItem } from "./omnibar/ranker";
 
 /**
  * L2 Session A surface.
@@ -243,6 +248,60 @@ const App: Component = () => {
       setSearchRefreshTick((n) => n + 1);
     }, SEARCH_REFRESH_DEBOUNCE_MS);
   };
+
+  // ── L4-C Omni-Bar (Cmd/Ctrl+K quick switcher over notes + tags) ─────
+  const [omniOpen, setOmniOpen] = createSignal(false);
+  const [vaultTags, setVaultTags] = createSignal<string[]>([]);
+  const [tagsLoaded, setTagsLoaded] = createSignal(false);
+
+  /** Filename stem (no dir, no `.md`) — a note's display title. */
+  const fileStem = (path: string) => {
+    const base = path.split("/").pop() ?? path;
+    return base.endsWith(".md") ? base.slice(0, -3) : base;
+  };
+
+  /** Lazily load the full vault tag set for the Omni-Bar (cached). */
+  const ensureTagsLoaded = async () => {
+    const id = vaultId();
+    if (!id || tagsLoaded()) return;
+    try {
+      const resp = await listTags({ vault_id: id });
+      setVaultTags(resp.tags);
+    } catch (e) {
+      console.error("list_tags failed; Omni-Bar runs notes-only", e);
+      setVaultTags([]);
+    } finally {
+      setTagsLoaded(true);
+    }
+  };
+  // Invalidate the tag cache on vault content change (next open re-fetches).
+  createEffect(
+    on(
+      () => searchRefreshTick(),
+      () => setTagsLoaded(false),
+      { defer: true },
+    ),
+  );
+
+  const omniItems = createMemo<OmniItem[]>(() => {
+    const notes: OmniItem[] = files()
+      .filter((f) => f.type_id === "markdown")
+      .map((f) => ({ kind: "note", title: fileStem(f.path), path: f.path }));
+    const tags: OmniItem[] = vaultTags().map((t) => ({ kind: "tag", tag: t }));
+    return [...notes, ...tags];
+  });
+  const recentNotes = createMemo<RankedItem[]>(() =>
+    [...files()]
+      .filter((f) => f.type_id === "markdown")
+      .sort((a, b) => (b.mtime_unix ?? 0) - (a.mtime_unix ?? 0))
+      .slice(0, 10)
+      .map((f) => ({
+        item: { kind: "note" as const, title: fileStem(f.path), path: f.path },
+        score: 0,
+        matchedIndices: [],
+      })),
+  );
+
   // L3 Session I: which right-sidebar panel is currently rendered.
   // Persisted as `ui.right_sidebar_panel` (default `backlinks`).
   type RightSidebarPanel = "backlinks" | "unlinked_mentions";
@@ -891,6 +950,18 @@ const App: Component = () => {
     window.addEventListener("beforeunload", onBeforeUnload);
     onCleanup(() => window.removeEventListener("beforeunload", onBeforeUnload));
 
+    // L4-C: global Cmd/Ctrl+K toggles the Omni-Bar (no-op without a vault).
+    const onGlobalKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        if (!vaultId()) return;
+        e.preventDefault();
+        void ensureTagsLoaded();
+        setOmniOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onGlobalKey);
+    onCleanup(() => window.removeEventListener("keydown", onGlobalKey));
+
     // Re-resolve the theme when the OS appearance changes — but only
     // while the user is in `system` mode (an explicit light/dark
     // choice ignores the OS).
@@ -1523,6 +1594,15 @@ const App: Component = () => {
           </div>
         </section>
       </Show>
+
+      <OmniBar
+        open={omniOpen()}
+        items={omniItems()}
+        recentNotes={recentNotes()}
+        onClose={() => setOmniOpen(false)}
+        onOpenNote={(path) => void handleNavigateWikilink(path, null)}
+        onOpenTag={(tag) => void handleNavigateTag(tag)}
+      />
 
       <Show when={createOffer() !== null}>
         <div
