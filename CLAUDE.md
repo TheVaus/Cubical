@@ -68,73 +68,54 @@ Crates without Tauri deps (`cubical-core`, `cubical-ast`, `cubical-index`, `cubi
 
 Current layer: 4 — Search (in progress).
 
-**L4-B — persistent left-panel search UI — CLOSED 2026-06-08, tagged
-`l4b`, merged to `main`.** Grouped-results rework + ✕ clear button added
-2026-06-08 on operator request; operator confirmed search/grouping/clear
-interactively and elected to tag (see §9.3 closeout for the honest
-smoke record + carried-forward items). First UI consumer of L4-A's search IPC.
-A persistent search bar sits above the file tree in the left column;
-`ui/src/sidebar/SearchPanel.tsx` renders the tree (App's `children`)
-below 3 chars and replaces it with results at/over 3 chars — debounced
-query, sort+scope in a filter **popover** to the right of the bar,
-results **grouped by file** (Obsidian-core-search style: collapsible
-title header + match-count badge + one `<mark>` snippet card per matched
-field, "N results" line, chevron collapse, title/card click opens), a
-polled `search_index_status` "Indexing…" banner; an inline clear (✕)
-button in the search box empties+refocuses it; clicking a hit reuses
-`handleNavigateWikilink`. `min-width: 0` runs down the column so long
-text never widens the 18rem sidebar. Pure logic unit-tested in
-`debounce.ts` / `snippet.ts` / `searchQuery.ts` / `relativeTime.ts` /
-`resultGroups.ts`; the component is operator-smoke-only (no Solid render
-lib; Contract E).
+**L4-C — `Cmd/Ctrl+K` Omni-Bar — CODE COMPLETE 2026-06-08 on
+`feat/l4c-omnibar`; operator smoke pending before the `l4c` tag.** A
+keyboard-summoned fuzzy navigator over **notes + tags** (headings +
+commands deferred). Client-side ranking (Approach A) over in-memory
+sources — instant + typo-tolerant, sidestepping L4-A's title-only
+backend fuzzy. `ui/src/omnibar/ranker.ts` (pure: `OmniItem`,
+`fuzzyMatch` code-point subsequence, `scoreMatch` fzf-style,
+`approxSubstringDistance` edit-distance for **real typo tolerance**
+(substitutions, not just skips — added after first smoke when `ricj`
+missed `rich`), `rankItems` subsequence-then-bounded-fuzzy with
+subsequence tiered above; +21 vitest) feeds `OmniBar.tsx` (modal:
+auto-focused input, unified `listbox`, kind badge + matched-char
+highlights + path subtitle, ↑/↓/Enter/Esc, recent-notes empty state;
+a11y: dialog/listbox/option + `aria-activedescendant` + focus-on-open /
+restore-on-close; operator-smoke-only, Contract E). One new IPC
+`list_tags { vault_id } -> { tags }` (`cubical-index::all_tag_paths`
+distinct set → `cubical-app` command; +3 Rust). `App.tsx` wires the
+global hotkey (no-op without a vault), a lazy tag cache invalidated on
+`searchRefreshTick`, and Enter → `handleNavigateWikilink` /
+`handleNavigateTag`. Spec
+`docs/superpowers/specs/2026-06-08-l4-c-omnibar-design.md`; plan
+`docs/superpowers/plans/2026-06-08-l4c-omnibar.md`; closeout §9.4.
+**Smoke before tag:** `Cmd/Ctrl+K` opens + focuses; recent-notes empty
+state; fuzzy notes+tags w/ highlights; typo (`rdkng`→"Red King");
+↑/↓+Enter jumps + closes; Esc restores focus.
 
-**§5 deviation #1 resolved (option a):** `cubical-search` promotes
-`headings`/`body`/`code`/`frontmatter` to `STORED` and bumps
-`SCHEMA_VERSION` `1 → 2`, so Tantivy emits tokenizer-correct snippets for
-every matched field. The doc writer + `collect_snippets` already handled
-all fields → schema-flags + version bump only; the bump auto-fires the
-existing wipe+rebuild on next open (index is derived state; `.md` is
-truth). ~2-3× index disk.
+**L4-B — CLOSED 2026-06-08, tagged `l4b`, merged to `main`.** Persistent
+left-panel search: bar above the file tree, filter popover (sort+scope),
+results **grouped by file** (collapsible header + match-count badge +
+`<mark>` cards + "N results"), ✕ clear button, polled indexing banner.
+§5 deviation #1 resolved (option a: prose fields `STORED`,
+`SCHEMA_VERSION` 1→2 auto-fires wipe+rebuild). Pure logic unit-tested
+(`resultGroups`/`snippet`/`searchQuery`/`debounce`/`relativeTime`);
+component operator-smoke-only.
 
-**First-smoke fixes:** search was finding files/tags/text only
-intermittently because the panel sent `fuzzy: true` and L4-A rewrites
-single-term (≥4-char) default-scope queries to `title`-only fuzzy,
-discarding the multi-field search — fixed by sending `fuzzy: false`
-(Rust regression guard
-`single_term_default_fuzzy_is_title_only_known_limitation`; generalising
-backend fuzzy across fields deferred to an L4-A revisit). Also: replaced
-the `Files|Search` tab with the search-bar-above-tree model (dropped
-`ui.left_pane_mode`), moved filters into a popover, fixed the
-sidebar-widening bug, and gated search at ≥3 chars.
+**Carried forward (do at L4 layer-close):** L4-B's not-formally-smoked
+items — version-bump rebuild, `open_vault` re-open `LockBusy` (line
+**not** flipped), indexing banner on a big vault, ~2-3× disk, L4-A
+recipes 1–11 — plus L4-C's own operator smoke. Open chips: keyboard nav
+for search rows (`task_bd4e47f4`); cross-field fuzzy + per-occurrence
+cards (`task_256abd1c`).
 
-**Grouped results (2026-06-08):** `resultGroups.ts` (`buildFileGroups`,
-+7 vitest) maps each `SearchHit` → a `FileGroup` of ordered snippet
-cards; `SearchPanel` renders collapsible per-file groups. Virtualisation
-removed for the grouped view (variable-height groups; list capped at 50
-files, rendered directly; `computeWindow` still used by App's tree).
-Dead `pickSnippet` deleted (−4 tests). **Deferred to an L4-A search
-revisit** (chip `task_256abd1c`): (a) typo-tolerance — generalise backend fuzzy
-across all fields (today `title`-only → `fuzzy:false`), the
-Obsidian-Omnisearch behaviour the operator wants; (b) per-occurrence
-cards (one card per match *location* — Tantivy yields one fragment/field
-today).
+Test counts: **447 vitest + 468 Rust** (L4-C: +22 vitest, +3 Rust). All
+six gates green on `feat/l4c-omnibar`: `cargo test --workspace` (468),
+`cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt
+--all --check`, `npx tsc --noEmit`, `npx vitest run` (447), `npm run
+build`. L0 `l0` (2026-05-13); L1 `l1` (2026-05-09); L2 `l2`
+(2026-05-22); L3 `l3` (2026-06-01); L4-A `l4a` (2026-06-03); L4-A-fix
+`l4a-fix` + `l4a-fix.1` (2026-06-06); L4-B `l4b` (2026-06-08).
 
-**Carried forward from L4-B (not formally smoked — do at L4 layer-close /
-L4-C kickoff):** one-time wipe+rebuild on opening a SCHEMA_VERSION-1
-vault; the `open_vault` re-open `LockBusy` smoke from 2026-06-06 (still
-pending — line **not** flipped); indexing banner on a large vault; ~2-3×
-disk; L4-A recipes 1–11. Open follow-up chips: keyboard nav for search
-result rows (`task_bd4e47f4`); cross-field fuzzy + per-occurrence cards
-(`task_256abd1c`).
-
-Test counts: **425 vitest + 465 Rust** (frontend-only grouping pass: +7
-−4 vitest, 0 Rust). All six gates green on the branch:
-`cargo test --workspace`, `cargo clippy --workspace --all-targets --
--D warnings`, `cargo fmt --all --check`, `npx tsc --noEmit`, `npm run
-build`, `npx vitest run` (cargo gates unaffected by the frontend change;
-re-confirmed tsc/vitest/build 2026-06-08). L0 `l0` (2026-05-13); L1 `l1`
-(2026-05-09); L2 `l2` (2026-05-22); L3 `l3` (2026-06-01); L4-A `l4a`
-(2026-06-03); L4-A-fix `l4a-fix` + `l4a-fix.1` (2026-06-06); L4-B `l4b`
-(2026-06-08).
-
-Next: **L4-C — `Cmd/Ctrl+K` Omni-Bar.**
+Next: **L4-D — Dataview-style libSQL queries** (after L4-C smoke + tag).

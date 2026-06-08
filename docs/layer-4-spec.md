@@ -90,7 +90,7 @@ L4 closes when L4-A + L4-B + L4-C + L4-D are all signed off and the `l4` tag is 
 
 - [x] **L4-A:** Tantivy backend landed; four IPC commands; scan + watcher fan-out; schema-version stamp; smoke vault built. Closed 2026-06-03 (`l4a` tag). §9.1.
 - [x] **L4-B:** Persistent left-panel search UI; grouped-by-file result list; debounced query input; "still indexing…" banner. Closed 2026-06-08 (`l4b` tag). §9.3.
-- [ ] **L4-C:** `Cmd/Ctrl+K` Omni-Bar; aggregates notes, headings, tags, commands.
+- [ ] **L4-C:** `Cmd/Ctrl+K` Omni-Bar — fuzzy navigator over **notes + tags** (headings + commands deferred). Code complete 2026-06-08, operator smoke pending before `l4c` tag. §9.4.
 - [ ] **L4-D:** Dataview-style libSQL queries; `list` / `table` / `count` blocks.
 - [ ] L3 carry-over smoke confirmed at every session kickoff.
 - [ ] `cargo test --workspace` green at each session close.
@@ -657,3 +657,86 @@ vault; the ~2–3× disk-footprint eyeball; and L4-A recipes 1–11 against
 backend work.
 
 **Next:** L4-C (`Cmd/Ctrl+K` Omni-Bar).
+
+---
+
+### 9.4 Session C — `Cmd/Ctrl+K` Omni-Bar (code complete 2026-06-08; operator smoke pending)
+
+A keyboard-summoned fuzzy navigator over **notes + tags**. Design:
+`docs/superpowers/specs/2026-06-08-l4-c-omnibar-design.md`. Plan:
+`docs/superpowers/plans/2026-06-08-l4c-omnibar.md`. Built TDD on
+`feat/l4c-omnibar`.
+
+#### What landed
+
+- **`crates/cubical-index` — `all_tag_paths(conn)`** (`tags.rs`): the
+  distinct vault tag set (`SELECT DISTINCT tag_path ... ORDER BY
+  tag_path`), uncapped, case preserved. +2 Rust tests.
+- **`crates/cubical-app` — `list_tags` command** (`commands/autocomplete.rs`,
+  types in `api/types.rs`, shim + registration in `lib.rs`): one new IPC,
+  `list_tags { vault_id } -> { tags }`. +1 Rust test. This is the only
+  backend code in L4-C; everything else is frontend.
+- **`ui/src/omnibar/ranker.ts`** (pure, the heart): `OmniItem` model,
+  `matchText`, `fuzzyMatch` (case-insensitive, code-point subsequence),
+  `scoreMatch` (fzf-style: contiguity, word-boundary, prefix/exact
+  bonuses, shorter-is-better), `approxSubstringDistance` (Sellers'
+  k-approximate substring edit distance — **real typo tolerance** for
+  *substituted* letters, not just skipped ones), `rankItems`
+  (subsequence first; if that fails, a bounded edit-distance fallback
+  within a length-scaled budget — 0 under 3 chars, 1 up to 5, else 2 —
+  with subsequence matches tiered above typo matches; deterministic
+  ties: score → shorter → note-before-tag → alpha; capped). **+21
+  vitest.** *(Edit-distance fallback added 2026-06-08 after first
+  operator smoke — subsequence alone missed typos like `ricj`→`rich`.)*
+- **`ui/src/omnibar/OmniBar.tsx`**: the modal — auto-focused input, a
+  unified `listbox` of ranked rows (kind badge + matched-char
+  highlights + path subtitle for notes), ↑/↓/Enter/Esc, click/hover,
+  recent-notes empty state, "No notes/tags match" + "No notes yet"
+  states. A11y: `role=dialog`/`aria-modal`, `listbox`/`option`,
+  `aria-activedescendant`, focus-on-open + restore-on-close.
+  Operator-smoke-only (Contract E).
+- **`ui/src/api/ipc.ts`**: `listTags` wrapper + types; +1 shape smoke in
+  `search.test.ts`.
+- **`ui/src/App.tsx`**: global `Cmd/Ctrl+K` listener (no-op without a
+  vault), lazy tag cache invalidated on `searchRefreshTick`, `omniItems`
+  + `recentNotes` memos over `files()` + tags, modal render wired to
+  `handleNavigateWikilink` (notes) and `handleNavigateTag` (tags).
+
+#### Decisions (per design spec §2)
+
+Notes + tags only (headings + commands deferred — headings need a new
+index); client-side fuzzy over in-memory sources (Approach A — instant,
+typo-tolerant, sidesteps L4-A's title-only backend fuzzy); unified
+ranked list; recent-notes empty state; always hand off (navigate +
+close); no visible `⌘K` hint in v1. UX choices research-backed
+(keyboard-completable, match highlighting, recent-first, a11y).
+
+#### Tests
+
+**+21 vitest** (`ranker.test.ts`, incl. 8 typo-tolerance) **+1 vitest**
+(`listTags` shape) → **447 vitest**; **+3 Rust** (`all_tag_paths` ×2,
+`list_tags` ×1) → **468 Rust**. `OmniBar.tsx` has no component test by
+design (Contract E).
+
+#### Gate results (2026-06-08, automated)
+
+`cargo clippy --workspace --all-targets -- -D warnings` (clean) ·
+`cargo fmt --all --check` (clean) · `cargo test --workspace` (468) ·
+`npx tsc --noEmit` (clean) · `npx vitest run` (**447**) · `npm run
+build` (clean).
+
+#### Operator smoke — pending before the `l4c` tag
+
+Run + record against `cargo tauri dev`: `Cmd/Ctrl+K` opens (input
+focused); empty shows recent notes; typing fuzzy-ranks notes + tags with
+highlighted chars; a typo (e.g. `rdkng` → "Red King") still matches;
+↑/↓ + Enter jumps to the right note / tag and closes; Esc closes +
+restores focus; long paths don't blow out the card.
+
+#### Out of scope (deferred)
+
+Headings as jump targets (needs a headings index); commands / command
+palette; "create note if no match"; `#`-to-force-tags prefix;
+context-awareness; visible `⌘K` hint; preview pane.
+
+**Next:** L4-D (Dataview-style libSQL queries).

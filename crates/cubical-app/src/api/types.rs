@@ -421,6 +421,21 @@ pub struct TagAutocompleteResponse {
     pub candidates: Vec<String>,
 }
 
+/// Request payload for `list_tags`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ListTagsRequest {
+    /// Vault whose tag index to list.
+    pub vault_id: String,
+}
+
+/// Response payload for `list_tags` — every distinct tag path (no
+/// leading `#`), ordered, uncapped. Feeds the L4-C Omni-Bar.
+#[derive(Debug, Clone, Serialize)]
+pub struct ListTagsResponse {
+    /// All distinct tag paths in the vault.
+    pub tags: Vec<String>,
+}
+
 // -- close_vault ---------------------------------------------------------
 
 /// Request payload for `close_vault`.

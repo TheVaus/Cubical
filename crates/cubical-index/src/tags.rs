@@ -151,6 +151,21 @@ pub async fn tag_paths_for_prefix(
     Ok(out)
 }
 
+/// Every distinct tag path in the vault, ordered by `tag_path` (case
+/// preserved as written). Backs the L4-C Omni-Bar's client-side fuzzy
+/// tag source — the full set, uncapped, unlike `tag_paths_for_prefix`.
+pub async fn all_tag_paths(conn: &IndexConn) -> Result<Vec<String>, IndexError> {
+    let mut rows = conn
+        .connection()
+        .query("SELECT DISTINCT tag_path FROM tags ORDER BY tag_path", ())
+        .await?;
+    let mut out = Vec::new();
+    while let Some(row) = rows.next().await? {
+        out.push(row.get::<String>(0)?);
+    }
+    Ok(out)
+}
+
 /// All tag rows for a given file, ordered by `(source, tag_path)` so
 /// inline tags come before frontmatter ones and each group is
 /// lexicographic.
@@ -231,6 +246,42 @@ mod tests {
         assert_eq!(got.len(), 2);
         assert!(got.contains(&row("todo", TagSource::Inline)));
         assert!(got.contains(&row("project/cubical", TagSource::Frontmatter)));
+    }
+
+    #[tokio::test]
+    async fn all_tag_paths_returns_distinct_sorted() {
+        let (_dir, conn) = open_test_index().await;
+        seed_file(&conn, "a.md").await;
+        seed_file(&conn, "b.md").await;
+        replace_tags_for_file(
+            &conn,
+            "a.md",
+            &[
+                row("project/cubical", TagSource::Inline),
+                row("alpha", TagSource::Inline),
+            ],
+        )
+        .await
+        .expect("replace a");
+        // Same tag on a different file/source — DISTINCT must collapse it.
+        replace_tags_for_file(
+            &conn,
+            "b.md",
+            &[row("project/cubical", TagSource::Frontmatter)],
+        )
+        .await
+        .expect("replace b");
+        let tags = all_tag_paths(&conn).await.expect("all tags");
+        assert_eq!(
+            tags,
+            vec!["alpha".to_string(), "project/cubical".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn all_tag_paths_empty_when_no_tags() {
+        let (_dir, conn) = open_test_index().await;
+        assert!(all_tag_paths(&conn).await.expect("all tags").is_empty());
     }
 
     #[tokio::test]

@@ -7,11 +7,12 @@
 use std::path::Path;
 
 use cubical_core::vault::links::resolve_target;
-use cubical_index::{blocks_for_file, files_for_link_query, tag_paths_for_prefix};
+use cubical_index::{all_tag_paths, blocks_for_file, files_for_link_query, tag_paths_for_prefix};
 
 use crate::api::types::{
     BlockIdAutocompleteRequest, BlockIdAutocompleteResponse, LinkAutocompleteRequest,
-    LinkAutocompleteResponse, LinkCandidate, TagAutocompleteRequest, TagAutocompleteResponse,
+    LinkAutocompleteResponse, LinkCandidate, ListTagsRequest, ListTagsResponse,
+    TagAutocompleteRequest, TagAutocompleteResponse,
 };
 use crate::error::CubicalError;
 use crate::state::AppState;
@@ -66,6 +67,21 @@ pub async fn tag_autocomplete(
     let candidates =
         tag_paths_for_prefix(open.vault.index(), &req.query, AUTOCOMPLETE_LIMIT).await?;
     Ok(TagAutocompleteResponse { candidates })
+}
+
+/// Every distinct tag path in the vault (uncapped, ordered). Unlike
+/// `tag_autocomplete`, returns the full set so the Omni-Bar can
+/// fuzzy-rank tags client-side. See the L4-C design spec §4.
+pub async fn list_tags(
+    state: &AppState,
+    req: ListTagsRequest,
+) -> Result<ListTagsResponse, CubicalError> {
+    let guard = state.vaults().read().await;
+    let open = guard
+        .get(&req.vault_id)
+        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
+    let tags = all_tag_paths(open.vault.index()).await?;
+    Ok(ListTagsResponse { tags })
 }
 
 /// Block ids defined in the resolved target file. The target is resolved
@@ -198,6 +214,44 @@ mod tests {
         .await
         .expect("ok");
         assert_eq!(resp.candidates, vec!["project".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn list_tags_returns_all_distinct_sorted() {
+        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        seed_file(&vault, "a.md", "markdown").await;
+        seed_file(&vault, "b.md", "markdown").await;
+        replace_tags_for_file(
+            vault.index(),
+            "a.md",
+            &[
+                tag("project/cubical", TagSource::Inline),
+                tag("alpha", TagSource::Inline),
+            ],
+        )
+        .await
+        .unwrap();
+        // Same tag on another file/source — must dedupe to one row.
+        replace_tags_for_file(
+            vault.index(),
+            "b.md",
+            &[tag("project/cubical", TagSource::Frontmatter)],
+        )
+        .await
+        .unwrap();
+
+        let resp = list_tags(
+            &state,
+            ListTagsRequest {
+                vault_id: "v1".into(),
+            },
+        )
+        .await
+        .expect("ok");
+        assert_eq!(
+            resp.tags,
+            vec!["alpha".to_string(), "project/cubical".to_string()]
+        );
     }
 
     #[tokio::test]
