@@ -1,25 +1,12 @@
-import type { MatchedField } from "../api/ipc";
-
 /**
- * Snippet selection + highlight parsing for the search panel.
+ * Highlight parsing for the search panel.
  *
  * The backend returns one `<mark>`-highlighted snippet per matched
- * field. `pickSnippet` chooses the most context-rich field to show in a
- * one-line result row; `parseHighlights` turns the snippet HTML into
- * plain segments the component renders as text nodes + <mark> spans
- * (never via innerHTML).
+ * field. `parseHighlights` turns that snippet HTML into plain segments
+ * the component renders as text nodes + <mark> spans (never via
+ * innerHTML). Field ordering for the grouped result cards lives in
+ * `resultGroups.ts`.
  */
-
-/** Field preference for the single snippet shown per result row. */
-const FIELD_PRIORITY = ["body", "headings", "code", "frontmatter", "title"];
-
-export function pickSnippet(matched: MatchedField[]): MatchedField | null {
-  for (const field of FIELD_PRIORITY) {
-    const found = matched.find((m) => m.field === field);
-    if (found) return found;
-  }
-  return matched.length > 0 ? (matched[0] ?? null) : null;
-}
 
 /** One run of snippet text, flagged as highlighted or not. */
 export interface HighlightSegment {

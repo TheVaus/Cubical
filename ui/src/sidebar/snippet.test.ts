@@ -1,31 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { MatchedField } from "../api/ipc";
-import { parseHighlights, pickSnippet } from "./snippet";
-
-const mf = (field: string, snippet: string): MatchedField => ({ field, snippet });
-
-describe("pickSnippet", () => {
-  it("prefers body over headings/code/frontmatter/title", () => {
-    const fields = [mf("title", "t"), mf("headings", "h"), mf("body", "b")];
-    expect(pickSnippet(fields)?.field).toBe("body");
-  });
-
-  it("falls through the priority order when body is absent", () => {
-    expect(pickSnippet([mf("title", "t"), mf("code", "c")])?.field).toBe("code");
-    expect(pickSnippet([mf("title", "t"), mf("frontmatter", "f")])?.field).toBe(
-      "frontmatter",
-    );
-    expect(pickSnippet([mf("title", "t")])?.field).toBe("title");
-  });
-
-  it("returns null for an empty list", () => {
-    expect(pickSnippet([])).toBeNull();
-  });
-
-  it("falls back to the first field when no priority field is present", () => {
-    expect(pickSnippet([{ field: "weird", snippet: "w" }])?.field).toBe("weird");
-  });
-});
+import { parseHighlights } from "./snippet";
 
 describe("parseHighlights", () => {
   it("returns a single unmarked segment for plain text", () => {

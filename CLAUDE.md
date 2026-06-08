@@ -68,20 +68,25 @@ Crates without Tauri deps (`cubical-core`, `cubical-ast`, `cubical-index`, `cubi
 
 Current layer: 4 — Search (in progress).
 
-**L4-B — persistent left-panel search UI — code complete 2026-06-07 on
-`feat/l4b-search-panel`; first operator smoke done (found bugs, all
-fixed); re-smoke owed before merge/tag.** First UI consumer of L4-A's
-search IPC. A persistent search bar sits above the file tree in the left
-column; `ui/src/sidebar/SearchPanel.tsx` renders the tree (App's
-`children`) below 3 chars and replaces it with results at/over 3 chars —
-debounced query, sort+scope in a filter **popover** to the right of the
-bar, a virtualised fixed-height result list reusing `computeWindow`,
-`<mark>`-highlighted snippets (+ relative recency), a polled
-`search_index_status` "Indexing…" banner; clicking a hit reuses
+**L4-B — persistent left-panel search UI — CLOSED 2026-06-08, tagged
+`l4b`, merged to `main`.** Grouped-results rework + ✕ clear button added
+2026-06-08 on operator request; operator confirmed search/grouping/clear
+interactively and elected to tag (see §9.3 closeout for the honest
+smoke record + carried-forward items). First UI consumer of L4-A's search IPC.
+A persistent search bar sits above the file tree in the left column;
+`ui/src/sidebar/SearchPanel.tsx` renders the tree (App's `children`)
+below 3 chars and replaces it with results at/over 3 chars — debounced
+query, sort+scope in a filter **popover** to the right of the bar,
+results **grouped by file** (Obsidian-core-search style: collapsible
+title header + match-count badge + one `<mark>` snippet card per matched
+field, "N results" line, chevron collapse, title/card click opens), a
+polled `search_index_status` "Indexing…" banner; an inline clear (✕)
+button in the search box empties+refocuses it; clicking a hit reuses
 `handleNavigateWikilink`. `min-width: 0` runs down the column so long
 text never widens the 18rem sidebar. Pure logic unit-tested in
-`debounce.ts` / `snippet.ts` / `searchQuery.ts` / `relativeTime.ts`; the
-component is operator-smoke-only (no Solid render lib; Contract E).
+`debounce.ts` / `snippet.ts` / `searchQuery.ts` / `relativeTime.ts` /
+`resultGroups.ts`; the component is operator-smoke-only (no Solid render
+lib; Contract E).
 
 **§5 deviation #1 resolved (option a):** `cubical-search` promotes
 `headings`/`body`/`code`/`frontmatter` to `STORED` and bumps
@@ -102,21 +107,34 @@ the `Files|Search` tab with the search-bar-above-tree model (dropped
 `ui.left_pane_mode`), moved filters into a popover, fixed the
 sidebar-widening bug, and gated search at ≥3 chars.
 
-**Remaining to close L4-B (Contract E — tag only after executed smoke):**
-run + record the **re-smoke** in `docs/layer-4-spec.md` §9.3 (single-word
-body/tag/frontmatter matches now found + highlighted; one-time rebuild
-after the version bump; the pending `open_vault` re-open `LockBusy` smoke
-from 2026-06-06; search-bar UX incl. fixed width; virtualised scroll +
-navigation; indexing banner; ~2-3× disk; L4-A recipes 1–11). Then tick §6
-L4-B, merge to `main`, tag `l4b`. Follow-up chip filed: keyboard nav for
-search result rows (`task_bd4e47f4`).
+**Grouped results (2026-06-08):** `resultGroups.ts` (`buildFileGroups`,
++7 vitest) maps each `SearchHit` → a `FileGroup` of ordered snippet
+cards; `SearchPanel` renders collapsible per-file groups. Virtualisation
+removed for the grouped view (variable-height groups; list capped at 50
+files, rendered directly; `computeWindow` still used by App's tree).
+Dead `pickSnippet` deleted (−4 tests). **Deferred to an L4-A search
+revisit** (chip `task_256abd1c`): (a) typo-tolerance — generalise backend fuzzy
+across all fields (today `title`-only → `fuzzy:false`), the
+Obsidian-Omnisearch behaviour the operator wants; (b) per-occurrence
+cards (one card per match *location* — Tantivy yields one fragment/field
+today).
 
-Test counts: **422 vitest + 465 Rust** (+22 vitest / +7 Rust over
-L4-A-fix.1). All six gates green on the branch:
+**Carried forward from L4-B (not formally smoked — do at L4 layer-close /
+L4-C kickoff):** one-time wipe+rebuild on opening a SCHEMA_VERSION-1
+vault; the `open_vault` re-open `LockBusy` smoke from 2026-06-06 (still
+pending — line **not** flipped); indexing banner on a large vault; ~2-3×
+disk; L4-A recipes 1–11. Open follow-up chips: keyboard nav for search
+result rows (`task_bd4e47f4`); cross-field fuzzy + per-occurrence cards
+(`task_256abd1c`).
+
+Test counts: **425 vitest + 465 Rust** (frontend-only grouping pass: +7
+−4 vitest, 0 Rust). All six gates green on the branch:
 `cargo test --workspace`, `cargo clippy --workspace --all-targets --
 -D warnings`, `cargo fmt --all --check`, `npx tsc --noEmit`, `npm run
-build`, `npx vitest run`. L0 `l0` (2026-05-13); L1 `l1` (2026-05-09);
-L2 `l2` (2026-05-22); L3 `l3` (2026-06-01); L4-A `l4a` (2026-06-03);
-L4-A-fix `l4a-fix` + `l4a-fix.1` (2026-06-06).
+build`, `npx vitest run` (cargo gates unaffected by the frontend change;
+re-confirmed tsc/vitest/build 2026-06-08). L0 `l0` (2026-05-13); L1 `l1`
+(2026-05-09); L2 `l2` (2026-05-22); L3 `l3` (2026-06-01); L4-A `l4a`
+(2026-06-03); L4-A-fix `l4a-fix` + `l4a-fix.1` (2026-06-06); L4-B `l4b`
+(2026-06-08).
 
-Next after L4-B smoke+tag: **L4-C — `Cmd/Ctrl+K` Omni-Bar.**
+Next: **L4-C — `Cmd/Ctrl+K` Omni-Bar.**

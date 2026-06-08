@@ -17,9 +17,12 @@ import {
   type SearchHit,
   type SortMode,
 } from "../api/ipc";
-import { computeWindow } from "../virtualList";
 import { debounce } from "./debounce";
-import { parseHighlights, pickSnippet } from "./snippet";
+import {
+  buildFileGroups,
+  type FileGroup,
+  type ResultCard,
+} from "./resultGroups";
 import { buildSearchQuery, type ScopeKind } from "./searchQuery";
 import { formatRelativeTime } from "./relativeTime";
 
@@ -28,12 +31,20 @@ import { formatRelativeTime } from "./relativeTime";
  * above the file tree (passed as `children`); a filter popover to the
  * right of the bar holds the sort + scope controls. Once the query
  * reaches `MIN_QUERY_LEN` characters the file tree is replaced by a
- * virtualised, `<mark>`-highlighted result list (debounced into the
- * L4-A `search` IPC); below that threshold the file tree shows. A polled
- * `search_index_status` banner appears above results while the index is
- * still building. The column width is fixed by the parent — every text
- * surface here truncates (`min-width: 0` + ellipsis) so a long path or
- * snippet never widens the sidebar.
+ * `<mark>`-highlighted result list (debounced into the L4-A `search`
+ * IPC); below that threshold the file tree shows. Results are grouped by
+ * file (Obsidian-core-search style): each hit is a collapsible group
+ * with its title, a match-count badge, and one snippet card per matched
+ * field. A polled `search_index_status` banner appears above results
+ * while the index is still building. The column width is fixed by the
+ * parent — every text surface here truncates (`min-width: 0` + ellipsis,
+ * snippets wrap) so a long path or title never widens the sidebar.
+ *
+ * The result list is capped at `PAGE_LIMIT` files and rendered directly
+ * (not windowed): variable-height collapsible groups don't fit the
+ * fixed-row virtualisation L4-B shipped, and 50 groups of a few cards is
+ * a small DOM. Per-occurrence cards (one field hit several times) and
+ * windowed grouped scrolling are deferred to the L4-A search revisit.
  */
 export interface SearchPanelProps {
   vaultId: string | null;
@@ -50,10 +61,6 @@ export interface SearchPanelProps {
 
 const DEBOUNCE_MS = 200;
 const PAGE_LIMIT = 50;
-const RESULT_ROW_HEIGHT = 80;
-// 80px rows fit fewer per viewport than the 32px file list, so a
-// smaller overscan than App.tsx's FILE_LIST_OVERSCAN (8) suffices.
-const RESULT_OVERSCAN = 6;
 const STATUS_POLL_MS = 500;
 /** Minimum characters before a search fires; below this the tree shows. */
 const MIN_QUERY_LEN = 3;
@@ -76,6 +83,9 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
   const [sort, setSort] = createSignal<SortMode>("relevance");
   const [scope, setScope] = createSignal<ScopeKind>("default");
   const [hits, setHits] = createSignal<SearchHit[]>([]);
+  // Size of the top-K window the backend pulled (min(matches, limit)) —
+  // a "are there more?" hint, never a true total (see SearchResponse).
+  const [total, setTotal] = createSignal(0);
   const [error, setError] = createSignal<string | null>(null);
   const [status, setStatus] = createSignal<IndexStatus | null>(null);
   const [showFilters, setShowFilters] = createSignal(false);
@@ -85,20 +95,17 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
   /** Non-default sort/scope → badge the filter button. */
   const filtersActive = () => sort() !== "relevance" || scope() !== "default";
 
-  const [scrollTop, setScrollTop] = createSignal(0);
-  const [viewportHeight, setViewportHeight] = createSignal(400);
-  const resultWindow = createMemo(() =>
-    computeWindow(
-      scrollTop(),
-      viewportHeight(),
-      RESULT_ROW_HEIGHT,
-      hits().length,
-      RESULT_OVERSCAN,
-    ),
-  );
-  const visibleHits = createMemo(() =>
-    hits().slice(resultWindow().startIndex, resultWindow().endIndex),
-  );
+  const groups = createMemo(() => buildFileGroups(hits()));
+  // Collapsed file paths. Groups default to expanded (like the
+  // screenshot); a path is added here only when the user collapses it.
+  const [collapsed, setCollapsed] = createSignal<Set<string>>(new Set());
+  const toggleCollapsed = (path: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
 
   let statusTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -131,6 +138,7 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
     // stale hits and issue no IPC (comment: ≥3 chars to search).
     if (text.length < MIN_QUERY_LEN) {
       setHits([]);
+      setTotal(0);
       setError(null);
       return;
     }
@@ -146,8 +154,10 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
         }),
       });
       setHits(resp.hits);
+      setTotal(resp.total_estimated);
       setError(null);
-      setScrollTop(0);
+      // A new result set starts fully expanded.
+      setCollapsed(new Set<string>());
       if (resp.still_indexing) ensurePolling();
     } catch (e) {
       setError(messageOf(e));
@@ -160,6 +170,18 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
   const onInput = (value: string) => {
     setQueryText(value);
     debouncedQuery();
+  };
+
+  let inputEl: HTMLInputElement | undefined;
+  // Clear button: empty the query immediately (no debounce), drop any
+  // results, and refocus the input so the user can keep typing.
+  const onClear = () => {
+    debouncedQuery.cancel();
+    setQueryText("");
+    setHits([]);
+    setTotal(0);
+    setError(null);
+    inputEl?.focus();
   };
 
   const onSort = (id: SortMode) => {
@@ -224,25 +246,67 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
             "min-width": 0,
           }}
         >
-          <input
-            type="text"
-            value={queryText()}
-            placeholder="Search notes…"
-            aria-label="Search notes"
-            onInput={(e) => onInput(e.currentTarget.value)}
-            style={{
-              flex: 1,
-              "min-width": 0,
-              "box-sizing": "border-box",
-              padding: "var(--space-2) var(--space-3)",
-              "font-family": "var(--font-body)",
-              "font-size": "var(--text-sm)",
-              color: "var(--c-fg-primary)",
-              background: "var(--c-bg-primary)",
-              border: "1px solid var(--c-border-subtle)",
-              "border-radius": "var(--radius-sm, var(--radius-md))",
-            }}
-          />
+          {/* Input + inline clear (X) button on its right edge. */}
+          <div style={{ position: "relative", flex: 1, "min-width": 0 }}>
+            <input
+              ref={inputEl}
+              type="text"
+              value={queryText()}
+              placeholder="Search notes…"
+              aria-label="Search notes"
+              onInput={(e) => onInput(e.currentTarget.value)}
+              style={{
+                width: "100%",
+                "min-width": 0,
+                "box-sizing": "border-box",
+                // Extra right padding leaves room for the clear button.
+                padding: "var(--space-2) calc(var(--space-3) + 1.5rem) var(--space-2) var(--space-3)",
+                "font-family": "var(--font-body)",
+                "font-size": "var(--text-sm)",
+                color: "var(--c-fg-primary)",
+                background: "var(--c-bg-primary)",
+                border: "1px solid var(--c-border-subtle)",
+                "border-radius": "var(--radius-sm, var(--radius-md))",
+              }}
+            />
+            <Show when={queryText().length > 0}>
+              <button
+                type="button"
+                aria-label="Clear search"
+                title="Clear search"
+                onClick={onClear}
+                style={{
+                  position: "absolute",
+                  top: "50%",
+                  right: "var(--space-2)",
+                  transform: "translateY(-50%)",
+                  display: "flex",
+                  "align-items": "center",
+                  "justify-content": "center",
+                  width: "1.25rem",
+                  height: "1.25rem",
+                  padding: 0,
+                  color: "var(--c-fg-muted)",
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                }}
+              >
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  aria-hidden="true"
+                >
+                  <path d="M4 4l8 8M12 4l-8 8" />
+                </svg>
+              </button>
+            </Show>
+          </div>
           <button
             type="button"
             aria-label="Search filters"
@@ -384,20 +448,30 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
             </div>
           </Show>
 
+          {/* Result-count line, mirrors the screenshot's "N results". */}
+          <Show when={hits().length > 0}>
+            <div
+              style={{
+                padding: "var(--space-1) var(--space-3)",
+                "font-size": "var(--text-xs)",
+                color: "var(--c-fg-muted)",
+                "border-bottom": "1px solid var(--c-border-subtle)",
+              }}
+            >
+              {hits().length}
+              {total() >= PAGE_LIMIT ? "+" : ""}{" "}
+              {hits().length === 1 ? "result" : "results"}
+            </div>
+          </Show>
+
           <div
-            role="listbox"
+            role="list"
             aria-label="Search results"
-            ref={(el) => setViewportHeight(el.clientHeight || 400)}
-            onScroll={(e) => {
-              setScrollTop(e.currentTarget.scrollTop);
-              setViewportHeight(e.currentTarget.clientHeight);
-            }}
             style={{
               flex: 1,
               "min-height": 0,
               "min-width": 0,
               "overflow-y": "auto",
-              position: "relative",
             }}
           >
             <Show
@@ -414,27 +488,16 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
                 </div>
               }
             >
-              <div
-                style={{
-                  height: `${resultWindow().totalHeight}px`,
-                  position: "relative",
-                }}
-              >
-                <div
-                  style={{
-                    transform: `translateY(${resultWindow().offsetY}px)`,
-                  }}
-                >
-                  <For each={visibleHits()}>
-                    {(hit) => (
-                      <ResultRow
-                        hit={hit}
-                        onClick={() => props.onNavigate(hit.path)}
-                      />
-                    )}
-                  </For>
-                </div>
-              </div>
+              <For each={groups()}>
+                {(group) => (
+                  <FileGroupView
+                    group={group}
+                    collapsed={collapsed().has(group.path)}
+                    onToggle={() => toggleCollapsed(group.path)}
+                    onOpen={() => props.onNavigate(group.path)}
+                  />
+                )}
+              </For>
             </Show>
           </div>
         </div>
@@ -487,99 +550,160 @@ const Chip: Component<{
   </button>
 );
 
-const ResultRow: Component<{ hit: SearchHit; onClick: () => void }> = (
-  props,
-) => {
-  const snippet = () => pickSnippet(props.hit.matched_fields);
-  return (
+/**
+ * One file's result group: a collapsible header (title + recency + a
+ * match-count badge) over its snippet cards. The chevron toggles
+ * collapse; the title and each card open the file.
+ */
+const FileGroupView: Component<{
+  group: FileGroup;
+  collapsed: boolean;
+  onToggle: () => void;
+  onOpen: () => void;
+}> = (props) => (
+  <div style={{ "min-width": 0, "border-bottom": "1px solid var(--c-border-subtle)" }}>
     <div
-      role="option"
-      aria-selected={false}
-      onClick={props.onClick}
       style={{
-        height: `${RESULT_ROW_HEIGHT}px`,
-        "box-sizing": "border-box",
+        display: "flex",
+        "align-items": "center",
+        gap: "var(--space-2)",
         "min-width": 0,
         padding: "var(--space-2) var(--space-3)",
-        "border-bottom": "1px solid var(--c-border-subtle)",
-        display: "flex",
-        "flex-direction": "column",
-        gap: "var(--space-1)",
-        cursor: "pointer",
-        overflow: "hidden",
       }}
     >
-      <span
+      <button
+        type="button"
+        aria-label={props.collapsed ? "Expand file" : "Collapse file"}
+        aria-expanded={!props.collapsed}
+        onClick={props.onToggle}
         style={{
+          display: "flex",
+          "align-items": "center",
+          "justify-content": "center",
+          "flex-shrink": 0,
+          width: "1rem",
+          height: "1rem",
+          padding: 0,
+          color: "var(--c-fg-muted)",
+          background: "transparent",
+          border: "none",
+          cursor: "pointer",
+        }}
+      >
+        <svg
+          width="10"
+          height="10"
+          viewBox="0 0 10 10"
+          fill="currentColor"
+          aria-hidden="true"
+          style={{
+            transform: props.collapsed ? "rotate(-90deg)" : "none",
+            transition: "transform 0.1s",
+          }}
+        >
+          <path d="M1 3l4 4 4-4z" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        onClick={props.onOpen}
+        title={props.group.path}
+        style={{
+          flex: 1,
+          "min-width": 0,
+          "text-align": "left",
           "font-size": "var(--text-sm)",
           color: "var(--c-fg-primary)",
+          background: "transparent",
+          border: "none",
+          padding: 0,
+          cursor: "pointer",
           overflow: "hidden",
           "text-overflow": "ellipsis",
           "white-space": "nowrap",
         }}
       >
-        {props.hit.title}
-      </span>
-      <Show when={snippet()}>
-        {(s) => (
-          <span
-            style={{
-              "font-size": "var(--text-xs)",
-              color: "var(--c-fg-secondary)",
-              overflow: "hidden",
-              "text-overflow": "ellipsis",
-              "white-space": "nowrap",
-            }}
-          >
-            <For each={parseHighlights(s().snippet)}>
-              {(seg) =>
-                seg.mark ? (
-                  <mark
-                    style={{
-                      background: "var(--c-accent)",
-                      color: "var(--c-fg-inverse)",
-                      "border-radius": "var(--radius-sm, 2px)",
-                      padding: "0 2px",
-                    }}
-                  >
-                    {seg.text}
-                  </mark>
-                ) : (
-                  <span>{seg.text}</span>
-                )
-              }
-            </For>
-          </span>
-        )}
-      </Show>
+        {props.group.title}
+      </button>
       <span
         style={{
-          display: "flex",
-          "justify-content": "space-between",
-          gap: "var(--space-2)",
-          "min-width": 0,
+          "flex-shrink": 0,
           "font-family": "var(--font-mono)",
           "font-size": "var(--text-xs)",
           color: "var(--c-fg-muted)",
         }}
       >
-        <span
-          style={{
-            "min-width": 0,
-            overflow: "hidden",
-            "text-overflow": "ellipsis",
-            "white-space": "nowrap",
-          }}
-        >
-          {props.hit.path}
-        </span>
-        <span style={{ "flex-shrink": 0 }}>
-          {formatRelativeTime(props.hit.mtime_secs)}
-        </span>
+        {formatRelativeTime(props.group.mtime_secs)}
+      </span>
+      <span
+        style={{
+          "flex-shrink": 0,
+          "min-width": "1.25rem",
+          "text-align": "center",
+          padding: "0 var(--space-1)",
+          "font-size": "var(--text-xs)",
+          color: "var(--c-fg-secondary)",
+          background: "var(--c-bg-secondary)",
+          border: "1px solid var(--c-border-subtle)",
+          "border-radius": "var(--radius-sm, var(--radius-md))",
+        }}
+      >
+        {props.group.cards.length}
       </span>
     </div>
-  );
-};
+
+    <Show when={!props.collapsed}>
+      <div style={{ padding: "0 var(--space-3) var(--space-2)", "min-width": 0 }}>
+        <For each={props.group.cards}>
+          {(card) => <SnippetCard card={card} onClick={props.onOpen} />}
+        </For>
+      </div>
+    </Show>
+  </div>
+);
+
+/** One snippet card inside a file group; clicking it opens the file. */
+const SnippetCard: Component<{ card: ResultCard; onClick: () => void }> = (
+  props,
+) => (
+  <div
+    role="button"
+    tabindex={-1}
+    onClick={props.onClick}
+    style={{
+      "min-width": 0,
+      padding: "var(--space-2)",
+      "margin-top": "var(--space-1)",
+      "font-size": "var(--text-xs)",
+      "line-height": 1.5,
+      color: "var(--c-fg-secondary)",
+      background: "var(--c-bg-primary)",
+      border: "1px solid var(--c-border-subtle)",
+      "border-radius": "var(--radius-sm, var(--radius-md))",
+      cursor: "pointer",
+      "overflow-wrap": "anywhere",
+    }}
+  >
+    <For each={props.card.segments}>
+      {(seg) =>
+        seg.mark ? (
+          <mark
+            style={{
+              background: "var(--c-accent)",
+              color: "var(--c-fg-inverse)",
+              "border-radius": "var(--radius-sm, 2px)",
+              padding: "0 2px",
+            }}
+          >
+            {seg.text}
+          </mark>
+        ) : (
+          <span>{seg.text}</span>
+        )
+      }
+    </For>
+  </div>
+);
 
 function messageOf(e: unknown): string {
   return typeof e === "object" && e !== null && "message" in e
