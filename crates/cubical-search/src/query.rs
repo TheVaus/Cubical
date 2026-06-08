@@ -156,19 +156,35 @@ pub fn run_search(idx: &SearchIndex, q: &SearchQuery) -> Result<SearchResponse, 
     let reader = idx.reader_clone();
     let searcher = reader.searcher();
 
+    // Scope fields for the searchable scopes (None for the tags filter,
+    // which is an exact-match clause, not a parsed text query). Computed
+    // once so both the parsed query and the fuzzy clause can use it.
+    let scope_fields: Option<Vec<Field>> = match &q.fields {
+        FieldScope::Default => Some(vec![f.title, f.headings, f.body, f.tags, f.frontmatter]),
+        FieldScope::HeadingsOnly => Some(vec![f.headings]),
+        FieldScope::BodyOnly => Some(vec![f.body]),
+        FieldScope::CodeOnly => Some(vec![f.code]),
+        FieldScope::Tags { .. } => None,
+    };
+
     // Build the parsed query for the chosen scope.
-    let parsed: Box<dyn Query> = match &q.fields {
-        FieldScope::Default
-        | FieldScope::HeadingsOnly
-        | FieldScope::BodyOnly
-        | FieldScope::CodeOnly => {
-            let scope_fields: Vec<Field> = match &q.fields {
-                FieldScope::Default => vec![f.title, f.headings, f.body, f.tags, f.frontmatter],
-                FieldScope::HeadingsOnly => vec![f.headings],
-                FieldScope::BodyOnly => vec![f.body],
-                FieldScope::CodeOnly => vec![f.code],
-                FieldScope::Tags { .. } => unreachable!("tags handled below"),
-            };
+    let parsed: Box<dyn Query> = match (&q.fields, &scope_fields) {
+        (FieldScope::Tags { tags }, _) => {
+            // Exact-match AND across all requested tags. Tags are
+            // indexed as `STRING` (untokenized) — lowercase the query
+            // term to match the at-index normalization in `IndexDoc`.
+            let clauses: Vec<(Occur, Box<dyn Query>)> = tags
+                .iter()
+                .map(|t| {
+                    let term = Term::from_field_text(f.tags, &t.to_lowercase());
+                    let q: Box<dyn Query> =
+                        Box::new(TermQuery::new(term, IndexRecordOption::Basic));
+                    (Occur::Must, q)
+                })
+                .collect();
+            Box::new(BooleanQuery::new(clauses))
+        }
+        (_, Some(scope_fields)) => {
             // Build the QueryParser query (stemmed-exact matches, field
             // boosts, and the term queries `SnippetGenerator` highlights
             // from).
@@ -190,7 +206,7 @@ pub fn run_search(idx: &SearchIndex, q: &SearchQuery) -> Result<SearchResponse, 
             // …) skip prefix expansion and use the parser alone.
             match simple_terms(&q.text) {
                 Some(terms) => {
-                    let prefix = build_prefix_query(&searcher, &terms, &scope_fields)?;
+                    let prefix = build_prefix_query(&searcher, &terms, scope_fields)?;
                     Box::new(BooleanQuery::new(vec![
                         (Occur::Should, exact),
                         (Occur::Should, prefix),
@@ -199,37 +215,25 @@ pub fn run_search(idx: &SearchIndex, q: &SearchQuery) -> Result<SearchResponse, 
                 None => exact,
             }
         }
-        FieldScope::Tags { tags } => {
-            // Exact-match AND across all requested tags. Tags are
-            // indexed as `STRING` (untokenized) — lowercase the query
-            // term to match the at-index normalization in `IndexDoc`.
-            let clauses: Vec<(Occur, Box<dyn Query>)> = tags
-                .iter()
-                .map(|t| {
-                    let term = Term::from_field_text(f.tags, &t.to_lowercase());
-                    let q: Box<dyn Query> =
-                        Box::new(TermQuery::new(term, IndexRecordOption::Basic));
-                    (Occur::Must, q)
-                })
-                .collect();
-            Box::new(BooleanQuery::new(clauses))
-        }
+        (_, None) => unreachable!("only the tags scope has no scope fields"),
     };
 
-    // Fuzzy rewrite for single-term queries on Default scope.
-    let final_query: Box<dyn Query> = if q.fuzzy {
-        match (&q.fields, single_term(&q.text)) {
-            (FieldScope::Default, Some(term)) if term.chars().count() >= FUZZY_MIN_LEN => {
-                Box::new(FuzzyTermQuery::new(
-                    Term::from_field_text(f.title, &term.to_lowercase()),
-                    1,
-                    true,
-                ))
-            }
-            _ => parsed,
+    // Typo tolerance (L4-A revisit, task_256abd1c). When fuzzy is on and
+    // the query is a single term ≥ `FUZZY_MIN_LEN`, add an edit-distance-1
+    // fuzzy clause spanning ALL of the scope's fields (the old code did
+    // `title` only, which is why the L4-B panel had to disable fuzzy).
+    // It is OR'd with the parsed (exact + prefix) query, so exact/prefix
+    // matches still rank top via BM25 and only typo recall is added
+    // (e.g. `ricj` → `rich`). The tags filter scope is left untouched.
+    let final_query: Box<dyn Query> = match (q.fuzzy, &scope_fields, single_term(&q.text)) {
+        (true, Some(scope_fields), Some(term)) if term.chars().count() >= FUZZY_MIN_LEN => {
+            let fuzzy = build_fuzzy_query(scope_fields, &term);
+            Box::new(BooleanQuery::new(vec![
+                (Occur::Should, parsed),
+                (Occur::Should, fuzzy),
+            ]))
         }
-    } else {
-        parsed
+        _ => parsed,
     };
 
     // Collect (score, addr) pairs. Recency sort returns i64 mtime in place of
@@ -343,6 +347,25 @@ fn build_prefix_query(
         must.push((Occur::Must, Box::new(BooleanQuery::new(per_field))));
     }
     Ok(Box::new(BooleanQuery::new(must)))
+}
+
+/// Edit-distance-1 fuzzy match of `term` across every field in `fields`,
+/// OR'd together — the typo-tolerance clause (e.g. `ricj` → `rich`).
+/// Distance 1 (with transpositions) keeps recall precise on the large
+/// `body` field; `term` is lowercased to match the analyzer's
+/// normalization. Tantivy's `FuzzyTermQuery` runs a Levenshtein
+/// automaton against each field's term dictionary, so this stays cheap.
+fn build_fuzzy_query(fields: &[Field], term: &str) -> Box<dyn Query> {
+    let lowered = term.to_lowercase();
+    let clauses: Vec<(Occur, Box<dyn Query>)> = fields
+        .iter()
+        .map(|&field| {
+            let t = Term::from_field_text(field, &lowered);
+            let q: Box<dyn Query> = Box::new(FuzzyTermQuery::new(t, 1, true));
+            (Occur::Should, q)
+        })
+        .collect();
+    Box::new(BooleanQuery::new(clauses))
 }
 
 /// Stream the `field` term dictionary for every term beginning with
@@ -513,34 +536,46 @@ mod tests {
     }
 
     #[test]
-    fn single_term_default_fuzzy_is_title_only_known_limitation() {
-        // Regression guard documenting the L4-A behaviour that broke the
-        // L4-B panel: with `fuzzy: true`, a single-term (≥4-char)
-        // default-scope query is rewritten to a FuzzyTermQuery against
-        // `title` ONLY, discarding the multi-field parsed query. So a
-        // body-only word is found with fuzzy OFF but missed with fuzzy
-        // ON. The L4-B panel therefore sends `fuzzy: false`
-        // (ui/src/sidebar/searchQuery.ts). Revisit when L4-A's fuzzy is
-        // generalised to span fields.
+    fn single_term_fuzzy_spans_all_fields() {
+        // L4-A revisit (task_256abd1c): fuzzy is no longer title-only.
+        // With fuzzy ON, a single-term (≥`FUZZY_MIN_LEN`) query gets an
+        // edit-distance-1 clause across ALL scope fields, so a typo in a
+        // BODY word still matches — and exact body matches keep working
+        // with fuzzy ON (the bug that forced the L4-B panel to send
+        // `fuzzy: false` is gone). a.md body = "the quick brown fox".
         let (_t, idx) = fixture_index();
-        let q = |fuzzy: bool| SearchQuery {
-            text: "quick".into(), // body of a.md; title is "Alpha Notes"
-            limit: 0,
-            offset: 0,
-            fields: FieldScope::Default,
-            fuzzy,
-            sort: SortMode::Relevance,
+        let run = |text: &str, fuzzy: bool| {
+            run_search(
+                &idx,
+                &SearchQuery {
+                    text: text.into(),
+                    limit: 0,
+                    offset: 0,
+                    fields: FieldScope::Default,
+                    fuzzy,
+                    sort: SortMode::Relevance,
+                },
+            )
+            .unwrap()
+            .hits
+            .len()
         };
+        // Exact body word: found with fuzzy either way (no longer lost
+        // to a title-only rewrite when fuzzy is ON).
+        assert_eq!(run("quick", true), 1, "exact body word found, fuzzy ON");
+        assert_eq!(run("quick", false), 1, "exact body word found, fuzzy OFF");
+        // Typos in a body word now match with fuzzy ON, but not OFF.
         assert_eq!(
-            run_search(&idx, &q(true)).unwrap().hits.len(),
-            0,
-            "fuzzy ON wrongly searches title only → misses the body word"
-        );
-        assert_eq!(
-            run_search(&idx, &q(false)).unwrap().hits.len(),
+            run("quikc", true),
             1,
-            "fuzzy OFF searches all default fields → finds the body word"
+            "transposition typo of a body word matches, fuzzy ON"
         );
+        assert_eq!(
+            run("quack", true),
+            1,
+            "one-substitution typo (quick→quack) matches, fuzzy ON"
+        );
+        assert_eq!(run("quikc", false), 0, "same typo finds nothing, fuzzy OFF");
     }
 
     #[test]
