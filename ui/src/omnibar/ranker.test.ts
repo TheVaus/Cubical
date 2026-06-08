@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { fuzzyMatch, matchText, type OmniItem } from "./ranker";
+import {
+  fuzzyMatch,
+  matchText,
+  rankItems,
+  scoreMatch,
+  type OmniItem,
+} from "./ranker";
 
 const note = (title: string, path = title + ".md"): OmniItem => ({
   kind: "note",
@@ -30,5 +36,54 @@ describe("fuzzyMatch", () => {
   });
   it("is unicode-safe (matches by code point)", () => {
     expect(fuzzyMatch("é", "café")).toEqual([3]);
+  });
+});
+
+describe("scoreMatch", () => {
+  it("scores a contiguous prefix higher than a scattered match", () => {
+    const prefix = scoreMatch("Red King", fuzzyMatch("red", "Red King")!);
+    const scattered = scoreMatch(
+      "Reader Knight",
+      fuzzyMatch("red", "Reader Knight")!,
+    );
+    expect(prefix).toBeGreaterThan(scattered);
+  });
+  it("rewards word-boundary matches over mid-word ones", () => {
+    const boundary = scoreMatch("Red King", fuzzyMatch("rk", "Red King")!);
+    const inWord = scoreMatch("Works", fuzzyMatch("rk", "Works")!);
+    expect(boundary).toBeGreaterThan(inWord);
+  });
+});
+
+describe("rankItems", () => {
+  const items: OmniItem[] = [
+    note("Red King"),
+    note("Reader Knight"),
+    tag("red"),
+    note("Blue"),
+  ];
+
+  it("returns empty for a blank query", () => {
+    expect(rankItems("", items, 50)).toEqual([]);
+    expect(rankItems("   ", items, 50)).toEqual([]);
+  });
+  it("excludes non-matches and ranks the exact match first", () => {
+    const r = rankItems("red", items, 50);
+    expect(r.map((x) => matchText(x.item))).not.toContain("Blue");
+    expect(matchText(r[0]!.item)).toBe("red"); // exact match wins
+  });
+  it("breaks ties: shorter target, then note before tag, then alpha", () => {
+    const r = rankItems("re", [tag("re"), note("re")], 50);
+    expect(r[0]!.item.kind).toBe("note"); // equal score+len → note first
+  });
+  it("caps results at the limit", () => {
+    const many: OmniItem[] = Array.from({ length: 10 }, (_, i) =>
+      note(`Red ${i}`),
+    );
+    expect(rankItems("red", many, 3)).toHaveLength(3);
+  });
+  it("carries matchedIndices through", () => {
+    const r = rankItems("rk", [note("Red King")], 50);
+    expect(r[0]!.matchedIndices).toEqual([0, 4]);
   });
 });
