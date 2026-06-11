@@ -145,12 +145,17 @@
 .editor-scroll {
   flex: 1;
   min-height: 0;
-  overflow: auto;
-  padding: var(--space-5) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  overflow: hidden;
+  padding: var(--space-5) var(--space-4) 0;
 }
 .editor-inner {
+  width: 100%;
   max-width: 44rem;
-  margin: 0 auto;
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
@@ -255,6 +260,10 @@
 }
 .statusbar__sep {
   color: var(--c-border-strong);
+}
+.statusbar b {
+  color: var(--c-fg-primary);
+  font-weight: 600;
 }
 
 /* right sidebar: inlined segmented header + panel body */

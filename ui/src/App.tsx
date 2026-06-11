@@ -131,6 +131,11 @@ const App: Component = () => {
   const [propertiesFrontmatter, setPropertiesFrontmatter] =
     createSignal<Frontmatter | null>(null);
 
+  // UI rework: live document stats shown in the status bar. Block count
+  // comes from the canonical AST; word count from the current buffer text.
+  const [blockCount, setBlockCount] = createSignal(0);
+  const [wordCount, setWordCount] = createSignal(0);
+
   // File-list virtualization state. `scrollTop`/`viewportHeight` track
   // the scroll container; `fileWindow` derives the slice of rows to
   // mount, and `visibleFiles` is that slice. Only ~viewport-many rows
@@ -552,6 +557,13 @@ const App: Component = () => {
         from_path: fromPath,
         to_path: target,
       });
+      // Follow the rename for the open buffer: the content is unchanged
+      // (so seenHash/lastWrittenHash stay valid) but the path moved. Without
+      // this, a second title edit would rename from a now-stale path and
+      // autosave would write back to the old location.
+      if (selectedPath() === fromPath) {
+        setSelectedPath(target);
+      }
     } catch (e) {
       const message =
         typeof e === "object" && e !== null && "message" in e
@@ -585,6 +597,10 @@ const App: Component = () => {
 
   const handleAstChange = (doc: CanonicalDocument) => {
     setPropertiesFrontmatter(doc.frontmatter);
+    setBlockCount(doc.blocks.length);
+    const text = editorApi?.getContent() ?? selectedContent() ?? "";
+    const trimmed = text.trim();
+    setWordCount(trimmed ? trimmed.split(/\s+/).length : 0);
   };
 
   /**
@@ -1022,6 +1038,8 @@ const App: Component = () => {
       setSelectedPath(null);
       setSelectedContent(null);
       setPropertiesFrontmatter(null);
+      setBlockCount(0);
+      setWordCount(0);
       setConflictExternalHash(null);
       setRawOverride(null);
       setCreateOffer(null);
@@ -1140,30 +1158,17 @@ const App: Component = () => {
         <div class="topbar__flank topbar__flank--right">
           <button
             type="button"
+            class="chrome-btn"
             onClick={cycleTheme}
             aria-label={`Cycle theme (current: ${themeMode()})`}
             title={`Theme: ${themeMode()}`}
-            style={{
-              display: "flex",
-              "align-items": "center",
-              "justify-content": "center",
-              width: "2.25rem",
-              height: "2.25rem",
-              "font-size": "var(--text-base)",
-              "line-height": "1",
-              color: "var(--c-fg-secondary)",
-              background: "var(--c-bg-secondary)",
-              border: "1px solid var(--c-border-subtle)",
-              "border-radius": "var(--radius-md)",
-              cursor: "pointer",
-              transition:
-                "color var(--transition-fast), border-color var(--transition-fast)",
-            }}
           >
             {THEME_ICON[themeMode()]}
           </button>
           <button
             type="button"
+            class="chrome-btn chrome-btn--mono"
+            classList={{ "chrome-btn--accent": effectiveRaw() }}
             onClick={(e) =>
               e.shiftKey ? setRawAsDefault() : toggleRawSource()
             }
@@ -1174,29 +1179,6 @@ const App: Component = () => {
                 ? "Raw source (Cmd/Ctrl+E · Shift-click sets default)"
                 : "Live preview (Cmd/Ctrl+E · Shift-click sets default)"
             }
-            style={{
-              display: "flex",
-              "align-items": "center",
-              "justify-content": "center",
-              width: "2.25rem",
-              height: "2.25rem",
-              "font-family": "var(--font-mono)",
-              "font-size": "var(--text-sm)",
-              "line-height": "1",
-              color: effectiveRaw()
-                ? "var(--c-fg-inverse)"
-                : "var(--c-fg-secondary)",
-              background: effectiveRaw()
-                ? "var(--c-accent)"
-                : "var(--c-bg-secondary)",
-              border: effectiveRaw()
-                ? "1px solid var(--c-accent)"
-                : "1px solid var(--c-border-subtle)",
-              "border-radius": "var(--radius-md)",
-              cursor: "pointer",
-              transition:
-                "color var(--transition-fast), background var(--transition-fast), border-color var(--transition-fast)",
-            }}
           >
             &lt;/&gt;
           </button>
@@ -1212,19 +1194,9 @@ const App: Component = () => {
           </button>
           <button
             type="button"
+            class="chrome-btn chrome-btn--primary"
             onClick={handleOpen}
             disabled={busy()}
-            style={{
-              padding: "var(--space-2) var(--space-4)",
-              "font-size": "var(--text-sm)",
-              "font-family": "var(--font-body)",
-              color: "var(--c-fg-inverse)",
-              background: "var(--c-accent)",
-              border: "none",
-              "border-radius": "var(--radius-md)",
-              cursor: busy() ? "wait" : "pointer",
-              transition: "background var(--transition-fast)",
-            }}
           >
             Open Vault
           </button>
@@ -1761,6 +1733,14 @@ const App: Component = () => {
                 ? `${filesProcessed()} file${filesProcessed() === 1 ? "" : "s"}`
                 : `Scan cancelled at ${filesProcessed()} file${filesProcessed() === 1 ? "" : "s"}`}
           </span>
+          <Show when={view().kind === "file" && !!selectedPath()}>
+            <span class="statusbar__group">
+              <b>{wordCount()}</b> words
+              <span class="statusbar__sep">·</span>
+              <b>{blockCount()}</b> blocks
+            </span>
+          </Show>
+          <span class="statusbar__spacer" />
           <Show when={formatBrokenBlockRefs(brokenBlockRefs())}>
             {(display) => (
               <span
@@ -1776,7 +1756,6 @@ const App: Component = () => {
             count={pendingRewritesCount()}
             onError={(m: string) => showToast(m)}
           />
-          <span class="statusbar__spacer" />
           <span>{vaultId()}</span>
         </footer>
       </Show>

@@ -63,7 +63,7 @@ export function buildCmTheme(): Extension {
         fontFamily: t["--font-mono"],
         fontSize: t["--text-sm"],
         color: t["--c-fg-primary"],
-        background: t["--c-bg-primary"],
+        background: "transparent",
       },
       ".cm-scroller": { overflow: "auto" },
       ".cm-content": {

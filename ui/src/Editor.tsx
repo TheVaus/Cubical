@@ -715,9 +715,8 @@ const Editor: Component<EditorProps> = (props) => {
         "min-height": "0",
         display: "flex",
         "flex-direction": "column",
-        border: "1px solid var(--c-border-subtle)",
-        "border-radius": "var(--radius-md)",
-        background: "var(--c-bg-primary)",
+        border: "none",
+        background: "transparent",
         overflow: "hidden",
       }}
     />
