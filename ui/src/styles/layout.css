@@ -156,6 +156,35 @@
   gap: var(--space-3);
 }
 
+/* Obsidian-style editable filename title (the filename IS the title — no H1
+   is ever written into the document). Renames the file on commit. */
+.doc-title {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--c-fg-primary);
+  font-family: var(--font-body);
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  padding: var(--space-1) var(--space-2);
+  margin: 0 calc(-1 * var(--space-2));
+  border-radius: var(--radius-md);
+  transition: background var(--transition-fast),
+    border-color var(--transition-fast);
+}
+.doc-title:hover {
+  background: var(--c-bg-secondary);
+}
+.doc-title:focus {
+  outline: none;
+  background: var(--c-bg-secondary);
+  border-color: var(--c-accent);
+}
+
 .side {
   position: absolute;
   top: 0;

@@ -561,6 +561,23 @@ const App: Component = () => {
     }
   };
 
+  /**
+   * UI rework: commit an edit of the Obsidian-style filename title.
+   * The title shows the basename stem (no dir, no `.md`); editing it
+   * renames the file. We reconstruct `<dir>/<stem>.md` and defer to the
+   * same rename pipeline the file-list uses — the filename *is* the
+   * title, so nothing (no `# H1`) is ever written into the document.
+   */
+  const commitTitleRename = (fromPath: string, newStem: string) => {
+    const stem = newStem.trim();
+    if (!stem) return;
+    const slash = fromPath.lastIndexOf("/");
+    const dir = slash >= 0 ? fromPath.slice(0, slash + 1) : "";
+    const target = `${dir}${stem}.md`;
+    if (target === fromPath) return;
+    void handleRenameCommit(fromPath, target);
+  };
+
   const handleContentChange = (_content: string) => {
     dirty = true;
     scheduleAutosave();
@@ -1448,6 +1465,29 @@ const App: Component = () => {
                   </div>
                 }
               >
+                <Show when={selectedPath()} keyed>
+                  {(path) => (
+                    <input
+                      class="doc-title"
+                      aria-label="File name"
+                      spellcheck={false}
+                      value={fileStem(path)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          e.currentTarget.blur();
+                        } else if (e.key === "Escape") {
+                          e.preventDefault();
+                          e.currentTarget.value = fileStem(path);
+                          e.currentTarget.blur();
+                        }
+                      }}
+                      onBlur={(e) =>
+                        commitTitleRename(path, e.currentTarget.value)
+                      }
+                    />
+                  )}
+                </Show>
                 <Show when={conflictExternalHash() !== null}>
                   <div
                     role="alert"
