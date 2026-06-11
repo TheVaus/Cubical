@@ -1,0 +1,262 @@
+/* ============================================================
+   UI rework — layered chrome + stage + floating sidebars.
+   Uses the app's design tokens (tokens.css). The model:
+     • .topbar / .statusbar  = full-width L0 chrome.
+     • .stage                = positioning context.
+     • .editor-layer         = fixed, centered editor (never moves).
+     • .side                 = floating sidebar layers that slide
+                               off-screen on collapse — no reflow of
+                               the editor underneath.
+   ============================================================ */
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  font-family: var(--font-body);
+  color: var(--c-fg-primary);
+  background: var(--c-bg-primary);
+}
+
+/* ---- L0: full-width top bar ---- */
+.topbar {
+  display: flex;
+  align-items: stretch;
+  flex: 0 0 auto;
+  height: 2.75rem;
+  background: var(--c-bg-secondary);
+  border-bottom: 1px solid var(--c-border-subtle);
+}
+.topbar__flank {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: 0 var(--space-2);
+}
+/* left flank == left-sidebar width, so tabs begin at the editor's left edge */
+.topbar__flank--left {
+  flex: 0 0 18rem;
+}
+.topbar__flank--right {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+.topbar__tabs {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-1);
+  overflow: hidden;
+}
+.topbar__brand {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--c-fg-secondary);
+  margin: 0 var(--space-1);
+  white-space: nowrap;
+}
+
+/* chrome buttons (collapse toggles, theme, source, open-vault) */
+.chrome-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.9rem;
+  min-width: 1.9rem;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--c-border-subtle);
+  background: var(--c-bg-tertiary);
+  color: var(--c-fg-secondary);
+  border-radius: var(--radius-md);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  line-height: 1;
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast),
+    border-color var(--transition-fast);
+}
+.chrome-btn:hover {
+  color: var(--c-fg-primary);
+  border-color: var(--c-border-strong);
+}
+.chrome-btn--mono {
+  font-family: var(--font-mono);
+}
+/* panel-open indicator: calm filled state (accent reserved for real modes) */
+.chrome-btn--on {
+  color: var(--c-fg-primary);
+  background: var(--c-bg-tertiary);
+  border-color: var(--c-border-strong);
+}
+/* active mode (raw source): accent */
+.chrome-btn--accent {
+  color: var(--c-fg-inverse);
+  background: var(--c-accent);
+  border-color: var(--c-accent);
+}
+.chrome-btn--primary {
+  color: var(--c-fg-inverse);
+  background: var(--c-accent);
+  border-color: var(--c-accent);
+}
+
+/* tabs */
+.tab {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 2.1rem;
+  padding: 0 var(--space-3);
+  max-width: 12rem;
+  background: var(--c-bg-tertiary);
+  color: var(--c-fg-secondary);
+  border: 1px solid var(--c-border-subtle);
+  border-bottom: none;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.tab--active {
+  background: var(--c-bg-primary);
+  color: var(--c-fg-primary);
+  box-shadow: inset 0 2px 0 var(--c-accent);
+}
+
+/* ---- stage: fixed editor + floating sidebars ---- */
+.stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.editor-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--c-bg-primary);
+}
+.editor-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-5) var(--space-4);
+}
+.editor-inner {
+  max-width: 44rem;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.side {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 18rem;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--c-bg-secondary);
+  transition: transform var(--transition-base), opacity var(--transition-base);
+}
+.side--left {
+  left: 0;
+  border-right: 1px solid var(--c-border-subtle);
+  box-shadow: 8px 0 24px -16px rgba(0, 0, 0, 0.55);
+}
+.side--right {
+  right: 0;
+  border-left: 1px solid var(--c-border-subtle);
+  box-shadow: -8px 0 24px -16px rgba(0, 0, 0, 0.55);
+}
+.side--collapsed.side--left {
+  transform: translateX(-101%);
+  opacity: 0;
+  pointer-events: none;
+}
+.side--collapsed.side--right {
+  transform: translateX(101%);
+  opacity: 0;
+  pointer-events: none;
+}
+.side__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ---- L0: full-width status bar ---- */
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex: 0 0 auto;
+  height: 1.9rem;
+  padding: 0 var(--space-4);
+  background: var(--c-bg-secondary);
+  border-top: 1px solid var(--c-border-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--c-fg-secondary);
+}
+.statusbar__group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.statusbar__group--proj {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.statusbar__spacer {
+  margin-left: auto;
+}
+.statusbar__sep {
+  color: var(--c-border-strong);
+}
+
+/* right sidebar: inlined segmented header + panel body */
+.rs-tabs {
+  display: flex;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--c-border-subtle);
+}
+.rs-tab {
+  flex: 1;
+  padding: var(--space-1) var(--space-2);
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--c-fg-secondary);
+  background: transparent;
+  border: 1px solid var(--c-border-subtle);
+  border-radius: var(--radius-sm, var(--radius-md));
+  cursor: pointer;
+}
+.rs-tab--active {
+  color: var(--c-fg-inverse);
+  background: var(--c-accent);
+  border-color: var(--c-accent);
+}
+.rs-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}

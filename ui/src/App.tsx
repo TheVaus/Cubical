@@ -63,7 +63,6 @@ import {
   type ResolvedTheme,
   type ThemeMode,
 } from "./styles/theme";
-import RightSidebar from "./RightSidebar";
 import Backlinks from "./sidebar/Backlinks";
 import UnlinkedMentions from "./sidebar/UnlinkedMentions";
 import SearchPanel from "./sidebar/SearchPanel";
@@ -227,6 +226,10 @@ const App: Component = () => {
   // without polling. (Renamed in Session I — the same tick now drives
   // both panels.)
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = createSignal(false);
+  // UI rework: the left sidebar (search + file tree) is a floating layer
+  // that slides off-screen on collapse without reflowing the editor.
+  const [leftCollapsed, setLeftCollapsed] = createSignal(false);
+  const toggleLeftSidebar = () => setLeftCollapsed((v) => !v);
   const [rightSidebarRefreshTick, setRightSidebarRefreshTick] = createSignal(0);
   let rightSidebarRefreshTimer: ReturnType<typeof setTimeout> | undefined;
   const RIGHT_SIDEBAR_REFRESH_DEBOUNCE_MS = 200;
@@ -1090,34 +1093,34 @@ const App: Component = () => {
   };
 
   return (
-    <main
-      style={{
-        display: "flex",
-        "flex-direction": "column",
-        height: "100vh",
-        padding: "var(--space-5)",
-        gap: "var(--space-4)",
-        "font-family": "var(--font-body)",
-        color: "var(--c-fg-primary)",
-        background: "var(--c-bg-primary)",
-      }}
-    >
-      <header
-        style={{
-          display: "flex",
-          "align-items": "baseline",
-          "justify-content": "space-between",
-          gap: "var(--space-4)",
-        }}
-      >
-        <h1 style={{ "font-size": "var(--text-lg)", margin: 0 }}>Cubical</h1>
-        <div
-          style={{
-            display: "flex",
-            "align-items": "center",
-            gap: "var(--space-3)",
-          }}
-        >
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="topbar__flank topbar__flank--left">
+          <button
+            type="button"
+            class="chrome-btn"
+            onClick={toggleLeftSidebar}
+            aria-label="Toggle file panel"
+            aria-pressed={!leftCollapsed()}
+            title="Toggle file panel"
+          >
+            {leftCollapsed() ? "⟩" : "⟨"}
+          </button>
+          <span class="topbar__brand">Cubical</span>
+        </div>
+        <div class="topbar__tabs">
+          <Show
+            when={!!vaultId() && view().kind === "file" && !!selectedPath()}
+          >
+            <div class="tab tab--active">{fileStem(selectedPath()!)}</div>
+          </Show>
+          <Show when={view().kind === "tag"}>
+            <div class="tab tab--active">
+              #{(view() as { kind: "tag"; tagPath: string }).tagPath}
+            </div>
+          </Show>
+        </div>
+        <div class="topbar__flank topbar__flank--right">
           <button
             type="button"
             onClick={cycleTheme}
@@ -1182,6 +1185,16 @@ const App: Component = () => {
           </button>
           <button
             type="button"
+            class="chrome-btn"
+            onClick={toggleRightSidebar}
+            aria-label="Toggle backlinks panel"
+            aria-pressed={!rightSidebarCollapsed()}
+            title="Toggle backlinks panel"
+          >
+            {rightSidebarCollapsed() ? "⟨" : "⟩"}
+          </button>
+          <button
+            type="button"
             onClick={handleOpen}
             disabled={busy()}
             style={{
@@ -1229,32 +1242,12 @@ const App: Component = () => {
           </p>
         }
       >
-        <section
-          style={{
-            display: "flex",
-            "flex-direction": "column",
-            gap: "var(--space-2)",
-            "min-height": 0,
-            flex: 1,
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              gap: "var(--space-3)",
-              flex: 1,
-              "min-height": 0,
-            }}
+        <div class="stage">
+          <aside
+            class="side side--left"
+            classList={{ "side--collapsed": leftCollapsed() }}
           >
-            <div
-              style={{
-                flex: "0 0 18rem",
-                display: "flex",
-                "flex-direction": "column",
-                "min-height": 0,
-                "min-width": 0,
-              }}
-            >
+            <div class="side__body">
               <SearchPanel
                 vaultId={vaultId()}
                 onNavigate={(path) => void handleNavigateWikilink(path, null)}
@@ -1418,15 +1411,10 @@ const App: Component = () => {
             </div>
               </SearchPanel>
             </div>
-            <div
-              style={{
-                flex: 1,
-                "min-width": 0,
-                display: "flex",
-                "flex-direction": "column",
-                gap: "var(--space-2)",
-              }}
-            >
+          </aside>
+          <main class="editor-layer">
+            <div class="editor-scroll">
+              <div class="editor-inner">
               <Show
                 when={view().kind === "file"}
                 fallback={
@@ -1557,21 +1545,58 @@ const App: Component = () => {
                 />
               </Show>
               </Show>
+              </div>
             </div>
-            <RightSidebar
-              collapsed={rightSidebarCollapsed()}
-              onToggle={toggleRightSidebar}
-              segments={[
-                { id: "backlinks", label: "Backlinks" },
-                { id: "unlinked_mentions", label: "Mentions" },
-              ]}
-              segment={rightSidebarPanel()}
-              onSegmentChange={handleRightSidebarSegmentChange}
-            >
-              <Show
-                when={rightSidebarPanel() === "backlinks"}
-                fallback={
-                  <UnlinkedMentions
+          </main>
+          <aside
+            class="side side--right"
+            classList={{ "side--collapsed": rightSidebarCollapsed() }}
+          >
+            <div class="side__body">
+              <div role="tablist" aria-label="Sidebar panels" class="rs-tabs">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={rightSidebarPanel() === "backlinks"}
+                  class="rs-tab"
+                  classList={{
+                    "rs-tab--active": rightSidebarPanel() === "backlinks",
+                  }}
+                  onClick={() => handleRightSidebarSegmentChange("backlinks")}
+                >
+                  Backlinks
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={rightSidebarPanel() === "unlinked_mentions"}
+                  class="rs-tab"
+                  classList={{
+                    "rs-tab--active":
+                      rightSidebarPanel() === "unlinked_mentions",
+                  }}
+                  onClick={() =>
+                    handleRightSidebarSegmentChange("unlinked_mentions")
+                  }
+                >
+                  Mentions
+                </button>
+              </div>
+              <div class="rs-body">
+                <Show
+                  when={rightSidebarPanel() === "backlinks"}
+                  fallback={
+                    <UnlinkedMentions
+                      vaultId={vaultId()}
+                      path={selectedPath()}
+                      refreshSignal={rightSidebarRefreshTick()}
+                      onRowClick={(path) =>
+                        void handleNavigateWikilink(path, null)
+                      }
+                    />
+                  }
+                >
+                  <Backlinks
                     vaultId={vaultId()}
                     path={selectedPath()}
                     refreshSignal={rightSidebarRefreshTick()}
@@ -1579,20 +1604,11 @@ const App: Component = () => {
                       void handleNavigateWikilink(path, null)
                     }
                   />
-                }
-              >
-                <Backlinks
-                  vaultId={vaultId()}
-                  path={selectedPath()}
-                  refreshSignal={rightSidebarRefreshTick()}
-                  onRowClick={(path) =>
-                    void handleNavigateWikilink(path, null)
-                  }
-                />
-              </Show>
-            </RightSidebar>
-          </div>
-        </section>
+                </Show>
+              </div>
+            </div>
+          </aside>
+        </div>
       </Show>
 
       <OmniBar
@@ -1697,19 +1713,8 @@ const App: Component = () => {
       </Show>
 
       <Show when={vaultId()}>
-        <footer
-          style={{
-            "border-top": "1px solid var(--c-border-subtle)",
-            "padding-top": "var(--space-3)",
-            color: "var(--c-fg-secondary)",
-            "font-size": "var(--text-xs)",
-            "font-family": "var(--font-mono)",
-            display: "flex",
-            "justify-content": "space-between",
-            gap: "var(--space-3)",
-          }}
-        >
-          <span>
+        <footer class="statusbar">
+          <span class="statusbar__group statusbar__group--proj">
             {scanStatus() === "in_progress"
               ? `Scanning… ${filesProcessed()} / ${filesTotalEstimate()}`
               : scanStatus() === "complete"
@@ -1731,6 +1736,7 @@ const App: Component = () => {
             count={pendingRewritesCount()}
             onError={(m: string) => showToast(m)}
           />
+          <span class="statusbar__spacer" />
           <span>{vaultId()}</span>
         </footer>
       </Show>
@@ -1795,7 +1801,7 @@ const App: Component = () => {
       </Show>
 
       <ToastHost />
-    </main>
+    </div>
   );
 };
 
