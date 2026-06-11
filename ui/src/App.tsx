@@ -100,12 +100,6 @@ const FILE_ROW_HEIGHT = 32;
 const FILE_LIST_OVERSCAN = 8;
 
 /** Header theme button cycle order (spec §2.5 / DoD §6). */
-const NEXT_THEME_MODE: Record<ThemeMode, ThemeMode> = {
-  system: "light",
-  light: "dark",
-  dark: "system",
-};
-
 const THEME_ICON: Record<ThemeMode, string> = {
   system: "⚙",
   light: "☀",
@@ -114,7 +108,7 @@ const THEME_ICON: Record<ThemeMode, string> = {
 
 const App: Component = () => {
   const [vaultId, setVaultId] = createSignal<string | null>(null);
-  const [, setVaultPath] = createSignal<string | null>(null);
+  const [vaultPath, setVaultPath] = createSignal<string | null>(null);
   const [scanStatus, setScanStatus] = createSignal<ScanStatus>("in_progress");
   const [filesProcessed, setFilesProcessed] = createSignal(0);
   const [filesTotalEstimate, setFilesTotalEstimate] = createSignal(0);
@@ -235,6 +229,10 @@ const App: Component = () => {
   // that slides off-screen on collapse without reflowing the editor.
   const [leftCollapsed, setLeftCollapsed] = createSignal(false);
   const toggleLeftSidebar = () => setLeftCollapsed((v) => !v);
+  // UI rework: Settings modal (theme + editor/vault prefs live here now).
+  const [settingsOpen, setSettingsOpen] = createSignal(false);
+  type SettingsTab = "appearance" | "editor" | "vault" | "shortcuts";
+  const [settingsTab, setSettingsTab] = createSignal<SettingsTab>("appearance");
   const [rightSidebarRefreshTick, setRightSidebarRefreshTick] = createSignal(0);
   let rightSidebarRefreshTimer: ReturnType<typeof setTimeout> | undefined;
   const RIGHT_SIDEBAR_REFRESH_DEBOUNCE_MS = 200;
@@ -604,18 +602,16 @@ const App: Component = () => {
   };
 
   /**
-   * Advance the theme one step (`system → light → dark → system`),
-   * apply it, and persist the new mode to the open vault. With no
-   * vault open the change is in-memory only — `appearance.theme_mode`
-   * is vault-local, so there is nowhere to persist it yet.
+   * Set the theme mode directly (from Settings ▸ Appearance), apply it,
+   * and persist to the open vault. With no vault open the change is
+   * in-memory only — `appearance.theme_mode` is vault-local.
    */
-  const cycleTheme = () => {
-    const next = NEXT_THEME_MODE[themeMode()];
-    setThemeMode(next);
-    setResolvedTheme(applyTheme(next));
+  const setTheme = (mode: ThemeMode) => {
+    setThemeMode(mode);
+    setResolvedTheme(applyTheme(mode));
     const id = vaultId();
     if (id) {
-      setSetting(id, "appearance.theme_mode", next).catch((e) => {
+      setSetting(id, "appearance.theme_mode", mode).catch((e) => {
         console.error("persisting theme_mode failed", e);
       });
     }
@@ -644,6 +640,18 @@ const App: Component = () => {
     const id = vaultId();
     if (id) {
       setSetting(id, "editor.raw_source_default", next).catch((e) => {
+        console.error("persisting raw_source_default failed", e);
+      });
+    }
+  };
+
+  /** Set the raw-source default explicitly (from Settings ▸ Editor). */
+  const setRawDefaultValue = (val: boolean) => {
+    setRawDefault(val);
+    setRawOverride(null);
+    const id = vaultId();
+    if (id) {
+      setSetting(id, "editor.raw_source_default", val).catch((e) => {
         console.error("persisting raw_source_default failed", e);
       });
     }
@@ -1158,15 +1166,6 @@ const App: Component = () => {
         <div class="topbar__flank topbar__flank--right">
           <button
             type="button"
-            class="chrome-btn"
-            onClick={cycleTheme}
-            aria-label={`Cycle theme (current: ${themeMode()})`}
-            title={`Theme: ${themeMode()}`}
-          >
-            {THEME_ICON[themeMode()]}
-          </button>
-          <button
-            type="button"
             class="chrome-btn chrome-btn--mono"
             classList={{ "chrome-btn--accent": effectiveRaw() }}
             onClick={(e) =>
@@ -1192,14 +1191,6 @@ const App: Component = () => {
           >
             {rightSidebarCollapsed() ? "⟨" : "⟩"}
           </button>
-          <button
-            type="button"
-            class="chrome-btn chrome-btn--primary"
-            onClick={handleOpen}
-            disabled={busy()}
-          >
-            Open Vault
-          </button>
         </div>
       </header>
 
@@ -1220,15 +1211,17 @@ const App: Component = () => {
       <Show
         when={vaultId()}
         fallback={
-          <p
-            style={{
-              color: "var(--c-fg-muted)",
-              "font-size": "var(--text-sm)",
-              margin: 0,
-            }}
-          >
-            Pick a folder to open it as a vault.
-          </p>
+          <div class="empty-vault">
+            <p>Pick a folder to open it as a vault.</p>
+            <button
+              type="button"
+              class="chrome-btn chrome-btn--primary"
+              onClick={handleOpen}
+              disabled={busy()}
+            >
+              Open Vault
+            </button>
+          </div>
         }
       >
         <div class="stage">
@@ -1399,6 +1392,29 @@ const App: Component = () => {
               </Show>
             </div>
               </SearchPanel>
+              <div class="side__footer">
+                <button
+                  type="button"
+                  class="vault-btn"
+                  onClick={handleOpen}
+                  disabled={busy()}
+                  title="Switch vault"
+                >
+                  <span class="vault-btn__name">
+                    {vaultPath()?.split("/").filter(Boolean).pop() ?? "vault"}
+                  </span>
+                  <span class="vault-btn__caret">⌄</span>
+                </button>
+                <button
+                  type="button"
+                  class="chrome-btn"
+                  onClick={() => setSettingsOpen(true)}
+                  aria-label="Settings"
+                  title="Settings"
+                >
+                  ⚙
+                </button>
+              </div>
             </div>
           </aside>
           <main class="editor-layer">
@@ -1632,6 +1648,149 @@ const App: Component = () => {
         onOpenTag={(tag) => void handleNavigateTag(tag)}
       />
 
+      <Show when={settingsOpen()}>
+        <div
+          class="modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Settings"
+          onClick={() => setSettingsOpen(false)}
+        >
+          <div class="modal" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              class="chrome-btn modal__close"
+              aria-label="Close settings"
+              onClick={() => setSettingsOpen(false)}
+            >
+              ✕
+            </button>
+            <nav class="modal__nav">
+              <h3 class="modal__navtitle">Settings</h3>
+              <For
+                each={
+                  [
+                    { id: "appearance", label: "🎨 Appearance" },
+                    { id: "editor", label: "📝 Editor" },
+                    { id: "vault", label: "🗄 Vault" },
+                    { id: "shortcuts", label: "⌨ Shortcuts" },
+                  ] as { id: SettingsTab; label: string }[]
+                }
+              >
+                {(t) => (
+                  <button
+                    type="button"
+                    class="modal__navitem"
+                    classList={{
+                      "modal__navitem--active": settingsTab() === t.id,
+                    }}
+                    onClick={() => setSettingsTab(t.id)}
+                  >
+                    {t.label}
+                  </button>
+                )}
+              </For>
+            </nav>
+            <div class="modal__body">
+              <Show when={settingsTab() === "appearance"}>
+                <h2 class="modal__h2">Appearance</h2>
+                <div class="set-row">
+                  <div>
+                    <div class="set-row__lab">Theme</div>
+                    <div class="set-row__desc">
+                      Follow the system, or force light / dark.
+                    </div>
+                  </div>
+                  <div class="seg-control">
+                    <For each={["system", "light", "dark"] as ThemeMode[]}>
+                      {(m) => (
+                        <button
+                          type="button"
+                          class="seg-control__btn"
+                          classList={{
+                            "seg-control__btn--active": themeMode() === m,
+                          }}
+                          onClick={() => setTheme(m)}
+                        >
+                          {THEME_ICON[m]} {m}
+                        </button>
+                      )}
+                    </For>
+                  </div>
+                </div>
+              </Show>
+              <Show when={settingsTab() === "editor"}>
+                <h2 class="modal__h2">Editor</h2>
+                <div class="set-row">
+                  <div>
+                    <div class="set-row__lab">
+                      Open notes in raw source by default
+                    </div>
+                    <div class="set-row__desc">
+                      Otherwise notes open in Live Preview.
+                    </div>
+                  </div>
+                  <div class="seg-control">
+                    <button
+                      type="button"
+                      class="seg-control__btn"
+                      classList={{ "seg-control__btn--active": !rawDefault() }}
+                      onClick={() => setRawDefaultValue(false)}
+                    >
+                      Off
+                    </button>
+                    <button
+                      type="button"
+                      class="seg-control__btn"
+                      classList={{ "seg-control__btn--active": rawDefault() }}
+                      onClick={() => setRawDefaultValue(true)}
+                    >
+                      On
+                    </button>
+                  </div>
+                </div>
+              </Show>
+              <Show when={settingsTab() === "vault"}>
+                <h2 class="modal__h2">Vault</h2>
+                <div class="set-row">
+                  <div>
+                    <div class="set-row__lab">Current vault</div>
+                    <div class="set-row__desc">{vaultPath() ?? "—"}</div>
+                  </div>
+                  <button
+                    type="button"
+                    class="chrome-btn chrome-btn--primary"
+                    onClick={handleOpen}
+                    disabled={busy()}
+                  >
+                    Open another…
+                  </button>
+                </div>
+              </Show>
+              <Show when={settingsTab() === "shortcuts"}>
+                <h2 class="modal__h2">Shortcuts</h2>
+                <div class="kb-row">
+                  <span>Open Omni-Bar</span>
+                  <kbd>⌘/Ctrl</kbd>
+                  <kbd>K</kbd>
+                </div>
+                <div class="kb-row">
+                  <span>Toggle raw source / Live Preview</span>
+                  <kbd>⌘/Ctrl</kbd>
+                  <kbd>E</kbd>
+                </div>
+                <div class="kb-row">
+                  <span>Copy block reference</span>
+                  <kbd>⌘/Ctrl</kbd>
+                  <kbd>⇧</kbd>
+                  <kbd>B</kbd>
+                </div>
+              </Show>
+            </div>
+          </div>
+        </div>
+      </Show>
+
       <Show when={createOffer() !== null}>
         <div
           role="dialog"
@@ -1726,37 +1885,54 @@ const App: Component = () => {
 
       <Show when={vaultId()}>
         <footer class="statusbar">
+          {/* left: vault dir + system status */}
           <span class="statusbar__group statusbar__group--proj">
-            {scanStatus() === "in_progress"
-              ? `Scanning… ${filesProcessed()} / ${filesTotalEstimate()}`
-              : scanStatus() === "complete"
-                ? `${filesProcessed()} file${filesProcessed() === 1 ? "" : "s"}`
-                : `Scan cancelled at ${filesProcessed()} file${filesProcessed() === 1 ? "" : "s"}`}
+            <span class="statusbar__dir" title={vaultPath() ?? ""}>
+              {vaultPath() ?? vaultId()}
+            </span>
+            <Show when={scanStatus() === "in_progress"}>
+              <span class="statusbar__sep">·</span>
+              <span>
+                Scanning… {filesProcessed()} / {filesTotalEstimate()}
+              </span>
+            </Show>
+            <Show when={formatBrokenBlockRefs(brokenBlockRefs())}>
+              {(display) => (
+                <>
+                  <span class="statusbar__sep">·</span>
+                  <span
+                    title={display().title}
+                    style={{ color: "var(--c-warning, var(--c-accent))" }}
+                  >
+                    {display().label}
+                  </span>
+                </>
+              )}
+            </Show>
+            <PendingRewrites
+              vaultId={vaultId()}
+              count={pendingRewritesCount()}
+              onError={(m: string) => showToast(m)}
+            />
           </span>
+
+          {/* middle: current file info */}
           <Show when={view().kind === "file" && !!selectedPath()}>
-            <span class="statusbar__group">
+            <span class="statusbar__group statusbar__mid">
               <b>{wordCount()}</b> words
               <span class="statusbar__sep">·</span>
               <b>{blockCount()}</b> blocks
             </span>
           </Show>
-          <span class="statusbar__spacer" />
-          <Show when={formatBrokenBlockRefs(brokenBlockRefs())}>
-            {(display) => (
-              <span
-                title={display().title}
-                style={{ color: "var(--c-warning, var(--c-accent))" }}
-              >
-                {display().label}
+
+          {/* right: current file dir (vault-relative path) */}
+          <span class="statusbar__group statusbar__group--file">
+            <Show when={view().kind === "file" && selectedPath()}>
+              <span class="statusbar__dir" title={selectedPath() ?? ""}>
+                {selectedPath()}
               </span>
-            )}
-          </Show>
-          <PendingRewrites
-            vaultId={vaultId()}
-            count={pendingRewritesCount()}
-            onError={(m: string) => showToast(m)}
-          />
-          <span>{vaultId()}</span>
+            </Show>
+          </span>
         </footer>
       </Show>
 
