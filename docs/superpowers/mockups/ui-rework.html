@@ -1,0 +1,591 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cubical UI Rework — v4</title>
+<style>
+  /* ============================================================
+     THROWAWAY MOCKUP v4 — not the real app. Single file, no build.
+       • L0 chrome = full-width TOP bar + full-width STATUS bar.
+       • Top bar: left flank (= left-sidebar width) holds the left
+         collapse button; tabs are LEFT-ALIGNED starting at the editor's
+         left edge (pinned there even when the sidebar collapses); right
+         flank holds the source-view toggle + right collapse button.
+       • L1 = fixed centered editor + two floating sidebars that slide
+         off on collapse without moving the editor.
+       • Status bar: project dir (left) · file stats incl. word count
+         (center) · current file rel-path (right).
+       • Source-view toggle swaps the editor between preview & raw md.
+     Toggle "Layer colors" to see the L0/L1/L2 + text mapping.
+     ============================================================ */
+  :root {
+    --l0:#e0a800; --l1:#25b34b; --l2:#3b86ff; --red:#e5484d;
+
+    --bg:#0b0d12; --chrome:#0e1117; --editor:#13161e;
+    --panel:#161a22; --panel-2:#1e232d;
+    --fg:#eef0f6; --fg-2:#b6bdcb; --fg-dim:#737c8e;
+    --border:#252b36; --border-soft:#191e28;
+    --accent:#6e8bff; --accent-weak:#6e8bff1f;
+    --side-w:17rem; --gut:0px;
+    --shadow:0 18px 50px -12px rgba(0,0,0,.65), 0 0 0 1px rgba(255,255,255,.03);
+    --t:260ms cubic-bezier(.32,.72,.27,1);
+    --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;}
+  body{
+    font:14.5px/1.55 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+    background:
+      radial-gradient(1100px 520px at 16% -14%, #151a26 0%, transparent 60%),
+      radial-gradient(900px 460px at 104% -8%, #121a24 0%, transparent 56%),
+      var(--bg);
+    color:var(--fg); display:flex; flex-direction:column; height:100vh; overflow:hidden;
+  }
+
+  /* ---------------- layer-debug overlay ---------------- */
+  .layer{outline:0 solid transparent; outline-offset:-2px; transition:outline-color var(--t);}
+  body.show-layers .l0{outline:2px solid var(--l0);}
+  body.show-layers .l1{outline:2px solid var(--l1);}
+  body.show-layers .l2{outline:2px solid var(--l2);}
+  body.show-layers .red{outline:2px dashed var(--red);}
+  .tag{display:none;}
+  body.show-layers .tag{display:inline-block; position:absolute; top:5px; right:7px; z-index:9;
+    font:700 9.5px/1 var(--mono); padding:2px 5px; border-radius:5px; color:#000; pointer-events:none;}
+  .tag.t0{background:var(--l0);} .tag.t1{background:var(--l1);}
+  .tag.t2{background:var(--l2);} .tag.tr{background:var(--red); color:#fff;}
+
+  /* ---------------- debug control strip (mockup-only) ---------------- */
+  .controls{display:flex; align-items:center; gap:14px; padding:7px 14px; flex:0 0 auto;
+    background:rgba(0,0,0,.35); border-bottom:1px solid var(--border-soft); font-size:12.5px;
+    backdrop-filter:blur(8px);}
+  .controls label{display:inline-flex; gap:7px; align-items:center; cursor:pointer; color:var(--fg-2);}
+  .controls .key{display:inline-flex; gap:6px; align-items:center; color:var(--fg-dim);}
+  .controls .dot{width:10px; height:10px; border-radius:3px;}
+  .controls input{accent-color:var(--accent);}
+  .controls .note{margin-left:auto; color:var(--fg-dim);}
+  .controls .note b{color:var(--fg-2);}
+
+  /* ============================ L0: full-width TOP bar ============================ */
+  .topbar{position:relative; display:flex; align-items:stretch; height:46px; padding:0;
+    flex:0 0 auto; background:var(--chrome); border-bottom:1px solid var(--border-soft); z-index:5;}
+  .flank{display:flex; align-items:center; min-width:0;}
+  /* left flank == left-sidebar width, so tabs begin exactly at the editor's left edge */
+  .flank.left{flex:0 0 var(--side-w); padding-left:8px;}
+  .flank.right{flex:0 0 auto; justify-content:flex-end; gap:8px; padding-right:8px;}
+
+  .ptoggle{height:30px; min-width:34px; padding:0 6px; border-radius:9px; cursor:pointer; align-self:center;
+    background:var(--panel-2); border:1px solid var(--border-soft); color:var(--fg-dim);
+    display:inline-flex; align-items:center; justify-content:center; font-size:14px;
+    transition:color var(--t), border-color var(--t), background var(--t);}
+  .ptoggle:hover{color:var(--fg); border-color:var(--border);}
+  /* "on" = panel currently open: calm filled state (accent is reserved for true modes) */
+  .ptoggle.on{color:var(--fg-2); border-color:var(--border); background:var(--panel-2);}
+  /* "act" = an actual active mode (raw source): accent */
+  .ptoggle.act{color:var(--accent); border-color:#6e8bff44; background:var(--accent-weak);}
+  .ptoggle.src{font-family:var(--mono); font-size:12px; padding:0 9px;}
+
+  /* tabs — left-aligned, anchored to the editor's left edge */
+  .tabbar{flex:1 1 auto; display:flex; align-items:flex-end; gap:4px; align-self:flex-end;
+    overflow:hidden; padding:0;}
+  .tab{display:flex; align-items:center; gap:9px; height:34px; padding:0 13px; max-width:190px;
+    background:var(--panel-2); color:var(--fg-dim); border:1px solid var(--border-soft);
+    border-bottom:none; border-radius:9px 9px 0 0; font-size:13px; cursor:pointer; white-space:nowrap;
+    overflow:hidden; text-overflow:ellipsis; flex:0 0 auto;
+    transition:color var(--t), background var(--t), border-color var(--t);}
+  .tab:hover{color:var(--fg-2);}
+  .tab.active{background:var(--editor); color:var(--fg); border-color:var(--border);
+    box-shadow:0 2px 0 var(--accent) inset;}
+  .tab .x{opacity:.45; font-size:15px;} .tab .x:hover{opacity:1;}
+  .tab-add{width:30px; height:30px; align-self:center; margin-left:2px; border-radius:8px;
+    border:1px solid var(--border-soft); background:transparent; color:var(--fg-dim); cursor:pointer; flex:0 0 auto;}
+  .tab-add:hover{color:var(--fg); border-color:var(--border);}
+
+  /* ============================ stage ============================ */
+  .stage{position:relative; flex:1; min-height:0;}
+
+  /* ---- L1: CENTER editor layer — fixed, centered, never moves ---- */
+  .center{position:absolute; inset:0; display:flex; flex-direction:column; z-index:1; background:var(--editor);}
+  .doc{flex:1; overflow:auto; padding:40px 28px 44px;}
+  .doc-inner{max-width:700px; margin:0 auto;}
+
+  .title{font-size:32px; font-weight:750; letter-spacing:-.02em; line-height:1.12;
+    outline:none; border-radius:8px; padding:3px 8px; margin:0 -8px 18px;
+    transition:background var(--t), box-shadow var(--t);}
+  .title:hover{background:#ffffff0a;}
+  .title:focus{background:#ffffff0d; box-shadow:0 0 0 2px var(--accent);}
+
+  .props{position:relative; border:1px solid var(--border-soft); border-radius:11px;
+    background:#ffffff05; padding:12px 15px; margin:4px 0 30px; font-size:13.5px;}
+  .prop-row{display:flex; gap:14px; padding:3.5px 0;}
+  .prop-row .k{color:var(--fg-dim); width:74px; flex:0 0 auto; letter-spacing:.01em;}
+  .chip{display:inline-block; background:var(--accent-weak); color:#aebcff; border:1px solid #6e8bff33;
+    border-radius:999px; padding:1.5px 10px; font-size:12px; margin-right:6px;}
+
+  .textregion{position:relative;}
+  .preview{font-size:15px; line-height:1.72; color:#c3cad8;}
+  .preview h1{font-size:24px; font-weight:700; letter-spacing:-.01em; color:var(--fg); margin:28px 0 10px;}
+  .preview h2{font-size:18.5px; font-weight:650; color:#d2d8e4; margin:24px 0 8px;}
+  .preview p{margin:11px 0;}
+  .preview .em{font-style:italic; color:#fff;}
+  .preview .mk{color:var(--fg-dim);}
+  .preview hr{border:none; border-top:1px solid var(--border-soft); margin:24px 0;}
+  .spacer{height:55vh;}
+
+  /* raw source view (shown when body.raw) */
+  .raw-src{display:none; font:13.5px/1.7 var(--mono); color:var(--fg-2); white-space:pre-wrap;
+    margin:6px 0;}
+  .raw-src .mk{color:var(--fg-dim);}
+  body.raw .preview{display:none;}
+  body.raw .raw-src{display:block;}
+  body.raw .props{opacity:.55;}   /* in raw mode the frontmatter would be raw too */
+
+  /* ---- L1: FLOATING sidebars, docked flush ---- */
+  .side{position:absolute; top:var(--gut); bottom:var(--gut); width:var(--side-w); z-index:3;
+    display:flex; flex-direction:column; background:color-mix(in srgb, var(--panel) 88%, transparent);
+    backdrop-filter:blur(14px) saturate(120%); border:1px solid var(--border);
+    border-radius:5px; overflow:hidden; transition:transform var(--t), opacity var(--t);}
+  /* directional shadow toward the editor — reads as a docked layer, not a floating pill */
+  .side.left{left:var(--gut); border-radius:0 5px 5px 0; border-left:none; box-shadow:16px 0 34px -20px rgba(0,0,0,.7);}
+  .side.right{right:var(--gut); border-radius:5px 0 0 5px; border-right:none; box-shadow:-16px 0 34px -20px rgba(0,0,0,.7);}
+  .side.left.collapsed{transform:translateX(calc(-100% - var(--gut) - 6px)); opacity:0;}
+  .side.right.collapsed{transform:translateX(calc(100% + var(--gut) + 6px)); opacity:0;}
+
+  .side-head{display:flex; align-items:center; gap:8px; padding:10px 10px 6px;}
+  .seg{display:flex; gap:4px; flex:1;}
+  .seg .s{flex:1; text-align:center; padding:6px 4px; border-radius:8px; cursor:pointer; font-size:13px;
+    color:var(--fg-dim); border:1px solid transparent; transition:color var(--t), background var(--t), border-color var(--t);}
+  .seg .s:hover{color:var(--fg-2);}
+  .seg .s.active{background:var(--panel-2); border-color:var(--border-soft); color:var(--fg);}
+  .search{position:relative; flex:1;}
+  .search input{width:100%; background:var(--bg); border:1px solid var(--border-soft); color:var(--fg);
+    border-radius:9px; padding:7px 9px 7px 30px; font-size:13px;
+    transition:border-color var(--t), box-shadow var(--t);}
+  .search input:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-weak);}
+  .search .mag{position:absolute; left:9px; top:50%; transform:translateY(-50%); color:var(--fg-dim);}
+  .toolrow{display:flex; gap:8px; align-items:center; padding:2px 10px 8px;}
+  .iconbtn{width:30px; height:30px; flex:0 0 auto; border-radius:9px; cursor:pointer;
+    background:var(--panel-2); border:1px solid var(--border-soft); color:var(--fg-dim);
+    display:inline-flex; align-items:center; justify-content:center;
+    transition:color var(--t), background var(--t), border-color var(--t);}
+  .iconbtn:hover{color:var(--fg); border-color:var(--border);}
+  /* filter: active-state indicator dot when any filter/scope is applied */
+  #filterBtn{position:relative;}
+  #filterBtn.has-filter{color:var(--accent); border-color:#6e8bff44; background:var(--accent-weak);}
+  .fdot{display:none; position:absolute; top:-3px; right:-3px; width:8px; height:8px; border-radius:50%;
+    background:var(--accent); border:2px solid var(--panel);}
+  #filterBtn.has-filter .fdot{display:block;}
+  .tree{position:relative; flex:1; overflow:auto; margin:0 8px; padding:4px;}
+  .row{display:flex; align-items:center; gap:7px; padding:6px 8px; border-radius:8px; cursor:pointer;
+    color:var(--fg-2); font-size:13.5px; transition:color var(--t), background var(--t), box-shadow var(--t);}
+  .row:hover{background:#ffffff08;}
+  .row.sel{background:var(--accent-weak); color:#fff; box-shadow:inset 2px 0 0 var(--accent);}
+  .row .tw{width:12px; color:var(--fg-dim); font-size:10px; text-align:center;}
+  .row.f{color:var(--fg);} .row .ic{opacity:.85;}
+  .row.n1{padding-left:24px;} .row.n2{padding-left:42px;}
+  .footer{flex:0 0 auto; border-top:1px solid var(--border-soft); padding:8px 9px;
+    display:flex; align-items:center; gap:8px;}
+  /* vault NAME is a switcher button */
+  .vault-btn{flex:1; min-width:0; display:flex; align-items:center; gap:7px; cursor:pointer;
+    background:transparent; border:1px solid transparent; border-radius:9px; padding:6px 8px;
+    color:var(--fg); font:inherit; text-align:left; transition:background var(--t), border-color var(--t);}
+  .vault-btn:hover{background:#ffffff0a; border-color:var(--border-soft);}
+  .vault-btn .vdot{font-size:13px; opacity:.85; flex:0 0 auto;}
+  .vault-btn .vname{font-weight:650; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .vault-btn .vcaret{margin-left:auto; color:var(--fg-dim); font-size:11px; flex:0 0 auto;}
+  .count{margin-left:auto; color:var(--fg-dim); font-size:11.5px;}
+
+  /* ---- search results: a layer stacked over the tree (tree stays mounted) ---- */
+  .tree-wrap{position:relative; flex:1; display:flex; min-height:0;}
+  .results{position:absolute; inset:0 8px; display:none; flex-direction:column; overflow:auto;
+    background:var(--panel); border-radius:8px; padding:4px;}
+  body.searching .results{display:flex;}
+  .res-head{padding:7px 8px 5px; font-size:11px; color:var(--fg-dim); text-transform:uppercase; letter-spacing:.05em;}
+  .res-head b{color:var(--fg-2);}
+  .res-group{margin:2px 0 8px;}
+  .res-file{padding:5px 8px; font-size:12.5px; color:var(--fg); font-weight:600;}
+  .res-snip{padding:4px 8px 4px 16px; font-size:12.5px; color:var(--fg-2); line-height:1.5; cursor:pointer;
+    border-radius:6px; transition:background var(--t);}
+  .res-snip:hover{background:#ffffff08;}
+  .res-snip mark{background:#6e8bff33; color:#cdd6ff; border-radius:3px; padding:0 2px;}
+
+  /* ---- tag tab ---- */
+  .tab.tag-tab{color:#aebcff;}
+
+  /* ---- status-bar system cluster ---- */
+  .sys{display:inline-flex; align-items:center; gap:5px;}
+  .sys b{color:var(--fg); font-weight:600;}
+  .sysdot{width:7px; height:7px; border-radius:50%; background:var(--fg-dim);}
+  .sysdot.ok{background:#3fb950;}
+  .ssep{color:#5b6373;}
+  .filenm{display:inline-flex; align-items:center; gap:7px;}
+
+  /* ---- settings modal (opened from the footer ⚙) ---- */
+  .modal-backdrop{position:fixed; inset:0; z-index:50; display:none; align-items:center; justify-content:center;
+    background:rgba(0,0,0,.5); backdrop-filter:blur(3px);}
+  body.settings-open .modal-backdrop{display:flex;}
+  .modal{position:relative; width:min(640px,92vw); height:min(440px,82vh); display:flex; overflow:hidden;
+    background:var(--panel); border:1px solid var(--border); border-radius:14px;
+    box-shadow:0 30px 80px -20px rgba(0,0,0,.7);}
+  .modal-close{position:absolute; top:12px; right:14px; z-index:2;}
+  .modal-nav{flex:0 0 172px; background:var(--chrome); border-right:1px solid var(--border-soft); padding:14px 10px;}
+  .modal-nav h3{margin:2px 8px 12px; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--fg-dim);}
+  .modal-nav .navi{display:flex; align-items:center; gap:9px; padding:8px 10px; border-radius:8px; color:var(--fg-2);
+    cursor:pointer; font-size:13.5px; transition:background var(--t), color var(--t);}
+  .modal-nav .navi:hover{background:#ffffff08;}
+  .modal-nav .navi.active{background:var(--accent-weak); color:#fff;}
+  .modal-body{flex:1; padding:24px 26px; overflow:auto;}
+  .modal-body h2{margin:0 0 3px; font-size:18px; letter-spacing:-.01em;}
+  .modal-body .sub{color:var(--fg-dim); font-size:13px; margin-bottom:18px;}
+  .set-row{display:flex; align-items:center; justify-content:space-between; gap:16px;
+    padding:14px 0; border-top:1px solid var(--border-soft);}
+  .set-row .lab{font-size:14px;} .set-row .desc{color:var(--fg-dim); font-size:12.5px; margin-top:2px;}
+  .theme-seg{flex:0 0 auto; display:flex; gap:3px; background:var(--bg); border:1px solid var(--border-soft);
+    border-radius:9px; padding:3px;}
+  .theme-seg button{padding:5px 12px; border-radius:7px; border:1px solid transparent; background:transparent;
+    color:var(--fg-2); cursor:pointer; font:inherit; font-size:13px; transition:background var(--t), color var(--t);}
+  .theme-seg button.active{background:var(--panel-2); border-color:var(--border-soft); color:#fff;}
+  .panel{display:none;} .panel.active{display:block;}
+  .set-row .desc code{font:11.5px/1 var(--mono); color:#8b94a6; background:#ffffff08; padding:1px 5px;
+    border-radius:5px; margin-left:2px;}
+  .stepper{flex:0 0 auto; display:flex; align-items:center; border:1px solid var(--border-soft);
+    border-radius:9px; background:var(--bg); overflow:hidden;}
+  .stepper button{width:28px; height:30px; background:var(--panel-2); border:none; color:var(--fg-2);
+    cursor:pointer; font-size:15px; transition:color var(--t), background var(--t);}
+  .stepper button:hover{color:#fff;}
+  .stepper input{width:46px; text-align:center; background:transparent; border:none; color:var(--fg); font:inherit;}
+  .stepper .unit{color:var(--fg-dim); padding:0 8px 0 1px; font-size:12px;}
+  .vbtn{flex:0 0 auto; background:var(--panel-2); border:1px solid var(--border-soft); color:var(--fg);
+    border-radius:8px; padding:7px 13px; cursor:pointer; font:inherit; font-size:13px;
+    transition:border-color var(--t), background var(--t);}
+  .vbtn:hover{border-color:var(--border);}
+  .kb-row{display:flex; align-items:center; gap:7px; padding:11px 0; border-top:1px solid var(--border-soft);}
+  .kb-row span{flex:1; font-size:13.5px;}
+  kbd{font:600 11px/1 var(--mono); background:var(--panel-2); border:1px solid var(--border);
+    border-bottom-width:2px; border-radius:6px; padding:4px 7px; color:var(--fg-2);}
+  .panel-body{position:relative; flex:1; overflow:auto; margin:4px 8px 8px; padding:6px;
+    border:1px solid var(--border-soft); border-radius:12px; background:#ffffff05;}
+  .bk{padding:8px 9px; border-radius:8px; cursor:pointer;}
+  .bk:hover{background:#ffffff08;}
+  .bk .src{font-size:13px; color:var(--fg);}
+  .bk .ctx{font-size:12px; color:var(--fg-dim); margin-top:2px;}
+
+  /* ============================ L0: full-width STATUS bar ============================ */
+  .statusbar{position:relative; flex:0 0 auto; display:flex; align-items:center; gap:14px;
+    height:30px; padding:0 14px; background:var(--chrome); border-top:1px solid var(--border-soft);
+    font:12px/1 var(--mono); color:#9aa4b6; z-index:5;}           /* lighter for readability */
+  .region{display:inline-flex; align-items:center; gap:7px; min-width:0;}
+  .region .lbl{color:#71798b;}
+  .region.proj{flex:1 1 0; overflow:hidden;}
+  .region.proj .pth{overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  /* calmer cluster: keep all the info, drop segmented borders for light middots */
+  .region.stats{flex:0 0 auto; gap:22px;}
+  .region.stats .st{position:relative;}
+  .region.stats .st + .st::before{content:"·"; position:absolute; left:-12px; color:#5b6373;}
+  .region.stats b{color:var(--fg); font-weight:600;}
+  .region.cur{flex:1 1 0; justify-content:flex-end;}
+  .region.cur b{color:var(--fg); font-weight:600;}
+</style>
+</head>
+<body class="show-layers">
+
+  <!-- debug strip (mockup-only) -->
+  <div class="controls">
+    <label><input type="checkbox" id="layerToggle" checked /> Show layer colors</label>
+    <span class="key"><span class="dot" style="background:var(--l0)"></span>L0 chrome</span>
+    <span class="key"><span class="dot" style="background:var(--l1)"></span>L1 regions</span>
+    <span class="key"><span class="dot" style="background:var(--l2)"></span>L2 widgets</span>
+    <span class="key"><span class="dot" style="background:var(--red)"></span>text region</span>
+    <span class="note">New: <b>&lt;/&gt;</b> source toggle (top-right) · left-aligned tabs · status-bar word count. DOM nodes: <b id="domcount">0</b>.</span>
+  </div>
+
+  <!-- ===== L0: full-width TOP bar (chrome) ===== -->
+  <header class="topbar layer l0">
+    <span class="tag t0">L0</span>
+    <div class="flank left">
+      <button class="ptoggle on" id="tLeft" title="toggle left panel">⟨</button>
+    </div>
+    <div class="tabbar">
+      <div class="tab active">roadmap <span class="x">×</span></div>
+      <div class="tab">ideas <span class="x">×</span></div>
+      <div class="tab">backlog <span class="x">×</span></div>
+      <div class="tab tag-tab">#project <span class="x">×</span></div>
+      <button class="tab-add" title="new tab">+</button>
+    </div>
+    <div class="flank right">
+      <button class="ptoggle src" id="srcToggle" title="Source / Live-preview (Cmd/Ctrl+E)">&lt;/&gt;</button>
+      <button class="ptoggle on" id="tRight" title="toggle right panel">⟩</button>
+    </div>
+  </header>
+
+  <div class="stage">
+
+    <!-- ===== L1: CENTER editor layer (fixed) ===== -->
+    <main class="center layer l1">
+      <span class="tag t1">L1</span>
+      <div class="doc">
+        <div class="doc-inner">
+          <div class="title" contenteditable="true" spellcheck="false">roadmap</div>
+
+          <div class="props layer l2">
+            <span class="tag t2">L2</span>
+            <div class="prop-row"><span class="k">tags</span><span><span class="chip">#project</span><span class="chip">#planning</span></span></div>
+            <div class="prop-row"><span class="k">status</span><span>in-progress</span></div>
+            <div class="prop-row"><span class="k">created</span><span>2026-06-09</span></div>
+          </div>
+
+          <div class="textregion red">
+            <span class="tag tr">text</span>
+
+            <!-- preview mode -->
+            <div class="preview" id="preview">
+              <p>file content…</p>
+              <h1><span class="mk"># </span>Title</h1>
+              <h2><span class="mk">## </span>Sub title</h2>
+              <hr />
+              <p>more <span class="em">*wierd*</span> text.</p>
+              <p>Some more text — this part is below the fold, but you can scroll down to it.</p>
+              <div class="spacer"></div>
+              <p style="color:var(--fg-dim)">↓ … bottom of the document … ↓</p>
+            </div>
+
+            <!-- raw source mode -->
+            <pre class="raw-src"><span class="mk">---
+tags: [project, planning]
+status: in-progress
+created: 2026-06-09
+---</span>
+file content…
+<span class="mk"># </span>Title
+<span class="mk">## </span>Sub title
+<span class="mk">---</span>
+more *wierd* text.
+
+Some more text — this part is below the fold, but you can scroll down to it.</pre>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- ===== L1: floating LEFT sidebar ===== -->
+    <aside class="side left layer l1" id="leftSide">
+      <span class="tag t1">L1</span>
+      <div class="side-head">
+        <div class="search layer l2" style="flex:1;">
+          <span class="tag t2">L2</span>
+          <span class="mag">⌕</span>
+          <input id="searchInput" placeholder="Search…" />
+        </div>
+        <button class="iconbtn has-filter" id="filterBtn" title="Filter — sort &amp; scope">⛁<span class="fdot"></span></button>
+      </div>
+      <div class="toolrow">
+        <button class="iconbtn" title="New note">＋</button>
+        <button class="iconbtn" title="New folder">🗀</button>
+        <span class="count">7 notes</span>
+      </div>
+      <div class="tree-wrap">
+      <div class="tree layer l2">
+        <span class="tag t2">L2</span>
+        <div class="row f"><span class="tw">▾</span><span class="ic">🗀</span> projects</div>
+        <div class="row n1 sel"><span class="tw"></span> roadmap.md</div>
+        <div class="row n1"><span class="tw"></span> backlog.md</div>
+        <div class="row f"><span class="tw">▸</span><span class="ic">🗀</span> daily</div>
+        <div class="row"><span class="tw"></span> welcome.md</div>
+        <div class="row"><span class="tw"></span> ideas.md</div>
+        <div class="row"><span class="tw"></span> scratch.md</div>
+      </div>
+      <!-- search results: a LAYER stacked over the tree (type to reveal). The tree
+           stays mounted underneath, so its scroll + expanded folders survive. -->
+      <div class="results layer l2" id="results">
+        <div class="res-head"><b>5</b> results</div>
+        <div class="res-group">
+          <div class="res-file">🗎 projects/roadmap.md</div>
+          <div class="res-snip">…the <mark>search</mark> spans all scope fields…</div>
+          <div class="res-snip">…full-text <mark>search</mark> via Tantivy…</div>
+        </div>
+        <div class="res-group">
+          <div class="res-file">🗎 welcome.md</div>
+          <div class="res-snip">…press Cmd/Ctrl+K to <mark>search</mark> notes…</div>
+        </div>
+        <div class="res-group">
+          <div class="res-file">🗎 ideas.md</div>
+          <div class="res-snip">…typo-tolerant <mark>search</mark> matching…</div>
+        </div>
+      </div>
+      </div>
+      <div class="footer">
+        <button class="vault-btn" id="vaultBtn" title="Switch vault">
+          <span class="vdot">🗄</span><span class="vname">my-vault</span><span class="vcaret">⌄</span>
+        </button>
+        <button class="iconbtn gear" id="settingsBtn" title="Settings">⚙</button>
+      </div>
+    </aside>
+
+    <!-- ===== L1: floating RIGHT sidebar ===== -->
+    <aside class="side right layer l1" id="rightSide">
+      <span class="tag t1">L1</span>
+      <div class="side-head">
+        <div class="seg">
+          <div class="s active">Backlinks</div>
+          <div class="s">Mentions</div>
+        </div>
+      </div>
+      <div class="panel-body layer l2">
+        <span class="tag t2">L2</span>
+        <div class="bk"><div class="src">welcome.md</div><div class="ctx">…see the [[roadmap]] for milestones…</div></div>
+        <div class="bk"><div class="src">ideas.md</div><div class="ctx">…linked from [[roadmap]] under planning…</div></div>
+        <div class="bk"><div class="src">projects/backlog.md</div><div class="ctx">…tracked against [[roadmap]]…</div></div>
+      </div>
+    </aside>
+
+  </div>
+
+  <!-- ===== L0: full-width STATUS bar ===== -->
+  <footer class="statusbar layer l0">
+    <span class="tag t0">L0</span>
+    <span class="region proj"><span class="lbl">project</span> <span class="pth">🗀 ~/Developer/sandbox/my-vault</span></span>
+    <span class="region stats">
+      <span class="st"><b id="wc">0</b> words</span>
+      <span class="st"><b id="bc">0</b> blocks</span>
+      <span class="st"><b>3</b> backlinks</span>
+      <span class="st"><b>4</b> outgoing</span>
+    </span>
+    <span class="region cur">
+      <span class="sys"><span class="sysdot ok"></span> indexed</span>
+      <span class="ssep">·</span>
+      <span class="sys"><b>2</b> pending</span>
+      <span class="ssep">·</span>
+      <span class="filenm"><span class="lbl">file</span> projects / <b>roadmap.md</b></span>
+    </span>
+  </footer>
+
+  <!-- ===== Settings modal (Appearance ▸ Theme) ===== -->
+  <div class="modal-backdrop" id="settingsModal">
+    <div class="modal" role="dialog" aria-label="Settings">
+      <button class="iconbtn modal-close" id="settingsClose" title="Close">✕</button>
+      <nav class="modal-nav">
+        <h3>Settings</h3>
+        <div class="navi active" data-tab="appearance">🎨 Appearance</div>
+        <div class="navi" data-tab="editor">📝 Editor</div>
+        <div class="navi" data-tab="panels">▦ Panels</div>
+        <div class="navi" data-tab="vault">🗄 Vault</div>
+        <div class="navi" data-tab="shortcuts">⌨ Shortcuts</div>
+      </nav>
+      <div class="modal-body">
+
+        <section class="panel active" data-panel="appearance">
+          <h2>Appearance</h2>
+          <div class="sub">Theme and visual preferences.</div>
+          <div class="set-row">
+            <div><div class="lab">Theme</div><div class="desc">Follow the system, or force light / dark. <code>appearance.theme_mode</code></div></div>
+            <div class="theme-seg"><button>System</button><button class="active">Dark</button><button>Light</button></div>
+          </div>
+        </section>
+
+        <section class="panel" data-panel="editor">
+          <h2>Editor</h2>
+          <div class="sub">Editing behavior and defaults.</div>
+          <div class="set-row">
+            <div><div class="lab">Open notes in raw source by default</div><div class="desc">Otherwise notes open in Live Preview. <code>editor.raw_source_default</code></div></div>
+            <div class="theme-seg"><button class="active">Off</button><button>On</button></div>
+          </div>
+          <div class="set-row">
+            <div><div class="lab">Autosave debounce</div><div class="desc">Idle delay before the buffer flushes to disk. <code>editor.autosave_debounce_ms</code></div></div>
+            <div class="stepper"><button>−</button><input value="300" /><span class="unit">ms</span><button>+</button></div>
+          </div>
+        </section>
+
+        <section class="panel" data-panel="panels">
+          <h2>Panels</h2>
+          <div class="sub">Sidebar defaults for newly opened vaults.</div>
+          <div class="set-row">
+            <div><div class="lab">Default right-side panel</div><div class="desc">Shown first when a note opens. <code>ui.right_sidebar_panel</code></div></div>
+            <div class="theme-seg"><button class="active">Backlinks</button><button>Mentions</button></div>
+          </div>
+          <div class="set-row">
+            <div><div class="lab">Right panel starts collapsed</div><div class="desc">Open vaults with the right sidebar hidden. <code>ui.right_sidebar_collapsed</code></div></div>
+            <div class="theme-seg"><button class="active">Off</button><button>On</button></div>
+          </div>
+        </section>
+
+        <section class="panel" data-panel="vault">
+          <h2>Vault</h2>
+          <div class="sub">The current vault and indexing.</div>
+          <div class="set-row">
+            <div><div class="lab">Current vault</div><div class="desc">~/Developer/sandbox/my-vault</div></div>
+            <button class="vbtn">Open another…</button>
+          </div>
+          <div class="set-row">
+            <div><div class="lab">Pending-rewrites flush interval</div><div class="desc">How often queued link rewrites are written. <code>pending_rewrites.flush_interval_secs</code></div></div>
+            <div class="stepper"><button>−</button><input value="5" /><span class="unit">s</span><button>+</button></div>
+          </div>
+        </section>
+
+        <section class="panel" data-panel="shortcuts">
+          <h2>Shortcuts</h2>
+          <div class="sub">Keyboard shortcuts currently wired.</div>
+          <div class="kb-row"><span>Open Omni-Bar</span><kbd>⌘/Ctrl</kbd><kbd>K</kbd></div>
+          <div class="kb-row"><span>Toggle raw source / Live Preview</span><kbd>⌘/Ctrl</kbd><kbd>E</kbd></div>
+          <div class="kb-row"><span>Copy block reference</span><kbd>⌘/Ctrl</kbd><kbd>⇧</kbd><kbd>B</kbd></div>
+          <div class="kb-row"><span>Navigate results / lists</span><kbd>↑</kbd><kbd>↓</kbd></div>
+          <div class="kb-row"><span>Close popovers / cancel</span><kbd>Esc</kbd></div>
+        </section>
+
+      </div>
+    </div>
+  </div>
+
+<script>
+  const body=document.body, $=id=>document.getElementById(id);
+  $('layerToggle').addEventListener('change',e=>body.classList.toggle('show-layers',e.target.checked));
+
+  // ONE persistent button per side (top bar). Collapse = slide (stays mounted).
+  function toggle(side){
+    const el=$(side==='left'?'leftSide':'rightSide');
+    const btn=$(side==='left'?'tLeft':'tRight');
+    const collapsed=el.classList.toggle('collapsed');
+    btn.classList.toggle('on', !collapsed);
+    btn.textContent = side==='left' ? (collapsed?'⟩':'⟨') : (collapsed?'⟨':'⟩');
+    $('domcount').textContent=document.querySelectorAll('*').length;
+  }
+  $('tLeft').onclick =()=>toggle('left');
+  $('tRight').onclick=()=>toggle('right');
+
+  // source-view toggle: swap preview <-> raw markdown
+  $('srcToggle').onclick=()=>{ const raw=body.classList.toggle('raw'); $('srcToggle').classList.toggle('act',raw); };
+
+  // word counter + stats (computed from the preview text)
+  (function stats(){
+    const txt=$('preview').innerText.replace(/\s+/g,' ').trim();
+    const words=txt?txt.split(' ').length:0;
+    $('wc').textContent=words.toLocaleString();
+    // count canonical block-level nodes (paragraphs, headings, rules, lists, …)
+    const blocks=$('preview').querySelectorAll(':scope > p, :scope > h1, :scope > h2, :scope > h3, :scope > hr, :scope > ul, :scope > ol, :scope > pre, :scope > blockquote').length;
+    $('bc').textContent=blocks.toLocaleString();
+  })();
+
+  // filter button toggles its applied-state dot
+  $('filterBtn').onclick=()=>$('filterBtn').classList.toggle('has-filter');
+
+  // search: reveal the results layer over the tree while there's a query (tree stays mounted)
+  $('searchInput').addEventListener('input',e=>body.classList.toggle('searching', e.target.value.trim().length>0));
+
+  // settings modal open/close
+  $('settingsBtn').onclick=()=>body.classList.add('settings-open');
+  $('settingsClose').onclick=()=>body.classList.remove('settings-open');
+  $('settingsModal').onclick=e=>{ if(e.target.id==='settingsModal') body.classList.remove('settings-open'); };
+  document.querySelectorAll('.theme-seg').forEach(seg=>seg.querySelectorAll('button').forEach(b=>b.onclick=()=>{seg.querySelectorAll('button').forEach(x=>x.classList.remove('active'));b.classList.add('active');}));
+  document.querySelectorAll('.modal-nav .navi').forEach(n=>n.onclick=()=>{
+    document.querySelectorAll('.modal-nav .navi').forEach(x=>x.classList.remove('active'));n.classList.add('active');
+    const tab=n.dataset.tab;
+    document.querySelectorAll('.modal-body .panel').forEach(p=>p.classList.toggle('active', p.dataset.panel===tab));
+  });
+
+  $('domcount').textContent=document.querySelectorAll('*').length;
+  document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));t.classList.add('active');});
+  document.querySelectorAll('.seg .s').forEach(s=>s.onclick=()=>{s.parentElement.querySelectorAll('.s').forEach(x=>x.classList.remove('active'));s.classList.add('active');});
+  document.querySelectorAll('.tree .row').forEach(r=>r.onclick=()=>{document.querySelectorAll('.tree .row').forEach(x=>x.classList.remove('sel'));r.classList.add('sel');});
+</script>
+</body>
+</html>
