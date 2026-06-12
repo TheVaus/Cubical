@@ -31,3 +31,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Superpowers session scaffolding (brainstorm server state, etc.)
+.superpowers/
