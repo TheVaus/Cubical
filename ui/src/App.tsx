@@ -51,6 +51,7 @@ import {
   type AutocompleteProvider,
 } from "./editor/autocompleteProvider";
 import { computeWindow } from "./virtualList";
+import { buildFileTree, flattenTree, type FlatRow } from "./sidebar/fileTree";
 import { buildBlockRefLink } from "./editor/blockRef";
 import { formatBrokenBlockRefs } from "./statusbar/brokenRefs";
 import PendingRewrites from "./statusbar/PendingRewrites";
@@ -136,17 +137,34 @@ const App: Component = () => {
   // are ever in the DOM, so a 30k-file vault stays responsive.
   const [scrollTop, setScrollTop] = createSignal(0);
   const [viewportHeight, setViewportHeight] = createSignal(600);
+  // UI rework: folder tree. `collapsedFolders` is the set of collapsed
+  // folder paths; `treeRows` flattens the *visible* rows (folders + files
+  // in expanded folders), virtualized exactly like the old flat list so a
+  // 30k-file vault stays responsive — only the windowed slice is mounted.
+  const [collapsedFolders, setCollapsedFolders] = createSignal<Set<string>>(
+    new Set(),
+  );
+  const toggleFolder = (path: string) =>
+    setCollapsedFolders((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  const treeRows = createMemo<FlatRow[]>(() =>
+    flattenTree(buildFileTree(files()), collapsedFolders()),
+  );
   const fileWindow = createMemo(() =>
     computeWindow(
       scrollTop(),
       viewportHeight(),
       FILE_ROW_HEIGHT,
-      files().length,
+      treeRows().length,
       FILE_LIST_OVERSCAN,
     ),
   );
-  const visibleFiles = createMemo(() =>
-    files().slice(fileWindow().startIndex, fileWindow().endIndex),
+  const visibleRows = createMemo(() =>
+    treeRows().slice(fileWindow().startIndex, fileWindow().endIndex),
   );
 
   // Theme state. `themeMode` is the user's preference (persisted per
@@ -586,6 +604,13 @@ const App: Component = () => {
     const target = `${dir}${stem}.md`;
     if (target === fromPath) return;
     void handleRenameCommit(fromPath, target);
+  };
+
+  /** Tree inline-rename: keep the file's folder, swap its basename. */
+  const renameTarget = (fromPath: string, basename: string) => {
+    const i = fromPath.lastIndexOf("/");
+    const dir = i >= 0 ? fromPath.slice(0, i + 1) : "";
+    return dir + basename.trim();
   };
 
   const handleContentChange = (_content: string) => {
@@ -1281,74 +1306,83 @@ const App: Component = () => {
                       transform: `translateY(${fileWindow().offsetY}px)`,
                     }}
                   >
-                    <For each={visibleFiles()}>
-                      {(file) => {
-                        const isMarkdown = file.type_id === "markdown";
-                        const isSelected = () => selectedPath() === file.path;
-                        const isRenaming = () => renamingPath() === file.path;
+                    <For each={visibleRows()}>
+                      {(row) => {
+                        const folderPad = `calc(var(--space-2) + ${row.depth} * var(--space-4))`;
+                        if (row.kind === "folder") {
+                          return (
+                            <div
+                              class="tree-row tree-row--folder"
+                              role="treeitem"
+                              aria-expanded={!row.collapsed}
+                              style={{
+                                height: `${FILE_ROW_HEIGHT}px`,
+                                "padding-left": folderPad,
+                              }}
+                              onClick={() => toggleFolder(row.path)}
+                            >
+                              <span class="tree-row__twisty">
+                                {row.collapsed ? "▸" : "▾"}
+                              </span>
+                              <span class="tree-row__name">{row.name}</span>
+                            </div>
+                          );
+                        }
+                        const isMarkdown = row.typeId === "markdown";
+                        const isSelected = () => selectedPath() === row.path;
+                        const isRenaming = () => renamingPath() === row.path;
+                        const display = () =>
+                          isMarkdown && row.name.endsWith(".md")
+                            ? row.name.slice(0, -3)
+                            : row.name;
                         return (
                           <div
+                            class="tree-row tree-row--file"
+                            classList={{
+                              "tree-row--selected": isSelected(),
+                              "tree-row--muted": !isMarkdown,
+                            }}
                             role="option"
                             aria-selected={isSelected()}
+                            style={{
+                              height: `${FILE_ROW_HEIGHT}px`,
+                              "padding-left": `calc(${folderPad} + 1rem + var(--space-2))`,
+                            }}
                             onClick={() => {
                               if (isRenaming()) return;
-                              void handleSelectFile(file);
+                              const entry = files().find(
+                                (f) => f.path === row.path,
+                              );
+                              if (entry) void handleSelectFile(entry);
                             }}
                             onContextMenu={(e) => {
                               if (!isMarkdown) return;
                               e.preventDefault();
                               setContextMenu({
-                                path: file.path,
+                                path: row.path,
                                 x: e.clientX,
                                 y: e.clientY,
                               });
-                            }}
-                            style={{
-                              height: `${FILE_ROW_HEIGHT}px`,
-                              "box-sizing": "border-box",
-                              padding: "0 var(--space-3)",
-                              "font-family": "var(--font-mono)",
-                              "font-size": "var(--text-xs)",
-                              "border-bottom":
-                                "1px solid var(--c-border-subtle)",
-                              display: "flex",
-                              "align-items": "center",
-                              "justify-content": "space-between",
-                              gap: "var(--space-3)",
-                              cursor: isMarkdown ? "pointer" : "default",
-                              background: isSelected()
-                                ? "var(--c-bg-tertiary)"
-                                : "transparent",
-                              color: isMarkdown
-                                ? "var(--c-fg-primary)"
-                                : "var(--c-fg-muted)",
                             }}
                           >
                             <Show
                               when={isRenaming()}
                               fallback={
-                                <span
-                                  style={{
-                                    overflow: "hidden",
-                                    "text-overflow": "ellipsis",
-                                    "white-space": "nowrap",
-                                  }}
-                                >
-                                  {file.path}
-                                </span>
+                                <span class="tree-row__name">{display()}</span>
                               }
                             >
                               <input
                                 type="text"
-                                value={file.path}
+                                class="tree-row__input"
+                                value={row.name}
                                 autofocus
                                 onClick={(e) => e.stopPropagation()}
                                 onKeyDown={(e) => {
                                   if (e.key === "Enter") {
                                     e.preventDefault();
                                     void handleRenameCommit(
-                                      file.path,
-                                      e.currentTarget.value,
+                                      row.path,
+                                      renameTarget(row.path, e.currentTarget.value),
                                     );
                                   } else if (e.key === "Escape") {
                                     e.preventDefault();
@@ -1357,32 +1391,12 @@ const App: Component = () => {
                                 }}
                                 onBlur={(e) =>
                                   void handleRenameCommit(
-                                    file.path,
-                                    e.currentTarget.value,
+                                    row.path,
+                                    renameTarget(row.path, e.currentTarget.value),
                                   )
                                 }
-                                style={{
-                                  flex: 1,
-                                  "min-width": 0,
-                                  background: "var(--c-bg-primary)",
-                                  border: "1px solid var(--c-accent)",
-                                  "border-radius": "var(--radius-sm)",
-                                  color: "var(--c-fg-primary)",
-                                  "font-family": "var(--font-mono)",
-                                  "font-size": "var(--text-xs)",
-                                  padding: "0 var(--space-2)",
-                                  height: "calc(var(--space-5) + var(--space-1))",
-                                }}
                               />
                             </Show>
-                            <span
-                              style={{
-                                color: "var(--c-fg-muted)",
-                                "flex-shrink": 0,
-                              }}
-                            >
-                              {file.type_id}
-                            </span>
                           </div>
                         );
                       }}

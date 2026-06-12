@@ -306,6 +306,63 @@
   overflow: hidden;
 }
 
+/* ---- folder tree rows ---- */
+.tree-row {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-right: var(--space-2);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  color: var(--c-fg-primary);
+  cursor: pointer;
+  user-select: none;
+}
+.tree-row:hover {
+  background: var(--c-bg-tertiary);
+}
+.tree-row--folder {
+  color: var(--c-fg-secondary);
+  font-weight: 600;
+}
+.tree-row--muted {
+  color: var(--c-fg-muted);
+  cursor: default;
+}
+.tree-row--muted:hover {
+  background: transparent;
+}
+.tree-row--selected,
+.tree-row--selected:hover {
+  background: var(--c-bg-tertiary);
+  box-shadow: inset 2px 0 0 var(--c-accent);
+}
+.tree-row__twisty {
+  flex: 0 0 auto;
+  width: 1rem;
+  text-align: center;
+  color: var(--c-fg-muted);
+  font-size: var(--text-xs);
+}
+.tree-row__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tree-row__input {
+  flex: 1;
+  min-width: 0;
+  background: var(--c-bg-primary);
+  border: 1px solid var(--c-accent);
+  border-radius: var(--radius-sm);
+  color: var(--c-fg-primary);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  padding: 0 var(--space-2);
+  height: calc(var(--space-5) + var(--space-1));
+}
+
 /* ---- no-vault state ---- */
 .empty-vault {
   flex: 1;
