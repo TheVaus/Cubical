@@ -1174,24 +1174,23 @@ const App: Component = () => {
           >
             {leftCollapsed() ? "⟩" : "⟨"}
           </button>
-          <span class="topbar__brand">Cubical</span>
         </div>
-        <div class="topbar__tabs">
-          <Show
-            when={!!vaultId() && view().kind === "file" && !!selectedPath()}
-          >
-            <div class="tab tab--active">{fileStem(selectedPath()!)}</div>
-          </Show>
-          <Show when={view().kind === "tag"}>
-            <div class="tab tab--active">
-              #{(view() as { kind: "tag"; tagPath: string }).tagPath}
-            </div>
-          </Show>
-        </div>
-        <div class="topbar__flank topbar__flank--right">
+        <div class="topbar__center">
+          <div class="topbar__tabs">
+            <Show
+              when={!!vaultId() && view().kind === "file" && !!selectedPath()}
+            >
+              <div class="tab tab--active">{fileStem(selectedPath()!)}</div>
+            </Show>
+            <Show when={view().kind === "tag"}>
+              <div class="tab tab--active">
+                #{(view() as { kind: "tag"; tagPath: string }).tagPath}
+              </div>
+            </Show>
+          </div>
           <button
             type="button"
-            class="chrome-btn chrome-btn--mono"
+            class="chrome-btn chrome-btn--mono topbar__source"
             classList={{ "chrome-btn--accent": effectiveRaw() }}
             onClick={(e) =>
               e.shiftKey ? setRawAsDefault() : toggleRawSource()
@@ -1206,6 +1205,8 @@ const App: Component = () => {
           >
             &lt;/&gt;
           </button>
+        </div>
+        <div class="topbar__flank topbar__flank--right">
           <button
             type="button"
             class="chrome-btn"
@@ -1274,9 +1275,6 @@ const App: Component = () => {
                 flex: 1,
                 "min-height": 0,
                 "min-width": 0,
-                border: "1px solid var(--c-border-subtle)",
-                "border-radius": "var(--radius-md)",
-                background: "var(--c-bg-secondary)",
               }}
             >
               <Show
@@ -1346,7 +1344,7 @@ const App: Component = () => {
                             aria-selected={isSelected()}
                             style={{
                               height: `${FILE_ROW_HEIGHT}px`,
-                              "padding-left": `calc(${folderPad} + 1rem + var(--space-2))`,
+                              "padding-left": `calc(${folderPad} + 1rem + var(--space-1))`,
                             }}
                             onClick={() => {
                               if (isRenaming()) return;
@@ -1459,8 +1457,6 @@ const App: Component = () => {
                       "justify-content": "center",
                       color: "var(--c-fg-muted)",
                       "font-size": "var(--text-sm)",
-                      border: "1px dashed var(--c-border-subtle)",
-                      "border-radius": "var(--radius-md)",
                     }}
                   >
                     Select a markdown file to open it.
