@@ -22,7 +22,7 @@
   /* Colors — foregrounds */
   --c-fg-primary:   #18181b;
   --c-fg-secondary: #52525b;
-  --c-fg-muted:     #a1a1aa;
+  --c-fg-muted:     #71717a; /* zinc-500 ≈ 4.9:1 on white (AA); was #a1a1aa ≈ 2.6:1 (fail) */
   --c-fg-inverse:   #ffffff;
 
   /* Colors — accent + status */

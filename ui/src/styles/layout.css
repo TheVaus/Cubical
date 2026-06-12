@@ -84,12 +84,6 @@
 .chrome-btn--mono {
   font-family: var(--font-mono);
 }
-/* panel-open indicator: calm filled state (accent reserved for real modes) */
-.chrome-btn--on {
-  color: var(--c-fg-primary);
-  background: var(--c-bg-tertiary);
-  border-color: var(--c-border-strong);
-}
 /* active mode (raw source): accent */
 .chrome-btn--accent {
   color: var(--c-fg-inverse);
@@ -297,10 +291,12 @@
   border-radius: var(--radius-sm, var(--radius-md));
   cursor: pointer;
 }
+/* selected segment: calm neutral fill (consistent with the settings
+   segmented control; accent stays reserved for primary actions/modes) */
 .rs-tab--active {
-  color: var(--c-fg-inverse);
-  background: var(--c-accent);
-  border-color: var(--c-accent);
+  color: var(--c-fg-primary);
+  background: var(--c-bg-tertiary);
+  border-color: var(--c-border-subtle);
 }
 .rs-body {
   flex: 1;
@@ -374,7 +370,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--c-bg-overlay, rgba(0, 0, 0, 0.45));
+  /* modal scrim: a true dim for figure/ground separation (NOT --c-bg-overlay,
+     which is a 5% subtle tint — and white-on-dark, the wrong direction). */
+  background: rgba(0, 0, 0, 0.5);
 }
 .modal {
   position: relative;
