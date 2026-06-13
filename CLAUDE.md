@@ -66,76 +66,30 @@ Crates without Tauri deps (`cubical-core`, `cubical-ast`, `cubical-index`, `cubi
 
 ## Project state
 
-Current layer: 4 — Search (in progress).
+**Layer 4 — Search.** L4-A/B/C + search-fuzzy all CLOSED and merged to
+`main` (tags `l4a`, `l4a-fix`/`.1`, `l4b`, `l4c`, `l4a-fix.2`). Next L4
+session: **L4-D — Dataview-style libSQL queries** (kickoff
+`docs/superpowers/2026-06-08-l4d-kickoff.md`). Carried to L4 layer-close:
+L4-B's not-formally-smoked items (version-bump rebuild, `open_vault`
+re-open `LockBusy`, big-vault indexing banner) + open chips — search-row
+keyboard nav (`task_bd4e47f4`), per-occurrence snippet cards
+(`task_b5f2f1ef`).
 
-**L4-C — `Cmd/Ctrl+K` Omni-Bar — CLOSED 2026-06-08, tagged `l4c`, merged
-to `main`.** A keyboard-summoned fuzzy navigator over **notes + tags**
-(headings + commands deferred). Client-side ranking (Approach A) over in-memory
-sources — instant + typo-tolerant, sidestepping L4-A's title-only
-backend fuzzy. `ui/src/omnibar/ranker.ts` (pure: `OmniItem`,
-`fuzzyMatch` code-point subsequence, `scoreMatch` fzf-style,
-`approxSubstringDistance` edit-distance for **real typo tolerance**
-(substitutions, not just skips — added after first smoke when `ricj`
-missed `rich`), `rankItems` subsequence-then-bounded-fuzzy with
-subsequence tiered above; +21 vitest) feeds `OmniBar.tsx` (modal:
-auto-focused input, unified `listbox`, kind badge + matched-char
-highlights + path subtitle, ↑/↓/Enter/Esc, recent-notes empty state;
-a11y: dialog/listbox/option + `aria-activedescendant` + focus-on-open /
-restore-on-close; operator-smoke-only, Contract E). One new IPC
-`list_tags { vault_id } -> { tags }` (`cubical-index::all_tag_paths`
-distinct set → `cubical-app` command; +3 Rust). `App.tsx` wires the
-global hotkey (no-op without a vault), a lazy tag cache invalidated on
-`searchRefreshTick`, and Enter → `handleNavigateWikilink` /
-`handleNavigateTag`. Spec
-`docs/superpowers/specs/2026-06-08-l4-c-omnibar-design.md`; plan
-`docs/superpowers/plans/2026-06-08-l4c-omnibar.md`; closeout §9.4.
+**Active detour — UI rework (branch `feat/ui-rework`, NOT merged).** A
+layered Obsidian-style shell: full-width top/status bars, fixed editor +
+floating slide-to-collapse sidebars (collapsing never reflows the
+editor), folder tree, editable filename-title (= rename, **no `# H1`
+injected**), settings modal, vault switcher, color-theory pass. Done:
+shell + title + status bar + settings + vault switcher + folder tree +
+polish. Remaining: search-results-over-tree layer, and **tabs /
+multi-document** (the single→multi-buffer architecture fork — do last).
+New: `ui/src/styles/layout.css`, `ui/src/sidebar/fileTree.ts` (+test).
+Full handoff: `docs/superpowers/2026-06-12-ui-rework-progress.md`; design
+mockup: `docs/superpowers/mockups/ui-rework.html`.
 
-**Search typo tolerance — SHIPPED 2026-06-08, tagged `l4a-fix.2`, merged
-to `main`** (the `task_256abd1c` cross-field-fuzzy item — done). The L4-B
-search bar wasn't typo-tolerant: a wrong letter (`ricj` for `rich`)
-returned nothing, because L4-A's fuzzy was `title`-only so the panel sent
-`fuzzy:false`. `cubical-search` `build_fuzzy_query` now adds an
-edit-distance-1 (Damerau) `FuzzyTermQuery` across **all** scope fields,
-OR'd with the exact+prefix query (exact still ranks top via BM25); single
-term ≥4 chars only. Panel flipped to `fuzzy:true`
-(`searchQuery.ts`). Caveat: a purely-typo'd word may not get a `<mark>`
-(Tantivy highlights the literal typed term). Test:
-`single_term_fuzzy_spans_all_fields`.
-
-**L4-B — CLOSED 2026-06-08, tagged `l4b`, merged to `main`.** Persistent
-left-panel search: bar above the file tree, filter popover (sort+scope),
-results **grouped by file** (collapsible header + match-count badge +
-`<mark>` cards + "N results"), ✕ clear button, polled indexing banner.
-§5 deviation #1 resolved (option a: prose fields `STORED`,
-`SCHEMA_VERSION` 1→2 auto-fires wipe+rebuild). Pure logic unit-tested
-(`resultGroups`/`snippet`/`searchQuery`/`debounce`/`relativeTime`);
-component operator-smoke-only.
-
-**Operator smoke (record):** the operator drove `cargo tauri dev` across
-the session, which surfaced three fixes that landed — Omni-Bar needed
-real (substitution) typo tolerance; the search bar needed the
-cross-field backend fuzzy; and `Cmd/Ctrl+K` "did nothing" was a
-checkout-on-the-wrong-branch artifact (resolved by merging both branches
-to `main`). After merging + tagging, the operator **confirmed the merged
-`main` build works** (Cmd/Ctrl+K opens + navigates; the search bar finds
-typos) — L4-C + `l4a-fix.2` fully closed.
-
-**Carried forward to L4 layer-close (after L4-D):** L4-B's
-not-formally-smoked items — version-bump rebuild, `open_vault` re-open
-`LockBusy` (line **not** flipped), indexing banner on a big vault, ~2-3×
-disk, L4-A recipes 1–11. Open chips: keyboard nav for search rows
-(`task_bd4e47f4`); **per-occurrence snippet cards** (`task_b5f2f1ef` —
-the remaining half of the old `task_256abd1c`, whose fuzzy half shipped
-as `l4a-fix.2`).
-
-Test counts: **447 vitest + 468 Rust** (L4-C: +22 vitest, +3 Rust;
-search fuzzy: net 0). All six gates green on merged `main`: `cargo test
---workspace`, `cargo clippy --workspace --all-targets -- -D warnings`,
-`cargo fmt --all --check`, `npx tsc --noEmit`, `npx vitest run` (447),
-`npm run build`. L0 `l0` (2026-05-13); L1 `l1` (2026-05-09); L2 `l2`
-(2026-05-22); L3 `l3` (2026-06-01); L4-A `l4a` (2026-06-03); L4-A-fix
-`l4a-fix` + `l4a-fix.1` (2026-06-06); L4-B `l4b` (2026-06-08); L4-C
-`l4c` + search-fuzzy `l4a-fix.2` (2026-06-08).
-
-Next: **L4-D — Dataview-style libSQL queries** (the final L4 session).
-Kickoff prompt: `docs/superpowers/2026-06-08-l4d-kickoff.md`.
+Tests: **447 vitest + 468 Rust** on `main`; the rework branch is at
+**455 vitest** (+fileTree). Gates: `cargo test --workspace`, `cargo
+clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all
+--check`, `npx tsc --noEmit`, `npx vitest run`, `npm run build`. Tags: l0
+(05-13) l1 (05-09) l2 (05-22) l3 (06-01) l4a (06-03) l4a-fix/.1 (06-06)
+l4b/l4c/l4a-fix.2 (06-08).
