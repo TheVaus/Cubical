@@ -75,8 +75,8 @@ re-open `LockBusy`, big-vault indexing banner) + open chips — search-row
 keyboard nav (`task_bd4e47f4`), per-occurrence snippet cards
 (`task_b5f2f1ef`).
 
-**Active detour — UI rework (branch `feat/ui-rework`, NOT merged).** A
-layered Obsidian-style shell: full-width top/status bars, fixed editor +
+**UI rework — incrementally landed on `main` 2026-06-12** (work continued
+on branch `feat/ui-rework`, now merged). A layered Obsidian-style shell: full-width top/status bars, fixed editor +
 floating slide-to-collapse sidebars (collapsing never reflows the
 editor), folder tree, editable filename-title (= rename, **no `# H1`
 injected**), settings modal, vault switcher, color-theory pass. Done:
@@ -87,8 +87,8 @@ New: `ui/src/styles/layout.css`, `ui/src/sidebar/fileTree.ts` (+test).
 Full handoff: `docs/superpowers/2026-06-12-ui-rework-progress.md`; design
 mockup: `docs/superpowers/mockups/ui-rework.html`.
 
-Tests: **447 vitest + 468 Rust** on `main`; the rework branch is at
-**455 vitest** (+fileTree). Gates: `cargo test --workspace`, `cargo
+Tests: **455 vitest + 468 Rust** on `main` (rework added the fileTree
+module; no Rust changes). Gates: `cargo test --workspace`, `cargo
 clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all
 --check`, `npx tsc --noEmit`, `npx vitest run`, `npm run build`. Tags: l0
 (05-13) l1 (05-09) l2 (05-22) l3 (06-01) l4a (06-03) l4a-fix/.1 (06-06)

@@ -1,10 +1,11 @@
 # UI Rework — progress / handoff (2026-06-12)
 
 A ground-up restructure of the app shell into a layered, Obsidian-style
-UI. **In progress on branch `feat/ui-rework`** (off `main` `d9e15ab`,
-pushed to `origin`). Not merged. The headless gates are green at every
-commit (`tsc`, `455 vitest`, `npm run build`); visual verification is by
+UI. **Incrementally merged to `main` 2026-06-12** (work was done on branch
+`feat/ui-rework`). The headless gates are green at every commit (`tsc`,
+`455 vitest`, `npm run build`; no Rust changes); visual verification is by
 the operator via `cargo tauri dev` (Vite HMR pushes each change live).
+Further increments (search-over-tree layer, tabs) still to come.
 
 ## Design source
 `docs/superpowers/mockups/ui-rework.html` — a self-contained interactive
