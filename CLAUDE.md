@@ -95,8 +95,9 @@ New: `ui/src/styles/layout.css`, `ui/src/sidebar/fileTree.ts` (+test).
 Full handoff: `docs/superpowers/2026-06-12-ui-rework-progress.md`; design
 mockup: `docs/superpowers/mockups/ui-rework.html`.
 
-Tests: **473 vitest + 499 Rust** (`main` is 455 + 468; the L4-D branch
-adds 18 vitest + 31 Rust). Gates: `cargo test --workspace`, `cargo
+Tests: **473 vitest + 502 Rust** (`main` is 455 + 468; the L4-D branch
+adds 18 vitest + 34 Rust, incl. end-to-end dataview tests over the real
+scan pipeline). Gates: `cargo test --workspace`, `cargo
 clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all
 --check`, `npx tsc --noEmit`, `npx vitest run`, `npm run build`. Tags: l0
 (05-13) l1 (05-09) l2 (05-22) l3 (06-01) l4a (06-03) l4a-fix/.1 (06-06)

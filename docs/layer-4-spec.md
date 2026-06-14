@@ -801,10 +801,14 @@ documented as a focused subset, not Dataview compatibility.
 
 cubical-query: 28 (parser 16, planner 7, exec 5 — exec runs against an
 in-memory index, proving numeric-not-lexical comparison and
-empty-cell-for-missing-key). cubical-app: +3 handler tests. Frontend:
+empty-cell-for-missing-key). cubical-app: +6 (3 handler + 3 **end-to-end
+over the real `cubical_core::scan` pipeline** — real `.md` files with
+`tags: [project]` frontmatter → scan → `dataview_query`, proving a
+frontmatter `tags:` list populates the `tags` table so `FROM #tag`
+matches, and that `json_extract` unwraps real-scanned scalars). Frontend:
 +18 vitest (3 IPC shape, 5 renderer, 10 widget — incl. headless
 `buildDecorations` detection against a real markdown tree). Totals:
-**499 Rust + 473 vitest**.
+**502 Rust + 473 vitest**.
 
 #### Gate results (2026-06-14, automated)
 
@@ -814,12 +818,15 @@ warnings`, `cargo fmt --all --check`, `tsc --noEmit`, `vitest run`,
 
 #### Operator smoke — PENDING (Contract E)
 
-The live CodeMirror widget (visual render of table/list/count, note-link
-click navigation, cursor reveal of raw source, re-eval on content change)
-requires the interactive Tauri desktop app — the `dataview_query` IPC
-exists only in the Tauri runtime, so a plain vite dev server / browser
-preview cannot exercise it. Detection logic is covered headlessly; the
-visual/interaction pass is left for the operator before the `l4d` tag.
+The **data path is fully automated** (end-to-end Rust tests through the
+real scan pipeline + headless `buildDecorations` detection + jsdom
+renderer + runner-cache unit tests). The residual left for operator smoke
+is narrow: the live CodeMirror widget's *visual* render of
+table/list/count, note-link click navigation, cursor reveal of raw
+source, and live re-eval on content change — these need the interactive
+Tauri desktop app (the `dataview_query` IPC exists only in the Tauri
+runtime, so a plain vite dev server / browser preview cannot exercise
+it). Left for the operator before the `l4d` tag.
 Suggested recipes: a vault with notes carrying `status` / `priority` /
 `due_date` frontmatter + a `#project` tag; verify the three block kinds
 render, a bad query shows the ⚠ message, clicking a result navigates,
