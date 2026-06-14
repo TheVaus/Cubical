@@ -91,7 +91,7 @@ L4 closes when L4-A + L4-B + L4-C + L4-D are all signed off and the `l4` tag is 
 - [x] **L4-A:** Tantivy backend landed; four IPC commands; scan + watcher fan-out; schema-version stamp; smoke vault built. Closed 2026-06-03 (`l4a` tag). §9.1.
 - [x] **L4-B:** Persistent left-panel search UI; grouped-by-file result list; debounced query input; "still indexing…" banner. Closed 2026-06-08 (`l4b` tag). §9.3.
 - [x] **L4-C:** `Cmd/Ctrl+K` Omni-Bar — fuzzy navigator over **notes + tags** (headings + commands deferred). Closed 2026-06-08 (`l4c` tag). §9.4. Companion: search typo tolerance shipped as `l4a-fix.2` (cross-field backend fuzzy).
-- [ ] **L4-D:** Dataview-style libSQL queries; `list` / `table` / `count` blocks.
+- [x] **L4-D:** Dataview-style libSQL queries; `list` / `table` / `count` blocks. Implemented 2026-06-14 on `feat/l4d-dataview`; six automated gates green, operator smoke pending. §9.5.
 - [ ] L3 carry-over smoke confirmed at every session kickoff.
 - [ ] `cargo test --workspace` green at each session close.
 - [ ] `cargo clippy --workspace --all-targets -- -D warnings` clean at each session close.
@@ -761,3 +761,72 @@ palette; "create note if no match"; `#`-to-force-tags prefix;
 context-awareness; visible `⌘K` hint; preview pane.
 
 **Next:** L4-D (Dataview-style libSQL queries).
+
+### 9.5 Session D — Dataview-style libSQL queries (implemented 2026-06-14, `feat/l4d-dataview`)
+
+Design: [`docs/superpowers/specs/2026-06-14-l4-d-dataview-design.md`](superpowers/specs/2026-06-14-l4-d-dataview-design.md);
+plan: [`docs/superpowers/plans/2026-06-14-l4-d-dataview.md`](superpowers/plans/2026-06-14-l4-d-dataview.md).
+
+#### What landed
+
+A fenced ```` ```query ```` block, evaluated against libSQL and rendered
+live in the editor, complementing Tantivy full-text. Syntax is a small
+DQL-flavored DSL (`LIST` / `TABLE cols` / `COUNT`, with `FROM #tag |
+"folder"`, `WHERE key op value` AND-joined, `SORT key [ASC|DESC]`) —
+documented as a focused subset, not Dataview compatibility.
+
+- **New crate `cubical-query`** (no Tauri deps): `ast.rs` (typed AST),
+  `parser.rs` (hand-written tokenizer + recursive descent),
+  `plan.rs` (AST → parameterized SQL), `exec.rs` (runs against an
+  `IndexConn`, shapes `List`/`Table`/`Count`), `error.rs`. The JSON-value
+  rule: every comparison + projection goes through
+  `json_extract(value,'$')`, so `status = "x"`, `priority >= 3`, and
+  `due_date < "2026-07-01"` all work — ISO-date strings sort lexically, so
+  date-range filtering falls out for free with no typed-date machinery.
+  All literals/keys are bound parameters (no SQL injection). `FROM #tag`
+  uses prefix match (so `#project` also matches `#project/active`);
+  `TABLE` prepends an implicit file-link column; missing keys yield empty
+  cells and sort last.
+- **IPC:** one vault-keyed `dataview_query { vault_id, source } ->
+  DataviewResult` command (`commands/dataview.rs` + shim). A bad query is
+  returned as `DataviewResult::Error`, not a thrown IPC error.
+- **Frontend:** `ui/src/dataview/dataviewRender.ts` (pure DOM renderer,
+  jsdom-tested) + `ui/src/editor/dataview.ts` (CodeMirror block widget +
+  per-vault `DataviewRunner` cache, modeled on the L3 embed widget).
+  Wired through `App.tsx`/`Editor.tsx`; invalidated on vault content
+  change (`vault:file-changed` + `searchRefreshTick`). Cursor-inside the
+  block reveals raw source.
+
+#### Tests
+
+cubical-query: 28 (parser 16, planner 7, exec 5 — exec runs against an
+in-memory index, proving numeric-not-lexical comparison and
+empty-cell-for-missing-key). cubical-app: +3 handler tests. Frontend:
++18 vitest (3 IPC shape, 5 renderer, 10 widget — incl. headless
+`buildDecorations` detection against a real markdown tree). Totals:
+**499 Rust + 473 vitest**.
+
+#### Gate results (2026-06-14, automated)
+
+`cargo test --workspace`, `cargo clippy --workspace --all-targets -D
+warnings`, `cargo fmt --all --check`, `tsc --noEmit`, `vitest run`,
+`vite build` — all green.
+
+#### Operator smoke — PENDING (Contract E)
+
+The live CodeMirror widget (visual render of table/list/count, note-link
+click navigation, cursor reveal of raw source, re-eval on content change)
+requires the interactive Tauri desktop app — the `dataview_query` IPC
+exists only in the Tauri runtime, so a plain vite dev server / browser
+preview cannot exercise it. Detection logic is covered headlessly; the
+visual/interaction pass is left for the operator before the `l4d` tag.
+Suggested recipes: a vault with notes carrying `status` / `priority` /
+`due_date` frontmatter + a `#project` tag; verify the three block kinds
+render, a bad query shows the ⚠ message, clicking a result navigates,
+cursor-in reveals raw source, and editing a referenced note updates the
+result.
+
+#### Deferred (design §8)
+
+`OR`/parens, `contains`, `GROUP`/`FLATTEN`, typed/relative dates, formula
+columns, inline `key::` fields, write-back.
