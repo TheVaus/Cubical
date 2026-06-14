@@ -404,21 +404,32 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
         </Show>
       </div>
 
-      {/* Below threshold → file tree; at/over → results. */}
-      <Show when={isSearching()} fallback={props.children}>
-        <div
-          style={{
-            flex: 1,
-            "min-height": 0,
-            "min-width": 0,
-            display: "flex",
-            "flex-direction": "column",
-            border: "1px solid var(--c-border-subtle)",
-            "border-radius": "var(--radius-md)",
-            background: "var(--c-bg-secondary)",
-            overflow: "hidden",
-          }}
-        >
+      {/* The file tree stays mounted; search results render as an opaque
+          LAYER above it — preserving the tree's scroll position + expanded
+          folders, with no unmount/reflow when a query comes and goes. */}
+      <div
+        style={{
+          position: "relative",
+          flex: 1,
+          "min-height": 0,
+          "min-width": 0,
+          display: "flex",
+          "flex-direction": "column",
+        }}
+      >
+        {props.children}
+        <Show when={isSearching()}>
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              "z-index": 1,
+              display: "flex",
+              "flex-direction": "column",
+              background: "var(--c-bg-secondary)",
+              overflow: "hidden",
+            }}
+          >
           <Show when={status()?.state === "building" ? status() : undefined}>
             {(s) => (
               <div
@@ -500,8 +511,9 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
               </For>
             </Show>
           </div>
-        </div>
-      </Show>
+          </div>
+        </Show>
+      </div>
     </div>
   );
 };
