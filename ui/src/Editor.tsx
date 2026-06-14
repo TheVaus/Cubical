@@ -32,6 +32,8 @@ import {
   embedResolverUpdated,
   openNotePathFacet,
 } from "./editor/embed";
+import type { DataviewRunner } from "./editor/dataview";
+import { dataviewRunnerFacet, dataviewRunnerUpdated } from "./editor/dataview";
 import { livePreviewBundle } from "./editor/livePreview";
 import { verticalDocLineMotion } from "./editor/embedNav";
 import { autocompletion } from "@codemirror/autocomplete";
@@ -100,6 +102,13 @@ const embedResolverCompartment = new Compartment();
  * `openNotePath` prop changes — used to seed the cycle chain.
  */
 const openNotePathCompartment = new Compartment();
+
+/**
+ * Holds the per-editor dataview runner supplied to the ```query widget
+ * via {@link dataviewRunnerFacet}. Reconfigured whenever the parent's
+ * `dataviewRunner` prop changes.
+ */
+const dataviewRunnerCompartment = new Compartment();
 
 /**
  * Holds the autocomplete extension. Reconfigured when the per-vault
@@ -202,6 +211,11 @@ export interface EditorProps {
    */
   embedResolver?: EmbedResolver | null;
   /**
+   * Per-vault runner for ```query blocks (L4-D). `null` when no vault is
+   * open — the dataview widget renders nothing in that state.
+   */
+  dataviewRunner?: DataviewRunner | null;
+  /**
    * Vault-relative path of the currently open note (e.g. `notes/Daily.md`),
    * supplied so the embed widget can seed its cycle-detection chain. `null`
    * when no note is selected.
@@ -292,6 +306,22 @@ const Editor: Component<EditorProps> = (props) => {
     if (resolver && targetView) {
       unsubEmbedResolver = resolver.onUpdate(() => {
         targetView.dispatch({ effects: embedResolverUpdated.of(null) });
+      });
+    }
+  };
+
+  // Unsubscribe handle for the dataview runner's onUpdate notifications.
+  let unsubDataviewRunner: (() => void) | undefined;
+
+  const subscribeDataviewRunner = (
+    runner: DataviewRunner | null | undefined,
+    targetView: EditorView | undefined,
+  ) => {
+    unsubDataviewRunner?.();
+    unsubDataviewRunner = undefined;
+    if (runner && targetView) {
+      unsubDataviewRunner = runner.onUpdate(() => {
+        targetView.dispatch({ effects: dataviewRunnerUpdated.of(null) });
       });
     }
   };
@@ -434,6 +464,9 @@ const Editor: Component<EditorProps> = (props) => {
           embedResolverCompartment.of(
             embedResolverFacet.of(props.embedResolver ?? null),
           ),
+          dataviewRunnerCompartment.of(
+            dataviewRunnerFacet.of(props.dataviewRunner ?? null),
+          ),
           openNotePathCompartment.of(
             openNotePathFacet.of(props.openNotePath ?? null),
           ),
@@ -506,6 +539,7 @@ const Editor: Component<EditorProps> = (props) => {
 
     subscribeResolver(props.wikilinkResolver, view);
     subscribeEmbedResolver(props.embedResolver, view);
+    subscribeDataviewRunner(props.dataviewRunner, view);
 
     // Dev-only diagnostic handle — see `declare global` block above for context.
     if (import.meta.env.DEV) {
@@ -657,6 +691,25 @@ const Editor: Component<EditorProps> = (props) => {
         if (import.meta.env.DEV && window.__cubical) {
           window.__cubical.embedResolver = resolver ?? null;
         }
+      },
+      { defer: true },
+    ),
+  );
+
+  // Swap the dataview runner facet when the parent's prop changes (a
+  // different vault is open). Reconfigure the facet via the compartment
+  // and re-bind the onUpdate subscription so cache notifications dispatch
+  // into the right view.
+  createEffect(
+    on(
+      () => props.dataviewRunner,
+      (runner) => {
+        view?.dispatch({
+          effects: dataviewRunnerCompartment.reconfigure(
+            dataviewRunnerFacet.of(runner ?? null),
+          ),
+        });
+        subscribeDataviewRunner(runner, view);
       },
       { defer: true },
     ),

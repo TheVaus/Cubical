@@ -45,6 +45,10 @@ import {
   createEmbedResolver,
   type EmbedResolver,
 } from "./editor/embedResolver";
+import {
+  createDataviewRunner,
+  type DataviewRunner,
+} from "./editor/dataview";
 import { isOwnWriteEcho } from "./ownWrite";
 import {
   createAutocompleteProvider,
@@ -210,6 +214,12 @@ const App: Component = () => {
   const [embedResolver, setEmbedResolver] =
     createSignal<EmbedResolver | null>(null);
 
+  // L4-D — per-vault dataview runner for ```query blocks (mirrors the
+  // embed resolver lifecycle). Created in `handleOpen`, cleared on close,
+  // invalidated on vault content change so results re-evaluate.
+  const [dataviewRunner, setDataviewRunner] =
+    createSignal<DataviewRunner | null>(null);
+
   // L3 Session F: per-vault autocomplete provider (`null` when no vault
   // is open). Parallels `wikilinkResolver` — reset on vault open,
   // cleared on vault close.
@@ -302,7 +312,11 @@ const App: Component = () => {
   createEffect(
     on(
       () => searchRefreshTick(),
-      () => setTagsLoaded(false),
+      () => {
+        setTagsLoaded(false);
+        // L4-D: vault content changed — re-evaluate ```query blocks.
+        dataviewRunner()?.invalidate();
+      },
       { defer: true },
     ),
   );
@@ -924,6 +938,9 @@ const App: Component = () => {
         // L3 Session H.2: a change may have altered embed targets or
         // their contents — re-fetch on the next widget rebuild.
         embedResolver()?.invalidate();
+        // L4-D: a change may have altered frontmatter/tags a ```query
+        // block projects — re-evaluate on the next widget rebuild.
+        dataviewRunner()?.invalidate();
       }
 
       // L3 Sessions C + I: any vault file change may have added/removed
@@ -1087,6 +1104,7 @@ const App: Component = () => {
       setRightSidebarPanel("backlinks");
       setWikilinkResolver(null);
       setEmbedResolver(null);
+      setDataviewRunner(null);
       setAutocompleteProvider(null);
       seenHash = null;
       lastWrittenHash = null;
@@ -1097,6 +1115,11 @@ const App: Component = () => {
       setScanStatus(resp.scan_status);
       setWikilinkResolver(createWikiLinkResolver(resp.vault_id));
       setEmbedResolver(createEmbedResolver(resp.vault_id));
+      setDataviewRunner(
+        createDataviewRunner(resp.vault_id, (path) =>
+          void handleNavigateWikilink(path, null),
+        ),
+      );
       setAutocompleteProvider(createAutocompleteProvider(resp.vault_id));
       scheduleRefresh();
 
@@ -1561,6 +1584,7 @@ const App: Component = () => {
                   rawSource={effectiveRaw()}
                   wikilinkResolver={wikilinkResolver()}
                   embedResolver={embedResolver()}
+                  dataviewRunner={dataviewRunner()}
                   openNotePath={selectedPath()}
                   autocompleteProvider={autocompleteProvider()}
                   onNavigateWikilink={(path, anchor) =>
