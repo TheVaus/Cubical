@@ -32,8 +32,8 @@ pub mod state;
 
 use api::types::{
     BlockIdAutocompleteRequest, BlockIdAutocompleteResponse, CancelVaultScanRequest,
-    CloseVaultRequest, CreateBlockRefRequest, CreateBlockRefResponse,
-    FlushPendingRewritesForTargetRequest, FlushPendingRewritesRequest,
+    CloseVaultRequest, CreateBlockRefRequest, CreateBlockRefResponse, DataviewQueryRequest,
+    DataviewResult, FlushPendingRewritesForTargetRequest, FlushPendingRewritesRequest,
     FlushPendingRewritesResponse, GetBacklinksRequest, GetBacklinksResponse,
     GetBrokenBlockRefsRequest, GetBrokenBlockRefsResponse, GetCanonicalAstRequest,
     GetCanonicalAstResponse, GetEmbedRequest, GetEmbedResponse, GetFrontmatterRequest,
@@ -114,6 +114,7 @@ pub fn run() {
             search_index_status,
             search_rebuild_index,
             search_get_health,
+            dataview_query,
             close_vault,
         ])
         .run(tauri::generate_context!())
@@ -447,6 +448,15 @@ async fn search_get_health(
     req: SearchVaultRequest,
 ) -> Result<SearchHealthDto, CubicalError> {
     commands::search::search_get_health(state.inner(), req).await
+}
+
+/// Tauri shim — see [`commands::dataview::dataview_query`].
+#[tauri::command]
+async fn dataview_query(
+    state: tauri::State<'_, AppState>,
+    req: DataviewQueryRequest,
+) -> Result<DataviewResult, CubicalError> {
+    commands::dataview::dataview_query(state.inner(), req).await
 }
 
 /// Tauri shim — see [`commands::vault::close_vault`].

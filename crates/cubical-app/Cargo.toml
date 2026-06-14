@@ -18,6 +18,7 @@ cubical-ast    = { path = "../cubical-ast" }
 cubical-index  = { path = "../cubical-index" }
 cubical-search = { path = "../cubical-search" }
 cubical-sync   = { path = "../cubical-sync" }
+cubical-query  = { path = "../cubical-query" }
 
 # Tauri
 tauri = { version = "2", features = [] }

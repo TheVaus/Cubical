@@ -710,6 +710,7 @@ dependencies = [
  "cubical-ast",
  "cubical-core",
  "cubical-index",
+ "cubical-query",
  "cubical-search",
  "cubical-sync",
  "libsql",

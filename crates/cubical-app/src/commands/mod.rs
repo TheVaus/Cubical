@@ -14,6 +14,7 @@
 pub mod autocomplete;
 pub mod backlinks;
 pub mod blocks;
+pub mod dataview;
 pub mod embeds;
 pub mod links;
 pub mod mentions;

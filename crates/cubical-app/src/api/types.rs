@@ -821,3 +821,58 @@ pub struct SearchVaultRequest {
     /// Vault to query / mutate.
     pub vault_id: String,
 }
+
+// -- dataview (L4-D) ------------------------------------------------------
+//
+// Dataview-style query IPC. The query AST/parser/executor live in
+// `cubical-query`; this is the wire surface. A bad query is reported in
+// the `Error` variant rather than as a thrown IPC error, so the editor
+// widget always renders a structured answer.
+
+/// Request payload for `dataview_query`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct DataviewQueryRequest {
+    /// Vault to query.
+    pub vault_id: String,
+    /// The raw query source from the ```query fence.
+    pub source: String,
+}
+
+/// Result of a `dataview_query` — always returned as `Ok`; a parse or
+/// execution failure is carried in the `Error` variant.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum DataviewResult {
+    /// `LIST` — note links.
+    List {
+        /// Matching notes.
+        notes: Vec<cubical_query::NoteRef>,
+    },
+    /// `TABLE` — columns + rows.
+    Table {
+        /// Column headers (the named frontmatter keys; the file column is implicit).
+        columns: Vec<String>,
+        /// Result rows.
+        rows: Vec<cubical_query::Row>,
+    },
+    /// `COUNT`.
+    Count {
+        /// Number of matching files.
+        count: usize,
+    },
+    /// A parse or execution error, phrased for display.
+    Error {
+        /// The error message.
+        message: String,
+    },
+}
+
+impl From<cubical_query::QueryResult> for DataviewResult {
+    fn from(r: cubical_query::QueryResult) -> Self {
+        match r {
+            cubical_query::QueryResult::List { notes } => Self::List { notes },
+            cubical_query::QueryResult::Table { columns, rows } => Self::Table { columns, rows },
+            cubical_query::QueryResult::Count { count } => Self::Count { count },
+        }
+    }
+}
