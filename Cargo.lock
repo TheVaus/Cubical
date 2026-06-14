@@ -774,6 +774,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cubical-query"
+version = "0.1.0"
+dependencies = [
+ "cubical-index",
+ "libsql",
+ "serde",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+]
+
+[[package]]
 name = "cubical-search"
 version = "0.1.0"
 dependencies = [

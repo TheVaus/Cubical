@@ -10,6 +10,8 @@
 
 mod ast;
 mod error;
+mod parser;
 
 pub use ast::{Command, Cond, Op, Query, Sort, SortDir, Source, Value};
 pub use error::{ParseError, QueryError};
+pub use parser::parse;
