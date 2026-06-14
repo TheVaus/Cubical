@@ -1,14 +1,81 @@
 import { describe, it, expect, vi } from "vitest";
-import { createDataviewRunner, dataviewExtension } from "./dataview";
+import { EditorState } from "@codemirror/state";
+import { markdown } from "@codemirror/lang-markdown";
+import type { DecorationSet } from "@codemirror/view";
+import {
+  createDataviewRunner,
+  dataviewExtension,
+  dataviewBlockField,
+  dataviewRunnerFacet,
+  type DataviewRunner,
+} from "./dataview";
 import type { DataviewResult } from "../api/ipc";
 
 /** Flush the full promise chain (then → catch → finally) + timers. */
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
+/** A minimal runner stub for decoration tests (never fetches). */
+function stubRunner(): DataviewRunner {
+  return {
+    get: () => undefined,
+    fetch: () => {},
+    invalidate: () => {},
+    onUpdate: () => () => {},
+    version: () => 0,
+    open: () => {},
+  };
+}
+
+/** Count the decoration ranges in a set. */
+function countRanges(set: DecorationSet): number {
+  let n = 0;
+  set.between(0, 1e9, () => {
+    n += 1;
+  });
+  return n;
+}
+
+function fieldFor(doc: string, headOffset: number): DecorationSet {
+  const state = EditorState.create({
+    doc,
+    selection: { anchor: headOffset },
+    extensions: [markdown(), dataviewRunnerFacet.of(stubRunner()), dataviewBlockField],
+  });
+  return state.field(dataviewBlockField);
+}
+
 describe("dataviewExtension", () => {
   it("is a non-empty extension array", () => {
     expect(Array.isArray(dataviewExtension)).toBe(true);
     expect((dataviewExtension as unknown[]).length).toBeGreaterThan(0);
+  });
+});
+
+describe("dataviewBlockField detection", () => {
+  // Cursor on line 1 ("text"), outside the block → widget emitted.
+  const doc = "text\n\n```query\nLIST\n```\n";
+
+  it("replaces a ```query fenced block with a widget", () => {
+    expect(countRanges(fieldFor(doc, 0))).toBe(1);
+  });
+
+  it("suppresses the widget when the cursor is inside the block", () => {
+    const insideOffset = doc.indexOf("LIST");
+    expect(countRanges(fieldFor(doc, insideOffset))).toBe(0);
+  });
+
+  it("ignores fenced blocks with a different info string", () => {
+    const other = "```js\nconsole.log(1)\n```\n";
+    expect(countRanges(fieldFor(other, 0))).toBe(0);
+  });
+
+  it("emits nothing when no runner is provided", () => {
+    const state = EditorState.create({
+      doc,
+      selection: { anchor: 0 },
+      extensions: [markdown(), dataviewBlockField],
+    });
+    expect(countRanges(state.field(dataviewBlockField))).toBe(0);
   });
 });
 
