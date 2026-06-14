@@ -1027,3 +1027,44 @@ export function searchGetHealth(
 ): Promise<IndexHealth> {
   return invoke("search_get_health", { req });
 }
+
+// -- dataview (L4-D) ------------------------------------------------------
+
+/** A reference to a note in a dataview result. */
+export interface NoteRef {
+  path: string;
+  title: string;
+}
+
+/** One row of a dataview `table` result. */
+export interface DataviewRow {
+  note: NoteRef;
+  cells: string[];
+}
+
+/**
+ * The result of a `dataview_query`. A bad query never throws — it
+ * arrives as `{ kind: "error" }` so the editor widget can render it.
+ */
+export type DataviewResult =
+  | { kind: "list"; notes: NoteRef[] }
+  | { kind: "table"; columns: string[]; rows: DataviewRow[] }
+  | { kind: "count"; count: number }
+  | { kind: "error"; message: string };
+
+/** Request payload for `dataview_query`. */
+export interface DataviewQueryRequest {
+  vault_id: string;
+  source: string;
+}
+
+/**
+ * Evaluate a ```query block against `vault_id`'s index. Never throws for
+ * a malformed query — parse/exec failures come back as
+ * `{ kind: "error", message }`.
+ */
+export function dataviewQuery(
+  req: DataviewQueryRequest,
+): Promise<DataviewResult> {
+  return invoke("dataview_query", { req });
+}
