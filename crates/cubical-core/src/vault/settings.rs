@@ -67,6 +67,33 @@ fn flatten(table: &toml::value::Table, prefix: String, out: &mut SettingsMap) {
     }
 }
 
+/// `<vault_root>/.cubical/config.toml`.
+pub fn settings_path(vault_root: &Path) -> PathBuf {
+    vault_root.join(".cubical").join("config.toml")
+}
+
+/// Load settings from the file. A missing file ⇒ empty map (defaults).
+/// A present-but-malformed file is an error (callers keep prior state).
+pub fn load(vault_root: &Path) -> Result<SettingsMap, VaultError> {
+    let path = settings_path(vault_root);
+    match std::fs::read_to_string(&path) {
+        Ok(src) => from_toml(&src),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(SettingsMap::new()),
+        Err(e) => Err(VaultError::Settings(format!("read {}: {e}", path.display()))),
+    }
+}
+
+/// Atomically write the settings map to the file, creating `.cubical/`.
+pub fn save(vault_root: &Path, map: &SettingsMap) -> Result<(), VaultError> {
+    let path = settings_path(vault_root);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| VaultError::Settings(format!("mkdir {}: {e}", parent.display())))?;
+    }
+    let toml = to_toml(map)?;
+    super::atomic::atomic_write(&path, toml.as_bytes())
+}
+
 /// Convert a JSON scalar to a TOML value. Non-scalar / unrepresentable
 /// values fall back to their JSON string (forward-safety).
 fn json_to_toml(v: &Json) -> toml::Value {
@@ -102,6 +129,30 @@ fn insert_dotted(table: &mut toml::value::Table, dotted: &str, value: toml::Valu
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn load_missing_file_is_empty() {
+        let dir = tempfile::TempDir::new().unwrap();
+        assert!(load(dir.path()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn save_then_load_round_trips_and_creates_dirs() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let mut m = SettingsMap::new();
+        m.insert("plugins.dataview_enabled".into(), json!(false));
+        save(dir.path(), &m).unwrap();
+        assert!(settings_path(dir.path()).exists());
+        assert_eq!(load(dir.path()).unwrap(), m);
+    }
+
+    #[test]
+    fn load_malformed_file_errors() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(dir.path().join(".cubical")).unwrap();
+        std::fs::write(settings_path(dir.path()), "not = = valid").unwrap();
+        assert!(load(dir.path()).is_err());
+    }
 
     #[test]
     fn from_toml_flattens_to_dotted_keys() {
