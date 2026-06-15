@@ -25,6 +25,7 @@ import {
 } from "./resultGroups";
 import { buildSearchQuery, type ScopeKind } from "./searchQuery";
 import { formatRelativeTime } from "./relativeTime";
+import { isSearchNavKey, nextSearchNavIndex } from "./searchNav";
 
 /**
  * L4-B search surface for the left column. A persistent search bar sits
@@ -106,6 +107,28 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
       else next.add(path);
       return next;
     });
+
+  // Roving keyboard focus over the file groups (chip task_bd4e47f4): the
+  // result rows were previously mouse-only. `focusedIdx` is -1 when nothing
+  // is focused yet, in which case the first row is the lone tab stop so the
+  // list is Tab-reachable; arrow keys then move focus within. Native
+  // <button> semantics handle Enter/Space → open, so no key handling there.
+  const [focusedIdx, setFocusedIdx] = createSignal(-1);
+  let rowEls: (HTMLButtonElement | null)[] = [];
+  const tabStopIdx = () => (focusedIdx() === -1 ? 0 : focusedIdx());
+  // A fresh result set starts with nothing focused.
+  createEffect(() => {
+    groups();
+    setFocusedIdx(-1);
+  });
+  const onResultsKeyDown = (e: KeyboardEvent) => {
+    if (!isSearchNavKey(e.key)) return;
+    e.preventDefault();
+    const next = nextSearchNavIndex(e.key, focusedIdx(), groups().length);
+    if (next < 0) return;
+    setFocusedIdx(next);
+    rowEls[next]?.focus();
+  };
 
   let statusTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -478,6 +501,7 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
           <div
             role="list"
             aria-label="Search results"
+            onKeyDown={onResultsKeyDown}
             style={{
               flex: 1,
               "min-height": 0,
@@ -500,10 +524,15 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
               }
             >
               <For each={groups()}>
-                {(group) => (
+                {(group, i) => (
                   <FileGroupView
                     group={group}
                     collapsed={collapsed().has(group.path)}
+                    tabStop={tabStopIdx() === i()}
+                    registerRef={(el) => {
+                      rowEls[i()] = el;
+                    }}
+                    onFocus={() => setFocusedIdx(i())}
                     onToggle={() => toggleCollapsed(group.path)}
                     onOpen={() => props.onNavigate(group.path)}
                   />
@@ -570,6 +599,12 @@ const Chip: Component<{
 const FileGroupView: Component<{
   group: FileGroup;
   collapsed: boolean;
+  /** True when this row's title button is the list's single tab stop. */
+  tabStop: boolean;
+  /** Registers the title button so the parent can move focus to it. */
+  registerRef: (el: HTMLButtonElement | null) => void;
+  /** Fired when the title button gains focus (e.g. via Tab or click). */
+  onFocus: () => void;
   onToggle: () => void;
   onOpen: () => void;
 }> = (props) => (
@@ -618,6 +653,9 @@ const FileGroupView: Component<{
       </button>
       <button
         type="button"
+        ref={props.registerRef}
+        tabindex={props.tabStop ? 0 : -1}
+        onFocus={props.onFocus}
         onClick={props.onOpen}
         title={props.group.path}
         style={{

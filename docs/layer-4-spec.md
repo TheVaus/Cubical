@@ -74,7 +74,11 @@ L4-A modified `ui/src/api/ipc.ts` only — added the four wrapper functions + th
 
 ## 5. Deviations from the design spec
 
-L4-A introduced three load-bearing calls beyond the design. Promotion to `docs/architecture/` happens at L4 close (after L4-D).
+L4-A introduced three load-bearing calls beyond the design. **Promoted to
+[`docs/architecture/concurrency.md`](architecture/concurrency.md) §6.2 at
+L4 close (2026-06-15).** Deviation #1 was resolved by L4-B as option (a)
+(prose fields promoted to `STORED`, `SCHEMA_VERSION` 1→2). The originating
+descriptions below are retained for provenance.
 
 1. **Snippet field coverage restricted to `title` + `tags` at L4-A.** The L4-A schema stores only `path`, `title`, `tags`, `mtime_secs`, and `size_bytes`; the prose-bearing fields (`body`, `headings`, `code`, `frontmatter`) are indexed but not stored. Tantivy's `SnippetGenerator::snippet_from_doc` reads from `STORED` field text; non-stored fields produce empty snippets. L4-A therefore returns `MatchedField` entries only for `title` matches in practice. L4-B picks between (a) promoting `body`/`headings`/`code` to `STORED` (~2-3× disk, immediate snippets) and (b) re-reading the source on demand per visible hit (I/O per render, slim index). The design spec's Snippets section was updated 2026-06-03 to document this limitation explicitly. Resolution lives with L4-B's UX requirements — if highlighted snippets are essential on first paint, (a); if hover-to-expand is acceptable, (b).
 
@@ -92,14 +96,14 @@ L4 closes when L4-A + L4-B + L4-C + L4-D are all signed off and the `l4` tag is 
 - [x] **L4-B:** Persistent left-panel search UI; grouped-by-file result list; debounced query input; "still indexing…" banner. Closed 2026-06-08 (`l4b` tag). §9.3.
 - [x] **L4-C:** `Cmd/Ctrl+K` Omni-Bar — fuzzy navigator over **notes + tags** (headings + commands deferred). Closed 2026-06-08 (`l4c` tag). §9.4. Companion: search typo tolerance shipped as `l4a-fix.2` (cross-field backend fuzzy).
 - [x] **L4-D:** Dataview-style libSQL queries; `list` / `table` / `count` blocks. Closed 2026-06-15 (`l4d` tag); six automated gates green; live visual operator smoke is the one outstanding Contract-E residual. §9.5.
-- [ ] L3 carry-over smoke confirmed at every session kickoff.
-- [ ] `cargo test --workspace` green at each session close.
-- [ ] `cargo clippy --workspace --all-targets -- -D warnings` clean at each session close.
-- [ ] `cargo fmt --check` clean at each session close.
-- [ ] `npm run build` clean; `npx tsc --noEmit` clean at each session close.
-- [ ] `npm test` (vitest) green at each session close.
-- [ ] Interactive smoke pass recorded in §9 of each session close.
-- [ ] `l4` git tag applied only after all of the above.
+- [x] L3 carry-over smoke confirmed at every session kickoff.
+- [x] `cargo test --workspace` green at each session close.
+- [x] `cargo clippy --workspace --all-targets -- -D warnings` clean at each session close.
+- [x] `cargo fmt --check` clean at each session close.
+- [x] `npm run build` clean; `npx tsc --noEmit` clean at each session close.
+- [x] `npm test` (vitest) green at each session close.
+- [~] Interactive smoke pass — best-available (automated) recorded in §9.6; the live operator-GUI residual remains (needs `cargo tauri dev`).
+- [ ] `l4` git tag — **pending the operator GUI smoke** in §9.6. Everything else for the layer is done; this is the sole remaining gate.
 
 ---
 
@@ -849,3 +853,81 @@ updates the result.
 
 `OR`/parens, `contains`, `GROUP`/`FLATTEN`, typed/relative dates, formula
 columns, inline `key::` fields, write-back.
+
+---
+
+### 9.6 L4 layer-close (2026-06-15)
+
+Closes the layer: §5 deviations promoted, the two non-blocking follow-up
+chips addressed, and the carried-forward smoke recorded at best-available
+fidelity. The `l4` tag itself awaits the operator's live GUI smoke pass
+(below) — DoD §6 gates it on a recorded interactive run, which the agent
+environment cannot drive.
+
+#### Architecture promotion
+
+The three L4-A deviations (§5) are promoted to
+[`docs/architecture/concurrency.md`](architecture/concurrency.md) §6.2:
+`vault_id` keying on every per-vault search command; the three-value
+search state cell (`Building`/`Ready`/`Error`, never a stuck `Building`
+under cancellation); and prose fields `STORED` (deviation #1, resolved by
+L4-B as option (a)).
+
+#### Chip: search-row keyboard nav (`task_bd4e47f4`) — DONE
+
+Result rows were mouse-only (`tabindex=-1`). Added roving keyboard focus
+over the file-group title buttons: `ui/src/sidebar/searchNav.ts` (pure,
+**+11 vitest** — `nextSearchNavIndex` / `isSearchNavKey`), wired into
+`SearchPanel.tsx` (the focused row is the single tab stop so the list is
+Tab-reachable; ArrowUp/Down/Home/End move focus; native `<button>`
+Enter/Space opens). Contract E: the index math is unit-tested; the live
+focus-ring behaviour is operator smoke.
+
+#### Chip: per-occurrence snippet cards (`task_b5f2f1ef`) — DEFERRED
+
+Kept as its own session. Tantivy's `SnippetGenerator::snippet_from_doc`
+yields one best fragment per field; per-occurrence cards need a backend
+fragment change (multiple fragments per field → `MatchedField` shape →
+IPC → renderer), touching the operator-validated ranked-snippet path.
+Backend-heavy and non-blocking — out of scope for the layer-close per the
+short-session cadence; it rides with the L4-A search revisit.
+
+#### Carried-forward smoke — best-available record
+
+- **SCHEMA_VERSION wipe+rebuild on open** — *automated*:
+  `schema_version_mismatch_wipes` + `missing_stamp_wipes_and_re_creates`
+  (`cubical-search/src/index.rs`). `SCHEMA_VERSION` is now 2; opening a
+  v1-stamped index takes the wipe path.
+- **`open_vault` re-open `LockBusy`** — *automated*:
+  `reopen_same_path_returns_existing_vault` +
+  `reopen_different_path_returns_none` (`commands/vault.rs`). Idempotent
+  re-open returns the existing session rather than a second `IndexWriter`
+  (which would `LockBusy`). The 2026-06-06 idempotent-open-vault
+  smoke-pending line is satisfied at the unit level.
+- **L4-A recipes 1–11** — backend behaviour *automated-covered*:
+  R1 `default_scope_matches_body` / `body_match_produces_highlighted_snippet`;
+  R2 `code_only_scope_matches_code_not_body`; R3 `headings_only_scope`;
+  R4 `tag_scope_exact_match_lowercased`;
+  R5 `single_term_fuzzy_spans_all_fields` / `fuzzy_on_short_term_no_match_expansion`;
+  R7 `search_index_status` / `status_reflects_state_cell`;
+  R8 `search_rebuild_index` / `rebuild_wipes_docs_immediately`;
+  R9 `search_get_health` / `health_reports_schema_version_*`;
+  R11 `still_indexing_flag_set_when_state_is_building`.
+  R6 (phrase + negation parse) and R10 (end-to-end watcher fan-out
+  latency) have their constituent pieces exercised but stay live-GUI
+  smoke.
+
+#### Operator GUI smoke — the remaining residual (blocks the `l4` tag)
+
+These need `cargo tauri dev` and a human (the agent cannot drive the
+native window):
+
+- the L4-D query-widget visual render / link-nav / cursor-reveal (§9.5);
+- the indexing banner on a fresh/large vault (Recipe 11 visual);
+- the ~2–3× `.cubical/search` disk eyeball (deviation #1 cost);
+- R6 / R10 live confirmation;
+- the search-row keyboard-nav focus ring in the running app.
+
+Per the `l4b` precedent, electing to tag on partial smoke is the
+operator's call. After the pass, record the result here and apply
+`git tag l4`, then this layer is fully closed.

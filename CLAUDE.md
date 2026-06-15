@@ -77,13 +77,22 @@ the meanwhile-landed UI rework (clean merge), six gates green. **One
 outstanding residual: the live *visual* operator smoke** — the CM widget's
 on-screen render / link-nav / cursor-reveal needs `cargo tauri dev` (the
 `dataview_query` IPC is Tauri-runtime-only; data path + mount wiring are
-otherwise fully code/test-verified). Recipe in layer-4-spec §9.5. **L4
-layer-close still pending:** carried-forward smoke — L4-B's
-not-formally-smoked items (SCHEMA_VERSION-1 wipe+rebuild on open,
-`open_vault` re-open `LockBusy`, big-vault indexing banner, ~2-3× index
-disk, L4-A recipes 1–11) + open chips (search-row keyboard nav
-`task_bd4e47f4`, per-occurrence snippet cards `task_b5f2f1ef`); then tag
-`l4` and promote §5 deviations into `docs/architecture/`.
+otherwise fully code/test-verified). Recipe in layer-4-spec §9.5.
+
+**L4 layer-close — in progress on `feat/l4-close` (2026-06-15, §9.6).**
+Done: §5 deviations **promoted** to `docs/architecture/concurrency.md`
+§6.2 (vault_id keying, three-value search state cell, prose `STORED`);
+search-row **keyboard nav chip** (`task_bd4e47f4`) shipped (pure
+`ui/src/sidebar/searchNav.ts`, roving tabindex over file groups); the
+carried smoke recorded at **best-available** fidelity — SCHEMA_VERSION
+wipe and `open_vault` re-open `LockBusy` are **already covered by
+automated tests**, and L4-A recipes 1–11 map to named backend tests
+(R6 phrase+negation / R10 fan-out stay GUI-smoke). **Deferred** (own
+session): per-occurrence snippet cards (`task_b5f2f1ef`) — backend
+Tantivy fragment surgery, non-blocking. **Sole remaining `l4` gate:**
+the operator GUI smoke (`cargo tauri dev`) — L4-D widget render,
+indexing banner, ~2-3× index-disk eyeball, R6/R10, the new keyboard-nav
+focus ring. After that pass, `git tag l4`.
 
 **UI rework — incrementally landed on `main` 2026-06-12** (work continued
 on branch `feat/ui-rework`, now merged). A layered Obsidian-style shell: full-width top/status bars, fixed editor +
@@ -99,9 +108,10 @@ New: `ui/src/styles/layout.css`, `ui/src/sidebar/fileTree.ts` (+test).
 Full handoff: `docs/superpowers/2026-06-12-ui-rework-progress.md`; design
 mockup: `docs/superpowers/mockups/ui-rework.html`.
 
-Tests: **473 vitest + 507 Rust** on `main` (L4-D added 18 vitest + the
+Tests: **484 vitest + 507 Rust** (`main` is 473 + 507; `feat/l4-close`
+adds 11 vitest for the keyboard-nav module). L4-D added 18 vitest + the
 `cubical-query` crate's 28 + 6 app tests, incl. end-to-end dataview tests
-over the real scan pipeline). Gates: `cargo test --workspace`, `cargo
+over the real scan pipeline. Gates: `cargo test --workspace`, `cargo
 clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all
 --check`, `npx tsc --noEmit`, `npx vitest run`, `npm run build`. Tags: l0
 (05-13) l1 (05-09) l2 (05-22) l3 (06-01) l4a (06-03) l4a-fix/.1 (06-06)
