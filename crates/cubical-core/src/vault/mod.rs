@@ -17,7 +17,6 @@ use crate::file_type::FileTypeRegistry;
 
 mod atomic;
 pub mod blocks;
-pub mod settings;
 pub mod embeds;
 mod frontmatter;
 pub mod links;
@@ -25,6 +24,7 @@ pub mod mentions;
 pub mod pending;
 mod scan;
 pub mod search_refresh;
+pub mod settings;
 pub mod tags;
 mod watcher;
 

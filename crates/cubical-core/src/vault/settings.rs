@@ -67,6 +67,13 @@ fn flatten(table: &toml::value::Table, prefix: String, out: &mut SettingsMap) {
     }
 }
 
+/// Workspace/UI state (transient session layout) lives in the DB, never in
+/// `config.toml`. Everything under the `ui.` namespace is workspace state;
+/// all other keys are durable settings.
+pub fn is_workspace_key(key: &str) -> bool {
+    key.starts_with("ui.")
+}
+
 /// `<vault_root>/.cubical/config.toml`.
 pub fn settings_path(vault_root: &Path) -> PathBuf {
     vault_root.join(".cubical").join("config.toml")
@@ -79,7 +86,10 @@ pub fn load(vault_root: &Path) -> Result<SettingsMap, VaultError> {
     match std::fs::read_to_string(&path) {
         Ok(src) => from_toml(&src),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(SettingsMap::new()),
-        Err(e) => Err(VaultError::Settings(format!("read {}: {e}", path.display()))),
+        Err(e) => Err(VaultError::Settings(format!(
+            "read {}: {e}",
+            path.display()
+        ))),
     }
 }
 
@@ -129,6 +139,15 @@ fn insert_dotted(table: &mut toml::value::Table, dotted: &str, value: toml::Valu
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn ui_keys_are_workspace_state_others_are_settings() {
+        assert!(is_workspace_key("ui.right_sidebar_collapsed"));
+        assert!(is_workspace_key("ui.right_sidebar_panel"));
+        assert!(!is_workspace_key("appearance.theme_mode"));
+        assert!(!is_workspace_key("plugins.dataview_enabled"));
+        assert!(!is_workspace_key("editor.raw_source_default"));
+    }
 
     #[test]
     fn load_missing_file_is_empty() {
