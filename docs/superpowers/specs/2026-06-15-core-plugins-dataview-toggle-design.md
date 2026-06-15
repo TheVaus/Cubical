@@ -28,9 +28,10 @@ touches L6.
 ## 2. Decisions (from brainstorm)
 
 - **Single store, no redundancy.** `.cubical/config.toml` (TOML) is the
-  sole source of truth. The DB `config` table is **dropped** for settings.
-  Accepted trade: deleting `.cubical/` resets settings to defaults —
-  recoverable from backup/trash, and cheap to re-set by hand.
+  sole source of truth **for settings**; the DB `config` table no longer
+  holds them (it is narrowed to workspace state — see §4.3). Accepted
+  trade: deleting `.cubical/` resets settings to defaults — recoverable
+  from backup/trash, and cheap to re-set by hand.
 - **Location:** inside `.cubical/` (single hidden dir, clean vault root).
 - **Format rationale (so nobody "fixes" the split later):** TOML is right
   for `config.toml` because it is *Cubical's own* file — no other tool
@@ -48,6 +49,14 @@ touches L6.
 - **External edits:** picked up at next vault open (the file is re-read
   then). No file-watching. An optional **"Reload settings from file"**
   action can re-read mid-session, but it is not core.
+- **Settings vs workspace state.** `config.toml` holds **durable
+  settings/preferences only** (theme, default editor mode, plugin
+  enablement, flush interval). **Ephemeral workspace/UI state** — sidebar
+  collapsed/active-panel, and later open tabs / scroll — is session
+  layout, not a setting: it **never** goes in `config.toml`. It stays
+  local in the DB (disposable cache, the correct home for resettable
+  layout) and does not travel with the vault. Mirrors Obsidian's
+  `app.json` (settings) vs `workspace.json` (layout) split.
 - **Toggle:** extensible data-driven Core Plugins list, ships Dataview
   only; per-vault; **default enabled**; **live** gating via the
   runner-null path.
@@ -100,12 +109,20 @@ string.
   the map and return the resolved settings, for picking up external edits
   mid-session.
 
-### 4.3 Drop the DB config table
-- **Verify first:** confirm nothing other than user settings reads/writes
-  the `config` table (it is the L0 settings KV store; the plan checks for
-  any other consumer before removal).
-- Remove the table from the schema / migrations once settings no longer
-  use it. Pre-1.0 dev vaults start fresh; no data migration shipped.
+### 4.3 Split the DB config table (settings out, workspace state stays)
+- **Durable settings move out of the DB into `config.toml`.** The
+  `appearance` / `editor` / `pending_rewrites` / `plugins` keys are served
+  from the in-memory map (file-backed) — no longer from the DB.
+- **Ephemeral workspace/UI state stays DB-backed.** `ui.right_sidebar_*`
+  (and future layout state) remain in the local `config` table — it is
+  disposable cache, the right home for resettable, non-portable layout.
+  These keys are **never written to `config.toml`.**
+- **Classify before moving:** the plan tags each existing setting key as
+  *setting* (→ file) or *workspace state* (→ stays DB), and confirms no
+  other subsystem reads the table. Pre-1.0 dev vaults start fresh; no data
+  migration shipped.
+- Net: the `config` table is **narrowed**, not dropped — it keeps only
+  workspace/UI state going forward.
 
 ### 4.4 Tests
 - TOML ⇄ map conversion: scalars, dotted-key nesting, round-trip,
