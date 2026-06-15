@@ -1,161 +1,180 @@
-# Core Plugins — Dataview toggle (design)
+# Core Plugins toggle + portable config file (design)
 
 **Date:** 2026-06-15
 **Status:** approved (brainstorm), pending implementation plan
-**Buildable unit:** the Dataview on/off toggle. The portable config-sync
-subsystem (§6) is a recorded *planned successor*, not part of this build.
+**Scope:** two phases, both in this build —
+**Phase 1:** portable vault config file (`.cubical/config.toml`) synced
+with the libSQL `config` table.
+**Phase 2:** the Dataview Core Plugin on/off toggle, the config file's
+first feature consumer.
 
 ---
 
 ## 1. Goal
 
-Let the user turn the L4-D Dataview feature (live ```query blocks) on or
-off from **Settings → Plugins → Core Plugins**. When off, ```query fenced
-blocks render as plain raw markdown text — the feature simply isn't there.
+1. **Settings travel with the vault.** A shareable/exportable
+   `.cubical/config.toml` mirrors the per-vault settings so a copied vault
+   carries what the user had configured (incl. which core plugins are on).
+2. **Toggle Dataview.** From **Settings → Plugins → Core Plugins**, turn
+   the L4-D Dataview feature (live ```query blocks) on or off. When off,
+   ```query blocks render as plain raw markdown.
 
-"Core Plugins" here means Obsidian-style **built-in, toggleable
-first-party features** that ship in the binary. This is distinct from the
-locked **L6 WASM/WASI community-plugin sandbox** (`planned.md` §8): core
-plugins are native TS/Rust, not sandboxed wasm. Dataview stays native; it
-just becomes toggleable. No L6 surface is introduced here.
+"Core Plugins" = Obsidian-style **built-in, toggleable first-party
+features** that ship in the binary. Distinct from the locked **L6
+WASM/WASI community-plugin sandbox** (`planned.md` §8); nothing here
+touches L6.
 
 ## 2. Decisions (from brainstorm)
 
-- **Scope:** an extensible, data-driven Core Plugins list; ship Dataview
-  as its only entry. Adding a future core plugin is one array entry.
-- **Default:** enabled (absent setting ⇒ on). Preserves today's behaviour.
-- **Storage:** per-vault, via the existing `set_setting`/`get_setting`
-  IPC (libSQL `config` table). No Rust change — the store is generic
-  key→JSON.
-- **Reactivity:** live. Toggling re-renders open editors immediately,
-  both directions.
-- **Gating mechanism:** reuse the runner-null path. The dataview field
-  already emits no decorations when the editor has no runner, so
-  "disabled" = pass `null` as the runner. No CodeMirror compartment
-  surgery.
+- **Config file:** `.cubical/config.toml`, **TOML**. Matches the location
+  already penciled in `vault.md` and the single-hidden-dir norm
+  (`.obsidian/`, `.vscode/`).
+- **Source-of-truth model:** the **file is the durable record; the DB
+  `config` table is a fast cache** the app reads from at runtime.
+- **Sync (no file-watching):**
+  - **DB → file:** write-through on every `set_setting`.
+  - **File → DB:** only on **vault open** and on an explicit **"Reload
+    settings from file"** action. The DB never reacts to the file on its
+    own — no watcher, no echo-suppression, no live-conflict handling.
+  - **Open precedence:** if the file exists, it wins (its contents load
+    into the DB). A stale DB never clobbers the file, because DB → file
+    happens only on a UI change.
+  - **Lazy creation:** opening a vault never writes anything. File missing
+    + DB empty ⇒ defaults, write nothing. File missing + DB has rows ⇒
+    write the file from the DB on open. Only a real `set_setting` first
+    creates the file.
+- **Conflicts:** last-action-wins; no 3-way merge (settings are
+  low-stakes).
+- **Toggle:** extensible data-driven Core Plugins list, ships Dataview
+  only; per-vault; **default enabled**; **live** gating via the
+  runner-null path.
 
-## 3. Components
+## 3. Architecture amendment (required, Phase 1)
 
-### 3.1 Setting key
-Add to the typed `Setting` union in `ui/src/api/ipc.ts`:
-```ts
-| { key: "plugins.dataview_enabled"; value: boolean }
+Amend `docs/architecture/vault.md` §3. Today it says *everything in
+`.cubical/` is rebuildable from the markdown*. That was never quite true
+(config isn't derivable from markdown) and this feature makes the gap
+load-bearing. New framing:
+
+> `.cubical/` holds vault-owned state in two categories:
+> - **Durable config** — `config.toml`. The portable record of the
+>   user's settings; **not** rebuildable from markdown. Travels with the
+>   vault when shared.
+> - **Rebuildable cache** — `index.db`, `search/`, `recovery/`, etc.
+>   Derived from the markdown; safe to delete and regenerate.
+
+This is a deliberate change to a locked rule and is the gate for Phase 1.
+
+## 4. Phase 1 — portable config file ↔ DB sync
+
+### 4.1 Serialization
+The `config` table is `key → JSON value`. Setting keys are dotted
+(`plugins.dataview_enabled`, `appearance.theme_mode`), and values today
+are scalars (bool / string-enum / number). Map to TOML via dotted keys →
+nested tables:
+```toml
+[appearance]
+theme_mode = "dark"
+
+[plugins]
+dataview_enabled = true
 ```
-Absent ⇒ treated as `true`.
+A small Rust module owns `config_table ⇄ toml` conversion, isolated and
+unit-tested (lives in a no-Tauri crate so it tests without the app
+harness). Non-scalar/unknown values round-trip through their JSON string
+if they ever appear (forward-safety); scalars use native TOML types.
 
-### 3.2 Core Plugins registry — `ui/src/settings/corePlugins.ts` (new, pure)
+### 4.2 Open-time hydration (in `open_vault`)
+- `config.toml` present ⇒ parse it, replace the `config` table contents
+  with it (file wins).
+- absent + table non-empty ⇒ write `config.toml` from the table.
+- absent + table empty ⇒ do nothing (lazy).
+- Parse error ⇒ leave the DB as-is, surface a non-fatal warning; never
+  block vault open.
+
+### 4.3 Write-through (in `set_setting`)
+After writing the `config` table, (re)write `config.toml` from the full
+table. First write creates the file. This is the only path that creates
+or mutates the file outside open-time.
+
+### 4.4 Reload command (new IPC)
+`reload_settings { vault_id } -> { settings: [...] }` — re-reads
+`config.toml`, replaces the `config` table, returns the resolved
+settings so the UI can refresh its signals. Wired to a **"Reload settings
+from file"** button in the settings modal (vault-level action).
+
+### 4.5 Tests
+- TOML ⇄ table conversion: scalars, dotted-key nesting, round-trip,
+  unknown-value passthrough, malformed-TOML error (pure, unit-tested).
+- `open_vault` hydration: the four cases in §4.2 (integration, over a
+  temp vault).
+- `set_setting` write-through: file created on first set; reflects the
+  table after (cubical-app test).
+- `reload_settings`: external edit to the file is picked up; returns it.
+
+## 5. Phase 2 — Dataview Core Plugin toggle
+
+### 5.1 Setting key
+Add to the `Setting` union (`ui/src/api/ipc.ts`):
+`{ key: "plugins.dataview_enabled"; value: boolean }`. Absent ⇒ `true`.
+
+### 5.2 Registry — `ui/src/settings/corePlugins.ts` (new, pure)
 ```ts
 export interface CorePlugin {
-  id: string;
-  name: string;
-  description: string;
-  settingKey: BooleanSettingKey;   // a Setting key whose value is boolean
-  defaultEnabled: boolean;
+  id: string; name: string; description: string;
+  settingKey: BooleanSettingKey; defaultEnabled: boolean;
 }
-
 export const CORE_PLUGINS: CorePlugin[] = [
-  {
-    id: "dataview",
-    name: "Dataview",
+  { id: "dataview", name: "Dataview",
     description: "Render ```query blocks as live tables, lists, and counts.",
-    settingKey: "plugins.dataview_enabled",
-    defaultEnabled: true,
-  },
+    settingKey: "plugins.dataview_enabled", defaultEnabled: true },
 ];
-
-/** Resolve a plugin's effective on/off state: stored value, else default. */
 export function corePluginEnabled(
-  state: Record<string, boolean>,
-  plugin: CorePlugin,
-): boolean;
+  state: Record<string, boolean>, plugin: CorePlugin,
+): boolean;   // stored value, else defaultEnabled
 ```
-`BooleanSettingKey` = the subset of `Setting["key"]` whose value is
-`boolean`, so the registry can't reference a non-boolean setting.
+`BooleanSettingKey` = the boolean-valued subset of `Setting["key"]`.
 
-### 3.3 Settings UI — new `"plugins"` tab (in `App.tsx`'s settings modal)
-- Extend the `SettingsTab` union with `"plugins"` and add a nav item.
-- The tab renders a **"Core Plugins"** heading, then maps `CORE_PLUGINS`
-  to toggle rows: name, description, and an on/off switch reusing the
-  existing switch pattern (the `editor.raw_source_default` toggle).
-- No component unit test (Contract E — operator-smoke; the repo has no
-  Solid render harness).
+### 5.3 Settings UI — new `"plugins"` tab (`App.tsx` settings modal)
+- Extend `SettingsTab` with `"plugins"` + a nav item.
+- Render a **"Core Plugins"** heading, mapping `CORE_PLUGINS` to toggle
+  rows (name, description, switch — reusing the `raw_source_default`
+  toggle pattern).
+- The **"Reload settings from file"** button (§4.4) also lives in the
+  settings modal (vault-level placement).
 
-### 3.4 State + persistence (`App.tsx`)
-- A `Record<string, boolean>` signal of plugin enablement.
-- On vault open, hydrate it from the per-vault settings (one
-  `getSetting` per registry entry), mirroring how `theme_mode` loads.
-- A toggle handler updates the signal and calls `setSetting(...)`,
-  matching the existing setting-toggle handlers.
+### 5.4 State + persistence (`App.tsx`)
+- `Record<string, boolean>` enablement signal, hydrated per-vault on open
+  (one `getSetting` per registry entry), refreshed after `reload_settings`.
+- Toggle handler updates the signal + `setSetting(...)` (which now
+  write-throughs to the file via Phase 1).
 
-### 3.5 Editor gating (`App.tsx` → `Editor`)
-- The `dataviewRunner` prop passed to `<Editor>` becomes
+### 5.5 Editor gating
+- `<Editor>`'s `dataviewRunner` prop becomes
   `corePluginEnabled(state, dataview) ? dataviewRunner() : null`.
-- Off ⇒ the field emits nothing ⇒ raw ```query text. The Editor already
-  reconfigures the runner facet reactively when the prop changes, so the
-  toggle is live both ways.
-- The existing `dataviewRunner()?.invalidate()` call sites are
-  unaffected (they no-op against the still-live runner object; only the
-  *prop* is gated).
+- Off ⇒ field emits nothing ⇒ raw ```query text. The Editor already
+  reconfigures the runner facet reactively, so the toggle is live both
+  ways. Existing `dataviewRunner()?.invalidate()` call sites are
+  unaffected (only the prop is gated).
 
-## 4. Data flow
+### 5.6 Tests
+- `corePlugins.ts`: `corePluginEnabled` resolution (vitest).
+- Settings tab + editor gating: operator-smoke (Contract E).
+- Existing dataview tests stay green (gating is additive).
+
+## 6. Data flow (Phase 2 over Phase 1)
 
 ```
-Settings modal toggle
-  → update enablement signal           (live)
-  → setSetting("plugins.dataview_enabled", value)   (persist, per-vault)
+toggle in modal
+  → enablement signal flips (live)
+  → setSetting("plugins.dataview_enabled", v)
+       → config table write + config.toml write-through   (Phase 1)
   → Editor dataviewRunner prop flips (runner | null)
   → dataviewBlockField rebuilds → widgets or raw text
 ```
 
-## 5. Testing
-
-- `corePlugins.ts`: vitest for `corePluginEnabled` — stored true/false
-  wins; absent falls back to `defaultEnabled`.
-- Settings tab + editor gating: operator-smoke (Contract E), like the
-  rest of the settings modal.
-- Existing dataview tests stay green (gating is additive).
-
-## 6. Future (planned successor): portable config sync
-
-Not built here. Recorded so the toggle is forward-compatible and the
-follow-up has a starting point. This needs its own spec **and** an
-architecture amendment (it carves out config as portable, non-derived
-state, which the current "everything in `.cubical/` is rebuildable from
-markdown" rule does not allow).
-
-**Goal:** vault config (all settings, not just plugin enablement) travels
-with the vault, so a shared/exported vault carries what the user had
-enabled.
-
-**Model (converged):**
-- **The file is the durable source of truth; the DB (`config` table) is a
-  fast cache hydrated from it.** The app reads from the DB at runtime.
-- **DB → file:** write-through on every UI settings change.
-- **File → DB:** only on **vault open** and on an explicit **"Refresh
-  settings"** action. **No file-watching** — the DB never reacts to the
-  file on its own, so there is no watcher, no own-write echo suppression,
-  and no live-conflict handling. Reconciliation is last-action-wins.
-- **Open-time precedence:** if both file and DB exist and differ (the
-  file was edited while the app was closed, or a vault was imported), the
-  **file wins** at open. A stale DB never clobbers the file because DB →
-  file happens only on a UI change.
-- **Lazy creation:** opening a folder never writes anything. Missing file
-  + empty DB ⇒ assume defaults, create nothing. Missing file + DB has
-  data ⇒ recreate the file from the DB on open. Only a real settings
-  change first creates the file (and rows).
-- **Placement:** the file must live where vault-sharing naturally carries
-  it — a small file at the vault root or its own tiny folder, **separate
-  from the disposable `.cubical/` index cache** (sharing a vault is not
-  expected to include the rebuildable index). This revisits the
-  `.cubical/config.toml` location currently penciled in `vault.md`.
-- **Conflicts:** last-action-wins; no 3-way merge (settings are
-  low-stakes, unlike markdown).
-- **Format:** decide JSON vs TOML/YAML in that spec (libSQL stores values
-  as JSON today; `vault.md` pencils in TOML).
-
-The Dataview toggle becomes this subsystem's first consumer when it lands.
-
 ## 7. Out of scope
 
 Community/WASM plugins, plugin permissions UI, enable-all/disable-all,
-the config-sync subsystem itself (§6), and any Rust change for this build.
+live file-watching of `config.toml`, 3-way merge for config, and
+migrating non-settings state into the file.
