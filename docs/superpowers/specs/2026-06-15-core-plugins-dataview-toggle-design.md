@@ -32,6 +32,13 @@ touches L6.
   Accepted trade: deleting `.cubical/` resets settings to defaults —
   recoverable from backup/trash, and cheap to re-set by hand.
 - **Location:** inside `.cubical/` (single hidden dir, clean vault root).
+- **Format rationale (so nobody "fixes" the split later):** TOML is right
+  for `config.toml` because it is *Cubical's own* file — no other tool
+  reads it, so it optimizes for config ergonomics (comments, strict
+  types, no whitespace footguns). Note **frontmatter stays YAML**: it
+  lives in the user's portable `.md` files, which must stay standard
+  Markdown that vim / Obsidian / Hugo / Pandoc all read. Different owners,
+  different right formats — the inconsistency is intentional.
 - **Access:** the file is parsed into an in-memory map on vault open;
   `get_setting` reads the map; `set_setting` updates the map and rewrites
   the file with an **atomic write** (temp + fsync + rename).

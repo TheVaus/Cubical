@@ -106,5 +106,6 @@ These are deliberately deferred to the layer where they become live decisions, n
 - **License / business model.** MIT placeholder during alpha; revisited before public beta cut at L5.
 - **Backup / corruption recovery story** for `.cubical/index.db`. Mostly documentation rather than architecture, but the trade-offs (rebuild from .md vs. provide a built-in backup tool) deserve a section before L5.
 - **Sync details** — WebRTC NAT traversal, STUN/TURN, relay hosting model, key management. Own conversation when L7 becomes live.
+- **Typed Properties (Obsidian-style).** A property-type layer over YAML frontmatter — Text / Number / Checkbox / Date / List — so the app can render type-aware editors (date pickers, number inputs), sort and query by real types, and round-trip values without stringifying. Frontmatter **stays YAML** (it already carries native scalar + date types and must stay ecosystem-portable; see the format rationale in `docs/superpowers/specs/2026-06-14-l4-d-dataview-design.md` and the `2026-06-15-core-plugins` spec). The work is an *application-level* type registry + UI, not a file-format change; it would also let Dataview move beyond lexical ISO-date comparison to true typed dates. Its own brainstorm/spec when it becomes live.
 
 When one of these becomes live, it gets its own section here, written before any code.
