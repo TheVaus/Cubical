@@ -20,8 +20,8 @@ use crate::api::types::{
     GetCanonicalAstResponse, GetFrontmatterRequest, GetFrontmatterResponse, GetSettingRequest,
     GetSettingResponse, GetVaultInfoRequest, GetVaultInfoResponse, ListFilesRequest,
     ListFilesResponse, OpenVaultRequest, OpenVaultResponse, ReadFileTextRequest,
-    ReadFileTextResponse, ScanStatus, SetSettingRequest, SetSettingResponse, WriteFileTextRequest,
-    WriteFileTextResponse,
+    ReadFileTextResponse, ReloadSettingsRequest, ReloadSettingsResponse, ScanStatus,
+    SetSettingRequest, SetSettingResponse, WriteFileTextRequest, WriteFileTextResponse,
 };
 use crate::error::CubicalError;
 use crate::events::{spawn_scan_dispatcher, spawn_watcher_dispatcher, AppHandle};
@@ -721,6 +721,23 @@ pub async fn get_canonical_ast(
         .map_err(|e| CubicalError::Io(format!("parse task join error: {e}")))?;
 
     Ok(GetCanonicalAstResponse { document })
+}
+
+/// Re-read `.cubical/config.toml` into the in-memory map (the file is the
+/// source of truth) and return the resolved settings. For picking up edits
+/// made to the file outside Cubical.
+pub async fn reload_settings(
+    state: &AppState,
+    req: ReloadSettingsRequest,
+) -> Result<ReloadSettingsResponse, CubicalError> {
+    let guard = state.vaults().read().await;
+    let open = guard
+        .get(&req.vault_id)
+        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
+    let fresh = cubical_core::vault::settings::load(open.vault.root())
+        .map_err(|e| CubicalError::InvalidRequest(format!("reload settings: {e}")))?;
+    *open.settings.write().await = fresh.clone();
+    Ok(ReloadSettingsResponse { settings: fresh })
 }
 
 /// Cancel any in-flight scan and remove the vault from session state.
@@ -1749,5 +1766,40 @@ mod tests {
             !on_disk.contains("right_sidebar"),
             "workspace state stays in the DB"
         );
+    }
+
+    #[tokio::test]
+    async fn reload_settings_picks_up_an_external_file_edit() {
+        let (dir, _vault, state) = fresh_state_with_vault("v1").await;
+        let root = dir.path().to_path_buf();
+
+        // Write the file directly (as an external editor would).
+        let mut m = cubical_core::vault::settings::SettingsMap::new();
+        m.insert("appearance.theme_mode".into(), serde_json::json!("light"));
+        cubical_core::vault::settings::save(&root, &m).unwrap();
+
+        let resp = reload_settings(
+            &state,
+            ReloadSettingsRequest {
+                vault_id: "v1".into(),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            resp.settings.get("appearance.theme_mode"),
+            Some(&serde_json::json!("light"))
+        );
+        // And the in-memory map now serves it.
+        let got = get_setting(
+            &state,
+            GetSettingRequest {
+                vault_id: "v1".into(),
+                key: "appearance.theme_mode".into(),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(got.value, Some(serde_json::json!("light")));
     }
 }

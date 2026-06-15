@@ -43,12 +43,13 @@ use api::types::{
     GetVaultInfoResponse, LinkAutocompleteRequest, LinkAutocompleteResponse, ListFilesRequest,
     ListFilesResponse, ListRecentRenameOpsRequest, ListRecentRenameOpsResponse, ListTagsRequest,
     ListTagsResponse, OpenVaultRequest, OpenVaultResponse, QueryTagPageRequest,
-    QueryTagPageResponse, ReadFileTextRequest, ReadFileTextResponse, RenameBlockIdRequest,
-    RenameBlockIdResponse, RenameFileRequest, RenameFileResponse, RenameTagRequest,
-    RenameTagResponse, ResolveLinkRequest, ResolveLinkResponse, SearchHealthDto,
-    SearchIndexStatusDto, SearchRequest, SearchResponse, SearchVaultRequest, SetSettingRequest,
-    SetSettingResponse, TagAutocompleteRequest, TagAutocompleteResponse, UndoRenameRequest,
-    UndoRenameResponse, WriteFileTextRequest, WriteFileTextResponse,
+    QueryTagPageResponse, ReadFileTextRequest, ReadFileTextResponse, ReloadSettingsRequest,
+    ReloadSettingsResponse, RenameBlockIdRequest, RenameBlockIdResponse, RenameFileRequest,
+    RenameFileResponse, RenameTagRequest, RenameTagResponse, ResolveLinkRequest,
+    ResolveLinkResponse, SearchHealthDto, SearchIndexStatusDto, SearchRequest, SearchResponse,
+    SearchVaultRequest, SetSettingRequest, SetSettingResponse, TagAutocompleteRequest,
+    TagAutocompleteResponse, UndoRenameRequest, UndoRenameResponse, WriteFileTextRequest,
+    WriteFileTextResponse,
 };
 use error::CubicalError;
 use state::AppState;
@@ -115,6 +116,7 @@ pub fn run() {
             search_rebuild_index,
             search_get_health,
             dataview_query,
+            reload_settings,
             close_vault,
         ])
         .run(tauri::generate_context!())
@@ -457,6 +459,15 @@ async fn dataview_query(
     req: DataviewQueryRequest,
 ) -> Result<DataviewResult, CubicalError> {
     commands::dataview::dataview_query(state.inner(), req).await
+}
+
+/// Tauri shim — see [`commands::vault::reload_settings`].
+#[tauri::command]
+async fn reload_settings(
+    state: tauri::State<'_, AppState>,
+    req: ReloadSettingsRequest,
+) -> Result<ReloadSettingsResponse, CubicalError> {
+    commands::vault::reload_settings(state.inner(), req).await
 }
 
 /// Tauri shim — see [`commands::vault::close_vault`].

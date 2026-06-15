@@ -822,6 +822,21 @@ pub struct SearchVaultRequest {
     pub vault_id: String,
 }
 
+// -- reload_settings -------------------------------------------------------
+
+/// Request payload for `reload_settings`.
+#[derive(Debug, serde::Deserialize)]
+pub struct ReloadSettingsRequest {
+    pub vault_id: String,
+}
+
+/// Response payload for `reload_settings`.
+#[derive(Debug, serde::Serialize)]
+pub struct ReloadSettingsResponse {
+    /// All durable settings after re-reading the file: dotted key → value.
+    pub settings: std::collections::BTreeMap<String, serde_json::Value>,
+}
+
 // -- dataview (L4-D) ------------------------------------------------------
 //
 // Dataview-style query IPC. The query AST/parser/executor live in
