@@ -1,20 +1,21 @@
-# Core Plugins toggle + portable config file (design)
+# Core Plugins toggle + TOML settings file (design)
 
 **Date:** 2026-06-15
 **Status:** approved (brainstorm), pending implementation plan
 **Scope:** two phases, both in this build —
-**Phase 1:** portable vault config file (`.cubical/config.toml`) synced
-with the libSQL `config` table.
-**Phase 2:** the Dataview Core Plugin on/off toggle, the config file's
+**Phase 1:** move per-vault settings out of the libSQL `config` table into
+a single TOML file, `.cubical/config.toml`, which becomes the source of
+truth.
+**Phase 2:** the Dataview Core Plugin on/off toggle, the settings file's
 first feature consumer.
 
 ---
 
 ## 1. Goal
 
-1. **Settings travel with the vault.** A shareable/exportable
-   `.cubical/config.toml` mirrors the per-vault settings so a copied vault
-   carries what the user had configured (incl. which core plugins are on).
+1. **Settings live in a plain, portable TOML file.** `.cubical/config.toml`
+   is the single source of truth for per-vault settings — human-readable,
+   editable, and it travels with the vault.
 2. **Toggle Dataview.** From **Settings → Plugins → Core Plugins**, turn
    the L4-D Dataview feature (live ```query blocks) on or off. When off,
    ```query blocks render as plain raw markdown.
@@ -26,25 +27,20 @@ touches L6.
 
 ## 2. Decisions (from brainstorm)
 
-- **Config file:** `.cubical/config.toml`, **TOML**. Matches the location
-  already penciled in `vault.md` and the single-hidden-dir norm
-  (`.obsidian/`, `.vscode/`).
-- **Source-of-truth model:** the **file is the durable record; the DB
-  `config` table is a fast cache** the app reads from at runtime.
-- **Sync (no file-watching):**
-  - **DB → file:** write-through on every `set_setting`.
-  - **File → DB:** only on **vault open** and on an explicit **"Reload
-    settings from file"** action. The DB never reacts to the file on its
-    own — no watcher, no echo-suppression, no live-conflict handling.
-  - **Open precedence:** if the file exists, it wins (its contents load
-    into the DB). A stale DB never clobbers the file, because DB → file
-    happens only on a UI change.
-  - **Lazy creation:** opening a vault never writes anything. File missing
-    + DB empty ⇒ defaults, write nothing. File missing + DB has rows ⇒
-    write the file from the DB on open. Only a real `set_setting` first
-    creates the file.
-- **Conflicts:** last-action-wins; no 3-way merge (settings are
-  low-stakes).
+- **Single store, no redundancy.** `.cubical/config.toml` (TOML) is the
+  sole source of truth. The DB `config` table is **dropped** for settings.
+  Accepted trade: deleting `.cubical/` resets settings to defaults —
+  recoverable from backup/trash, and cheap to re-set by hand.
+- **Location:** inside `.cubical/` (single hidden dir, clean vault root).
+- **Access:** the file is parsed into an in-memory map on vault open;
+  `get_setting` reads the map; `set_setting` updates the map and rewrites
+  the file with an **atomic write** (temp + fsync + rename).
+- **Lazy creation:** opening a vault never writes anything. The file is
+  created only on the first `set_setting`. Until it exists, settings
+  resolve to defaults.
+- **External edits:** picked up at next vault open (the file is re-read
+  then). No file-watching. An optional **"Reload settings from file"**
+  action can re-read mid-session, but it is not core.
 - **Toggle:** extensible data-driven Core Plugins list, ships Dataview
   only; per-vault; **default enabled**; **live** gating via the
   runner-null path.
@@ -52,65 +48,65 @@ touches L6.
 ## 3. Architecture amendment (required, Phase 1)
 
 Amend `docs/architecture/vault.md` §3. Today it says *everything in
-`.cubical/` is rebuildable from the markdown*. That was never quite true
-(config isn't derivable from markdown) and this feature makes the gap
-load-bearing. New framing:
+`.cubical/` is rebuildable from the markdown*. `config.toml` is **not**
+derivable from markdown, so the rule needs a carve-out:
 
 > `.cubical/` holds vault-owned state in two categories:
-> - **Durable config** — `config.toml`. The portable record of the
->   user's settings; **not** rebuildable from markdown. Travels with the
->   vault when shared.
+> - **Durable config** — `config.toml`. The source of truth for the
+>   user's settings; **not** rebuildable from markdown. Deleting it resets
+>   settings to defaults (recoverable from a backup/trash copy).
 > - **Rebuildable cache** — `index.db`, `search/`, `recovery/`, etc.
 >   Derived from the markdown; safe to delete and regenerate.
 
-This is a deliberate change to a locked rule and is the gate for Phase 1.
+A deliberate change to a locked rule; it is the gate for Phase 1.
 
-## 4. Phase 1 — portable config file ↔ DB sync
+## 4. Phase 1 — settings move to `.cubical/config.toml`
 
-### 4.1 Serialization
-The `config` table is `key → JSON value`. Setting keys are dotted
-(`plugins.dataview_enabled`, `appearance.theme_mode`), and values today
-are scalars (bool / string-enum / number). Map to TOML via dotted keys →
-nested tables:
+### 4.1 Format
+Setting keys are dotted (`plugins.dataview_enabled`,
+`appearance.theme_mode`); values are scalars (bool / string-enum /
+number). Dotted keys map to TOML nested tables:
 ```toml
 [appearance]
 theme_mode = "dark"
 
+[editor]
+raw_source_default = false
+
 [plugins]
 dataview_enabled = true
 ```
-A small Rust module owns `config_table ⇄ toml` conversion, isolated and
-unit-tested (lives in a no-Tauri crate so it tests without the app
-harness). Non-scalar/unknown values round-trip through their JSON string
-if they ever appear (forward-safety); scalars use native TOML types.
+A small Rust module owns `toml ⇄ in-memory settings map`, isolated and
+unit-tested in a no-Tauri crate. Scalars use native TOML types; an
+unknown/non-scalar value (forward-safety) round-trips through its JSON
+string.
 
-### 4.2 Open-time hydration (in `open_vault`)
-- `config.toml` present ⇒ parse it, replace the `config` table contents
-  with it (file wins).
-- absent + table non-empty ⇒ write `config.toml` from the table.
-- absent + table empty ⇒ do nothing (lazy).
-- Parse error ⇒ leave the DB as-is, surface a non-fatal warning; never
-  block vault open.
+### 4.2 Store + access (replaces the DB `config` table)
+- **Open:** if `config.toml` exists, parse it into the per-vault
+  in-memory settings map; a parse error leaves the map empty and surfaces
+  a non-fatal warning (never blocks open). Absent ⇒ empty map (defaults).
+- **`get_setting`:** read from the in-memory map; absent key ⇒ the caller
+  applies its default (frontend already treats absent as default).
+- **`set_setting`:** update the map, then atomically rewrite the whole
+  file from the map. First write creates the file (lazy).
+- **(optional) `reload_settings { vault_id }`:** re-parse the file into
+  the map and return the resolved settings, for picking up external edits
+  mid-session.
 
-### 4.3 Write-through (in `set_setting`)
-After writing the `config` table, (re)write `config.toml` from the full
-table. First write creates the file. This is the only path that creates
-or mutates the file outside open-time.
+### 4.3 Drop the DB config table
+- **Verify first:** confirm nothing other than user settings reads/writes
+  the `config` table (it is the L0 settings KV store; the plan checks for
+  any other consumer before removal).
+- Remove the table from the schema / migrations once settings no longer
+  use it. Pre-1.0 dev vaults start fresh; no data migration shipped.
 
-### 4.4 Reload command (new IPC)
-`reload_settings { vault_id } -> { settings: [...] }` — re-reads
-`config.toml`, replaces the `config` table, returns the resolved
-settings so the UI can refresh its signals. Wired to a **"Reload settings
-from file"** button in the settings modal (vault-level action).
-
-### 4.5 Tests
-- TOML ⇄ table conversion: scalars, dotted-key nesting, round-trip,
-  unknown-value passthrough, malformed-TOML error (pure, unit-tested).
-- `open_vault` hydration: the four cases in §4.2 (integration, over a
-  temp vault).
-- `set_setting` write-through: file created on first set; reflects the
-  table after (cubical-app test).
-- `reload_settings`: external edit to the file is picked up; returns it.
+### 4.4 Tests
+- TOML ⇄ map conversion: scalars, dotted-key nesting, round-trip,
+  unknown-value passthrough, malformed-TOML error (pure unit tests).
+- `open_vault`: file present hydrates the map; absent ⇒ defaults; malformed
+  ⇒ empty map + warning, open still succeeds (integration, temp vault).
+- `set_setting`: file created on first set (lazy); atomic rewrite reflects
+  the map; survives a re-open (cubical-app test).
 
 ## 5. Phase 2 — Dataview Core Plugin toggle
 
@@ -140,14 +136,12 @@ export function corePluginEnabled(
 - Render a **"Core Plugins"** heading, mapping `CORE_PLUGINS` to toggle
   rows (name, description, switch — reusing the `raw_source_default`
   toggle pattern).
-- The **"Reload settings from file"** button (§4.4) also lives in the
-  settings modal (vault-level placement).
 
 ### 5.4 State + persistence (`App.tsx`)
 - `Record<string, boolean>` enablement signal, hydrated per-vault on open
-  (one `getSetting` per registry entry), refreshed after `reload_settings`.
-- Toggle handler updates the signal + `setSetting(...)` (which now
-  write-throughs to the file via Phase 1).
+  (one `getSetting` per registry entry).
+- Toggle handler updates the signal + `setSetting(...)` (now file-backed
+  via Phase 1).
 
 ### 5.5 Editor gating
 - `<Editor>`'s `dataviewRunner` prop becomes
@@ -168,7 +162,7 @@ export function corePluginEnabled(
 toggle in modal
   → enablement signal flips (live)
   → setSetting("plugins.dataview_enabled", v)
-       → config table write + config.toml write-through   (Phase 1)
+       → in-memory map update + atomic config.toml rewrite   (Phase 1)
   → Editor dataviewRunner prop flips (runner | null)
   → dataviewBlockField rebuilds → widgets or raw text
 ```
@@ -176,5 +170,6 @@ toggle in modal
 ## 7. Out of scope
 
 Community/WASM plugins, plugin permissions UI, enable-all/disable-all,
-live file-watching of `config.toml`, 3-way merge for config, and
-migrating non-settings state into the file.
+file-watching, a DB cache / redundant copy of settings, automatic
+regeneration of a deleted settings file, and migrating existing DB-stored
+settings (pre-1.0 vaults start fresh).
