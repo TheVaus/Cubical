@@ -83,31 +83,52 @@ export function createDataviewRunner(
     for (const fn of subscribers) fn();
   };
 
+  const errorResult = (err: unknown): DataviewResult => ({
+    kind: "error",
+    message: err instanceof Error ? err.message : String(err),
+  });
+
+  // Store a settled result. `notifyAlways` is true for a first fetch (the
+  // widget must remount to clear "Loading…"); for an invalidate refetch
+  // it's false, so only a *changed* result bumps the version + notifies —
+  // an unchanged result leaves the rendered block untouched (no flicker).
+  const settle = (source: string, result: DataviewResult, notifyAlways: boolean) => {
+    const prev = cache.get(source);
+    const changed = prev === undefined || JSON.stringify(prev) !== JSON.stringify(result);
+    cache.set(source, result);
+    if (notifyAlways || changed) {
+      cacheVersion++;
+      notify();
+    }
+  };
+
+  const run = (source: string, notifyAlways: boolean) => {
+    inFlight.add(source);
+    ipc({ vault_id: vaultId, source })
+      .then((result) => settle(source, result, notifyAlways))
+      .catch((err: unknown) => settle(source, errorResult(err), notifyAlways))
+      .finally(() => {
+        inFlight.delete(source);
+      });
+  };
+
   return {
     get(source) {
       return cache.get(source);
     },
     fetch(source) {
       if (cache.has(source) || inFlight.has(source)) return;
-      inFlight.add(source);
-      ipc({ vault_id: vaultId, source })
-        .then((result) => {
-          cache.set(source, result);
-        })
-        .catch((err: unknown) => {
-          const message = err instanceof Error ? err.message : String(err);
-          cache.set(source, { kind: "error", message });
-        })
-        .finally(() => {
-          inFlight.delete(source);
-          cacheVersion++;
-          notify();
-        });
+      run(source, true);
     },
     invalidate() {
-      cache.clear();
-      cacheVersion++;
-      notify();
+      // Stale-while-revalidate: keep showing the last result and re-fetch
+      // every known source in place. Only a changed result triggers a
+      // remount, so an unrelated vault change doesn't flash every ```query
+      // block back to "Loading…" (the L4 layer-close smoke flicker).
+      for (const source of [...cache.keys()]) {
+        if (inFlight.has(source)) continue;
+        run(source, false);
+      }
     },
     onUpdate(handler) {
       subscribers.add(handler);
@@ -164,9 +185,7 @@ class DataviewWidget extends WidgetType {
       frame.appendChild(loading);
       return frame;
     }
-    frame.appendChild(
-      renderDataview(result, { onOpen: (path) => this.runner.open(path) }),
-    );
+    frame.appendChild(renderDataview(result));
     return frame;
   }
 

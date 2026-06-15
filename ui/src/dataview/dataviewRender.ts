@@ -3,29 +3,22 @@
  *
  * The CodeMirror block widget is a thin host; this module builds the
  * fragment, mirroring `editor/embedRender.ts`. No markdown parsing —
- * cells render as plain text. Note links call `ctx.onOpen(path)` so the
- * renderer has no editor dependency and stays jsdom-testable in isolation.
+ * cells render as plain text. Note links carry their target in a
+ * `data-path` attribute; navigation is the editor's job — a capture-phase
+ * `mousedown` interceptor (`dataviewMousedown.ts`) reads `data-path` and
+ * routes it, the same WKWebView-robust pattern wiki-links and tags use.
+ * A bubble-phase `click` handler here would fire too late in WKWebView
+ * (the caret moves on `mousedown` first). Keeping navigation out of the
+ * renderer also leaves it editor-free and jsdom-testable in isolation.
  */
 import type { DataviewResult } from "../api/ipc";
 
-export interface RenderDataviewCtx {
-  /** Invoked when a note link is clicked. */
-  onOpen: (path: string) => void;
-}
-
-function noteLink(
-  path: string,
-  title: string,
-  ctx: RenderDataviewCtx,
-): HTMLAnchorElement {
+function noteLink(path: string, title: string): HTMLAnchorElement {
   const a = document.createElement("a");
   a.textContent = title;
   a.className = "cq-dataview-link";
   a.href = "#";
-  a.addEventListener("click", (e) => {
-    e.preventDefault();
-    ctx.onOpen(path);
-  });
+  a.setAttribute("data-path", path);
   return a;
 }
 
@@ -34,10 +27,7 @@ function noteLink(
  * widget host) appends it into the editor; in tests it is appended into
  * a plain element.
  */
-export function renderDataview(
-  result: DataviewResult,
-  ctx: RenderDataviewCtx,
-): DocumentFragment {
+export function renderDataview(result: DataviewResult): DocumentFragment {
   const frag = document.createDocumentFragment();
 
   if (result.kind === "error") {
@@ -61,7 +51,7 @@ export function renderDataview(
     ul.className = "cq-dataview-list";
     for (const n of result.notes) {
       const li = document.createElement("li");
-      li.appendChild(noteLink(n.path, n.title, ctx));
+      li.appendChild(noteLink(n.path, n.title));
       ul.appendChild(li);
     }
     frag.appendChild(ul);
@@ -86,7 +76,7 @@ export function renderDataview(
   for (const row of result.rows) {
     const tr = document.createElement("tr");
     const fileTd = document.createElement("td");
-    fileTd.appendChild(noteLink(row.note.path, row.note.title, ctx));
+    fileTd.appendChild(noteLink(row.note.path, row.note.title));
     tr.appendChild(fileTd);
     for (const cell of row.cells) {
       const td = document.createElement("td");

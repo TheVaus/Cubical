@@ -120,14 +120,55 @@ describe("createDataviewRunner", () => {
     if (r?.kind === "error") expect(r.message).toBe("boom");
   });
 
-  it("clears the cache on invalidate", async () => {
+  it("keeps the prior result during an invalidate refetch (no Loading flash)", async () => {
     const ipc = vi.fn().mockResolvedValue(count3);
     const runner = createDataviewRunner("v1", () => {}, ipc);
     runner.fetch("COUNT");
     await flush();
     expect(runner.get("COUNT")).toEqual(count3);
+
+    ipc.mockResolvedValue({ kind: "count", count: 5 });
     runner.invalidate();
-    expect(runner.get("COUNT")).toBeUndefined();
+    // Stale value is still shown synchronously — never flashes to undefined.
+    expect(runner.get("COUNT")).toEqual(count3);
+    await flush();
+    // New value swapped in once the background refetch settles.
+    expect(runner.get("COUNT")).toEqual({ kind: "count", count: 5 });
+  });
+
+  it("does not bump version or notify when a refetched result is unchanged", async () => {
+    const ipc = vi.fn().mockResolvedValue(count3);
+    const runner = createDataviewRunner("v1", () => {}, ipc);
+    runner.fetch("COUNT");
+    await flush();
+    const onUpdate = vi.fn();
+    runner.onUpdate(onUpdate);
+    const v = runner.version();
+
+    runner.invalidate();
+    await flush();
+
+    expect(runner.get("COUNT")).toEqual(count3);
+    expect(onUpdate).not.toHaveBeenCalled();
+    expect(runner.version()).toBe(v);
+  });
+
+  it("bumps version and notifies when a refetched result changes", async () => {
+    const ipc = vi.fn().mockResolvedValue(count3);
+    const runner = createDataviewRunner("v1", () => {}, ipc);
+    runner.fetch("COUNT");
+    await flush();
+    const onUpdate = vi.fn();
+    runner.onUpdate(onUpdate);
+    const v = runner.version();
+
+    ipc.mockResolvedValue({ kind: "count", count: 9 });
+    runner.invalidate();
+    await flush();
+
+    expect(runner.get("COUNT")).toEqual({ kind: "count", count: 9 });
+    expect(onUpdate).toHaveBeenCalled();
+    expect(runner.version()).toBeGreaterThan(v);
   });
 
   it("routes open() to the onOpen callback", () => {

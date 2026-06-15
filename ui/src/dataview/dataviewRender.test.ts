@@ -1,33 +1,30 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { renderDataview } from "./dataviewRender";
 import type { DataviewResult } from "../api/ipc";
 
-function mount(result: DataviewResult, onOpen = vi.fn()) {
+function mount(result: DataviewResult) {
   const host = document.createElement("div");
-  host.appendChild(renderDataview(result, { onOpen }));
+  host.appendChild(renderDataview(result));
   return host;
 }
 
 describe("renderDataview", () => {
-  it("renders a list of note links and fires onOpen on click", () => {
-    const onOpen = vi.fn();
-    const host = mount(
-      {
-        kind: "list",
-        notes: [
-          { path: "a.md", title: "a" },
-          { path: "b.md", title: "b" },
-        ],
-      },
-      onOpen,
-    );
-    const links = host.querySelectorAll("a");
+  it("renders a list of note links carrying their target path", () => {
+    const host = mount({
+      kind: "list",
+      notes: [
+        { path: "a.md", title: "a" },
+        { path: "b.md", title: "b" },
+      ],
+    });
+    const links = [...host.querySelectorAll("a.cq-dataview-link")];
     expect(links.length).toBe(2);
-    const first = links[0]!;
-    expect(first.textContent).toBe("a");
-    first.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    expect(onOpen).toHaveBeenCalledWith("a.md");
+    expect(links[0]!.textContent).toBe("a");
+    // Navigation is the editor's job (capture-phase interceptor); the
+    // renderer only records the target on the element.
+    expect(links[0]!.getAttribute("data-path")).toBe("a.md");
+    expect(links[1]!.getAttribute("data-path")).toBe("b.md");
   });
 
   it("renders a table with an implicit File column + cells", () => {
@@ -42,7 +39,9 @@ describe("renderDataview", () => {
     expect(headers).toEqual(["File", "status", "due"]);
     const cells = [...host.querySelectorAll("tbody td")].map((c) => c.textContent);
     expect(cells).toEqual(["a", "in-progress", ""]);
-    expect(host.querySelector("tbody td a")?.textContent).toBe("a");
+    const link = host.querySelector("tbody td a.cq-dataview-link");
+    expect(link?.textContent).toBe("a");
+    expect(link?.getAttribute("data-path")).toBe("a.md");
   });
 
   it("renders a count", () => {

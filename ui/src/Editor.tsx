@@ -34,6 +34,11 @@ import {
 } from "./editor/embed";
 import type { DataviewRunner } from "./editor/dataview";
 import { dataviewRunnerFacet, dataviewRunnerUpdated } from "./editor/dataview";
+import {
+  closestDataviewFrame,
+  closestDataviewLink,
+  maybeInterceptDataviewMousedown,
+} from "./editor/dataviewMousedown";
 import { livePreviewBundle } from "./editor/livePreview";
 import { verticalDocLineMotion } from "./editor/embedNav";
 import { autocompletion } from "@codemirror/autocomplete";
@@ -536,6 +541,45 @@ const Editor: Component<EditorProps> = (props) => {
       });
     };
     view.contentDOM.addEventListener("mousedown", onContentTagMousedown, true);
+
+    // Dataview ```query link interceptor — same capture-phase pattern as
+    // wiki-links / tags. The rendered query widget is a Decoration.replace,
+    // so its note links have no backing Lezer node; the target rides in the
+    // link's `data-path`, read straight off the element. Runs after the
+    // wiki-link / tag interceptors, which no-op on a `.cq-dataview-link`
+    // (different span class) and so leave the event for this handler.
+    const onContentDataviewMousedown = (event: MouseEvent) => {
+      if (!view) return;
+      const v = view;
+      maybeInterceptDataviewMousedown(event, {
+        findDataviewLink: closestDataviewLink,
+        findDataviewFrame: closestDataviewFrame,
+        onLinkHit: (link) => {
+          const path = link.getAttribute("data-path");
+          if (path === null || path === "") return false;
+          const runner = props.dataviewRunner;
+          if (!runner) return false;
+          runner.open(path);
+          return true;
+        },
+        onFrameHit: (frame) => {
+          // No link under the cursor (e.g. a COUNT result, or a plain
+          // table cell): move the caret to the block's start so cursor-
+          // line suppression swaps the widget for its raw ```query source,
+          // ready to edit. posAtDOM(frame) is the widget's document
+          // position — the replaced block's start.
+          const pos = v.posAtDOM(frame);
+          if (pos < 0) return false;
+          v.dispatch({ selection: { anchor: pos } });
+          return true;
+        },
+      });
+    };
+    view.contentDOM.addEventListener(
+      "mousedown",
+      onContentDataviewMousedown,
+      true,
+    );
 
     subscribeResolver(props.wikilinkResolver, view);
     subscribeEmbedResolver(props.embedResolver, view);
