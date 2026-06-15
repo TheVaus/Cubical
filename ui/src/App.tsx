@@ -74,6 +74,11 @@ import SearchPanel from "./sidebar/SearchPanel";
 import TagPage from "./TagPage";
 import OmniBar from "./omnibar/OmniBar";
 import { type OmniItem, type RankedItem } from "./omnibar/ranker";
+import {
+  CORE_PLUGINS,
+  corePluginEnabled,
+  type BooleanSettingKey,
+} from "./settings/corePlugins";
 
 /**
  * L2 Session A surface.
@@ -259,8 +264,9 @@ const App: Component = () => {
   const toggleLeftSidebar = () => setLeftCollapsed((v) => !v);
   // UI rework: Settings modal (theme + editor/vault prefs live here now).
   const [settingsOpen, setSettingsOpen] = createSignal(false);
-  type SettingsTab = "appearance" | "editor" | "vault" | "shortcuts";
+  type SettingsTab = "appearance" | "editor" | "plugins" | "vault" | "shortcuts";
   const [settingsTab, setSettingsTab] = createSignal<SettingsTab>("appearance");
+  const [corePlugins, setCorePlugins] = createSignal<Record<string, boolean>>({});
   const [rightSidebarRefreshTick, setRightSidebarRefreshTick] = createSignal(0);
   let rightSidebarRefreshTimer: ReturnType<typeof setTimeout> | undefined;
   const RIGHT_SIDEBAR_REFRESH_DEBOUNCE_MS = 200;
@@ -694,6 +700,20 @@ const App: Component = () => {
         console.error("persisting raw_source_default failed", e);
       });
     }
+  };
+
+  /** Set a core plugin's on/off state and persist to vault settings. */
+  const setCorePlugin = (
+    id: string,
+    settingKey: BooleanSettingKey,
+    value: boolean,
+  ) => {
+    const v = vaultId();
+    if (!v) return;
+    setCorePlugins((prev) => ({ ...prev, [id]: value }));
+    setSetting(v, settingKey, value).catch((e) => {
+      console.error(`saving ${settingKey} failed`, e);
+    });
   };
 
   /**
@@ -1147,6 +1167,21 @@ const App: Component = () => {
         console.error("loading raw_source_default failed", e);
       }
 
+      // Load each core plugin's enablement (absent ⇒ default).
+      {
+        const enab: Record<string, boolean> = {};
+        for (const p of CORE_PLUGINS) {
+          try {
+            const stored = await getSetting(resp.vault_id, p.settingKey);
+            enab[p.id] = stored ?? p.defaultEnabled;
+          } catch (e) {
+            console.error(`loading ${p.settingKey} failed`, e);
+            enab[p.id] = p.defaultEnabled;
+          }
+        }
+        setCorePlugins(enab);
+      }
+
       // Seed the right-sidebar collapsed state from this vault's
       // settings. Absent key → expanded (false). The shell is the
       // primary surface for backlinks/mentions; default-open is the
@@ -1584,7 +1619,14 @@ const App: Component = () => {
                   rawSource={effectiveRaw()}
                   wikilinkResolver={wikilinkResolver()}
                   embedResolver={embedResolver()}
-                  dataviewRunner={dataviewRunner()}
+                  dataviewRunner={
+                    corePluginEnabled(
+                      corePlugins(),
+                      CORE_PLUGINS.find((p) => p.id === "dataview")!,
+                    )
+                      ? dataviewRunner()
+                      : null
+                  }
                   openNotePath={selectedPath()}
                   autocompleteProvider={autocompleteProvider()}
                   onNavigateWikilink={(path, anchor) =>
@@ -1706,6 +1748,7 @@ const App: Component = () => {
                   [
                     { id: "appearance", label: "🎨 Appearance" },
                     { id: "editor", label: "📝 Editor" },
+                    { id: "plugins", label: "🧩 Plugins" },
                     { id: "vault", label: "🗄 Vault" },
                     { id: "shortcuts", label: "⌨ Shortcuts" },
                   ] as { id: SettingsTab; label: string }[]
@@ -1783,6 +1826,40 @@ const App: Component = () => {
                     </button>
                   </div>
                 </div>
+              </Show>
+              <Show when={settingsTab() === "plugins"}>
+                <h2 class="modal__h2">Core Plugins</h2>
+                <For each={CORE_PLUGINS}>
+                  {(p) => {
+                    const on = () => corePlugins()[p.id] ?? p.defaultEnabled;
+                    return (
+                      <div class="set-row">
+                        <div>
+                          <div class="set-row__lab">{p.name}</div>
+                          <div class="set-row__desc">{p.description}</div>
+                        </div>
+                        <div class="seg-control">
+                          <button
+                            type="button"
+                            class="seg-control__btn"
+                            classList={{ "seg-control__btn--active": !on() }}
+                            onClick={() => setCorePlugin(p.id, p.settingKey, false)}
+                          >
+                            Off
+                          </button>
+                          <button
+                            type="button"
+                            class="seg-control__btn"
+                            classList={{ "seg-control__btn--active": on() }}
+                            onClick={() => setCorePlugin(p.id, p.settingKey, true)}
+                          >
+                            On
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  }}
+                </For>
               </Show>
               <Show when={settingsTab() === "vault"}>
                 <h2 class="modal__h2">Vault</h2>
