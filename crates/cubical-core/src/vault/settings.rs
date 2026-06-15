@@ -20,6 +20,11 @@ pub type SettingsMap = BTreeMap<String, Json>;
 pub fn to_toml(map: &SettingsMap) -> Result<String, VaultError> {
     let mut root = toml::value::Table::new();
     for (dotted, json) in map {
+        if json.is_null() {
+            // TOML has no null type; a null setting is treated as unset
+            // (absent ⇒ caller default) rather than corrupting to the string "null".
+            continue;
+        }
         insert_dotted(&mut root, dotted, json_to_toml(json));
     }
     toml::to_string_pretty(&toml::Value::Table(root))
@@ -205,5 +210,17 @@ mod tests {
         assert!(out.contains("theme_mode = \"dark\""));
         assert!(out.contains("[plugins]"));
         assert!(out.contains("dataview_enabled = true"));
+    }
+
+    #[test]
+    fn to_toml_omits_null_values() {
+        let mut m = SettingsMap::new();
+        m.insert("editor.raw_source_default".into(), json!(true));
+        m.insert("some.unset".into(), Json::Null);
+        let out = to_toml(&m).unwrap();
+        assert!(!out.contains("unset"));
+        let back = from_toml(&out).unwrap();
+        assert!(!back.contains_key("some.unset"));
+        assert_eq!(back.get("editor.raw_source_default"), Some(&json!(true)));
     }
 }

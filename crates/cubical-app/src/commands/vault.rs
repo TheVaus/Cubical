@@ -9,6 +9,8 @@
 //!
 //! See `docs/layer-0-spec.md` §8.
 
+use std::sync::Arc;
+
 use cubical_core::{atomic_write, sha256_bytes_hex, start_watcher, Vault, WatchEvent};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -619,15 +621,18 @@ pub async fn get_setting(
     Ok(GetSettingResponse { value })
 }
 
-/// Write one vault-local setting into the `config` table.
+/// Write one vault-local setting.
 ///
-/// Per `docs/layer-2-spec.md` §3.3: upserts `config(key, value)`,
-/// always JSON-encoding `req.value` first so the read side can decode
-/// it back. An existing key is overwritten.
+/// Routing: durable (non-`ui.*`) keys are written to
+/// `.cubical/config.toml` via an atomic fsync + rename in a
+/// `spawn_blocking` task (the file I/O is synchronous). `ui.*` workspace
+/// keys upsert the DB `config` table — those are session-local layout
+/// state that must not be committed to the portable vault file.
 ///
 /// Returns:
 /// - [`CubicalError::VaultNotOpen`] if `vault_id` is unknown.
-/// - [`CubicalError::Db`] if the upsert fails.
+/// - [`CubicalError::InvalidRequest`] if the `config.toml` save fails.
+/// - [`CubicalError::Db`] if the DB upsert fails.
 pub async fn set_setting(
     state: &AppState,
     req: SetSettingRequest,
@@ -638,10 +643,25 @@ pub async fn set_setting(
         .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
 
     if !cubical_core::vault::settings::is_workspace_key(&req.key) {
-        let mut map = open.settings.write().await;
-        map.insert(req.key.clone(), req.value.clone());
-        cubical_core::vault::settings::save(open.vault.root(), &map)
+        // Clone the handles we need, then drop the vaults read guard
+        // before acquiring the settings write lock and before running
+        // the blocking file I/O — avoids holding the read guard across
+        // either a write lock or a blocking syscall.
+        let settings = Arc::clone(&open.settings);
+        let root = open.vault.root().to_path_buf();
+        drop(guard);
+
+        let snapshot = {
+            let mut map = settings.write().await;
+            map.insert(req.key.clone(), req.value.clone());
+            map.clone()
+        }; // settings write lock released here
+
+        tokio::task::spawn_blocking(move || cubical_core::vault::settings::save(&root, &snapshot))
+            .await
+            .map_err(|e| CubicalError::InvalidRequest(format!("settings save task panicked: {e}")))?
             .map_err(|e| CubicalError::InvalidRequest(format!("save settings: {e}")))?;
+
         return Ok(SetSettingResponse {});
     }
     // workspace (`ui.*`) keys fall through to the DB upsert below.
