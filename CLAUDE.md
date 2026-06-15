@@ -66,22 +66,24 @@ Crates without Tauri deps (`cubical-core`, `cubical-ast`, `cubical-index`, `cubi
 
 ## Project state
 
-**Layer 4 — Search.** L4-A/B/C + search-fuzzy all CLOSED and merged to
-`main` (tags `l4a`, `l4a-fix`/`.1`, `l4b`, `l4c`, `l4a-fix.2`).
-**L4-D — Dataview-style libSQL queries: IMPLEMENTED on branch
-`feat/l4d-dataview`** (not yet merged/tagged). New `cubical-query` crate
-(parser → planner → executor; `json_extract`-normalized SQL over the
-`frontmatter`/`tags`/`files` tables), one vault-keyed `dataview_query`
-IPC, and a live ```` ```query ```` editor block widget (pure renderer +
-runner cache). All six gates green; **operator smoke PENDING** (live
-widget needs the Tauri app — see layer-4-spec §9.5). Design/plan:
-`docs/superpowers/specs/2026-06-14-l4-d-dataview-design.md`,
-`docs/superpowers/plans/2026-06-14-l4-d-dataview.md`. Next: operator smoke
-→ merge → tag `l4d`, then the L4 layer-close. Carried to L4 layer-close:
-L4-B's not-formally-smoked items (version-bump rebuild, `open_vault`
-re-open `LockBusy`, big-vault indexing banner) + open chips — search-row
-keyboard nav (`task_bd4e47f4`), per-occurrence snippet cards
-(`task_b5f2f1ef`).
+**Layer 4 — Search.** L4-A/B/C + search-fuzzy + **L4-D** all CLOSED and
+merged to `main` (tags `l4a`, `l4a-fix`/`.1`, `l4b`, `l4c`, `l4a-fix.2`,
+`l4d`). **L4-D — Dataview-style libSQL queries (closed 2026-06-15, tag
+`l4d`):** new `cubical-query` crate (parser → planner → executor;
+`json_extract`-normalized SQL over the `frontmatter`/`tags`/`files`
+tables), one vault-keyed `dataview_query` IPC, and a live ```` ```query ````
+editor block widget (pure renderer + runner cache). Branch reconciled with
+the meanwhile-landed UI rework (clean merge), six gates green. **One
+outstanding residual: the live *visual* operator smoke** — the CM widget's
+on-screen render / link-nav / cursor-reveal needs `cargo tauri dev` (the
+`dataview_query` IPC is Tauri-runtime-only; data path + mount wiring are
+otherwise fully code/test-verified). Recipe in layer-4-spec §9.5. **L4
+layer-close still pending:** carried-forward smoke — L4-B's
+not-formally-smoked items (SCHEMA_VERSION-1 wipe+rebuild on open,
+`open_vault` re-open `LockBusy`, big-vault indexing banner, ~2-3× index
+disk, L4-A recipes 1–11) + open chips (search-row keyboard nav
+`task_bd4e47f4`, per-occurrence snippet cards `task_b5f2f1ef`); then tag
+`l4` and promote §5 deviations into `docs/architecture/`.
 
 **UI rework — incrementally landed on `main` 2026-06-12** (work continued
 on branch `feat/ui-rework`, now merged). A layered Obsidian-style shell: full-width top/status bars, fixed editor +
@@ -97,10 +99,10 @@ New: `ui/src/styles/layout.css`, `ui/src/sidebar/fileTree.ts` (+test).
 Full handoff: `docs/superpowers/2026-06-12-ui-rework-progress.md`; design
 mockup: `docs/superpowers/mockups/ui-rework.html`.
 
-Tests: **473 vitest + 502 Rust** (`main` is 455 + 468; the L4-D branch
-adds 18 vitest + 34 Rust, incl. end-to-end dataview tests over the real
-scan pipeline). Gates: `cargo test --workspace`, `cargo
+Tests: **473 vitest + 507 Rust** on `main` (L4-D added 18 vitest + the
+`cubical-query` crate's 28 + 6 app tests, incl. end-to-end dataview tests
+over the real scan pipeline). Gates: `cargo test --workspace`, `cargo
 clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all
 --check`, `npx tsc --noEmit`, `npx vitest run`, `npm run build`. Tags: l0
 (05-13) l1 (05-09) l2 (05-22) l3 (06-01) l4a (06-03) l4a-fix/.1 (06-06)
-l4b/l4c/l4a-fix.2 (06-08).
+l4b/l4c/l4a-fix.2 (06-08) l4d (06-15).

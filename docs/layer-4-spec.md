@@ -91,7 +91,7 @@ L4 closes when L4-A + L4-B + L4-C + L4-D are all signed off and the `l4` tag is 
 - [x] **L4-A:** Tantivy backend landed; four IPC commands; scan + watcher fan-out; schema-version stamp; smoke vault built. Closed 2026-06-03 (`l4a` tag). §9.1.
 - [x] **L4-B:** Persistent left-panel search UI; grouped-by-file result list; debounced query input; "still indexing…" banner. Closed 2026-06-08 (`l4b` tag). §9.3.
 - [x] **L4-C:** `Cmd/Ctrl+K` Omni-Bar — fuzzy navigator over **notes + tags** (headings + commands deferred). Closed 2026-06-08 (`l4c` tag). §9.4. Companion: search typo tolerance shipped as `l4a-fix.2` (cross-field backend fuzzy).
-- [x] **L4-D:** Dataview-style libSQL queries; `list` / `table` / `count` blocks. Implemented 2026-06-14 on `feat/l4d-dataview`; six automated gates green, operator smoke pending. §9.5.
+- [x] **L4-D:** Dataview-style libSQL queries; `list` / `table` / `count` blocks. Closed 2026-06-15 (`l4d` tag); six automated gates green; live visual operator smoke is the one outstanding Contract-E residual. §9.5.
 - [ ] L3 carry-over smoke confirmed at every session kickoff.
 - [ ] `cargo test --workspace` green at each session close.
 - [ ] `cargo clippy --workspace --all-targets -- -D warnings` clean at each session close.
@@ -762,7 +762,7 @@ context-awareness; visible `⌘K` hint; preview pane.
 
 **Next:** L4-D (Dataview-style libSQL queries).
 
-### 9.5 Session D — Dataview-style libSQL queries (implemented 2026-06-14, `feat/l4d-dataview`)
+### 9.5 Session D — Dataview-style libSQL queries (closed 2026-06-15, `l4d` tag)
 
 Design: [`docs/superpowers/specs/2026-06-14-l4-d-dataview-design.md`](superpowers/specs/2026-06-14-l4-d-dataview-design.md);
 plan: [`docs/superpowers/plans/2026-06-14-l4-d-dataview.md`](superpowers/plans/2026-06-14-l4-d-dataview.md).
@@ -808,30 +808,42 @@ frontmatter `tags:` list populates the `tags` table so `FROM #tag`
 matches, and that `json_extract` unwraps real-scanned scalars). Frontend:
 +18 vitest (3 IPC shape, 5 renderer, 10 widget — incl. headless
 `buildDecorations` detection against a real markdown tree). Totals:
-**502 Rust + 473 vitest**.
+**507 Rust + 473 vitest** (workspace-measured; the earlier "502" was a
+low arithmetic estimate).
 
-#### Gate results (2026-06-14, automated)
+#### Merge & gate results (2026-06-15)
 
-`cargo test --workspace`, `cargo clippy --workspace --all-targets -D
-warnings`, `cargo fmt --all --check`, `tsc --noEmit`, `vitest run`,
-`vite build` — all green.
+Branch reconciled with `main` (the UI rework had landed meanwhile — clean
+merge; main's only post-fork change was `SearchPanel.tsx`, which L4-D
+never touched, so the editor query widget was unaffected). The branch's
+merge-base already contained the floating-editor shell, so the widget was
+built against it; code-level re-confirmation of the mount chain
+(`App.tsx` → `Editor.tsx` dataview compartment → `livePreview` bundle →
+`dataview_query` invoke handler) passed. Six gates green:
+`cargo test --workspace` (507, 0 failed — one load-induced flake in the
+unrelated `watcher` 500ms-settle timing test, passes 3/3 isolated),
+`cargo clippy --workspace --all-targets -- -D warnings`,
+`cargo fmt --all --check`, `tsc --noEmit`, `vitest run` (473), `vite
+build` — all green. Merged to `main` and tagged `l4d`.
 
-#### Operator smoke — PENDING (Contract E)
+#### Operator visual smoke — outstanding residual (Contract E)
 
 The **data path is fully automated** (end-to-end Rust tests through the
 real scan pipeline + headless `buildDecorations` detection + jsdom
-renderer + runner-cache unit tests). The residual left for operator smoke
-is narrow: the live CodeMirror widget's *visual* render of
-table/list/count, note-link click navigation, cursor reveal of raw
-source, and live re-eval on content change — these need the interactive
-Tauri desktop app (the `dataview_query` IPC exists only in the Tauri
-runtime, so a plain vite dev server / browser preview cannot exercise
-it). Left for the operator before the `l4d` tag.
-Suggested recipes: a vault with notes carrying `status` / `priority` /
-`due_date` frontmatter + a `#project` tag; verify the three block kinds
-render, a bad query shows the ⚠ message, clicking a result navigates,
-cursor-in reveals raw source, and editing a referenced note updates the
-result.
+renderer + runner-cache unit tests), and the mount wiring is
+code-verified. The one residual is the live CodeMirror widget's *visual*
+render of table/list/count, note-link click navigation, cursor reveal of
+raw source, and live re-eval on content change — these need the
+interactive Tauri desktop app (the `dataview_query` IPC exists only in
+the Tauri runtime, so a plain vite dev server / browser preview cannot
+exercise it, and this agent environment cannot drive the desktop GUI). It
+was therefore **not** blocking the `l4d` tag; it stays as an operator
+checklist item.
+Recipe: `cargo tauri dev`, open a vault with notes carrying `status` /
+`priority` / `due_date` frontmatter + a `#project` tag; verify the three
+block kinds render, a bad query shows the ⚠ message, clicking a result
+navigates, cursor-in reveals raw source, and editing a referenced note
+updates the result.
 
 #### Deferred (design §8)
 
