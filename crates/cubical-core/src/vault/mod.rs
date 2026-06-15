@@ -17,6 +17,7 @@ use crate::file_type::FileTypeRegistry;
 
 mod atomic;
 pub mod blocks;
+pub mod settings;
 pub mod embeds;
 mod frontmatter;
 pub mod links;
@@ -74,6 +75,10 @@ pub enum VaultError {
     /// Search index open / commit failure.
     #[error("search index: {0}")]
     Search(String),
+
+    /// Settings file error (parse, encode, or I/O in `.cubical/config.toml`).
+    #[error("settings file error: {0}")]
+    Settings(String),
 }
 
 /// A directory-backed Cubical workspace.
