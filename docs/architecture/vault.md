@@ -19,12 +19,17 @@ A vault is a directory on disk. The user picks it; Cubical does not own the loca
 │   └── ...
 └── .cubical/
     ├── index.db             # libSQL: metadata, links, CRDT logs (post-L7), snapshots (post-L7)
-    ├── config.toml          # vault-local config (overrides global)
+    ├── config.toml          # durable per-vault settings — source of truth
     ├── themes/              # user-installed CSS themes (L5+)
     └── recovery/            # pre-merge buffer snapshots (L7+)
 ```
 
-The `.cubical/` directory is the only state Cubical owns inside the vault. Everything in it is rebuildable from the markdown — deleting `.cubical/` and reopening the vault produces a fully functional vault again, just without history.
+The `.cubical/` directory is the only state Cubical owns inside the vault. It holds two categories of state:
+
+- **Durable config** — `config.toml`. The source of truth for the user's per-vault settings (theme, editor defaults, enabled core plugins). It is **not** rebuildable from the markdown; deleting it resets settings to their defaults (recoverable from a backup/trash copy). It travels with the vault when shared.
+- **Rebuildable cache** — `index.db`, `search/`, `recovery/`, and the rest. Derived from the markdown; deleting it and reopening the vault produces a fully functional vault again, just without history.
+
+Transient workspace/UI state (sidebar layout, active panel, …) is session state, not settings — it lives in the rebuildable cache (`index.db`'s `config` table), never in `config.toml`.
 
 `.assets/` holds binary assets (images, PDFs) deduplicated by content hash. Deduplication is **per-vault only** — cross-vault deduplication or global asset folders are explicitly rejected because they break vault portability.
 
