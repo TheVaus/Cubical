@@ -89,8 +89,10 @@ floating slide-to-collapse sidebars (collapsing never reflows the
 editor), folder tree, editable filename-title (= rename, **no `# H1`
 injected**), settings modal, vault switcher, color-theory pass. Done:
 shell + title + status bar + settings + vault switcher + folder tree +
-polish. Remaining: search-results-over-tree layer, and **tabs /
-multi-document** (the single→multi-buffer architecture fork — do last).
+search-results-over-tree layer + polish. **Only remaining: tabs /
+multi-document** — the single→multi-buffer architecture fork (autosave/
+conflict/`seenHash` all assume one open buffer); a standalone effort, not
+started.
 New: `ui/src/styles/layout.css`, `ui/src/sidebar/fileTree.ts` (+test).
 Full handoff: `docs/superpowers/2026-06-12-ui-rework-progress.md`; design
 mockup: `docs/superpowers/mockups/ui-rework.html`.

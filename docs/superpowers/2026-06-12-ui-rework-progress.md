@@ -5,7 +5,7 @@ UI. **Incrementally merged to `main` 2026-06-12** (work was done on branch
 `feat/ui-rework`). The headless gates are green at every commit (`tsc`,
 `455 vitest`, `npm run build`; no Rust changes); visual verification is by
 the operator via `cargo tauri dev` (Vite HMR pushes each change live).
-Further increments (search-over-tree layer, tabs) still to come.
+One increment remains: **tabs / multi-document** (the architecture fork).
 
 ## Design source
 `docs/superpowers/mockups/ui-rework.html` — a self-contained interactive
@@ -49,12 +49,12 @@ modal, vault switcher, folder tree, search-over-tree layer.
    5% / white-on-dark → `rgba(0,0,0,.5)`); unified segmented-control
    active states (accent restraint); light-theme `--c-fg-muted`
    `#a1a1aa`→`#71717a` for WCAG AA.
+9. **Search-results-over-tree layer (increment 4)** — `SearchPanel` keeps
+   the file tree mounted and renders results as an opaque absolute layer
+   above it (preserves the tree's scroll + expanded folders; no
+   unmount/reflow). Was previously `fallback={props.children}`.
 
 ## Remaining
-- **Search-results-over-tree layer (increment 4).** Render results as an
-  opaque layer above the still-mounted tree (preserves scroll/expansion;
-  the strong reason — Solid re-render cost is *not* the issue). Wire to
-  `SearchPanel`.
 - **Tabs / multi-document (increment 8) — the architecture fork.** The app
   is deliberately single-buffer today (`seenHash`/`lastWrittenHash`/
   autosave/conflict are all single-open-buffer). Real tabs = multiple
