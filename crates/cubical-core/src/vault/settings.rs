@@ -26,6 +26,47 @@ pub fn to_toml(map: &SettingsMap) -> Result<String, VaultError> {
         .map_err(|e| VaultError::Settings(format!("encode TOML: {e}")))
 }
 
+/// Parse TOML into a flat dotted-key settings map.
+pub fn from_toml(src: &str) -> Result<SettingsMap, VaultError> {
+    let value: toml::Value =
+        toml::from_str(src).map_err(|e| VaultError::Settings(format!("parse TOML: {e}")))?;
+    let mut out = SettingsMap::new();
+    if let toml::Value::Table(t) = value {
+        flatten(&t, String::new(), &mut out);
+    }
+    Ok(out)
+}
+
+/// Convert a TOML scalar to a JSON value (inverse of `json_to_toml`).
+fn toml_to_json(v: &toml::Value) -> Json {
+    match v {
+        toml::Value::Boolean(b) => Json::Bool(*b),
+        toml::Value::Integer(i) => Json::Number((*i).into()),
+        toml::Value::Float(f) => serde_json::Number::from_f64(*f)
+            .map(Json::Number)
+            .unwrap_or(Json::Null),
+        toml::Value::String(s) => Json::String(s.clone()),
+        other => Json::String(other.to_string()),
+    }
+}
+
+/// Recursively flatten nested tables into dotted keys.
+fn flatten(table: &toml::value::Table, prefix: String, out: &mut SettingsMap) {
+    for (k, v) in table {
+        let key = if prefix.is_empty() {
+            k.clone()
+        } else {
+            format!("{prefix}.{k}")
+        };
+        match v {
+            toml::Value::Table(t) => flatten(t, key, out),
+            scalar => {
+                out.insert(key, toml_to_json(scalar));
+            }
+        }
+    }
+}
+
 /// Convert a JSON scalar to a TOML value. Non-scalar / unrepresentable
 /// values fall back to their JSON string (forward-safety).
 fn json_to_toml(v: &Json) -> toml::Value {
@@ -61,6 +102,28 @@ fn insert_dotted(table: &mut toml::value::Table, dotted: &str, value: toml::Valu
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn from_toml_flattens_to_dotted_keys() {
+        let src = "[appearance]\ntheme_mode = \"dark\"\n\n[plugins]\ndataview_enabled = true\n";
+        let m = from_toml(src).unwrap();
+        assert_eq!(m.get("appearance.theme_mode"), Some(&json!("dark")));
+        assert_eq!(m.get("plugins.dataview_enabled"), Some(&json!(true)));
+    }
+
+    #[test]
+    fn from_toml_round_trips_scalars() {
+        let mut m = SettingsMap::new();
+        m.insert("editor.raw_source_default".into(), json!(false));
+        m.insert("pending_rewrites.flush_interval_secs".into(), json!(30));
+        let back = from_toml(&to_toml(&m).unwrap()).unwrap();
+        assert_eq!(back, m);
+    }
+
+    #[test]
+    fn from_toml_rejects_malformed() {
+        assert!(from_toml("not = = valid").is_err());
+    }
 
     #[test]
     fn to_toml_nests_dotted_keys() {
