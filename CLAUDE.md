@@ -79,8 +79,8 @@ on-screen render / link-nav / cursor-reveal needs `cargo tauri dev` (the
 `dataview_query` IPC is Tauri-runtime-only; data path + mount wiring are
 otherwise fully code/test-verified). Recipe in layer-4-spec §9.5.
 
-**L4 layer-close — in progress on `feat/l4-close` (2026-06-15, §9.6).**
-Done: §5 deviations **promoted** to `docs/architecture/concurrency.md`
+**L4 layer-close — merged to `main` (2026-06-15, §9.6); only the `l4`
+tag remains.** Done: §5 deviations **promoted** to `docs/architecture/concurrency.md`
 §6.2 (vault_id keying, three-value search state cell, prose `STORED`);
 search-row **keyboard nav chip** (`task_bd4e47f4`) shipped (pure
 `ui/src/sidebar/searchNav.ts`, roving tabindex over file groups); the
