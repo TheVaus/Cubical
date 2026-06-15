@@ -15,7 +15,7 @@ use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
-use cubical_core::{Vault, WatcherHandle};
+use cubical_core::{vault::settings::SettingsMap, Vault, WatcherHandle};
 use cubical_search::{IndexState, IndexStatus};
 
 /// One open vault, including its scan lifecycle handles.
@@ -59,6 +59,10 @@ pub struct OpenVault {
     /// dispatcher task and the IPC handlers can share a stable handle
     /// across `await` points without cloning the whole `OpenVault`.
     pub search_state: Arc<std::sync::Mutex<SearchStateInner>>,
+    /// In-memory copy of the durable settings (`.cubical/config.toml`),
+    /// the source of truth for non-`ui.*` keys. Workspace `ui.*` state
+    /// stays in the DB `config` table.
+    pub settings: Arc<RwLock<SettingsMap>>,
 }
 
 /// L4-A — per-vault Tantivy index state, shared across handlers and the
@@ -115,6 +119,7 @@ impl OpenVault {
         cancel: CancellationToken,
         scan_status: ScanStatusBackend,
         watcher: Option<WatcherHandle>,
+        settings: SettingsMap,
     ) -> Self {
         Self {
             vault,
@@ -125,6 +130,7 @@ impl OpenVault {
             flush_in_progress: Arc::new(Mutex::new(())),
             flush_timer_cancel: CancellationToken::new(),
             search_state: Arc::new(std::sync::Mutex::new(SearchStateInner::default())),
+            settings: Arc::new(RwLock::new(settings)),
         }
     }
 }

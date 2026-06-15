@@ -92,11 +92,20 @@ pub async fn open_vault(
     let (watch_tx, watch_rx) = mpsc::channel::<WatchEvent>(WATCHER_CHANNEL_DEPTH);
     let watcher = start_watcher(&vault, cancel.clone(), watch_tx)?;
 
+    // Durable settings live in <vault>/.cubical/config.toml (source of
+    // truth). A missing file ⇒ defaults; a malformed file ⇒ start empty
+    // and log (never block open).
+    let settings = cubical_core::vault::settings::load(vault.root()).unwrap_or_else(|e| {
+        tracing::warn!("settings load failed, using defaults: {e}");
+        cubical_core::vault::settings::SettingsMap::new()
+    });
+
     let open = OpenVault::new(
         vault.clone(),
         cancel.clone(),
         ScanStatusBackend::InProgress,
         Some(watcher),
+        settings,
     );
     let flush_own_writes = open.flush_own_writes.clone();
     let flush_in_progress = open.flush_in_progress.clone();
@@ -577,6 +586,15 @@ pub async fn get_setting(
     let open = guard
         .get(&req.vault_id)
         .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
+
+    if !cubical_core::vault::settings::is_workspace_key(&req.key) {
+        let map = open.settings.read().await;
+        return Ok(GetSettingResponse {
+            value: map.get(&req.key).cloned(),
+        });
+    }
+    // workspace (`ui.*`) keys fall through to the DB read below.
+
     let conn = open.vault.index().connection();
 
     let mut rows = conn
@@ -618,6 +636,16 @@ pub async fn set_setting(
     let open = guard
         .get(&req.vault_id)
         .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
+
+    if !cubical_core::vault::settings::is_workspace_key(&req.key) {
+        let mut map = open.settings.write().await;
+        map.insert(req.key.clone(), req.value.clone());
+        cubical_core::vault::settings::save(open.vault.root(), &map)
+            .map_err(|e| CubicalError::InvalidRequest(format!("save settings: {e}")))?;
+        return Ok(SetSettingResponse {});
+    }
+    // workspace (`ui.*`) keys fall through to the DB upsert below.
+
     let conn = open.vault.index().connection();
 
     // `serde_json::Value` always serializes, so this never fails in
@@ -754,6 +782,7 @@ mod tests {
                 tokio_util::sync::CancellationToken::new(),
                 ScanStatusBackend::Complete,
                 None,
+                cubical_core::vault::settings::SettingsMap::new(),
             ),
         );
         (dir, vault, state)
@@ -1486,13 +1515,14 @@ mod tests {
     #[tokio::test]
     async fn get_setting_returns_invalid_request_for_corrupt_json() {
         let (_dir, vault, state) = fresh_state_with_vault("v1").await;
-        // Write a row directly with a non-JSON value, bypassing
-        // `set_setting`'s JSON encoding.
+        // Write a corrupt row directly into the DB under a `ui.*`
+        // workspace key (the only path that still reads the DB now that
+        // non-workspace keys route to the in-memory TOML-backed map).
         vault
             .index()
             .connection()
             .execute(
-                "INSERT INTO config (key, value) VALUES ('bad.key', 'not json{')",
+                "INSERT INTO config (key, value) VALUES ('ui.bad_key', 'not json{')",
                 (),
             )
             .await
@@ -1502,7 +1532,7 @@ mod tests {
             &state,
             GetSettingRequest {
                 vault_id: "v1".into(),
-                key: "bad.key".into(),
+                key: "ui.bad_key".into(),
             },
         )
         .await
@@ -1594,6 +1624,7 @@ mod tests {
                     tokio_util::sync::CancellationToken::new(),
                     ScanStatusBackend::Complete,
                     None,
+                    cubical_core::vault::settings::SettingsMap::new(),
                 ),
             );
             set_setting(
@@ -1609,8 +1640,10 @@ mod tests {
         }
 
         // Second open against the same path: fresh AppState, fresh
-        // Vault, fresh libSQL connection.
+        // Vault. Settings now persist via .cubical/config.toml — load
+        // them the same way open_vault does.
         let vault = Vault::open(dir.path()).await.expect("reopen");
+        let loaded_settings = cubical_core::vault::settings::load(vault.root()).unwrap_or_default();
         let state = AppState::new();
         state.vaults().write().await.insert(
             "v1".into(),
@@ -1619,6 +1652,7 @@ mod tests {
                 tokio_util::sync::CancellationToken::new(),
                 ScanStatusBackend::Complete,
                 None,
+                loaded_settings,
             ),
         );
 
@@ -1632,5 +1666,68 @@ mod tests {
         .await
         .expect("get ok");
         assert_eq!(resp.value, Some(serde_json::json!("dark")));
+    }
+
+    // -- file-backed settings (Tasks 1.7 + 1.8) -------------------------
+
+    #[tokio::test]
+    async fn settings_key_reads_from_the_file_backed_map() {
+        let (_dir, _vault, state) = fresh_state_with_vault("v1").await;
+        set_setting(
+            &state,
+            SetSettingRequest {
+                vault_id: "v1".into(),
+                key: "plugins.dataview_enabled".into(),
+                value: serde_json::json!(false),
+            },
+        )
+        .await
+        .unwrap();
+        let got = get_setting(
+            &state,
+            GetSettingRequest {
+                vault_id: "v1".into(),
+                key: "plugins.dataview_enabled".into(),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(got.value, Some(serde_json::json!(false)));
+    }
+
+    #[tokio::test]
+    async fn first_settings_write_creates_the_file_and_workspace_stays_in_db() {
+        let (dir, _vault, state) = fresh_state_with_vault("v1").await;
+        let cfg = cubical_core::vault::settings::settings_path(dir.path());
+        assert!(!cfg.exists(), "no file before any settings change (lazy)");
+
+        set_setting(
+            &state,
+            SetSettingRequest {
+                vault_id: "v1".into(),
+                key: "editor.raw_source_default".into(),
+                value: serde_json::json!(true),
+            },
+        )
+        .await
+        .unwrap();
+        assert!(cfg.exists(), "settings write creates config.toml");
+
+        // A ui.* workspace key must NOT land in the file.
+        set_setting(
+            &state,
+            SetSettingRequest {
+                vault_id: "v1".into(),
+                key: "ui.right_sidebar_collapsed".into(),
+                value: serde_json::json!(true),
+            },
+        )
+        .await
+        .unwrap();
+        let on_disk = std::fs::read_to_string(&cfg).unwrap();
+        assert!(
+            !on_disk.contains("right_sidebar"),
+            "workspace state stays in the DB"
+        );
     }
 }

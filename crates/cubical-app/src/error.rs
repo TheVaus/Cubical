@@ -122,6 +122,7 @@ impl From<VaultError> for CubicalError {
             VaultError::Watcher(e) => Self::Watcher(e.to_string()),
             VaultError::ScanCancelled => Self::ScanCancelled,
             VaultError::Search(e) => Self::Search(e),
+            VaultError::Settings(e) => Self::InvalidRequest(format!("settings: {e}")),
         }
     }
 }

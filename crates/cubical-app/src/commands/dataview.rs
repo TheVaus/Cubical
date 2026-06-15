@@ -57,6 +57,7 @@ mod tests {
                 CancellationToken::new(),
                 ScanStatusBackend::Complete,
                 None,
+                cubical_core::vault::settings::SettingsMap::new(),
             ),
         );
         (dir, vault, state)
@@ -87,6 +88,7 @@ mod tests {
                 CancellationToken::new(),
                 ScanStatusBackend::Complete,
                 None,
+                cubical_core::vault::settings::SettingsMap::new(),
             ),
         );
         (dir, state)
