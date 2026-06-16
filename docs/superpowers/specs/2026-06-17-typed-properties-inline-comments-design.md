@@ -64,22 +64,22 @@ key line.
 
 ```yaml
 ---
-title: Quarterly Report        # cubical:type=text
-notes: |                       # cubical:type=text/multiline
+title: Quarterly Report        # type:text
+notes: |                       # type:text/multiline
   long body…
-price: 9.99                    # cubical:type=number/currency
-count: 42                      # cubical:type=number/int
-ratio: 0.8                     # cubical:type=number/float
-done: true                     # cubical:type=checkbox
-due: 2026-06-17                # cubical:type=date
-start: 2026-06-17T14:30        # cubical:type=datetime
-people:                        # cubical:type=list
+price: 9.99                    # type:number/currency
+count: 42                      # type:number/int
+ratio: 0.8                     # type:number/float
+done: true                     # type:checkbox
+due: 2026-06-17                # type:date
+start: 2026-06-17T14:30        # type:datetime
+people:                        # type:list
   - Ann
-tags: [draft]                  # cubical:type=tags
+tags: [draft]                  # type:tags
 ---
 ```
 
-**Grammar:** `cubical:type=<type>[/<subtype>]`
+**Grammar:** `type:<type>[/<subtype>]`
 
 | Comment token            | Leaf CellKind   | Cell                         |
 | ------------------------ | --------------- | ---------------------------- |
@@ -94,8 +94,11 @@ tags: [draft]                  # cubical:type=tags
 | `list`                   | `list-of-strings` | `StringListCell`           |
 | `tags`                   | `list-of-tags`  | `TagListCell`                |
 
-- Namespace `cubical:type=` is self-documenting, collision-safe, and plain
-  text any tool reads.
+- Marker `type:` is short and readable, and plain text any tool reads.
+  Because `type:` is a common word, a comment is only treated as a type
+  hint when the text after `type:` matches a **known grammar token**
+  (§5 / the alias list below); anything else is left as an ordinary
+  foreign comment (§7).
 - **USD-only currency** is encoded as `number/currency` now. The parser
   must tolerate (ignore, falling back to `currency`/USD) a future
   `number/currency:EUR` form so a later currency expansion does not
@@ -161,7 +164,7 @@ New pure function `parseTypeComments(yaml: string): Map<string, CellKind>`:
 - Use `parseDocument` (already imported in `serializeFrontmatter.ts`; bring
   it into the parse module or a shared helper).
 - For each **top-level** pair, read the trailing comment from the key node
-  and/or value node, match `cubical:type=<token>`, map via `tokenToKind`.
+  and/or value node, match `^\s*type:<token>`, map via `tokenToKind`.
 - Tolerate the future `currency:XXX` form (strip the `:XXX`, treat as
   currency).
 - Malformed / unknown tokens → omit the key from the map (falls back to
@@ -177,7 +180,7 @@ entries already carrying their kind). It rebuilds the block via the
 
 - Build a `YAMLMap`/Document from entries.
 - For each key with a resolved leaf kind that should be persisted, set the
-  appropriate node `.comment` to `' cubical:type=<token>'` (leading space
+  appropriate node `.comment` to `' type:<token>'` (leading space
   per the `yaml` package's convention).
   - Scalar value → comment on the **value** node (`key: val # …`).
   - Block list value → comment on the **key** node (`key: # …`).
@@ -192,9 +195,10 @@ only on explicit type choice.)
 
 ### 7.3 `hasUnmodelableYaml` relaxation
 
-- Comments matching `^\s*cubical:type=` **do not** force read-only.
-- Foreign comments, anchors, aliases, document-level comments still force
-  read-only (unchanged).
+- Comments matching `^\s*type:<known-token>` **do not** force read-only.
+- Any other comment (including `type:` followed by an unknown token),
+  anchors, aliases, document-level comments still force read-only
+  (unchanged).
 - A note mixing our type comments **and** foreign prose comments stays
   read-only — accepted edge case (the foreign comment can't be preserved).
 
@@ -243,8 +247,9 @@ only on explicit type choice.)
   (USD cell) without error.
 - **Currency:** stores bare number, displays `$`, edit strips formatting.
 - **Datetime:** ISO string round-trips; not coerced to a Date object.
-- **`hasUnmodelableYaml`:** allows `cubical:type=` comments; still flags
-  foreign comments / anchors / aliases / mixed.
+- **`hasUnmodelableYaml`:** allows `type:<known-token>` comments; still
+  flags `type:` with an unknown token, foreign comments, anchors, aliases,
+  and mixed.
 - **Coercions:** each new lossy/non-lossy conversion; revert chip restores
   the pre-coercion value.
 - **No-comment legacy vault:** a frontmatter block with zero type comments
