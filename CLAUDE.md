@@ -66,6 +66,23 @@ Crates without Tauri deps (`cubical-core`, `cubical-ast`, `cubical-index`, `cubi
 
 ## Project state
 
+**Core Plugins + TOML settings file — landed on `main` (2026-06-16).**
+Per-vault settings moved out of the libSQL `config` table into a portable
+`.cubical/config.toml` (TOML, durable source of truth; `ui.*` workspace
+state stays DB-backed). New pure `cubical-core` `vault::settings` (map⇄TOML,
+atomic load/save, `is_workspace_key`); `OpenVault` in-memory map + open-time
+hydration; `get/set_setting` routed (settings→file, `ui.*`→DB, save off the
+async executor via `spawn_blocking`); `reload_settings` IPC; `vault.md`
+amended (config = durable, not rebuildable cache). Frontend: `corePlugins`
+registry (`ui/src/settings/corePlugins.ts`) + a Settings → Plugins → Core
+Plugins tab toggling `plugins.dataview_enabled`, live-gating the editor's
+dataview runner (off ⇒ raw ```query). Six gates green. Also on this branch:
+the **L4-D operator-smoke bug fixes** (dataview link-nav via capture-phase
+mousedown, count-click→reveal via `posAtDOM`, stale-while-revalidate
+flicker). **Residual: live Tauri-GUI operator smoke** (toggle on/off,
+eyeball `config.toml`) — code/test-verified, GUI not driven. Spec+plan:
+`docs/superpowers/{specs,plans}/2026-06-15-core-plugins-dataview-toggle*`.
+
 **Layer 4 — Search.** L4-A/B/C + search-fuzzy + **L4-D** all CLOSED and
 merged to `main` (tags `l4a`, `l4a-fix`/`.1`, `l4b`, `l4c`, `l4a-fix.2`,
 `l4d`). **L4-D — Dataview-style libSQL queries (closed 2026-06-15, tag
@@ -108,10 +125,12 @@ New: `ui/src/styles/layout.css`, `ui/src/sidebar/fileTree.ts` (+test).
 Full handoff: `docs/superpowers/2026-06-12-ui-rework-progress.md`; design
 mockup: `docs/superpowers/mockups/ui-rework.html`.
 
-Tests: **484 vitest + 507 Rust** (`main` is 473 + 507; `feat/l4-close`
-adds 11 vitest for the keyboard-nav module). L4-D added 18 vitest + the
-`cubical-query` crate's 28 + 6 app tests, incl. end-to-end dataview tests
-over the real scan pipeline. Gates: `cargo test --workspace`, `cargo
+Tests: **500 vitest + 519 Rust** on `main`. Since the l4-close baseline
+(484 + 507): the L4-D operator-smoke bug fixes added vitest
+(`dataviewMousedown` +11, renderer/runner contract updates); the
+core-plugins/settings build added 3 vitest (`corePlugins`) + 12 Rust
+(`vault::settings` module, app integration, `reload_settings`). Gates:
+`cargo test --workspace`, `cargo
 clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all
 --check`, `npx tsc --noEmit`, `npx vitest run`, `npm run build`. Tags: l0
 (05-13) l1 (05-09) l2 (05-22) l3 (06-01) l4a (06-03) l4a-fix/.1 (06-06)
