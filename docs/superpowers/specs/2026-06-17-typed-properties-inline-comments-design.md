@@ -143,8 +143,12 @@ shared by parse and serialize.
 ## 6. Resolution: comment wins, else infer
 
 ```
-resolvedKind(key) = parseTypeComment(key) ?? inferType(key, value)
+resolvedKind(key) =
+  (typedEnabled ? parseTypeComment(key) : undefined) ?? inferType(key, value)
 ```
+
+(When the `properties.typed_enabled` toggle is off, comment-based
+resolution is skipped — see §8b.4 — but comments are still preserved.)
 
 - Existing vaults with no type comments keep working unchanged via today's
   inference.
@@ -228,6 +232,61 @@ only on explicit type choice.)
   currency, date↔datetime, int↔float, scalar↔multiline). Lossy-revert
   behavior (the existing `lossy` warning chip) is preserved.
 
+## 8b. Settings toggle + in-app docs
+
+The feature is gated by a vault setting and documented inside the Settings
+modal, matching the core-plugin precedent
+(`plugins.dataview_enabled`, `ui/src/settings/corePlugins.ts`).
+
+### 8b.1 Setting key
+
+- New boolean key **`properties.typed_enabled`**, added to the `Setting`
+  union in `ui/src/api/ipc.ts`. No backend change: the settings map in
+  `cubical-core` stores arbitrary keys, and the default is applied in TS
+  (`getSetting(...) ?? true`), exactly as `corePluginEnabled` does.
+- **Default: on** (`true`). Safe because nothing is written to a file
+  until the user explicitly picks a type — no comment spray on existing
+  notes.
+- Stored in `.cubical/config.toml` (durable, portable) — not a `ui.*`
+  workspace key — so it routes to the settings file, not the DB.
+
+### 8b.2 Placement — Settings ▸ Editor
+
+Typed properties is an editor feature, not a plugin, so the toggle lives in
+the **Editor** tab (alongside the raw-source default), not under Plugins.
+A labelled switch bound to `properties.typed_enabled`, loaded/hydrated on
+vault open the same way `corePlugins` state is.
+
+### 8b.3 In-app docs
+
+Below the toggle, render a short help block so the user can see how it
+works without leaving the app. Copy covers:
+
+- What it does: each property can be given a type/subtype; the Properties
+  panel then shows the right editor (e.g. a `$` currency field, a
+  date-and-time picker).
+- Where the type is stored: as a plain YAML comment **inside the note**
+  (`price: 9.99   # type:number/currency`), so it travels with the file and
+  is readable by any tool — nothing is stored outside the vault.
+- How to set it: pick a type from the `▾` menu on a property row; the
+  comment is written automatically.
+- That turning the feature off leaves existing `# type:` comments intact.
+
+The copy is plain Solid markup (no new dependency). A single source string
+table keeps it maintainable.
+
+### 8b.4 Behavior when the toggle is OFF
+
+To make toggling off non-destructive and non-surprising:
+
+- **Always on, regardless of the flag:** the serializer *preserves* any
+  `# type:` comments it encounters (pass-through), and `hasUnmodelableYaml`
+  still exempts `type:<known-token>` comments — so turning the feature off
+  never strips comments and never forces a panel into read-only.
+- **Gated by the flag (off ⇒ disabled):** the nested subtype submenu,
+  comment-based type resolution (off ⇒ pure inference per §6, so a currency
+  field renders as a plain number), and *writing* new type comments.
+
 ## 9. Out of scope (this session)
 
 - Vault-wide registry / consistency across notes.
@@ -255,6 +314,11 @@ only on explicit type choice.)
 - **No-comment legacy vault:** a frontmatter block with zero type comments
   is unchanged byte-for-byte after an unrelated value edit (no comment
   spray).
+- **Toggle off:** comment-based resolution is skipped (currency renders as
+  plain number) but existing `# type:` comments are preserved through an
+  edit and the panel does not go read-only; the subtype submenu is hidden
+  and no comments are written.
+- **Toggle default:** absent setting resolves to enabled (`true`).
 
 ## 11. Gates
 
