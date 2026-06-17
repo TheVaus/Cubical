@@ -257,7 +257,9 @@ export type Setting =
   | { key: "ui.right_sidebar_panel"; value: "backlinks" | "unlinked_mentions" }
   // L3 Session J — periodic flush interval (seconds). Default 300.
   | { key: "pending_rewrites.flush_interval_secs"; value: number }
-  | { key: "plugins.dataview_enabled"; value: boolean };
+  | { key: "plugins.dataview_enabled"; value: boolean }
+  | { key: "properties.typed_enabled"; value: boolean }
+  | { key: "properties.date_format_default"; value: string };
 
 /** Narrows a `Setting` key to its corresponding value type. */
 export type SettingValue<K extends Setting["key"]> = Extract<

@@ -14,6 +14,7 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 
 import Editor, { type EditorApi } from "./Editor";
 import Properties from "./Properties";
+import { DATE_FORMAT_TOKENS } from "./properties/dateFormats";
 import type { CanonicalDocument, Frontmatter } from "./ast/types";
 import {
   createBlockRef,
@@ -197,6 +198,11 @@ const App: Component = () => {
   const effectiveRaw = createMemo(() =>
     resolveRawState(rawOverride(), rawDefault()),
   );
+
+  // Typed-properties feature flag + default date format, seeded on vault
+  // open. Absent → enabled / "YYYY-MM-DD".
+  const [typedProps, setTypedProps] = createSignal(true);
+  const [dateDefault, setDateDefault] = createSignal("YYYY-MM-DD");
 
   // Conflict banner state — surfaces when an external edit lands on a
   // dirty buffer (spec §2.7). `externalHash` holds the most recent
@@ -702,6 +708,28 @@ const App: Component = () => {
     }
   };
 
+  /** Set the typed-properties flag (from Settings ▸ Editor). */
+  const setTypedPropsValue = (val: boolean) => {
+    setTypedProps(val);
+    const id = vaultId();
+    if (id) {
+      setSetting(id, "properties.typed_enabled", val).catch((e) => {
+        console.error("persisting properties.typed_enabled failed", e);
+      });
+    }
+  };
+
+  /** Set the default date format (from Settings ▸ Editor). */
+  const setDateDefaultValue = (val: string) => {
+    setDateDefault(val);
+    const id = vaultId();
+    if (id) {
+      setSetting(id, "properties.date_format_default", val).catch((e) => {
+        console.error("persisting properties.date_format_default failed", e);
+      });
+    }
+  };
+
   /** Set a core plugin's on/off state and persist to vault settings. */
   const setCorePlugin = (
     id: string,
@@ -1167,6 +1195,26 @@ const App: Component = () => {
         console.error("loading raw_source_default failed", e);
       }
 
+      // Seed typed-properties flag + default date format (absent → on / ISO).
+      try {
+        const stored = await getSetting(
+          resp.vault_id,
+          "properties.typed_enabled",
+        );
+        setTypedProps(stored ?? true);
+      } catch (e) {
+        console.error("loading properties.typed_enabled failed", e);
+      }
+      try {
+        const stored = await getSetting(
+          resp.vault_id,
+          "properties.date_format_default",
+        );
+        setDateDefault(stored ?? "YYYY-MM-DD");
+      } catch (e) {
+        console.error("loading properties.date_format_default failed", e);
+      }
+
       // Load each core plugin's enablement (absent ⇒ default).
       {
         const enab: Record<string, boolean> = {};
@@ -1611,6 +1659,8 @@ const App: Component = () => {
                     onNavigateTag={(tagPath) =>
                       void handleNavigateTag(tagPath)
                     }
+                    typedEnabled={typedProps()}
+                    dateDefault={dateDefault()}
                   />
                 </Show>
                 <Editor
@@ -1826,6 +1876,90 @@ const App: Component = () => {
                     </button>
                   </div>
                 </div>
+                <div class="set-row">
+                  <div>
+                    <div class="set-row__lab">Typed properties</div>
+                    <div class="set-row__desc">
+                      Give frontmatter properties a type (number, currency,
+                      date &amp; time, list, …) for type-aware editors.
+                    </div>
+                  </div>
+                  <div class="seg-control">
+                    <button
+                      type="button"
+                      class="seg-control__btn"
+                      classList={{ "seg-control__btn--active": !typedProps() }}
+                      onClick={() => setTypedPropsValue(false)}
+                    >
+                      Off
+                    </button>
+                    <button
+                      type="button"
+                      class="seg-control__btn"
+                      classList={{ "seg-control__btn--active": typedProps() }}
+                      onClick={() => setTypedPropsValue(true)}
+                    >
+                      On
+                    </button>
+                  </div>
+                </div>
+                <Show when={typedProps()}>
+                  <div class="set-row">
+                    <div>
+                      <div class="set-row__lab">Default date format</div>
+                      <div class="set-row__desc">
+                        Applied to every date property; override per-property
+                        from the type menu.
+                      </div>
+                    </div>
+                    <select
+                      value={dateDefault()}
+                      onChange={(e) =>
+                        setDateDefaultValue(e.currentTarget.value)
+                      }
+                    >
+                      <For each={DATE_FORMAT_TOKENS}>
+                        {(token) => <option value={token}>{token}</option>}
+                      </For>
+                    </select>
+                  </div>
+                  <div
+                    class="set-row__desc"
+                    style={{ "margin-top": "var(--space-2)" }}
+                  >
+                    <p style={{ margin: "0 0 var(--space-1) 0" }}>
+                      <strong>How it works.</strong> Pick a type from the{" "}
+                      <code>▾</code> menu on any property row. The Properties
+                      panel then shows the right editor — a <code>$</code> field
+                      for currency, a date picker, and so on.
+                    </p>
+                    <p style={{ margin: "0 0 var(--space-1) 0" }}>
+                      The type is saved as a plain comment{" "}
+                      <em>inside the note</em>, so it travels with the file and
+                      any tool can read it:
+                    </p>
+                    <pre
+                      style={{
+                        margin: "0 0 var(--space-1) 0",
+                        padding: "var(--space-2)",
+                        "font-family": "var(--font-mono)",
+                        "font-size": "var(--text-xs)",
+                        background: "var(--c-bg-primary)",
+                        border: "1px solid var(--c-border-subtle)",
+                        "border-radius": "var(--radius-sm)",
+                        "white-space": "pre-wrap",
+                      }}
+                    >{`---
+price: 9.99    # type:number/currency
+due: 17-06-26  # type:date:DD-MM-YY
+---`}</pre>
+                    <p style={{ margin: 0 }}>
+                      A date using the default format needs no inline note; only
+                      a different format is written. Turning this off leaves any
+                      existing <code># type:</code> comments untouched.
+                    </p>
+                  </div>
+                </Show>
               </Show>
               <Show when={settingsTab() === "plugins"}>
                 <h2 class="modal__h2">Core Plugins</h2>

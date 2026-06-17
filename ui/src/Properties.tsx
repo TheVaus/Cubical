@@ -11,7 +11,6 @@ import {
 
 import type { Frontmatter, FrontmatterEntry } from "./ast/types";
 import { splitFrontmatter } from "./ast/frontmatter";
-import { inferType, type CellKind } from "./properties/inferType";
 import { coerceValue } from "./properties/coerce";
 import {
   hasUnmodelableYaml,
@@ -24,6 +23,19 @@ import DateCell from "./properties/DateCell";
 import StringListCell from "./properties/StringListCell";
 import TagListCell from "./properties/TagListCell";
 import RawCell from "./properties/RawCell";
+import CurrencyCell from "./properties/CurrencyCell";
+import DateTimeCell from "./properties/DateTimeCell";
+import MultilineCell from "./properties/MultilineCell";
+import { DATE_FORMAT_TOKENS, convertDate } from "./properties/dateFormats";
+import {
+  parseTypeComments,
+  type PropertyType,
+} from "./properties/typeComments";
+import {
+  buildAnnotations,
+  effectiveFormat,
+  resolveType,
+} from "./properties/propertiesLogic";
 import { miniButtonStyle } from "./properties/styles";
 
 /**
@@ -45,15 +57,62 @@ import { miniButtonStyle } from "./properties/styles";
  * degrades to read-only rather than risk destroying content.
  */
 
-/** The user-pickable cell kinds, in type-menu order. */
-const TYPE_OPTIONS: { kind: CellKind; label: string }[] = [
-  { kind: "string", label: "Text" },
-  { kind: "number", label: "Number" },
-  { kind: "boolean", label: "Boolean" },
-  { kind: "date", label: "Date" },
-  { kind: "list-of-strings", label: "List" },
-  { kind: "list-of-tags", label: "Tags" },
+/** A leaf type the user can pick (kind + optional date format). */
+interface TypeLeaf {
+  type: PropertyType;
+  label: string;
+}
+/** A family in the type menu; single-leaf families commit immediately. */
+interface TypeFamily {
+  label: string;
+  leaves: TypeLeaf[];
+}
+
+const TYPE_MENU: TypeFamily[] = [
+  {
+    label: "Text",
+    leaves: [
+      { type: { kind: "string" }, label: "Plain" },
+      { type: { kind: "multiline" }, label: "Multiline" },
+    ],
+  },
+  {
+    label: "Number",
+    leaves: [
+      { type: { kind: "int" }, label: "Integer" },
+      { type: { kind: "float" }, label: "Decimal" },
+      { type: { kind: "currency" }, label: "Currency (USD)" },
+    ],
+  },
+  {
+    label: "Checkbox",
+    leaves: [{ type: { kind: "boolean" }, label: "Checkbox" }],
+  },
+  {
+    label: "Date",
+    leaves: [
+      { type: { kind: "datetime" }, label: "Date & time" },
+      ...DATE_FORMAT_TOKENS.map(
+        (format): TypeLeaf => ({
+          type: { kind: "date", format },
+          label: `Date · ${format}`,
+        }),
+      ),
+    ],
+  },
+  {
+    label: "List",
+    leaves: [
+      { type: { kind: "list-of-strings" }, label: "List" },
+      { type: { kind: "list-of-tags" }, label: "Tags" },
+    ],
+  },
 ];
+
+/** Whether two property types are the same selection (kind + date format). */
+function sameType(a: PropertyType, b: PropertyType): boolean {
+  return a.kind === b.kind && (a.format ?? null) === (b.format ?? null);
+}
 
 export interface PropertiesProps {
   /** Parsed frontmatter from the latest `onAstChange` tick. */
@@ -71,18 +130,26 @@ export interface PropertiesProps {
    * page (L3 Session E). Forwarded to `TagListCell`.
    */
   onNavigateTag?: (tagPath: string) => void;
+  /** Whether typed properties are enabled (Settings ▸ Editor). */
+  typedEnabled: boolean;
+  /** Vault default date format (`properties.date_format_default`). */
+  dateDefault: string;
 }
 
 interface RowProps {
   keyName: string;
   value: unknown;
-  kind: CellKind;
+  type: PropertyType;
+  format: string;
   lossyOriginal: { value: unknown } | undefined;
   menuOpen: boolean;
   autoFocus: boolean;
+  typedEnabled: boolean;
+  openFamily: string | null;
+  onOpenFamily: (label: string | null) => void;
   onToggleMenu: () => void;
   onCloseMenu: () => void;
-  onChangeType: (kind: CellKind) => void;
+  onChangeType: (type: PropertyType) => void;
   onCommitValue: (value: unknown) => void;
   onRename: (next: string) => boolean;
   onRevertLossy: () => void;
@@ -162,37 +229,69 @@ const PropertyRow: Component<RowProps> = (props) => {
       />
 
       <div style={{ "min-width": 0 }}>
-        <Show when={props.kind === "string"}>
+        <Show when={props.type.kind === "string"}>
           <StringCell
             value={String(props.value ?? "")}
             onCommit={(v) => props.onCommitValue(v)}
           />
         </Show>
-        <Show when={props.kind === "number"}>
+        <Show when={props.type.kind === "multiline"}>
+          <MultilineCell
+            value={String(props.value ?? "")}
+            onCommit={(v) => props.onCommitValue(v)}
+          />
+        </Show>
+        <Show
+          when={props.type.kind === "number" || props.type.kind === "float"}
+        >
           <NumberCell
             value={typeof props.value === "number" ? props.value : 0}
             onCommit={(v) => props.onCommitValue(v)}
           />
         </Show>
-        <Show when={props.kind === "boolean"}>
+        <Show when={props.type.kind === "int"}>
+          <NumberCell
+            value={typeof props.value === "number" ? props.value : 0}
+            integer
+            onCommit={(v) => props.onCommitValue(v)}
+          />
+        </Show>
+        <Show when={props.type.kind === "currency"}>
+          <CurrencyCell
+            value={typeof props.value === "number" ? props.value : 0}
+            onCommit={(v) => props.onCommitValue(v)}
+          />
+        </Show>
+        <Show when={props.type.kind === "boolean"}>
           <BooleanCell
             value={props.value === true}
             onCommit={(v) => props.onCommitValue(v)}
           />
         </Show>
-        <Show when={props.kind === "date"}>
+        <Show when={props.type.kind === "date"}>
           <DateCell
+            value={
+              typeof props.value === "number"
+                ? props.value
+                : String(props.value ?? "")
+            }
+            format={props.format}
+            onCommit={(v) => props.onCommitValue(v)}
+          />
+        </Show>
+        <Show when={props.type.kind === "datetime"}>
+          <DateTimeCell
             value={String(props.value ?? "")}
             onCommit={(v) => props.onCommitValue(v)}
           />
         </Show>
-        <Show when={props.kind === "list-of-strings"}>
+        <Show when={props.type.kind === "list-of-strings"}>
           <StringListCell
             value={Array.isArray(props.value) ? (props.value as string[]) : []}
             onCommit={(v) => props.onCommitValue(v)}
           />
         </Show>
-        <Show when={props.kind === "list-of-tags"}>
+        <Show when={props.type.kind === "list-of-tags"}>
           <TagListCell
             value={Array.isArray(props.value) ? (props.value as string[]) : []}
             onCommit={(v) => props.onCommitValue(v)}
@@ -201,7 +300,7 @@ const PropertyRow: Component<RowProps> = (props) => {
               : {})}
           />
         </Show>
-        <Show when={props.kind === "raw"}>
+        <Show when={props.type.kind === "raw"}>
           <RawCell value={props.value} onOpenRaw={props.onOpenRaw} />
         </Show>
 
@@ -227,85 +326,149 @@ const PropertyRow: Component<RowProps> = (props) => {
         </Show>
       </div>
 
-      <div
-        style={{ position: "relative" }}
-        onFocusOut={(e) => {
-          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
-            props.onCloseMenu();
-          }
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => props.onToggleMenu()}
-          aria-label={`Change type of ${props.keyName}`}
-          aria-haspopup="menu"
-          aria-expanded={props.menuOpen}
-          style={{ ...miniButtonStyle(), "font-size": "var(--text-sm)" }}
+      <Show when={props.typedEnabled} fallback={<div />}>
+        <div
+          style={{ position: "relative" }}
+          onFocusOut={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+              props.onCloseMenu();
+              props.onOpenFamily(null);
+            }
+          }}
         >
-          ▾
-        </button>
-        <Show when={props.menuOpen}>
-          <div
-            role="menu"
-            style={{
-              position: "absolute",
-              top: "100%",
-              right: "0",
-              "z-index": "10",
-              display: "flex",
-              "flex-direction": "column",
-              "min-width": "8rem",
-              padding: "var(--space-1)",
-              background: "var(--c-bg-primary)",
-              border: "1px solid var(--c-border-subtle)",
-              "border-radius": "var(--radius-md)",
-              "box-shadow": "var(--shadow-md)",
-            }}
+          <button
+            type="button"
+            onClick={() => props.onToggleMenu()}
+            aria-label={`Change type of ${props.keyName}`}
+            aria-haspopup="menu"
+            aria-expanded={props.menuOpen}
+            style={{ ...miniButtonStyle(), "font-size": "var(--text-sm)" }}
           >
-            <For each={TYPE_OPTIONS}>
-              {(opt) => (
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => props.onChangeType(opt.kind)}
-                  style={{
-                    "text-align": "left",
-                    padding: "var(--space-1) var(--space-2)",
-                    "font-family": "var(--font-body)",
-                    "font-size": "var(--text-xs)",
-                    color:
-                      opt.kind === props.kind
-                        ? "var(--c-accent)"
-                        : "var(--c-fg-primary)",
-                    background: "transparent",
-                    border: "none",
-                    "border-radius": "var(--radius-sm)",
-                    cursor: "pointer",
-                  }}
-                >
-                  {opt.label}
-                </button>
-              )}
-            </For>
-          </div>
-        </Show>
-      </div>
+            ▾
+          </button>
+          <Show when={props.menuOpen}>
+            <div
+              role="menu"
+              style={{
+                position: "absolute",
+                top: "100%",
+                right: "0",
+                "z-index": "10",
+                display: "flex",
+                "flex-direction": "column",
+                "min-width": "10rem",
+                "max-height": "60vh",
+                "overflow-y": "auto",
+                padding: "var(--space-1)",
+                background: "var(--c-bg-primary)",
+                border: "1px solid var(--c-border-subtle)",
+                "border-radius": "var(--radius-md)",
+                "box-shadow": "var(--shadow-md)",
+              }}
+            >
+              <For each={TYPE_MENU}>
+                {(family) => (
+                  <>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        if (family.leaves.length === 1) {
+                          props.onChangeType(family.leaves[0]!.type);
+                        } else {
+                          props.onOpenFamily(
+                            props.openFamily === family.label
+                              ? null
+                              : family.label,
+                          );
+                        }
+                      }}
+                      style={{
+                        "text-align": "left",
+                        display: "flex",
+                        "justify-content": "space-between",
+                        gap: "var(--space-2)",
+                        padding: "var(--space-1) var(--space-2)",
+                        "font-family": "var(--font-body)",
+                        "font-size": "var(--text-xs)",
+                        color: family.leaves.some((l) =>
+                          sameType(l.type, props.type),
+                        )
+                          ? "var(--c-accent)"
+                          : "var(--c-fg-primary)",
+                        background: "transparent",
+                        border: "none",
+                        "border-radius": "var(--radius-sm)",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <span>{family.label}</span>
+                      <Show when={family.leaves.length > 1}>
+                        <span aria-hidden="true">
+                          {props.openFamily === family.label ? "▾" : "▸"}
+                        </span>
+                      </Show>
+                    </button>
+                    <Show
+                      when={
+                        family.leaves.length > 1 &&
+                        props.openFamily === family.label
+                      }
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          "flex-direction": "column",
+                          "padding-left": "var(--space-3)",
+                        }}
+                      >
+                        <For each={family.leaves}>
+                          {(leaf) => (
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => props.onChangeType(leaf.type)}
+                              style={{
+                                "text-align": "left",
+                                padding: "var(--space-1) var(--space-2)",
+                                "font-family": "var(--font-body)",
+                                "font-size": "var(--text-xs)",
+                                color: sameType(leaf.type, props.type)
+                                  ? "var(--c-accent)"
+                                  : "var(--c-fg-secondary)",
+                                background: "transparent",
+                                border: "none",
+                                "border-radius": "var(--radius-sm)",
+                                cursor: "pointer",
+                              }}
+                            >
+                              {leaf.label}
+                            </button>
+                          )}
+                        </For>
+                      </div>
+                    </Show>
+                  </>
+                )}
+              </For>
+            </div>
+          </Show>
+        </div>
+      </Show>
     </div>
   );
 };
 
 const Properties: Component<PropertiesProps> = (props) => {
-  // Per-doc transient state. `overrides` holds user-chosen cell kinds;
-  // `lossy` holds the pre-coercion value for rows whose last type
-  // change lost information. Both reset when the document changes.
-  const [overrides, setOverrides] = createSignal<Map<string, CellKind>>(
-    new Map(),
-  );
+  // Per-doc transient state. The persisted type registry lives in the
+  // inline comments (`typeMap`); `lossy` holds the pre-coercion value for
+  // rows whose last type change lost information. Reset when the doc
+  // changes. `openFamily` tracks the expanded type-menu submenu.
   const [lossy, setLossy] = createSignal<Map<string, { value: unknown }>>(
     new Map(),
   );
   const [menuKey, setMenuKey] = createSignal<string | null>(null);
+  const [openFamily, setOpenFamily] = createSignal<string | null>(null);
   const [pendingFocusKey, setPendingFocusKey] = createSignal<string | null>(
     null,
   );
@@ -314,9 +477,9 @@ const Properties: Component<PropertiesProps> = (props) => {
     on(
       () => props.path,
       () => {
-        setOverrides(new Map());
         setLossy(new Map());
         setMenuKey(null);
+        setOpenFamily(null);
         setPendingFocusKey(null);
       },
       { defer: true },
@@ -327,6 +490,14 @@ const Properties: Component<PropertiesProps> = (props) => {
   const keys = createMemo(() => entries().map(([k]) => k));
   const entryMap = createMemo(() => new Map(entries()));
 
+  // Inline type comments parsed from the live buffer. Recomputed each AST
+  // tick so raw edits flow back in. Parsed even when the feature is off so
+  // commits preserve existing comments.
+  const typeMap = createMemo(() => {
+    void props.frontmatter;
+    return parseTypeComments(splitFrontmatter(props.getSource()).yaml ?? "");
+  });
+
   // Modelable when there is no frontmatter (we can add it) or the
   // existing block has no comments/anchors/aliases (spec §2.4 / (a)).
   const modelable = createMemo(() => {
@@ -335,9 +506,12 @@ const Properties: Component<PropertiesProps> = (props) => {
     return split.yaml === null || !hasUnmodelableYaml(split.yaml);
   });
 
-  /** Reserialize `nextEntries` and splice the block into the buffer. */
-  const commit = (nextEntries: FrontmatterEntry[]) => {
-    const block = serializeFrontmatter(nextEntries);
+  /** Reserialize `nextEntries` (+ type annotations) and splice in. */
+  const commit = (
+    nextEntries: FrontmatterEntry[],
+    types: Map<string, PropertyType> = typeMap(),
+  ) => {
+    const block = serializeFrontmatter(nextEntries, types, props.dateDefault);
     const source = props.getSource();
     const span = splitFrontmatter(source).span;
     if (span) {
@@ -380,28 +554,38 @@ const Properties: Component<PropertiesProps> = (props) => {
     return true;
   };
 
-  const changeType = (key: string, kind: CellKind) => {
+  const changeType = (key: string, type: PropertyType) => {
     const current = entryMap().get(key);
-    const { value, lossy: isLossy } = coerceValue(current, kind);
-    updateMap(setOverrides, overrides(), key, kind);
-    updateMap(setLossy, lossy(), key, isLossy ? { value: current } : undefined);
+    // Date formats reformat the value; everything else uses coerceValue.
+    const result =
+      type.kind === "date"
+        ? convertDate(current, effectiveFormat(type, props.dateDefault))
+        : coerceValue(current, type.kind);
+    updateMap(
+      setLossy,
+      lossy(),
+      key,
+      result.lossy ? { value: current } : undefined,
+    );
     setMenuKey(null);
+    setOpenFamily(null);
     commit(
       entries().map(
-        ([k, v]): FrontmatterEntry => (k === key ? [k, value] : [k, v]),
+        ([k, v]): FrontmatterEntry => (k === key ? [k, result.value] : [k, v]),
       ),
+      buildAnnotations(typeMap(), key, type),
     );
   };
 
   const revertLossy = (key: string) => {
     const entry = lossy().get(key);
     if (!entry) return;
-    updateMap(setOverrides, overrides(), key, undefined);
     updateMap(setLossy, lossy(), key, undefined);
     commit(
       entries().map(
         ([k, v]): FrontmatterEntry => (k === key ? [k, entry.value] : [k, v]),
       ),
+      buildAnnotations(typeMap(), key, null),
     );
   };
 
@@ -413,8 +597,8 @@ const Properties: Component<PropertiesProps> = (props) => {
     commit([...entries(), [key, ""]]);
   };
 
-  const resolvedKind = (key: string): CellKind =>
-    overrides().get(key) ?? inferType(key, entryMap().get(key));
+  const resolvedType = (key: string): PropertyType =>
+    resolveType(props.typedEnabled, typeMap(), key, entryMap().get(key));
 
   return (
     <section
@@ -490,15 +674,19 @@ const Properties: Component<PropertiesProps> = (props) => {
             <PropertyRow
               keyName={key}
               value={entryMap().get(key)}
-              kind={resolvedKind(key)}
+              type={resolvedType(key)}
+              format={effectiveFormat(resolvedType(key), props.dateDefault)}
               lossyOriginal={lossy().get(key)}
               menuOpen={menuKey() === key}
               autoFocus={pendingFocusKey() === key}
+              typedEnabled={props.typedEnabled}
+              openFamily={openFamily()}
+              onOpenFamily={(label) => setOpenFamily(label)}
               onToggleMenu={() => setMenuKey(menuKey() === key ? null : key)}
               onCloseMenu={() => {
                 if (menuKey() === key) setMenuKey(null);
               }}
-              onChangeType={(kind) => changeType(key, kind)}
+              onChangeType={(type) => changeType(key, type)}
               onCommitValue={(v) => commitValue(key, v)}
               onRename={(next) => renameKey(key, next)}
               onRevertLossy={() => revertLossy(key)}

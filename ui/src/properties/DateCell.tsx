@@ -1,52 +1,85 @@
-import { createEffect, createSignal, on, type Component } from "solid-js";
+import { createEffect, createSignal, on, Show, type Component } from "solid-js";
 
+import { getDateFormat, validateDate } from "./dateFormats";
 import { inputStyle } from "./styles";
 
 /**
- * Date-valued frontmatter cell (L2 Session F, spec §2.4).
- *
- * A native `<input type="date">` — its value format is already
- * `YYYY-MM-DD`, which commits straight back as a YAML plain scalar.
- * While focused, incoming `value` changes are ignored so an AST tick
- * cannot clobber an in-progress edit (decision (d)).
+ * Date-valued frontmatter cell (spec §4b). Renders per the resolved
+ * `format`:
+ *  - `YYYY-MM-DD` → native `<input type=date>`.
+ *  - `YYYY`       → numeric year input (commits a number).
+ *  - others       → text input validated against the format on commit
+ *                   (invalid → reverts to the last committed value).
+ * The committed value is written verbatim in the chosen format.
  */
 export interface DateCellProps {
-  value: string;
-  onCommit: (next: string) => void;
+  value: string | number;
+  format: string;
+  onCommit: (next: string | number) => void;
 }
 
 const DateCell: Component<DateCellProps> = (props) => {
-  const [draft, setDraft] = createSignal(props.value);
+  const [draft, setDraft] = createSignal(String(props.value ?? ""));
   const [focused, setFocused] = createSignal(false);
 
-  // Adopt external value changes only — see StringCell for the
-  // rationale (the focus-change re-run would revert the draft).
   createEffect(
     on(
-      () => props.value,
-      (v) => {
-        if (!focused()) setDraft(v);
+      () => [props.value, props.format] as const,
+      ([v]) => {
+        if (!focused()) setDraft(String(v ?? ""));
       },
     ),
   );
 
+  const def = () => getDateFormat(props.format);
+
   const commit = () => {
-    if (draft() !== props.value) props.onCommit(draft());
+    const text = draft().trim();
+    const numeric = def()?.numeric ?? false;
+    // Empty is allowed (clears the value).
+    if (text !== "" && !validateDate(text, props.format)) {
+      setDraft(String(props.value ?? ""));
+      return;
+    }
+    const next: string | number = numeric && text !== "" ? Number(text) : text;
+    if (next !== props.value) props.onCommit(next);
   };
 
   return (
-    <input
-      type="date"
-      value={draft()}
-      onInput={(e) => setDraft(e.currentTarget.value)}
-      onChange={commit}
-      onFocus={() => setFocused(true)}
-      onBlur={() => {
-        setFocused(false);
-        commit();
-      }}
-      style={inputStyle(focused())}
-    />
+    <Show
+      when={def()?.native}
+      fallback={
+        <input
+          type="text"
+          inputmode={def()?.numeric ? "numeric" : "text"}
+          placeholder={def()?.placeholder ?? props.format}
+          value={draft()}
+          onInput={(e) => setDraft(e.currentTarget.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => {
+            setFocused(false);
+            commit();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+          }}
+          style={inputStyle(focused())}
+        />
+      }
+    >
+      <input
+        type="date"
+        value={draft()}
+        onInput={(e) => setDraft(e.currentTarget.value)}
+        onChange={commit}
+        onFocus={() => setFocused(true)}
+        onBlur={() => {
+          setFocused(false);
+          commit();
+        }}
+        style={inputStyle(focused())}
+      />
+    </Show>
   );
 };
 
