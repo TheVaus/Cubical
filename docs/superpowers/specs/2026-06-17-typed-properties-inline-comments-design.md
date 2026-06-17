@@ -123,18 +123,24 @@ Extend the existing `CellKind` union (`inferType.ts`). Current members
 
 ```
 type CellKind =
-  | "string"          // text
-  | "multiline"       // text/multiline      (NEW)
-  | "int"             // number/int          (NEW)
-  | "float"           // number/float        (NEW)
-  | "currency"        // number/currency     (NEW)
+  | "string"          // text                (inferred or text/plain)
+  | "multiline"       // text/multiline      (NEW, explicit only)
+  | "number"          // generic number      (inferred only — kept)
+  | "int"             // number/int          (NEW, explicit only)
+  | "float"           // number/float        (NEW, explicit only)
+  | "currency"        // number/currency     (NEW, explicit only)
   | "boolean"         // checkbox
   | "date"            // date
-  | "datetime"        // date/datetime       (NEW)
+  | "datetime"        // date/datetime       (NEW, explicit only)
   | "list-of-strings" // list
   | "list-of-tags"    // tags
   | "raw";
 ```
+
+`inferType` still returns only the *inferred* kinds (`string`, `number`,
+`boolean`, `date`, `list-of-strings`, `list-of-tags`, `raw`). The
+explicit-only leaves (`multiline`, `int`, `float`, `currency`, `datetime`)
+arrive solely from a type comment or a menu choice.
 
 A small bidirectional map `CellKind ⇄ comment token` (e.g.
 `kindToToken` / `tokenToKind`) is the single source of grammar truth,
