@@ -56,6 +56,13 @@ This feature makes a property's type **persist with the file** and adds a
 6. **Currency value:** stored as a **bare number** (`price: 9.99`); the
    `$` symbol and formatting are display-only. Currency-ness lives
    entirely in the type comment.
+7. **Date formats:** the `date` type carries an optional **format** (a
+   curated picklist — §4b). The value is stored **in that format**
+   verbatim. The default format is a vault setting
+   (`properties.date_format_default`, default `YYYY-MM-DD`); a property
+   using the default writes a bare `# type:date`, and only a *non-default*
+   format is written inline as `# type:date:<FORMAT>`. Effective format =
+   inline param → vault default → `YYYY-MM-DD`.
 
 ## 4. Storage format — the comment grammar
 
@@ -111,9 +118,52 @@ tags: [draft]                  # type:tags
   flat (`datetime`, `tags`, `list`) for brevity. The parser also **accepts**
   the nested aliases `date/datetime`, `list/tags`, `list/list` so
   hand-written files round-trip, but only the flat form is emitted.
+- **Date format param** (§4b): a non-default date format is encoded as
+  `type:date:<FORMAT>` (e.g. `type:date:DD-MM-YY`). A `date` using the
+  vault default writes a bare `type:date`.
 - **Unknown / malformed tokens** are ignored — the property falls back to
   inference (§6), and the foreign comment is then treated like any other
   foreign comment (§7).
+
+## 4b. Date formats
+
+The `date` type carries an optional **format** drawn from a curated
+picklist. The value is written to the file **in that format**.
+
+| Format token   | Example value | Editor                      | YAML value type |
+| -------------- | ------------- | --------------------------- | --------------- |
+| `YYYY-MM-DD`   | `2026-06-17`  | native `<input type=date>`  | string          |
+| `YYYY`         | `2026`        | number input (year)         | number          |
+| `YYYY-MM`      | `2026-06`     | validated text              | string          |
+| `DD-MM-YYYY`   | `17-06-2026`  | validated text              | string          |
+| `DD-MM-YY`     | `17-06-26`    | validated text              | string          |
+| `MM/DD/YYYY`   | `06/17/2026`  | validated text              | string          |
+| `DD/MM/YYYY`   | `17/06/2026`  | validated text              | string          |
+
+- **Curated, extensible:** each format has a known validation regex,
+  placeholder, and parse/format rule (no date library). The grammar stores
+  the token **verbatim**, so adding a format later is a one-line table
+  change. An **unknown** format token falls back to the vault default
+  (and is otherwise treated like any foreign comment when serializing —
+  see §7.3).
+- **Default lives in settings:** `properties.date_format_default`
+  (string, default `YYYY-MM-DD`; §8b). When a property's format equals the
+  effective default, **no param is written** (bare `# type:date`); only a
+  differing format is written inline. This keeps files clean and lets the
+  vault default re-skin all default-format dates at once.
+- **`YYYY` stores a number:** a year-only date is a bare YAML number
+  (`year: 2026`), which is the natural, portable representation; all other
+  formats are strings.
+- **Editing:** `YYYY-MM-DD` uses the native date picker (its value format
+  already matches). Every other format uses a text input that shows the
+  format as a placeholder and validates against the format's regex on
+  commit (rejects → reverts to the last valid value, like `NumberCell`).
+- **Changing the format** (in the Date submenu, §8) reformats the current
+  value best-effort: the value is parsed against the known formats to
+  recover year/month/day, then re-rendered in the target format. If the
+  target needs a month/day the source lacks (e.g. `YYYY` → `YYYY-MM-DD`),
+  the result is blanked and the lossy-revert chip appears (§8) — no parts
+  are invented.
 
 ## 5. Leaf CellKind union
 
@@ -146,11 +196,32 @@ A small bidirectional map `CellKind ⇄ comment token` (e.g.
 `kindToToken` / `tokenToKind`) is the single source of grammar truth,
 shared by parse and serialize.
 
+### 5.1 PropertyType — kind plus optional format
+
+Because `date` carries a format (§4b), a resolved property type is not a
+bare `CellKind` but a small record:
+
+```
+interface PropertyType {
+  kind: CellKind;
+  /** Date format token; only meaningful when kind is "date". */
+  format?: string;
+}
+```
+
+`parseTypeComments`, the annotation map, and `serializeFrontmatter` all
+key on `PropertyType`. For every kind except `date`, `format` is absent.
+
 ## 6. Resolution: comment wins, else infer
 
 ```
-resolvedKind(key) =
-  (typedEnabled ? parseTypeComment(key) : undefined) ?? inferType(key, value)
+resolvedType(key) =
+  (typedEnabled ? parseTypeComment(key) : undefined)
+    ?? { kind: inferType(key, value) }
+
+// effective date format, when kind === "date":
+effectiveFormat(key) =
+  resolvedType(key).format ?? vaultDefaultFormat ?? "YYYY-MM-DD"
 ```
 
 (When the `properties.typed_enabled` toggle is off, comment-based
@@ -169,7 +240,8 @@ All in `ui/`:
 
 ### 7.1 Parse — `ui/src/ast/frontmatter.ts`
 
-New pure function `parseTypeComments(yaml: string): Map<string, CellKind>`:
+New pure function `parseTypeComments(yaml: string): Map<string, PropertyType>`
+(§5.1):
 
 - Use `parseDocument` (already imported in `serializeFrontmatter.ts`; bring
   it into the parse module or a shared helper).
@@ -177,8 +249,12 @@ New pure function `parseTypeComments(yaml: string): Map<string, CellKind>`:
   and/or value node, match `^\s*type:<token>`, map via `tokenToKind`.
 - Tolerate the future `currency:XXX` form (strip the `:XXX`, treat as
   currency).
-- Malformed / unknown tokens → omit the key from the map (falls back to
-  inference).
+- **Date format param:** `date:<FORMAT>` → `{ kind: "date", format: FORMAT }`
+  when `FORMAT` is a known format token; bare `date` → `{ kind: "date" }`.
+  An unknown format token → `{ kind: "date" }` (falls back to the vault
+  default).
+- Malformed / unknown *kind* tokens → omit the key from the map (falls back
+  to inference).
 
 Value parsing (`parseFrontmatterYaml`) is unchanged.
 
@@ -189,9 +265,10 @@ entries already carrying their kind). It rebuilds the block via the
 **Document API** instead of `stringify(obj)`:
 
 - Build a `YAMLMap`/Document from entries.
-- For each key with a resolved leaf kind that should be persisted, set the
-  appropriate node `.comment` to `' type:<token>'` (leading space
-  per the `yaml` package's convention).
+- For each key with a resolved `PropertyType` that should be persisted, set
+  the appropriate node `.comment` to `' type:<token>'` (leading space
+  per the `yaml` package's convention). For a `date` with a `format`, the
+  token is `date:<FORMAT>`; without one it is bare `date`.
   - Scalar value → comment on the **value** node (`key: val # …`).
   - Block list value → comment on the **key** node (`key: # …`).
 - Serialize `---\n${String(doc)}---\n`.
@@ -220,20 +297,28 @@ only on explicit type choice.)
   - `DateTimeCell` — `datetime-local` input; stores ISO `YYYY-MM-DDTHH:mm`
     string (matches today's date-as-string handling; the default `yaml`
     schema does not auto-parse timestamps, so it stays a string).
+  - `DateCell` becomes **format-aware** (§4b): a `format` prop selects the
+    native `<input type=date>` for `YYYY-MM-DD`, a number input for `YYYY`,
+    or a validated text input (placeholder = the format) for the rest.
   - Multiline → `<textarea>` rendering (can be a mode of `StringCell` or a
     sibling `MultilineCell`).
   - `NumberCell` gains int-vs-float behavior (int rejects/rounds decimals;
     float allows them).
 - **Type menu → nested submenu:** top level = type families
   (Text, Number, Checkbox, Date, List); selecting a family with subtypes
-  opens a submenu (Number → Int / Float / Currency (USD); Text → Plain /
-  Multiline; Date → Date / Date & time; List → List / Tags). Families with
-  a single leaf commit immediately. Keyboard nav + focus-out close behavior
-  must match the existing menu.
-- **Persistence wiring:** `changeType(key, kind)` now (a) records the kind
-  in a persisted set and (b) reserializes so the comment is written, rather
-  than mutating the transient `overrides` signal. `resolvedKind` reads from
-  the parsed comment map first.
+  opens a submenu. Number → Int / Float / Currency (USD); Text → Plain /
+  Multiline; List → List / Tags. **Date** → Date & time, then one leaf per
+  date format (`YYYY-MM-DD` (default), `YYYY`, `YYYY-MM`, `DD-MM-YYYY`,
+  `DD-MM-YY`, `MM/DD/YYYY`, `DD/MM/YYYY`); each format leaf sets
+  `{ kind: "date", format }`. Families with a single leaf commit
+  immediately. Keyboard nav + focus-out close behavior must match the
+  existing menu.
+- **Persistence wiring:** `changeType(key, type)` (where `type` is a
+  `PropertyType`) now (a) records the type in the persisted annotation map
+  and (b) reserializes so the comment is written, rather than mutating the
+  transient `overrides` signal. `resolvedType` reads from the parsed comment
+  map first. The default date format is *not* written inline (bare
+  `# type:date`); a non-default format is.
 - **`coerce.ts`** extended for new conversions (e.g. string↔number for
   currency, date↔datetime, int↔float, scalar↔multiline). Lossy-revert
   behavior (the existing `lossy` warning chip) is preserved.
@@ -244,24 +329,30 @@ The feature is gated by a vault setting and documented inside the Settings
 modal, matching the core-plugin precedent
 (`plugins.dataview_enabled`, `ui/src/settings/corePlugins.ts`).
 
-### 8b.1 Setting key
+### 8b.1 Setting keys
 
-- New boolean key **`properties.typed_enabled`**, added to the `Setting`
-  union in `ui/src/api/ipc.ts`. No backend change: the settings map in
-  `cubical-core` stores arbitrary keys, and the default is applied in TS
-  (`getSetting(...) ?? true`), exactly as `corePluginEnabled` does.
-- **Default: on** (`true`). Safe because nothing is written to a file
-  until the user explicitly picks a type — no comment spray on existing
-  notes.
-- Stored in `.cubical/config.toml` (durable, portable) — not a `ui.*`
-  workspace key — so it routes to the settings file, not the DB.
+Two new keys on the `Setting` union in `ui/src/api/ipc.ts`. No backend
+change: the settings map in `cubical-core` stores arbitrary keys, and
+defaults are applied in TS (`getSetting(...) ?? default`), exactly as
+`corePluginEnabled` does. Both are stored in `.cubical/config.toml`
+(durable, portable) — not `ui.*` workspace keys.
+
+- **`properties.typed_enabled`** (boolean) — **default on** (`true`). Safe
+  because nothing is written to a file until the user explicitly picks a
+  type — no comment spray on existing notes.
+- **`properties.date_format_default`** (string) — **default `YYYY-MM-DD`**.
+  The vault-wide default date format (§4b). Must be one of the curated
+  format tokens; an unrecognized stored value falls back to `YYYY-MM-DD`.
 
 ### 8b.2 Placement — Settings ▸ Editor
 
 Typed properties is an editor feature, not a plugin, so the toggle lives in
 the **Editor** tab (alongside the raw-source default), not under Plugins.
 A labelled switch bound to `properties.typed_enabled`, loaded/hydrated on
-vault open the same way `corePlugins` state is.
+vault open the same way `corePlugins` state is. Directly below it, a
+**Default date format** dropdown (visible/enabled only when typed
+properties are on) bound to `properties.date_format_default`, listing the
+curated format tokens (§4b).
 
 ### 8b.3 In-app docs
 
@@ -276,6 +367,9 @@ works without leaving the app. Copy covers:
   is readable by any tool — nothing is stored outside the vault.
 - How to set it: pick a type from the `▾` menu on a property row; the
   comment is written automatically.
+- Dates: the **Default date format** applies to every date; pick a
+  different format per-property from the Date submenu, and that choice is
+  written inline (`# type:date:DD-MM-YY`).
 - That turning the feature off leaves existing `# type:` comments intact.
 
 The copy is plain Solid markup (no new dependency). A single source string
@@ -298,7 +392,10 @@ To make toggling off non-destructive and non-surprising:
 - Vault-wide registry / consistency across notes.
 - Feeding types into libSQL or making Dataview type-aware.
 - Currencies other than USD.
-- Per-note override of a vault default (no vault default exists).
+- Vault-wide default for a property's *kind* (no kind registry; the only
+  vault-wide default is the date **format**, §4b).
+- Date formats beyond the curated picklist; arbitrary format strings; a
+  date library; locale-aware month names.
 - Rust / `cubical-ast` changes — the Rust frontmatter parser keeps
   ignoring comments; it never needed them and search/index are untouched.
 
@@ -312,6 +409,13 @@ To make toggling off non-destructive and non-surprising:
   (USD cell) without error.
 - **Currency:** stores bare number, displays `$`, edit strips formatting.
 - **Datetime:** ISO string round-trips; not coerced to a Date object.
+- **Date formats:** each curated format validates correct/incorrect values;
+  parse-then-format round-trips; cross-format conversion recovers y/m/d and
+  blanks (lossy) when widening (`YYYY` → `YYYY-MM-DD`); `YYYY` stores a
+  number. Grammar: `type:date:DD-MM-YY` parses to `{kind:"date",
+  format:"DD-MM-YY"}`; an unknown format → `{kind:"date"}`. Serialize omits
+  the param when the format equals the effective default and writes it
+  otherwise. `effectiveFormat` falls back inline → vault default → ISO.
 - **`hasUnmodelableYaml`:** allows `type:<known-token>` comments; still
   flags `type:` with an unknown token, foreign comments, anchors, aliases,
   and mixed.
