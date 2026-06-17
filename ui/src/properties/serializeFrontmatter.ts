@@ -28,6 +28,7 @@ export function serializeFrontmatter(
   entries: FrontmatterEntry[],
   types?: Map<string, PropertyType>,
   dateDefault = "YYYY-MM-DD",
+  currencyDefault = "usd",
 ): string {
   if (entries.length === 0) return "---\n---\n";
   const obj: Record<string, unknown> = {};
@@ -39,7 +40,7 @@ export function serializeFrontmatter(
       if (!isScalar(pair.key)) continue;
       const type = types.get(String(pair.key.value));
       if (!type) continue;
-      const token = typeToToken(type, dateDefault);
+      const token = typeToToken(type, dateDefault, currencyDefault);
       if (!token) continue;
       const comment = ` type:${token}`;
       // Scalar value → comment after the value; block list → on the key

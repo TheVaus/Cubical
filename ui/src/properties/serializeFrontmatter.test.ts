@@ -162,12 +162,25 @@ describe("serializeFrontmatter with type comments", () => {
     const out = serializeFrontmatter(
       [["price", 9.99]],
       new Map<string, PropertyType>([
-        ["price", { kind: "currency", currency: "usd" }],
+        ["price", { kind: "currency", currency: "nis" }],
       ]),
       ISO,
     );
-    expect(out).toContain("# type:float/currency/usd");
+    expect(out).toContain("# type:float/currency/nis");
     expect(out).toContain("price: 9.99");
+  });
+
+  it("omits the currency code when it matches the default", () => {
+    const out = serializeFrontmatter(
+      [["price", 9.99]],
+      new Map<string, PropertyType>([
+        ["price", { kind: "currency", currency: "usd" }],
+      ]),
+      ISO,
+      "usd",
+    );
+    expect(out).toContain("# type:float/currency");
+    expect(out).not.toContain("# type:float/currency/");
   });
 
   it("omits the param for a default-format date, writes it otherwise", () => {

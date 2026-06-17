@@ -5,6 +5,7 @@
  */
 
 import { effectiveDateFormat } from "./dateFormats";
+import { DEFAULT_CURRENCY, isKnownCurrency } from "./format";
 import { inferType } from "./inferType";
 import type { PropertyType } from "./typeComments";
 
@@ -28,6 +29,16 @@ export function effectiveFormat(
   vaultDefault: string | undefined,
 ): string {
   return effectiveDateFormat(type.format, vaultDefault);
+}
+
+/** inline currency → vault default → USD, ignoring unknown codes. */
+export function effectiveCurrency(
+  type: PropertyType,
+  vaultDefault: string | undefined,
+): string {
+  if (isKnownCurrency(type.currency)) return type.currency!.toLowerCase();
+  if (isKnownCurrency(vaultDefault)) return vaultDefault!.toLowerCase();
+  return DEFAULT_CURRENCY;
 }
 
 /**

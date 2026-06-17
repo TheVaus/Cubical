@@ -12,9 +12,15 @@ const CURRENCY_ISO: Record<string, string> = {
   eur: "EUR",
 };
 
+/** Supported lowercase currency codes, in menu/dropdown order. */
+export const CURRENCY_CODES: string[] = Object.keys(CURRENCY_ISO);
+
+/** The fallback currency when none is set. */
+export const DEFAULT_CURRENCY = "usd";
+
 /** Whether a lowercase currency code is supported. */
-export function isKnownCurrency(code: string): boolean {
-  return code in CURRENCY_ISO;
+export function isKnownCurrency(code: string | undefined): boolean {
+  return code !== undefined && code.toLowerCase() in CURRENCY_ISO;
 }
 
 /**

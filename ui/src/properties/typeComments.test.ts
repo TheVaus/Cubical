@@ -19,7 +19,7 @@ describe("parseTypeToken", () => {
     expect(parseTypeToken(" type:list")).toEqual({ kind: "list-of-strings" });
   });
 
-  it("parses currency with a code", () => {
+  it("parses currency with a code, or bare (default)", () => {
     expect(parseTypeToken(" type:float/currency/usd")).toEqual({
       kind: "currency",
       currency: "usd",
@@ -28,6 +28,7 @@ describe("parseTypeToken", () => {
       kind: "currency",
       currency: "nis",
     });
+    expect(parseTypeToken(" type:float/currency")).toEqual({ kind: "currency" });
   });
 
   it("parses enum value sets (numbers stay tokens here)", () => {
@@ -79,6 +80,11 @@ describe("typeToToken", () => {
     expect(typeToToken({ kind: "currency", currency: "nis" }, ISO)).toBe(
       "float/currency/nis",
     );
+    // A currency matching the default (usd) is written bare.
+    expect(typeToToken({ kind: "currency", currency: "usd" }, ISO)).toBe(
+      "float/currency",
+    );
+    expect(typeToToken({ kind: "currency" }, ISO)).toBe("float/currency");
     expect(typeToToken({ kind: "enum", values: ["a", "b"] }, ISO)).toBe(
       "enum(a,b)",
     );
@@ -95,7 +101,7 @@ describe("typeToToken", () => {
       { kind: "string" },
       { kind: "int" },
       { kind: "float" },
-      { kind: "currency", currency: "usd" },
+      { kind: "currency", currency: "nis" },
       { kind: "boolean" },
       { kind: "enum", values: ["alive", "dead"] },
       { kind: "date" },

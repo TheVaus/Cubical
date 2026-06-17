@@ -15,6 +15,7 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import Editor, { type EditorApi } from "./Editor";
 import Properties from "./Properties";
 import { DATE_FORMAT_TOKENS } from "./properties/dateFormats";
+import { CURRENCY_CODES } from "./properties/format";
 import type { CanonicalDocument, Frontmatter } from "./ast/types";
 import {
   createBlockRef,
@@ -203,6 +204,7 @@ const App: Component = () => {
   // open. Absent → enabled / "YYYY-MM-DD".
   const [typedProps, setTypedProps] = createSignal(true);
   const [dateDefault, setDateDefault] = createSignal("YYYY-MM-DD");
+  const [currencyDefault, setCurrencyDefault] = createSignal("usd");
 
   // Conflict banner state — surfaces when an external edit lands on a
   // dirty buffer (spec §2.7). `externalHash` holds the most recent
@@ -730,6 +732,17 @@ const App: Component = () => {
     }
   };
 
+  /** Set the default currency (from Settings ▸ Editor). */
+  const setCurrencyDefaultValue = (val: string) => {
+    setCurrencyDefault(val);
+    const id = vaultId();
+    if (id) {
+      setSetting(id, "properties.default_currency", val).catch((e) => {
+        console.error("persisting properties.default_currency failed", e);
+      });
+    }
+  };
+
   /** Set a core plugin's on/off state and persist to vault settings. */
   const setCorePlugin = (
     id: string,
@@ -1214,6 +1227,15 @@ const App: Component = () => {
       } catch (e) {
         console.error("loading properties.date_format_default failed", e);
       }
+      try {
+        const stored = await getSetting(
+          resp.vault_id,
+          "properties.default_currency",
+        );
+        setCurrencyDefault(stored ?? "usd");
+      } catch (e) {
+        console.error("loading properties.default_currency failed", e);
+      }
 
       // Load each core plugin's enablement (absent ⇒ default).
       {
@@ -1661,6 +1683,7 @@ const App: Component = () => {
                     }
                     typedEnabled={typedProps()}
                     dateDefault={dateDefault()}
+                    currencyDefault={currencyDefault()}
                   />
                 </Show>
                 <Editor
@@ -1920,6 +1943,27 @@ const App: Component = () => {
                     >
                       <For each={DATE_FORMAT_TOKENS}>
                         {(token) => <option value={token}>{token}</option>}
+                      </For>
+                    </select>
+                  </div>
+                  <div class="set-row">
+                    <div>
+                      <div class="set-row__lab">Default currency</div>
+                      <div class="set-row__desc">
+                        Applied to currency properties; override per-property
+                        from the type menu.
+                      </div>
+                    </div>
+                    <select
+                      value={currencyDefault()}
+                      onChange={(e) =>
+                        setCurrencyDefaultValue(e.currentTarget.value)
+                      }
+                    >
+                      <For each={CURRENCY_CODES}>
+                        {(code) => (
+                          <option value={code}>{code.toUpperCase()}</option>
+                        )}
                       </For>
                     </select>
                   </div>

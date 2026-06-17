@@ -105,10 +105,16 @@ topics:                    # type:list
 
 ### 4.1 Currency
 
-`float/currency/<code>`, code required and lowercase. Supported now:
-`usd` ($, ISO USD), `nis` (₪, ISO ILS), `eur` (€, ISO EUR). Unknown code →
-falls back to a plain float render (no crash). The value is always a bare
-float; the code only selects the symbol/format (`Intl.NumberFormat`).
+`float/currency/<code>`, lowercase. Supported now: `usd` ($, ISO USD),
+`nis` (₪, ISO ILS), `eur` (€, ISO EUR). Unknown code → falls back to a
+plain float render (no crash). The value is always a bare float; the code
+only selects the symbol/format (`Intl.NumberFormat`).
+
+Mirroring dates, the **default currency** is a vault setting
+(`properties.default_currency`, default `usd`). A currency matching the
+default is written **bare** (`# type:float/currency`); a differing code is
+written inline (`# type:float/currency/eur`). Effective code = inline →
+vault default → `usd`.
 
 ### 4.2 Enum
 
@@ -227,9 +233,10 @@ Settings ▸ Editor (matching the core-plugin precedent):
 
 - **`properties.typed_enabled`** (boolean, default **on**). Nothing is
   written to a file until a type is explicitly chosen.
-- **`properties.date_format_default`** (string, default `YYYY-MM-DD`),
-  shown as a dropdown (visible when typed properties are on) over the
-  curated format tokens. Both keys live in `.cubical/config.toml`; defaults
+- **`properties.date_format_default`** (string, default `YYYY-MM-DD`) and
+  **`properties.default_currency`** (string, default `usd`), shown as
+  dropdowns (visible when typed properties are on) over the curated format
+  tokens / currency codes. All keys live in `.cubical/config.toml`; defaults
   applied in TS (`getSetting(...) ?? default`); no backend change.
 - A help block documents the `# type:` format, that it lives in the note and
   is portable, how to set a type, and that turning the feature off leaves

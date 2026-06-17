@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { PropertyType } from "./typeComments";
 import {
   buildAnnotations,
+  effectiveCurrency,
   effectiveFormat,
   resolveType,
 } from "./propertiesLogic";
@@ -28,6 +29,19 @@ describe("effectiveFormat", () => {
     );
     expect(effectiveFormat({ kind: "date" }, "YYYY")).toBe("YYYY");
     expect(effectiveFormat({ kind: "date" }, undefined)).toBe("YYYY-MM-DD");
+  });
+});
+
+describe("effectiveCurrency", () => {
+  it("prefers the type's code, then the vault default, then USD", () => {
+    expect(effectiveCurrency({ kind: "currency", currency: "eur" }, "nis")).toBe(
+      "eur",
+    );
+    expect(effectiveCurrency({ kind: "currency" }, "nis")).toBe("nis");
+    expect(effectiveCurrency({ kind: "currency" }, undefined)).toBe("usd");
+    expect(effectiveCurrency({ kind: "currency", currency: "xyz" }, "bad")).toBe(
+      "usd",
+    );
   });
 });
 

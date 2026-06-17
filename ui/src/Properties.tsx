@@ -31,6 +31,7 @@ import {
 } from "./properties/typeComments";
 import {
   buildAnnotations,
+  effectiveCurrency,
   effectiveFormat,
   resolveType,
 } from "./properties/propertiesLogic";
@@ -128,6 +129,8 @@ export interface PropertiesProps {
   typedEnabled: boolean;
   /** Vault default date format (`properties.date_format_default`). */
   dateDefault: string;
+  /** Vault default currency code (`properties.default_currency`). */
+  currencyDefault: string;
 }
 
 interface RowProps {
@@ -135,6 +138,7 @@ interface RowProps {
   value: unknown;
   type: PropertyType;
   format: string;
+  currency: string;
   lossyOriginal: { value: unknown } | undefined;
   menuOpen: boolean;
   autoFocus: boolean;
@@ -181,6 +185,15 @@ const PropertyRow: Component<RowProps> = (props) => {
     if (keyDraft() === props.keyName) return;
     const ok = props.onRename(keyDraft());
     if (!ok) setKeyDraft(props.keyName);
+  };
+
+  // Highlight a menu leaf as active. Currency compares the effective code
+  // (the active type may be the bare, default-currency form).
+  const leafActive = (leafType: PropertyType): boolean => {
+    if (leafType.kind === "currency" && props.type.kind === "currency") {
+      return leafType.currency === props.currency;
+    }
+    return sameType(leafType, props.type);
   };
 
   return (
@@ -246,7 +259,7 @@ const PropertyRow: Component<RowProps> = (props) => {
         <Show when={props.type.kind === "currency"}>
           <CurrencyCell
             value={typeof props.value === "number" ? props.value : 0}
-            currency={props.type.currency ?? "usd"}
+            currency={props.currency}
             onCommit={(v) => props.onCommitValue(v)}
           />
         </Show>
@@ -375,9 +388,7 @@ const PropertyRow: Component<RowProps> = (props) => {
                         padding: "var(--space-1) var(--space-2)",
                         "font-family": "var(--font-body)",
                         "font-size": "var(--text-xs)",
-                        color: family.leaves.some((l) =>
-                          sameType(l.type, props.type),
-                        )
+                        color: family.leaves.some((l) => leafActive(l.type))
                           ? "var(--c-accent)"
                           : "var(--c-fg-primary)",
                         background: "transparent",
@@ -417,7 +428,7 @@ const PropertyRow: Component<RowProps> = (props) => {
                                 padding: "var(--space-1) var(--space-2)",
                                 "font-family": "var(--font-body)",
                                 "font-size": "var(--text-xs)",
-                                color: sameType(leaf.type, props.type)
+                                color: leafActive(leaf.type)
                                   ? "var(--c-accent)"
                                   : "var(--c-fg-secondary)",
                                 background: "transparent",
@@ -495,7 +506,12 @@ const Properties: Component<PropertiesProps> = (props) => {
     nextEntries: FrontmatterEntry[],
     types: Map<string, PropertyType> = typeMap(),
   ) => {
-    const block = serializeFrontmatter(nextEntries, types, props.dateDefault);
+    const block = serializeFrontmatter(
+      nextEntries,
+      types,
+      props.dateDefault,
+      props.currencyDefault,
+    );
     const source = props.getSource();
     const span = splitFrontmatter(source).span;
     if (span) {
@@ -684,6 +700,7 @@ const Properties: Component<PropertiesProps> = (props) => {
               value={entryMap().get(key)}
               type={resolvedType(key)}
               format={effectiveFormat(resolvedType(key), props.dateDefault)}
+              currency={effectiveCurrency(resolvedType(key), props.currencyDefault)}
               lossyOriginal={lossy().get(key)}
               menuOpen={menuKey() === key}
               autoFocus={pendingFocusKey() === key}

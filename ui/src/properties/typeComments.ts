@@ -46,9 +46,10 @@ export function parseTypeToken(
   if (raw === "boolean") return { kind: "boolean" };
   if (raw === "list") return { kind: "list-of-strings" };
 
+  if (raw === "float/currency") return { kind: "currency" };
   if (raw.startsWith("float/currency/")) {
     const code = raw.slice("float/currency/".length).trim().toLowerCase();
-    return { kind: "currency", currency: code || "usd" };
+    return code ? { kind: "currency", currency: code } : { kind: "currency" };
   }
   if (raw.startsWith("enum(") && raw.endsWith(")")) {
     const inner = raw.slice("enum(".length, -1);
@@ -81,6 +82,7 @@ export function isTypeComment(comment: string | null | undefined): boolean {
 export function typeToToken(
   type: PropertyType,
   defaultFormat: string,
+  defaultCurrency = "usd",
 ): string | null {
   switch (type.kind) {
     case "string":
@@ -90,7 +92,10 @@ export function typeToToken(
     case "float":
       return "float";
     case "currency":
-      return `float/currency/${type.currency ?? "usd"}`;
+      // A currency matching the vault default is written bare, like dates.
+      return type.currency && type.currency !== defaultCurrency
+        ? `float/currency/${type.currency}`
+        : "float/currency";
     case "boolean":
       return "boolean";
     case "enum":
