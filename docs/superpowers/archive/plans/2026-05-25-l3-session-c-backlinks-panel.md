@@ -12,11 +12,11 @@
 
 ## Spec references
 
-- [`docs/layer-3-spec.md`](../../layer-3-spec.md) §1 goal 3, §2.3 (Backlinks panel + right sidebar), §3.1 (`get_backlinks`), §3.5 (`vault:index-changed` — *not* shipped this session), §4 (frontend file map), §5 deviation #4, §8 Session C, §9.1 + §9.2 (what landed in A and B).
-- [`docs/architecture/ui.md`](../../architecture/ui.md) §11.1 (right sidebar in the locked layout), §11.4 (CSS-variable token surface — every new UI surface consumes tokens).
-- [`docs/conventions.md`](../../conventions.md) — `cargo fmt` + `cargo clippy -- -D warnings`, strict TS, no `any`, no `unwrap` outside tests/`main`, Conventional Commits.
-- L3 Session A query module ([`crates/cubical-index/src/links.rs`](../../../crates/cubical-index/src/links.rs)) — `LinkRow`, `replace_links_for_file`, `links_to` (callers: tests only).
-- L3 Session A `resolve_link` handler shape ([`crates/cubical-app/src/commands/links.rs`](../../../crates/cubical-app/src/commands/links.rs)) — mirror its pure-handler structure.
+- [`docs/layer-3-spec.md`](../../../layer-3-spec.md) §1 goal 3, §2.3 (Backlinks panel + right sidebar), §3.1 (`get_backlinks`), §3.5 (`vault:index-changed` — *not* shipped this session), §4 (frontend file map), §5 deviation #4, §8 Session C, §9.1 + §9.2 (what landed in A and B).
+- [`docs/architecture/ui.md`](../../../architecture/ui.md) §11.1 (right sidebar in the locked layout), §11.4 (CSS-variable token surface — every new UI surface consumes tokens).
+- [`docs/conventions.md`](../../../conventions.md) — `cargo fmt` + `cargo clippy -- -D warnings`, strict TS, no `any`, no `unwrap` outside tests/`main`, Conventional Commits.
+- L3 Session A query module ([`crates/cubical-index/src/links.rs`](../../../../crates/cubical-index/src/links.rs)) — `LinkRow`, `replace_links_for_file`, `links_to` (callers: tests only).
+- L3 Session A `resolve_link` handler shape ([`crates/cubical-app/src/commands/links.rs`](../../../../crates/cubical-app/src/commands/links.rs)) — mirror its pure-handler structure.
 - L3 Session B `App.tsx` navigation flow — `handleSelectFile` / `handleNavigateWikilink` (the seam a row click reuses).
 
 ---

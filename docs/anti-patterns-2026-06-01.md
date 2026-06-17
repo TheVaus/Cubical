@@ -9,9 +9,12 @@ investigated for documented intent; none of the four has a recorded
 "considered alternative X, rejected for reason Y" trail in the L3 plans
 or specs.
 
-State at time of survey: `main` at `9d7e93e` (L3 closed, `l3` tag);
-gates green at 406 Rust + 352 vitest. Re-validate against current
-`main` before any fix work — the citations below may drift.
+Surveyed `main` at `9d7e93e` (L3 closed). **Re-validated 2026-06-17
+(`feat/typed-properties`): all four are still open and unfixed.** Line
+numbers have drifted since the survey — the **symbol names** in each
+*Where* block are the stable anchors (e.g. `refresh_block_refs_for_file`
+is now `scan.rs:406`, the decoration `tree.iterate` calls are
+`decorations.ts:246`/`589`). Re-grep the symbol before fix work.
 
 ---
 
@@ -23,7 +26,7 @@ gates green at 406 Rust + 352 vitest. Re-validate against current
 
 **The smell.** Classic N+1 read. Pass 2 already has every source file in memory (the `pending_links` buffer) and is sitting inside its own transaction (`link_tx`). Inside that loop, the helper goes back to the DB once per file to ask "what are this file's block-anchored links?" — when one sweep `SELECT source_path, target_path, anchor_value FROM links WHERE anchor_kind='block' AND target_path IS NOT NULL AND anchor_value IS NOT NULL ORDER BY source_path` plus a streaming group-by-source gives the same answer in one round-trip.
 
-**Intent.** Session G plan ([`docs/superpowers/plans/2026-05-28-l3-session-g-block-references.md`](superpowers/plans/2026-05-28-l3-session-g-block-references.md) §Architecture, Task surface lines 67–69) deliberately designs `refresh_block_refs_for_file` as **one helper shared between scan Pass 2 and the watcher's single-file path**. That sharing is the recorded rationale. But the §5.6 scan-resolution fix landed the *same day* (2026-05-28) with the explicit insight that "the bulk scan should not re-query per file" — and Session G's plan never references §5.6 or asks whether bulk-derive belongs in Pass 2. The codebase therefore contradicts itself: §5.6 rejects this shape, Session G reintroduces it.
+**Intent.** Session G plan ([`docs/superpowers/archive/plans/2026-05-28-l3-session-g-block-references.md`](superpowers/archive/plans/2026-05-28-l3-session-g-block-references.md) §Architecture, Task surface lines 67–69) deliberately designs `refresh_block_refs_for_file` as **one helper shared between scan Pass 2 and the watcher's single-file path**. That sharing is the recorded rationale. But the §5.6 scan-resolution fix landed the *same day* (2026-05-28) with the explicit insight that "the bulk scan should not re-query per file" — and Session G's plan never references §5.6 or asks whether bulk-derive belongs in Pass 2. The codebase therefore contradicts itself: §5.6 rejects this shape, Session G reintroduces it.
 
 **Recommended shape.** Keep `refresh_block_refs_for_file` for the watcher (single-file callers genuinely need per-file semantics). Add a sibling `derive_all_block_refs_in_tx(&link_tx) -> Result<(), …>` that scan Pass 2 calls once after the link writes, replacing the per-file call at `scan.rs:342`. The watcher path is unchanged.
 
@@ -40,7 +43,7 @@ gates green at 406 Rust + 352 vitest. Re-validate against current
 
 **The smell.** CM6 documents `tree.iterate` accepting `{ from, to }` precisely so decoration providers stay viewport-bounded — Marijn's published example code is clear that unbounded iterate-from-root is for AST consumers (indexing, parsers), not for decoration plugins. The `findBlockIds` doc-wide line scan is the same smell in a different idiom. Decorations outside `view.visibleRanges` are never painted, so any work spent iterating them is wasted by construction. On a 5k-line note this is tens of thousands of needless node visits per keystroke and cursor move.
 
-**Intent.** L2 Session B plan ([`docs/superpowers/plans/2026-05-25-l3-session-b-wikilink-live-preview.md`](superpowers/plans/2026-05-25-l3-session-b-wikilink-live-preview.md) lines 118–134 and 995) shows the example code using `tree.iterate({ enter })` without a range, and every subsequent session (D Tag rule, G `^id` decoration) extended that exact shape. L2 spec §9.2 line 528 describes the plugin as "recomputes the entry list on every relevant update" without specifying scope. Grepped every L3 plan + spec for `visibleRanges`, `viewport`, "full tree", "entire tree" — zero hits in any design discussion. CM6's simpler official examples sometimes do iterate without range, so it's a plausible carry-over from those — but it was never re-evaluated for scale.
+**Intent.** L2 Session B plan ([`docs/superpowers/archive/plans/2026-05-25-l3-session-b-wikilink-live-preview.md`](superpowers/archive/plans/2026-05-25-l3-session-b-wikilink-live-preview.md) lines 118–134 and 995) shows the example code using `tree.iterate({ enter })` without a range, and every subsequent session (D Tag rule, G `^id` decoration) extended that exact shape. L2 spec §9.2 line 528 describes the plugin as "recomputes the entry list on every relevant update" without specifying scope. Grepped every L3 plan + spec for `visibleRanges`, `viewport`, "full tree", "entire tree" — zero hits in any design discussion. CM6's simpler official examples sometimes do iterate without range, so it's a plausible carry-over from those — but it was never re-evaluated for scale.
 
 **Recommended shape.** Push viewport-scoping down into a single helper that all three sites use:
 
@@ -70,7 +73,7 @@ Same shape for `findBlockIds` — `view.visibleRanges` → derive `startLn`/`end
 
 **The smell.** Five separate `DELETE ... WHERE owner = ?` + `for r in rows { c.execute("INSERT … VALUES (?,?,?)") }` pairs. libSQL/SQLite supports multi-row `INSERT … VALUES (...), (...), …` (and prepared-statement reuse inside the loop), both of which collapse N statements into 1. For `Big.md` in the K smoke vault (51 links) the scan currently fires 52 statements where a single multi-row INSERT does the same work in one. Multiplied across the scan's per-file (frontmatter + links + tags + blocks) refreshes, the constant factor is real.
 
-**Intent.** Session A plan ([`docs/superpowers/plans/2026-05-23-l3-session-a-wikilink-parsing.md`](superpowers/plans/2026-05-23-l3-session-a-wikilink-parsing.md) line ~1645) literally specifies the single-row form. Every later table-introducing session (D, G, J) copied that model — the `replace_links_for_file` doc-comment even says "mirrors `refresh_frontmatter`," documenting the propagation explicitly. The implicit rationale floating in the doc-comments is "DELETE + INSERTs execute directly on the caller's connection so they participate in any outer transaction" — true, but multi-row VALUES participates in the outer tx just as well. The single-row form was set as the pattern at A and inherited without re-examination.
+**Intent.** Session A plan ([`docs/superpowers/archive/plans/2026-05-23-l3-session-a-wikilink-parsing.md`](superpowers/archive/plans/2026-05-23-l3-session-a-wikilink-parsing.md) line ~1645) literally specifies the single-row form. Every later table-introducing session (D, G, J) copied that model — the `replace_links_for_file` doc-comment even says "mirrors `refresh_frontmatter`," documenting the propagation explicitly. The implicit rationale floating in the doc-comments is "DELETE + INSERTs execute directly on the caller's connection so they participate in any outer transaction" — true, but multi-row VALUES participates in the outer tx just as well. The single-row form was set as the pattern at A and inherited without re-examination.
 
 **Recommended shape.** A single helper at the `cubical-index` level — `bulk_insert(conn, table, columns, rows, chunk_size)` that builds the `VALUES (...), (...)` string with a bounded chunk (SQLite caps at ~32k parameters per statement, so chunk at ~500 rows × column count). Every `replace_*_for_file` becomes `DELETE + bulk_insert(...)`. Or, if a generic helper feels too much: rewrite each of the five sites to materialize one chunked multi-row INSERT, keeping the per-table shape.
 
@@ -89,7 +92,7 @@ Optional separate improvement at the same sites: drop the `r.target_raw.clone()`
 
 **The smell.** The canonical async anti-pattern: a `for`-loop that `await`s one independent unit of I/O at a time when nothing forces serialization. `futures::stream::iter(xs).map(|x| async move { f(x).await }).buffer_unordered(K)` is the textbook replacement when the work items don't share mutable state. In all three sites the items genuinely don't — each candidate file in the mentions scan reads its own bytes and pushes into a final `Vec` that gets sorted once at the end; each flush target reads its own referrer file, applies its own materialize, atomic-writes its own bytes.
 
-**Intent.** Grepped every L3 plan + spec for `buffer_unordered`, `join_all`, `FuturesUnordered`, `stream::iter`, "concurrent", "parallel" — **zero hits anywhere**. Session I's plan (`docs/superpowers/plans/2026-05-30-l3-session-i-unlinked-mentions.md`) — which matters most because L3 spec §2.9 itself flags I as "the most perf-sensitive L3 surface" — designs the scan as a straight `for path in candidates { ... .await }` loop with no discussion of concurrency. Same straight-line shape inherited into J's flush. Not deferred, not weighed — never on the design table.
+**Intent.** Grepped every L3 plan + spec for `buffer_unordered`, `join_all`, `FuturesUnordered`, `stream::iter`, "concurrent", "parallel" — **zero hits anywhere**. Session I's plan (`docs/superpowers/archive/plans/2026-05-30-l3-session-i-unlinked-mentions.md`) — which matters most because L3 spec §2.9 itself flags I as "the most perf-sensitive L3 surface" — designs the scan as a straight `for path in candidates { ... .await }` loop with no discussion of concurrency. Same straight-line shape inherited into J's flush. Not deferred, not weighed — never on the design table.
 
 **Recommended shape.** For each of the three sites:
 

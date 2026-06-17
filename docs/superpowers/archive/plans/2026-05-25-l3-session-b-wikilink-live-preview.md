@@ -12,8 +12,8 @@
 
 ## Spec references
 
-- [`docs/layer-3-spec.md`](../../layer-3-spec.md) §1 goal 2, §2.2 (Live Preview + navigation), §3.1 (`resolve_link`), §4 (frontend file map), §5 deviation #1 (parsing extends two parsers), §8 Session B, §9.1 (what Session A landed).
-- [`docs/architecture/document-model.md`](../../architecture/document-model.md) §5.2 (wiki-links) and §5.5 ("Editor decorations are a sanctioned exception" paragraph — the load-bearing licence for Live Preview reading Lezer directly).
+- [`docs/layer-3-spec.md`](../../../layer-3-spec.md) §1 goal 2, §2.2 (Live Preview + navigation), §3.1 (`resolve_link`), §4 (frontend file map), §5 deviation #1 (parsing extends two parsers), §8 Session B, §9.1 (what Session A landed).
+- [`docs/architecture/document-model.md`](../../../architecture/document-model.md) §5.2 (wiki-links) and §5.5 ("Editor decorations are a sanctioned exception" paragraph — the load-bearing licence for Live Preview reading Lezer directly).
 - L2 Session E raw-source toggle: `ui/src/editor/rawSource.ts` + `ui/src/Editor.tsx`'s `decorationCompartment`.
 - L1 parity contract: `crates/cubical-ast/tests/fixtures/parity.json` + `ui/src/ast/parity.test.ts` — Session B does **not** touch the normalizer or the parity fixtures. The editor's Lezer parser and the AST-side Lezer parser remain distinct (see §5.5 deviation already sanctioned in Session A); the editor extension installed here does not propagate to `ui/src/ast/normalize.ts`.
 

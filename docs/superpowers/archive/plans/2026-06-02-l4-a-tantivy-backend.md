@@ -13,10 +13,10 @@
 ## Spec references
 
 - [`docs/superpowers/specs/2026-06-02-l4-a-tantivy-design.md`](../specs/2026-06-02-l4-a-tantivy-design.md) — the full L4-A design (commits `87dc646` + `8f0a947`).
-- [`docs/architecture/foundation.md`](../../architecture/foundation.md) §36 (Tantivy lock-in).
-- [`docs/architecture/ui.md`](../../architecture/ui.md) §9, §61 (search panel + cross-vault carve-out).
-- [`docs/layer-3-spec.md`](../../layer-3-spec.md) §5.5, §5.6, §5.7 (materialize-on-read; per-file 4-parse precedent).
-- [`docs/build-order.md`](../../build-order.md) line 9 (L4 scope).
+- [`docs/architecture/foundation.md`](../../../architecture/foundation.md) §36 (Tantivy lock-in).
+- [`docs/architecture/ui.md`](../../../architecture/ui.md) §9, §61 (search panel + cross-vault carve-out).
+- [`docs/layer-3-spec.md`](../../../layer-3-spec.md) §5.5, §5.6, §5.7 (materialize-on-read; per-file 4-parse precedent).
+- [`docs/build-order.md`](../../../build-order.md) line 9 (L4 scope).
 
 ---
 

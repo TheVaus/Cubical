@@ -12,8 +12,8 @@
 
 ## Spec references
 
-- [`docs/layer-3-spec.md`](../../layer-3-spec.md) §1 goal 1, §2.1, §3.1, §4, §5 deviations #1–2, §8 Session A.
-- [`docs/architecture/document-model.md`](../../architecture/document-model.md) §5.2 (wiki-links), §5.5 (canonical AST, "Editor decorations are a sanctioned exception" paragraph).
+- [`docs/layer-3-spec.md`](../../../layer-3-spec.md) §1 goal 1, §2.1, §3.1, §4, §5 deviations #1–2, §8 Session A.
+- [`docs/architecture/document-model.md`](../../../architecture/document-model.md) §5.2 (wiki-links), §5.5 (canonical AST, "Editor decorations are a sanctioned exception" paragraph).
 - L1 parity harness: `crates/cubical-ast/tests/fixtures/parity.json` (load-bearing) + `crates/cubical-ast/tests/parity_fixtures.rs` (Rust runner) + `ui/src/ast/parity.test.ts` (TS runner).
 
 ---

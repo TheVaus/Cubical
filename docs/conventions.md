@@ -25,7 +25,8 @@ Code-style rules enforced by review and (where noted) by tooling. Load this when
 
 - `cubical-core`, `cubical-ast`, `cubical-index` have unit tests.
 - The app crate has integration tests against a temp vault.
-- UI tests deferred until L3+.
+- UI has vitest coverage (live since L3). Current gate counts live in
+  `CLAUDE.md`'s Tests block.
 
 ## Commits
 
@@ -52,4 +53,4 @@ Code-style rules enforced by review and (where noted) by tooling. Load this when
 
 - Every public Rust item has rustdoc.
 - Every Tauri command has a doc comment.
-- The architecture docs in [`architecture/`](architecture/) and layer specs in `layer-N-spec.md` are the canonical reference; if code disagrees with a spec, the spec wins until explicitly updated.
+- The architecture docs in [`architecture/`](architecture/) and layer specs in `layer-N-spec.md` are the canonical reference. The doc-wins-over-code precedence rule is owned by [`architecture/README.md`](architecture/README.md).

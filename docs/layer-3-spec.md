@@ -38,23 +38,7 @@ Wiki-links are not CommonMark. L3 extends parsing on two fronts (see §5 deviati
 - **Rust `cubical-ast` parser** — emits the `WikiLink { target, display, anchor, embed }` node (the variant already exists in the canonical AST, `document-model.md` §5.5). This path feeds the index.
 - **Lezer editor grammar** — a custom inline parser rule so the editor's syntax tree carries wiki-link nodes for decorations (Session B) and so the TS normalizer keeps L1 parity.
 
-The **link index** is a new libSQL table. `document-model.md` §5.2 names "the link index" but does not lock its columns; L3 defines them (§3.1, §5 deviation #2):
-
-```sql
-CREATE TABLE links (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    source_path   TEXT NOT NULL,        -- vault-relative file containing the link
-    target_raw    TEXT NOT NULL,        -- the [[…]] target exactly as written
-    target_path   TEXT,                 -- resolved vault-relative path; NULL = unresolved
-    anchor_kind   TEXT,                 -- NULL | 'heading' | 'block'
-    anchor_value  TEXT,                 -- heading text or block-id slug; NULL if no anchor
-    display_text  TEXT,                 -- NULL unless [[target|display]]
-    is_embed      INTEGER NOT NULL,     -- 0 | 1  (![[…]] sets 1)
-    position      INTEGER NOT NULL      -- byte offset in source, for ordering + context
-);
-CREATE INDEX idx_links_source ON links(source_path);
-CREATE INDEX idx_links_target ON links(target_path);
-```
+The **link index** is a new libSQL table. `document-model.md` §5.2 names "the link index" but did not lock its columns; L3 defined them (§3.1, §5 deviation #2) and the schema was promoted at L3 close — it now lives, canonically, in `document-model.md` §5.2 (table `links` + `idx_links_source`/`idx_links_target`).
 
 **Resolution.** A `target_raw` resolves to a file by: exact vault-relative path, then case-insensitive basename match, then unique path-suffix match. Ambiguous or missing → `target_path` stays `NULL` (unresolved). Resolution runs during vault scan and incrementally on file-change.
 
@@ -72,17 +56,7 @@ L2 §22 deferred the right sidebar to L3. L3 introduces the **right-sidebar shel
 
 Two declaration sources, one index (`document-model.md` §5.6): inline `#tag` (must follow whitespace/line-start; excluded inside fenced code, inline code, link targets, and wiki-link targets) and frontmatter `tags: [a, b/c]`. Both the Rust and Lezer parsers gain tag recognition. Nesting uses `/`. Matching is case-insensitive; display is case-preserving (first-seen casing wins). Tags decorate in Live Preview as accent-coloured `#chips`.
 
-The `tags` table is exactly the locked schema (`document-model.md` §5.6):
-
-```sql
-CREATE TABLE tags (
-    file_path TEXT NOT NULL,
-    tag_path  TEXT NOT NULL,
-    source    TEXT NOT NULL,            -- 'inline' | 'frontmatter'
-    PRIMARY KEY (file_path, tag_path, source)
-);
-CREATE INDEX idx_tags_path ON tags(tag_path);
-```
+The `tags` table is exactly the locked schema in `document-model.md` §5.6.
 
 ### 2.5 Virtual tag pages
 
@@ -94,14 +68,7 @@ Per `ui.md` §11.2. Typing `[[` opens a link-autocomplete dropdown over the vaul
 
 ### 2.7 Block references
 
-A block ID is a user-slug `^id` appended to a paragraph or list item. **Lazy assignment** (`document-model.md` §5.3): an ID is minted only when the user creates a reference to that block — never bulk auto-assigned. Minting writes the literal `^id` into the markdown source (content, not file-identity — this does **not** violate the no-UUID-before-L7 non-negotiable; see §5 deviation #3). The `blocks` and `block_refs` tables are the locked schema:
-
-```sql
-blocks(file_path, block_id, position_hint, last_modified)
-block_refs(source_file_path, target_file_path, target_block_id)
-```
-
-`[[note#^id]]` resolves through these. Broken block refs (target paragraph or ID deleted) surface alongside broken wiki-links in the vault-health status-bar item.
+A block ID is a user-slug `^id` appended to a paragraph or list item. **Lazy assignment** (`document-model.md` §5.3): an ID is minted only when the user creates a reference to that block — never bulk auto-assigned. Minting writes the literal `^id` into the markdown source (content, not file-identity — this does **not** violate the no-UUID-before-L7 non-negotiable; see §5 deviation #3). The `blocks` and `block_refs` tables are the locked schema in `document-model.md` §5.3. `[[note#^id]]` resolves through these. Broken block refs (target paragraph or ID deleted) surface alongside broken wiki-links in the vault-health status-bar item.
 
 ### 2.8 Embeds
 
@@ -186,7 +153,7 @@ New Rust: **incremental `crates/cubical-index` migrations** — each table-intro
 4. **Right sidebar lands in L3.** `ui.md` §11.1 already specifies it; L3 builds the shell. Not a new decision — first construction.
 5. **Scan parses each markdown file 3× (frontmatter + links + tags).** L1's `refresh_frontmatter`, Session A's `refresh_links`, and Session D's `refresh_tags` each call their own `parse_off_executor` against the same `.md` path during the initial scan loop in `crates/cubical-core/src/vault/scan.rs` — every markdown file is read and fully parsed three times (four reads counting the content-hash pass). Confirmed at scale **2026-05-28** on a 30,000-file / 124 MB vault (`~/Developer/sandbox/cubical-cancel-test`). Functionally correct; a ~3–4× constant-factor waste. The right fix is a single shared `Document` parse fed to all three refresh paths, mirrored in the watcher's per-file write path. **Deliberately deferred to the L5 perf pass** (build-order item 5): it ripples through `cubical-core`'s public surface, and Sessions F–K (blocks, embeds, unlinked-mentions) each add new scan consumers — doing the shared-parse refactor before that consumer set is frozen means redoing it repeatedly. *Cost/benefit:* a constant ~3–4× factor that only becomes the bottleneck once §5.6 is fixed, against a real API-ripple + rework cost — not worth doing mid-L3. This is the **secondary** scan-cost issue; the dominant one is §5.6, which the L5 parse-count fix would **not** address.
 
-6. **Bulk scan resolved wiki-links in O(N²) — a defect, not an accepted deviation. Fixed 2026-05-28.** Discovered **2026-05-28** (same 30k-file vault; Obsidian loaded it by a wide margin faster). *Root cause:* `refresh_links` was written for the **single-file** watcher path — load the full `files.path` set once via `list_known_paths`, then `resolve_target` (a linear scan) for each link. The initial bulk scan loop reuses that single-file helper **unchanged, once per file**, so `list_known_paths` re-runs N times against a table that grows to N rows (≈ N²/2 row materializations) and every link does a linear scan over up to N paths. For N=30,000 this is the dominant cost — minutes, not seconds. It is also partly **incorrect**: a file walked before its link target can't resolve it (forward reference → `target_path = NULL` until a later rescan). This was never planned or recorded — distinct from §5.5, and **the L5 parse-count fix would leave the quadratic intact**. *Why fix now, not at L5:* `foundation.md` principle #2 holds performance as a foundational requirement (not a polish item), Sessions F–K would compound the defect, and the fix is cheap + localized + correctness-improving. *Cost/benefit:* O(N²)→O(N) (minutes→seconds) for a localized change with **no public-API churn** (the watcher path and `resolve_target` semantics are preserved) — clearly worth it. *Fix (landed 2026-05-28):* the bulk scan is now two passes. Pass 1 (the existing walk) hashes, upserts `files`, refreshes frontmatter + tags, and *buffers* extracted link occurrences in memory via the new `extract_links_off_executor` (parse + extract, no resolve/no DB write). Pass 2 runs once after the walk: it loads the now-complete `files.path` set, builds a `PathResolver` index once, resolves every buffered link in O(1) common-case (O(N) build), and writes the `links` rows in batched transactions. `PathResolver` (exact + basename hash maps; linear suffix fallback only when the first two stages miss) preserves `resolve_target`'s semantics byte-for-byte — `resolve_target` now delegates to it, so the single-file watcher path is unchanged. This also fixes the forward-reference incorrectness (links resolve on the first scan regardless of walk order). Smoke: the 30k-file / 124 MB vault now scans in ~10 s (was multi-minute) — the O(N²) is gone; the residual time is dominated by the still-deferred §5.5 triple-parse + content hashing. Plan: `docs/superpowers/plans/2026-05-28-l3-scan-resolution-perf-fix.md`.
+6. **Bulk scan resolved wiki-links in O(N²) — a defect, not an accepted deviation. Fixed 2026-05-28.** Discovered **2026-05-28** (same 30k-file vault; Obsidian loaded it by a wide margin faster). *Root cause:* `refresh_links` was written for the **single-file** watcher path — load the full `files.path` set once via `list_known_paths`, then `resolve_target` (a linear scan) for each link. The initial bulk scan loop reuses that single-file helper **unchanged, once per file**, so `list_known_paths` re-runs N times against a table that grows to N rows (≈ N²/2 row materializations) and every link does a linear scan over up to N paths. For N=30,000 this is the dominant cost — minutes, not seconds. It is also partly **incorrect**: a file walked before its link target can't resolve it (forward reference → `target_path = NULL` until a later rescan). This was never planned or recorded — distinct from §5.5, and **the L5 parse-count fix would leave the quadratic intact**. *Why fix now, not at L5:* `foundation.md` principle #2 holds performance as a foundational requirement (not a polish item), Sessions F–K would compound the defect, and the fix is cheap + localized + correctness-improving. *Cost/benefit:* O(N²)→O(N) (minutes→seconds) for a localized change with **no public-API churn** (the watcher path and `resolve_target` semantics are preserved) — clearly worth it. *Fix (landed 2026-05-28):* the bulk scan is now two passes. Pass 1 (the existing walk) hashes, upserts `files`, refreshes frontmatter + tags, and *buffers* extracted link occurrences in memory via the new `extract_links_off_executor` (parse + extract, no resolve/no DB write). Pass 2 runs once after the walk: it loads the now-complete `files.path` set, builds a `PathResolver` index once, resolves every buffered link in O(1) common-case (O(N) build), and writes the `links` rows in batched transactions. `PathResolver` (exact + basename hash maps; linear suffix fallback only when the first two stages miss) preserves `resolve_target`'s semantics byte-for-byte — `resolve_target` now delegates to it, so the single-file watcher path is unchanged. This also fixes the forward-reference incorrectness (links resolve on the first scan regardless of walk order). Smoke: the 30k-file / 124 MB vault now scans in ~10 s (was multi-minute) — the O(N²) is gone; the residual time is dominated by the still-deferred §5.5 triple-parse + content hashing. Plan: `docs/superpowers/archive/plans/2026-05-28-l3-scan-resolution-perf-fix.md`.
 
 No `docs/architecture/` files are modified mid-layer. Load-bearing calls are promoted at the L3-close step (Session K). (§5.6 is a defect fix, not an architecture change — it preserves the locked resolution semantics; only its time complexity changes.)
 
@@ -228,84 +195,7 @@ No `docs/architecture/` files are modified mid-layer. Load-bearing calls are pro
 
 ## 8. Session slicing
 
-Eleven sessions, dependency-ordered. One feature surface per session; each is independently verifiable. Session A is the foundation — the parser + index every later session reads. Session J (Pending Rewrites) is last among feature sessions because everything renameable feeds it. Session K is the closeout, its own session so smoke + tag are not bundled under feature work.
-
-### Session A — Wiki-link parsing + link index
-
-- **Scope:** extend the Rust `cubical-ast` parser to emit `WikiLink` nodes for every wiki-link form incl. `![[…]]`; TS normalizer parity; the `links` table via the first L3 migration (`003_links.sql` — `002_frontmatter.sql` already exists from L1); link extraction during vault scan and on file-change; link resolution (§2.1); the `resolve_link` IPC.
-- **Key files:** `crates/cubical-ast/*`, `crates/cubical-index/` (migration + queries), `crates/cubical-core/src/vault/{scan,watcher}.rs`, `crates/cubical-app/src/{api/types.rs,commands,lib.rs}`, `ui/src/ast/normalize.ts`.
-- **DoD:** parse fixtures cover every form; `parity_fixtures` green; `links` rows created on scan and updated on edit; `resolve_link` handles exact / case-insensitive / suffix matches; unresolved → `NULL`.
-- **Prereqs:** L2 closed.
-
-### Session B — Wiki-link Live Preview + navigation
-
-- **Scope:** Lezer inline rule for `[[…]]` / `![[…]]`; wiki-link decorations in `decorations.ts`; unresolved styling; click-to-navigate (resolved → open; unresolved → offer create).
-- **Key files:** `ui/src/editor/wikilink.ts`, `ui/src/editor/decorations.ts`, `ui/src/Editor.tsx`, `ui/src/App.tsx`.
-- **DoD:** each form decorates; cursor line reveals raw; unresolved distinct; click navigates (incl. heading/block anchor).
-- **Prereqs:** A.
-
-### Session C — Backlinks panel + right-sidebar shell
-
-- **Scope:** the collapsible right-sidebar shell; `get_backlinks` IPC; the Backlinks panel with context snippets; live refresh on `vault:index-changed`.
-- **Key files:** `ui/src/RightSidebar.tsx`, `ui/src/sidebar/Backlinks.tsx`, `ui/src/App.tsx`, `crates/cubical-app/*`.
-- **DoD:** backlinks listed; refresh on link add/remove; empty state; row click navigates.
-- **Prereqs:** A.
-
-### Session D — Tags: parsing, index, nested tags, decoration
-
-- **Scope:** inline + frontmatter tag recognition in both parsers; the `tags` table via its own incremental migration; nested `#parent/child`; case-insensitive match / case-preserving display; tag Live Preview decoration; extraction on scan/change.
-- **Key files:** `crates/cubical-ast/*`, `crates/cubical-index/*`, `crates/cubical-core/*`, `ui/src/editor/tag.ts`, `ui/src/editor/decorations.ts`.
-- **DoD:** inline + frontmatter tags indexed; nesting; code-block exclusion; decoration renders.
-- **Prereqs:** A (parser infrastructure).
-
-### Session E — Virtual tag pages
-
-- **Scope:** the `tag:` route; the virtual tag page (libSQL-backed, prefix match); navigation from a tag decoration / Properties chip.
-- **Key files:** `ui/src/TagPage.tsx`, `ui/src/App.tsx`, `query_tag_page` IPC.
-- **DoD:** clicking a tag opens its page; descendants included; empty state; file rows navigate.
-- **Prereqs:** D.
-
-### Session F — Link + tag autocomplete
-
-- **Scope:** `[[` link autocomplete (files + headings/block-ids) and `#` tag autocomplete via CM6 autocomplete; word-boundary trigger; no trigger inside code.
-- **Key files:** `ui/src/editor/autocomplete.ts`, `ui/src/Editor.tsx`, autocomplete IPC.
-- **DoD:** `[[` lists files and inserts a valid link; `#` lists tags; correct trigger gating.
-- **Prereqs:** A, D.
-
-### Session G — Block references
-
-- **Scope:** lazy `^block-id` assignment (mint only on reference); `blocks` / `block_refs` tables via their own incremental migration; `[[note#^id]]` resolution; broken-block-ref surfacing.
-- **Key files:** `crates/cubical-ast/*`, `crates/cubical-index/*`, `crates/cubical-core/*`, `crates/cubical-app/*`, `ui/src/editor/decorations.ts`.
-- **DoD:** creating a block ref mints + persists `^id` in the source; `[[#^id]]` resolves; no bulk auto-assignment; broken refs surface.
-- **Prereqs:** A.
-
-### Session H — Embeds
-
-- **Scope:** `![[…]]` note / section / block embed rendering in Live Preview; bounded recursion (depth 4); beyond-depth → styled link; unresolved placeholder.
-- **Key files:** `ui/src/editor/embed.ts`, `ui/src/editor/decorations.ts`, `ui/src/Editor.tsx`, IPC for embedded content.
-- **DoD:** all three embed forms render; depth cap; cycle safety; unresolved placeholder.
-- **Prereqs:** A, G.
-
-### Session I — Unlinked mentions
-
-- **Scope:** vault-text scan for title/alias occurrences that are not links; the Unlinked Mentions sidebar panel; the "link this mention" rewrite action.
-- **Key files:** `ui/src/sidebar/UnlinkedMentions.tsx`, `get_unlinked_mentions` IPC, `crates/cubical-core` / `crates/cubical-index` scan.
-- **DoD:** mentions found; already-linked excluded; "link it" rewrites the mention; scan responsive on a large vault.
-- **Prereqs:** A, C.
-
-### Session J — Rename → Pending Rewrites Cache
-
-- **Scope:** the `pending_rewrites` table via its own incremental migration; `rename_file` / `rename_tag` / `rename_block_id` enqueueing grouped by `rename_op_id`; materialise-on-read; flush triggers (timer, app close, >50 fuse, manual); status-bar count + flush toast; undo within the unflushed window; external-write-conflict re-apply.
-- **Key files:** `crates/cubical-index/*`, `crates/cubical-core/*`, `crates/cubical-app/*`, `ui/src/statusbar/PendingRewrites.tsx`, `ui/src/App.tsx`.
-- **DoD:** rename instant; referrers not rewritten synchronously; reads materialise; flush rewrites referrers; status-bar count correct; undo works; external-write conflict handled per §5.7.
-- **Prereqs:** A, D, G.
-
-### Session K — Interactive smoke + L3 closeout
-
-- **Scope:** no new feature code. Interactive `cargo tauri dev` smoke of all L3 surfaces; fill §9; promote load-bearing §5 deviations into `docs/architecture/`; rewrite `CLAUDE.md` "Project state" to L3 closed / L4 next; apply the `l3` tag.
-- **Key files:** `docs/layer-3-spec.md` (§9), `CLAUDE.md`, `docs/README.md`.
-- **DoD:** every §6 box ticked; §9 recorded; `l3` tag applied on the closeout commit.
-- **Prereqs:** A–J.
+Eleven dependency-ordered sessions (A–J feature; K closeout). Per-session scope, key files, and DoD are preserved in the archived plans (`superpowers/archive/plans/2026-05-2*`/`-3*-l3-*`); outcomes are recorded in §9 below.
 
 ---
 
@@ -569,7 +459,7 @@ Confirm: opening `Target.md` populates the panel with two rows (`NoteA`, `NoteB`
 
 ### 9.7 Session F — Link + tag autocomplete
 
-**Done 2026-05-28.** Typing `[[` opens a CodeMirror dropdown over the vault's markdown files; picking one inserts a valid `[[path]]` (caret after `]]`). Typing `#` at a word boundary outside code opens a dropdown over existing tags (prefix-filtered); picking one inserts `#tag`. Built on CM6's `@codemirror/autocomplete`. Executed subagent-driven from the plan at `docs/superpowers/plans/2026-05-28-l3-session-f-link-tag-autocomplete.md`.
+**Done 2026-05-28.** Typing `[[` opens a CodeMirror dropdown over the vault's markdown files; picking one inserts a valid `[[path]]` (caret after `]]`). Typing `#` at a word boundary outside code opens a dropdown over existing tags (prefix-filtered); picking one inserts `#tag`. Built on CM6's `@codemirror/autocomplete`. Executed subagent-driven from the plan at `docs/superpowers/archive/plans/2026-05-28-l3-session-f-link-tag-autocomplete.md`.
 
 **Scope = the §8 DoD, not the §2.6 prose.** The DoD is "`[[` lists files and inserts a valid link; `#` lists tags; correct trigger gating." The §2.6 mention of in-bracket heading / block-id completion (`[[target#…`) is **deferred to a post-Session-G session**: block-ids need the L3 Session G `blocks` table (not built yet) and headings aren't indexed. The link trigger deliberately stops at `#`/`|` so it never tries to complete an anchor — that's the documented scope edge.
 
@@ -592,7 +482,7 @@ Confirm: opening `Target.md` populates the panel with two rows (`NoteA`, `NoteB`
 
 ### 9.8 Session G — Block references (backend core)
 
-**Done 2026-05-29.** The backend half of block references (spec §2.7): minting a `^block-id` into a target file's markdown *only* when a reference is created, indexing block-id definitions + resolved block refs, and surfacing broken ones. No editor gesture, no `^id` decoration, no status-bar UI — those are a deferred frontend follow-up. Executed from the plan at `docs/superpowers/plans/2026-05-28-l3-session-g-block-references.md`.
+**Done 2026-05-29.** The backend half of block references (spec §2.7): minting a `^block-id` into a target file's markdown *only* when a reference is created, indexing block-id definitions + resolved block refs, and surfacing broken ones. No editor gesture, no `^id` decoration, no status-bar UI — those are a deferred frontend follow-up. Executed from the plan at `docs/superpowers/archive/plans/2026-05-28-l3-session-g-block-references.md`.
 
 **Lazy assignment is the headline invariant.** A `^id` is written to source by exactly one code path — the `create_block_ref` command. Nothing bulk-auto-assigns ids; the scanner only *reads* ids that already exist in source. This keeps the vault byte-for-byte the user's until a reference deliberately mints one.
 
@@ -618,7 +508,7 @@ Confirm: opening `Target.md` populates the panel with two rows (`NoteA`, `NoteB`
 
 ### 9.9 Session G frontend follow-up — block-ref gesture + `^id` decoration
 
-**Done 2026-05-29.** The user-facing half of block references: a **"Copy block reference" gesture** that mints a `^block-id` for the line under the cursor and copies a `[[path#^id]]` link to the clipboard, and a **`^id` live-preview decoration** so the minted id reads as an intentional anchor. Frontend-only — no backend changes; reuses the `createBlockRef` IPC that shipped with §9.8. Executed from the plan at `docs/superpowers/plans/2026-05-29-l3-session-g-frontend-block-refs.md`.
+**Done 2026-05-29.** The user-facing half of block references: a **"Copy block reference" gesture** that mints a `^block-id` for the line under the cursor and copies a `[[path#^id]]` link to the clipboard, and a **`^id` live-preview decoration** so the minted id reads as an intentional anchor. Frontend-only — no backend changes; reuses the `createBlockRef` IPC that shipped with §9.8. Executed from the plan at `docs/superpowers/archive/plans/2026-05-29-l3-session-g-frontend-block-refs.md`.
 
 **The gesture (`Cmd/Ctrl+Shift+B`).** A CM6 keymap entry in `Editor.tsx` reads the selection head, converts it to a **UTF-8 byte offset** (`byteOffsetOf` — CM positions are UTF-16 code units; `create_block_ref` wants bytes), and calls a new `onCopyBlockRef(byteOffset)` prop. `App.tsx`'s `handleCopyBlockRef` then: `await flushAutosave()` (so on-disk bytes match the buffer at that offset *and* the buffer is left clean) → `createBlockRef({ vault_id, target_path: openPath, position })` → write `buildBlockRefLink(openPath, block_id)` = `[[<path-minus-.md>#^<id>]]` to the clipboard via `navigator.clipboard.writeText`. The backend's disk write fires `vault:file-changed` with a fresh hash; because the buffer is clean, the **existing silent-reload path** (L2 §2.7.5) pulls the `^id` into the editor with no conflict banner.
 
@@ -639,7 +529,7 @@ Confirm: opening `Target.md` populates the panel with two rows (`NoteA`, `NoteB`
 
 ### 9.10 Session G follow-up — broken block-ref status-bar indicator
 
-**Done 2026-05-29.** A passive footer indicator surfacing broken block references. Frontend-only — reuses the §9.8 `getBrokenBlockRefs` IPC (previously unused). Executed from the plan at `docs/superpowers/plans/2026-05-29-l3-session-g-broken-ref-statusbar.md`.
+**Done 2026-05-29.** A passive footer indicator surfacing broken block references. Frontend-only — reuses the §9.8 `getBrokenBlockRefs` IPC (previously unused). Executed from the plan at `docs/superpowers/archive/plans/2026-05-29-l3-session-g-broken-ref-statusbar.md`.
 
 **No new shell.** The status bar already existed as the `App.tsx` `<footer>` (scan status + vault id); the indicator joins it as a middle item.
 
@@ -655,7 +545,7 @@ Confirm: opening `Target.md` populates the panel with two rows (`NoteA`, `NoteB`
 
 ### 9.11 `[[#^` in-bracket block-id autocomplete
 
-**Done 2026-05-29.** Typing `[[target#^pre` opens a CodeMirror dropdown of block ids defined in `target.md` whose name starts with `pre`; picking one inserts the id (and the `]]` closer if not already present). Closes the §9.7-deferred in-bracket anchor completion — *for blocks only*. Executed from the plan at `docs/superpowers/plans/2026-05-29-l3-blockid-autocomplete.md`.
+**Done 2026-05-29.** Typing `[[target#^pre` opens a CodeMirror dropdown of block ids defined in `target.md` whose name starts with `pre`; picking one inserts the id (and the `]]` closer if not already present). Closes the §9.7-deferred in-bracket anchor completion — *for blocks only*. Executed from the plan at `docs/superpowers/archive/plans/2026-05-29-l3-blockid-autocomplete.md`.
 
 **Backend (`cubical-app`).** New `commands::autocomplete::block_id_autocomplete(state, req)` handler: snapshots `SELECT path FROM files ORDER BY path` → `cubical_core::vault::links::resolve_target(target_raw, &known)` (same resolution `resolve_link` uses — exact path → unique basename → unique suffix) → if `Some(path)`, `cubical_index::blocks_for_file(conn, &path)` (Session G's helper, already ordered by `position_hint`) → take `AUTOCOMPLETE_LIMIT` (50) block_id strings. Unresolved target returns `[]`. Wire types `BlockIdAutocomplete{Request,Response}` in `api/types.rs`; 3-line Tauri shim registered in `lib.rs`'s `generate_handler!`. **No new index helper** — `blocks_for_file` is sufficient. 2 handler unit tests (resolved → ordered ids; unresolved → empty).
 
@@ -674,7 +564,7 @@ Confirm: opening `Target.md` populates the panel with two rows (`NoteA`, `NoteB`
 
 ### 9.12 Session H.1 — Embed content extractor + IPC
 
-**Done 2026-05-29.** Backend half of Session H (spec §2.8): a `get_embed` IPC that, given a wiki-link target (`note` / `note#heading` / `note#^id`), returns the content the (deferred H.2) widget will inline. Pure markdown-aware extractors do the work; the handler is a thin orchestrator. **Frontend: zero changes** — the IPC binding lands unused (same backend-first cadence as §9.8). Executed from the plan at `docs/superpowers/plans/2026-05-29-l3-session-h1-embed-extractor.md`.
+**Done 2026-05-29.** Backend half of Session H (spec §2.8): a `get_embed` IPC that, given a wiki-link target (`note` / `note#heading` / `note#^id`), returns the content the (deferred H.2) widget will inline. Pure markdown-aware extractors do the work; the handler is a thin orchestrator. **Frontend: zero changes** — the IPC binding lands unused (same backend-first cadence as §9.8). Executed from the plan at `docs/superpowers/archive/plans/2026-05-29-l3-session-h1-embed-extractor.md`.
 
 **Pure extractors (`cubical-core::vault::embeds`).** New sibling module to `vault::blocks`. Three public functions, all unit-tested:
 - `extract_section(source, anchor) -> Option<String>` — slugifies the anchor + each ATX heading text (`slugify`: lowercase, non-alphanumeric runs → `-`, trim leading/trailing `-`), so `"My Section!"` matches anchor `"my-section"` / `"My Section"` / `"My Section!"`. Returns the slice from the line *after* the matched heading to the line *before* the next heading whose level is `≤` the matched heading's; sub-headings below the matched level are preserved.
@@ -699,7 +589,7 @@ Confirm: opening `Target.md` populates the panel with two rows (`NoteA`, `NoteB`
 
 ### 9.13 Session H.2 — Embed widget
 
-**Done 2026-05-30.** Frontend half of Session H (spec §2.8): every `![[…]]` token in Live Preview renders a block widget below its line carrying the embedded content, with bounded recursion (max depth 4 per `document-model.md` §5.4), cycle detection, and styled placeholders for unresolved targets and missing anchors. Executed from the plan at `docs/superpowers/plans/2026-05-30-l3-session-h2-embed-widget.md`.
+**Done 2026-05-30.** Frontend half of Session H (spec §2.8): every `![[…]]` token in Live Preview renders a block widget below its line carrying the embedded content, with bounded recursion (max depth 4 per `document-model.md` §5.4), cycle detection, and styled placeholders for unresolved targets and missing anchors. Executed from the plan at `docs/superpowers/archive/plans/2026-05-30-l3-session-h2-embed-widget.md`.
 
 **Resolver (`ui/src/editor/embedResolver.ts`).** `EmbedResolver` mirrors `WikiLinkResolver` (L3 Session B) verbatim — `get` / `fetch` / `resolve` / `invalidate` / `onUpdate`, cache key = `target_raw`, IPC stub injected for tests, failures cache an `{ kind: "unresolved", target_path: null, content: null }` entry. `resolve()` re-kicks `fetch` when its subscriber wakes to a still-empty cache with no in-flight fetch (caught in code review: without this, an `invalidate()` landing after a fetch settles but before the awaiting subscriber wakes leaves `resolve()` hung forever). 8 unit tests (6 plus 2 covering the re-kick semantics: joining an in-flight fetch + settling after mid-flight invalidate).
 
@@ -817,7 +707,7 @@ Expected: with `Daily.md` open, three rows from `Project.md` (`daily` body match
 
 ### 9.15 Session J.1 — Pending Rewrites backend
 
-Implements spec §2.10 + the locked design at [`docs/superpowers/specs/2026-05-31-l3-session-j-pending-rewrites-design.md`](../superpowers/specs/2026-05-31-l3-session-j-pending-rewrites-design.md). Every J behaviour is exercised through direct IPC calls + headless Rust tests; J.2 wires the IPCs into the status bar, toast, undo affordance, and right-click rename gesture.
+Implements spec §2.10 + the locked design at [`docs/superpowers/archive/specs/2026-05-31-l3-session-j-pending-rewrites-design.md`](superpowers/archive/specs/2026-05-31-l3-session-j-pending-rewrites-design.md). Every J behaviour is exercised through direct IPC calls + headless Rust tests; J.2 wires the IPCs into the status bar, toast, undo affordance, and right-click rename gesture.
 
 **What landed.**
 
@@ -869,7 +759,7 @@ Implements spec §2.10 + the locked design at [`docs/superpowers/specs/2026-05-3
 
 ### 9.16 Session J.2 — Pending Rewrites frontend
 
-Implements the frontend half of the design locked at [`docs/superpowers/specs/2026-05-31-l3-session-j-pending-rewrites-design.md`](../superpowers/specs/2026-05-31-l3-session-j-pending-rewrites-design.md) (§J.2 — Frontend). Closes the §6 DoD item for "Rename → Pending Rewrites Cache" by surfacing every J.1 IPC + both new events into the running UI.
+Implements the frontend half of the design locked at [`docs/superpowers/archive/specs/2026-05-31-l3-session-j-pending-rewrites-design.md`](superpowers/archive/specs/2026-05-31-l3-session-j-pending-rewrites-design.md) (§J.2 — Frontend). Closes the §6 DoD item for "Rename → Pending Rewrites Cache" by surfacing every J.1 IPC + both new events into the running UI.
 
 **What landed.**
 
@@ -890,7 +780,7 @@ Implements the frontend half of the design locked at [`docs/superpowers/specs/20
 **Verification.** `cargo test --workspace` (406), `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`, `cd ui && npx tsc --noEmit && npm run build && npx vitest run` all green.
 
 **Headless smoke recipe.** Drive from `cargo tauri dev` devtools:
-1. Open the smoke vault (`docs/superpowers/specs/2026-05-31-l3-session-j-pending-rewrites-design.md` "Interactive smoke vault").
+1. Open the smoke vault (`docs/superpowers/archive/specs/2026-05-31-l3-session-j-pending-rewrites-design.md` "Interactive smoke vault").
 2. `await ipc.renameFile({ vault_id, from_path: "Daily.md", to_path: "Journal.md" })` → status bar shows "2 pending changes."
 3. Click the count → popover lists `Project.md (1)`, `Notes.md (1)`, plus one rename-op row with Undo.
 4. Click "Save all pending changes" → toast "Applied 2 reference updates across 2 files."; status-bar count disappears.
@@ -963,7 +853,7 @@ with a desktop build can drive them deterministically.
 #### Smoke vault — `~/Developer/sandbox/cubical-l3-smoke/`
 
 Built fresh by K from the J design's canonical fixture
-(`docs/superpowers/specs/2026-05-31-l3-session-j-pending-rewrites-design.md`
+(`docs/superpowers/archive/specs/2026-05-31-l3-session-j-pending-rewrites-design.md`
 § "Interactive smoke vault") extended for I's alias case, the >50 fuse,
 H's depth cap, and path-form wiki-links:
 

@@ -146,7 +146,7 @@ start as a placeholder marker (Live Preview shows the token's presence
 even when the rich rendering is deferred). Once the embed widget owns
 the visual, the `⎘` is redundant. This naturally closes the deferred
 "`⎘`-indicator retirement" polish item from
-[layer-3-spec.md §"What's left for L3"](../../layer-3-spec.md). The
+[layer-3-spec.md §"What's left for L3"](../../../layer-3-spec.md). The
 `DecoKind` `"mark-wikilink-embed"`, the `EmbedIndicatorWidget` class,
 `wikilinkEmbedDeco`, and the `.cm-md-wikilink-embed` CSS rule all
 delete.

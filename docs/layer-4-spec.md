@@ -6,7 +6,7 @@ L3 closed the knowledge-graph layer. The link, tag, and block indexes it built a
 
 > **Before starting any L4 session:** confirm the L3 surface still holds — open `cargo tauri dev`, open the L3 smoke vault (`~/Developer/sandbox/cubical-l3-smoke/`), exercise wiki-link nav + backlinks + tags + embeds + unlinked mentions + pending-rewrites status bar. The L3 §9.17 closeout is the baseline; if anything regressed, file a bug against L3 before starting L4 proper.
 
-The search **architecture is documented** in [`docs/superpowers/specs/2026-06-02-l4-a-tantivy-design.md`](superpowers/specs/2026-06-02-l4-a-tantivy-design.md) for the L4-A backend; L4-B/C/D will gain their own design specs as those sessions open. L4 *implements* the build-order item; where it makes a call the design left open, it is recorded in §5 below.
+The search **architecture is documented** in [`docs/superpowers/archive/specs/2026-06-02-l4-a-tantivy-design.md`](superpowers/archive/specs/2026-06-02-l4-a-tantivy-design.md) for the L4-A backend; L4-B/C/D will gain their own design specs as those sessions open. L4 *implements* the build-order item; where it makes a call the design left open, it is recorded in §5 below.
 
 ---
 
@@ -29,7 +29,7 @@ What is **not** in L4 — see §7.
 
 Four sessions, each independently verifiable. L4-A is the foundation — the IPC surface every later session reads.
 
-- **A — Tantivy full-text search backend.** This session. **Closed 2026-06-03.** Spec: [`docs/superpowers/specs/2026-06-02-l4-a-tantivy-design.md`](superpowers/specs/2026-06-02-l4-a-tantivy-design.md). §9.1 below.
+- **A — Tantivy full-text search backend.** This session. **Closed 2026-06-03.** Spec: [`docs/superpowers/archive/specs/2026-06-02-l4-a-tantivy-design.md`](superpowers/archive/specs/2026-06-02-l4-a-tantivy-design.md). §9.1 below.
 - **B — Persistent left-panel search results UI.** Pending. Reads L4-A's IPC. Adds a virtualised result list, query input with debounced fetch, sort + scope chips, and the "still indexing…" banner driven by `search_index_status`. Resolves the snippet-stored-field limitation (§5 deviation #1) — choice between storing more fields and on-demand source re-read decided here.
 - **C — Cmd/Ctrl+K Omni-Bar.** Pending. Modal over L4-A's IPC plus the L3 link + tag autocomplete handlers; ranks notes, headings, tags, and commands in one list. Off-cursor modal; `Cmd/Ctrl+K` opens, `Esc` closes, `Enter` navigates.
 - **D — Dataview-style libSQL queries.** Pending. New `cubical-query` crate (or extension of `cubical-index`); query AST + parser; renderer for `list` / `table` / `count` blocks inside `.md` source. May layer multi-term fuzzy and date-range syntax on top of L4-A as L4-A non-goals are revisited.
@@ -90,7 +90,7 @@ descriptions below are retained for provenance.
 
 ## 6. Definition of Done
 
-L4 closes when L4-A + L4-B + L4-C + L4-D are all signed off and the `l4` tag is applied. L4-A's per-session DoD is in [`docs/superpowers/specs/2026-06-02-l4-a-tantivy-design.md`](superpowers/specs/2026-06-02-l4-a-tantivy-design.md) § Definition of Done; this section is the layer-level rollup.
+L4 closes when L4-A + L4-B + L4-C + L4-D are all signed off and the `l4` tag is applied. L4-A's per-session DoD is in [`docs/superpowers/archive/specs/2026-06-02-l4-a-tantivy-design.md`](superpowers/archive/specs/2026-06-02-l4-a-tantivy-design.md) § Definition of Done; this section is the layer-level rollup.
 
 - [x] **L4-A:** Tantivy backend landed; four IPC commands; scan + watcher fan-out; schema-version stamp; smoke vault built. Closed 2026-06-03 (`l4a` tag). §9.1.
 - [x] **L4-B:** Persistent left-panel search UI; grouped-by-file result list; debounced query input; "still indexing…" banner. Closed 2026-06-08 (`l4b` tag). §9.3.
@@ -286,10 +286,10 @@ Every L4-A DoD box is ticked. `CLAUDE.md` "Project state" rewritten to L4-A-clos
 
 Structural-debt session between L4-A close and L4-B open. Three
 architectural contracts closing bugs #4, #5, #6 from the kickoff
-(`docs/superpowers/2026-06-03-l4a-fix-kickoff.md`); ritual change to
+(`docs/superpowers/archive/notes/2026-06-03-l4a-fix-kickoff.md`); ritual change to
 `docs/conventions.md` requiring executed smoke before tagging. All
 three bugs operator-confirmed fixed in the running app
-(`docs/superpowers/2026-06-04-l4a-fix-smoke-runbook-executed.md`).
+(`docs/superpowers/archive/notes/2026-06-04-l4a-fix-smoke-runbook-executed.md`).
 
 **Contracts landed** (final shape — several evolved past the design
 spec during operator smoke; the spec's CORRECTION notes are
@@ -408,8 +408,8 @@ genuine external edits to the open file still invalidate exactly as
 before (an own write can only change the open file's own bytes, so other
 files' cached resolutions stay valid, and a newly-typed embed resolves
 from a cold cache regardless). Design spec
-`docs/superpowers/specs/2026-06-06-embed-invalidation-scroll-fix-design.md`;
-plan `docs/superpowers/plans/2026-06-06-embed-invalidation-scroll-fix.md`.
+`docs/superpowers/archive/specs/2026-06-06-embed-invalidation-scroll-fix-design.md`;
+plan `docs/superpowers/archive/plans/2026-06-06-embed-invalidation-scroll-fix.md`.
 
 *Operator smoke runbook (Contract E — executed, passed).*
 `cargo tauri dev` → open `~/Developer/sandbox/cubical-l4a-smoke/` →
@@ -441,17 +441,17 @@ The tag was moved forward to include them. The design spec's §3.2/§3.3
 CORRECTION notes capture the mid-journey reasoning but are superseded
 by the "final shape" recorded in this §9.2.
 
-**Design spec:** `docs/superpowers/specs/2026-06-04-l4a-fix-design.md`
-**Implementation plan:** `docs/superpowers/plans/2026-06-04-l4a-fix.md`
-**Executed smoke:** `docs/superpowers/2026-06-04-l4a-fix-smoke-runbook-executed.md`
+**Design spec:** `docs/superpowers/archive/specs/2026-06-04-l4a-fix-design.md`
+**Implementation plan:** `docs/superpowers/archive/plans/2026-06-04-l4a-fix.md`
+**Executed smoke:** `docs/superpowers/archive/notes/2026-06-04-l4a-fix-smoke-runbook-executed.md`
 
 ---
 
 ### 9.3 Session B — persistent left-panel search results UI (closed 2026-06-08, `l4b` tag)
 
 First UI consumer of L4-A's search IPC. Design spec:
-`docs/superpowers/specs/2026-06-07-l4b-search-panel-design.md`. Plan:
-`docs/superpowers/plans/2026-06-07-l4b-search-panel.md`. Built
+`docs/superpowers/archive/specs/2026-06-07-l4b-search-panel-design.md`. Plan:
+`docs/superpowers/archive/plans/2026-06-07-l4b-search-panel.md`. Built
 subagent-driven (implementer + spec review + code-quality review per
 task, plus a final holistic review — all on `feat/l4b-search-panel`).
 
@@ -600,7 +600,7 @@ record:
    indexed at SCHEMA_VERSION 1; confirm wipe+rebuild (banner shows,
    results converge), no stale/empty index, no `LockBusy`.
 3. **`open_vault` re-open `LockBusy` smoke** (pending from 2026-06-06,
-   `docs/superpowers/specs/2026-06-06-idempotent-open-vault-design.md`):
+   `docs/superpowers/archive/specs/2026-06-06-idempotent-open-vault-design.md`):
    re-open the same folder → no `LockBusy`, stays on that vault; open a
    different folder → distinct vault. Record there + flip the CLAUDE.md
    "operator smoke pending" line.
@@ -651,7 +651,7 @@ the Contract E "full formal re-smoke first" default — operator's call).
 into the L4 layer-close smoke / L4-C kickoff): the one-time wipe+rebuild
 on opening a SCHEMA_VERSION-1 vault; the `open_vault` re-open `LockBusy`
 check (still pending from 2026-06-06,
-`docs/superpowers/specs/2026-06-06-idempotent-open-vault-design.md` — its
+`docs/superpowers/archive/specs/2026-06-06-idempotent-open-vault-design.md` — its
 smoke-pending line is **not** flipped); the indexing banner on a large
 vault; the ~2–3× disk-footprint eyeball; and L4-A recipes 1–11 against
 `~/Developer/sandbox/cubical-l4a-smoke/`.
@@ -667,8 +667,8 @@ backend work.
 ### 9.4 Session C — `Cmd/Ctrl+K` Omni-Bar (closed 2026-06-08, `l4c` tag)
 
 A keyboard-summoned fuzzy navigator over **notes + tags**. Design:
-`docs/superpowers/specs/2026-06-08-l4-c-omnibar-design.md`. Plan:
-`docs/superpowers/plans/2026-06-08-l4c-omnibar.md`. Built TDD on
+`docs/superpowers/archive/specs/2026-06-08-l4-c-omnibar-design.md`. Plan:
+`docs/superpowers/archive/plans/2026-06-08-l4c-omnibar.md`. Built TDD on
 `feat/l4c-omnibar`.
 
 #### What landed
@@ -768,8 +768,8 @@ context-awareness; visible `⌘K` hint; preview pane.
 
 ### 9.5 Session D — Dataview-style libSQL queries (closed 2026-06-15, `l4d` tag)
 
-Design: [`docs/superpowers/specs/2026-06-14-l4-d-dataview-design.md`](superpowers/specs/2026-06-14-l4-d-dataview-design.md);
-plan: [`docs/superpowers/plans/2026-06-14-l4-d-dataview.md`](superpowers/plans/2026-06-14-l4-d-dataview.md).
+Design: [`docs/superpowers/archive/specs/2026-06-14-l4-d-dataview-design.md`](superpowers/archive/specs/2026-06-14-l4-d-dataview-design.md);
+plan: [`docs/superpowers/archive/plans/2026-06-14-l4-d-dataview.md`](superpowers/archive/plans/2026-06-14-l4-d-dataview.md).
 
 #### What landed
 

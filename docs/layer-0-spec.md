@@ -592,32 +592,7 @@ The Layer is complete when *all* of these are true:
 
 ## 13. First-session task list
 
-The very first Claude Code session, in order:
-
-1. Initialize the repo, write `.gitignore`, write `LICENSE` (MIT), write `README.md` (one paragraph).
-2. Create the workspace `Cargo.toml` and the **six** crate directories (`cubical-core`, `cubical-ast`, `cubical-index`, `cubical-search`, `cubical-sync`, `cubical-app`) with their `Cargo.toml` skeletons.
-3. Set up the Tauri scaffolding in `cubical-app` (`tauri.conf.json`, `build.rs`, minimal `main.rs`).
-4. Set up the `ui/` Vite + Solid + TS skeleton **including `styles/tokens.css` with placeholder values and `styles/base.css` consuming the tokens**.
-5. Verify `cargo tauri dev` opens an empty window. **Stop here, commit.**
-
-The `cubical-app` crate is structured around the pure-handler / thin-shim pattern from §8 even at scaffold time:
-
-```
-crates/cubical-app/src/
-├── api/
-│   ├── mod.rs
-│   └── types.rs        # request/response structs (no tauri imports)
-├── commands/
-│   └── mod.rs          # pure handlers go here (no tauri imports)
-├── events.rs           # event names + payloads + emit_* helpers (Tauri-coupled)
-├── state.rs            # AppState (no tauri imports)
-├── lib.rs              # tauri::Builder; #[tauri::command] shims forward to commands::*
-└── main.rs             # desktop entry point
-```
-
-Subsequent sessions implement, in roughly this order: file-type registry trait → markdown + binary handlers (no UUID logic) → libSQL schema and migrations → vault open/scan logic (non-blocking) → file watcher → pure command handlers in `commands::vault` → Tauri shims in `lib.rs` → frontend wiring through `ui/src/api/ipc.ts` → tests → DoD verification.
-
-Session protocol is maintained in `CLAUDE.md` — see the "Session protocol" section there.
+Bedrock predates the `superpowers/plans/` workflow; its session sequencing was planned inline here and lives in this file's git history. The scaffold's pure-handler / thin-shim crate layout is documented in `CLAUDE.md` (Repository layout) and `migration-touchpoints.md`. What landed is recorded in §14 below.
 
 ---
 

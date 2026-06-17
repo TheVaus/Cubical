@@ -15,3 +15,20 @@
 10. **Long tail.** Canvas, mobile, anything else. *(Post-v1.0)*
 
 For non-features explicitly cut from scope (including retired earlier proposals), see [`architecture/constraints.md`](architecture/constraints.md).
+
+---
+
+## Layer status & tags
+
+**Canonical source of truth for layer state.** Other docs (`CLAUDE.md`,
+`README.md`, the layer specs) link here rather than restating tags/dates —
+update this table on layer close, nowhere else.
+
+| Layer | Status | Tag(s) (date) | Spec |
+|---|---|---|---|
+| 0 — Bedrock | Closed | `l0` (05-13) | [`layer-0-spec.md`](layer-0-spec.md) |
+| 1 — Document Model | Closed | `l1` (05-09) | [`layer-1-spec.md`](layer-1-spec.md) |
+| 2 — Editing | Closed | `l2` (05-22) | [`layer-2-spec.md`](layer-2-spec.md) |
+| 3 — Knowledge Graph | Closed | `l3` (06-01) | [`layer-3-spec.md`](layer-3-spec.md) |
+| 4 — Search | Sub-layers merged; `l4` close-tag pending operator GUI smoke | `l4a` (06-03) · `l4a-fix`/`.1` (06-06) · `l4b`/`l4c`/`l4a-fix.2` (06-08) · `l4d` (06-15) | [`layer-4-spec.md`](layer-4-spec.md) |
+| 5 — Daily-Driver Polish | Not started (v1.0 cut) | — | — |
