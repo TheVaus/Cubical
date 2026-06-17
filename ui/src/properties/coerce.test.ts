@@ -92,3 +92,39 @@ describe("coerceValue → list", () => {
     expect(result.lossy).toBe(true);
   });
 });
+
+describe("coerceValue — new kinds", () => {
+  it("multiline behaves like string", () => {
+    expect(coerceValue(42, "multiline")).toEqual({ value: "42", lossy: false });
+  });
+
+  it("int truncates and flags fractional loss", () => {
+    expect(coerceValue(3.7, "int")).toEqual({ value: 3, lossy: true });
+    expect(coerceValue(5, "int")).toEqual({ value: 5, lossy: false });
+    expect(coerceValue("8", "int")).toEqual({ value: 8, lossy: false });
+  });
+
+  it("float behaves like number", () => {
+    expect(coerceValue("1.5", "float")).toEqual({ value: 1.5, lossy: false });
+  });
+
+  it("currency coerces to a number", () => {
+    expect(coerceValue("9.99", "currency")).toEqual({
+      value: 9.99,
+      lossy: false,
+    });
+    expect(coerceValue("x", "currency")).toEqual({ value: 0, lossy: true });
+  });
+
+  it("datetime keeps ISO datetime, promotes date, else empty", () => {
+    expect(coerceValue("2026-06-17T14:30", "datetime")).toEqual({
+      value: "2026-06-17T14:30",
+      lossy: false,
+    });
+    expect(coerceValue("2026-06-17", "datetime")).toEqual({
+      value: "2026-06-17T00:00",
+      lossy: false,
+    });
+    expect(coerceValue(123, "datetime")).toEqual({ value: "", lossy: true });
+  });
+});

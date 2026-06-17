@@ -18,6 +18,7 @@ export interface Coercion {
 }
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const ISO_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
 const TRUTHY = new Set(["true", "yes", "1", "on"]);
 const FALSY = new Set(["false", "no", "0", "off", ""]);
 
@@ -25,13 +26,20 @@ const FALSY = new Set(["false", "no", "0", "off", ""]);
 export function coerceValue(value: unknown, kind: CellKind): Coercion {
   switch (kind) {
     case "string":
+    case "multiline":
       return toStringValue(value);
     case "number":
+    case "float":
+    case "currency":
       return toNumberValue(value);
+    case "int":
+      return toIntValue(value);
     case "boolean":
       return toBooleanValue(value);
     case "date":
       return toDateValue(value);
+    case "datetime":
+      return toDateTimeValue(value);
     case "list-of-strings":
     case "list-of-tags":
       return toListValue(value);
@@ -72,6 +80,21 @@ function toBooleanValue(value: unknown): Coercion {
 function toDateValue(value: unknown): Coercion {
   if (typeof value === "string" && ISO_DATE.test(value)) {
     return { value, lossy: false };
+  }
+  return { value: "", lossy: true };
+}
+
+function toIntValue(value: unknown): Coercion {
+  const num = toNumberValue(value);
+  const n = num.value as number;
+  const i = Math.trunc(n);
+  return { value: i, lossy: num.lossy || i !== n };
+}
+
+function toDateTimeValue(value: unknown): Coercion {
+  if (typeof value === "string") {
+    if (ISO_DATETIME.test(value)) return { value, lossy: false };
+    if (ISO_DATE.test(value)) return { value: `${value}T00:00`, lossy: false };
   }
   return { value: "", lossy: true };
 }

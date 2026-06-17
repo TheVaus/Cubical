@@ -10,12 +10,17 @@
 
 /** Discriminant for which Properties cell component renders a value. */
 export type CellKind =
-  | "string"
-  | "number"
-  | "boolean"
-  | "date"
-  | "list-of-strings"
-  | "list-of-tags"
+  | "string" // text (inferred, or text/plain)
+  | "multiline" // text/multiline (explicit only)
+  | "number" // generic number (inferred only)
+  | "int" // number/int (explicit only)
+  | "float" // number/float (explicit only)
+  | "currency" // number/currency, USD (explicit only)
+  | "boolean" // checkbox
+  | "date" // date
+  | "datetime" // date/datetime (explicit only)
+  | "list-of-strings" // list
+  | "list-of-tags" // tags
   | "raw";
 
 /** `YYYY-MM-DD` — the only date shape L2 models (spec §2.4). */
