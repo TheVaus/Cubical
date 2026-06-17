@@ -1,56 +1,74 @@
 /**
- * Frontmatter serializer (L2 Session F, spec §2.4 / §5 #1).
- *
- * The counterpart to `ui/src/ast/frontmatter.ts`'s splitter/parser. The
- * frontend owns frontmatter serialization — there is no Rust-side
- * reserializer until plugins demand one (spec §5 #1). Properties
- * commits reserialize the *whole* block from the edited entries and
- * splice it back into the source.
- *
- * Lossless-round-trip guarantee: `serializeFrontmatter` reproduces only
- * what the entries model — scalars, string lists, and nested mappings.
- * YAML comments, anchors, and aliases are *not* in the entries shape
- * and would be silently dropped. `hasUnmodelableYaml` is the guard:
- * Properties renders read-only whenever it returns `true`, so the
- * serializer never runs on frontmatter it cannot faithfully reproduce.
+ * Frontmatter serializer (spec §7.2). Reproduces scalars, string lists,
+ * nested mappings, plus this app's own `# type:` comments (the type
+ * registry). Foreign comments/anchors/aliases are NOT reproduced —
+ * `hasUnmodelableYaml` guards: the Properties UI renders read-only
+ * whenever it returns `true`. Recognized `# type:` comments are exempted.
  */
 
-import { isAlias, parseDocument, stringify, visit } from "yaml";
+import { Document, isAlias, parseDocument, visit } from "yaml";
 
 import { splitFrontmatter } from "../ast/frontmatter";
 import type { FrontmatterEntry } from "../ast/types";
+import {
+  isMap,
+  isScalar,
+  isSeq,
+  isTypeComment,
+  type PropertyType,
+  typeToToken,
+} from "./typeComments";
 
 /**
- * Serialize `entries` into a complete `---\n…\n---\n` frontmatter block.
- *
- * Key order follows `entries` order (`yaml.stringify` preserves object
- * insertion order). An empty entry list yields a bare `---\n---\n`.
+ * Serialize `entries` into a `---\n…\n---\n` block. When `types` is
+ * supplied, each emittable key gets a trailing `# type:<token>` comment;
+ * `dateDefault` decides whether a date's format param is written.
  */
-export function serializeFrontmatter(entries: FrontmatterEntry[]): string {
+export function serializeFrontmatter(
+  entries: FrontmatterEntry[],
+  types?: Map<string, PropertyType>,
+  dateDefault = "YYYY-MM-DD",
+): string {
   if (entries.length === 0) return "---\n---\n";
   const obj: Record<string, unknown> = {};
   for (const [key, value] of entries) obj[key] = value;
-  return `---\n${stringify(obj)}---\n`;
+  const doc = new Document(obj);
+
+  if (types && isMap(doc.contents)) {
+    for (const pair of doc.contents.items) {
+      if (!isScalar(pair.key)) continue;
+      const type = types.get(String(pair.key.value));
+      if (!type) continue;
+      const token = typeToToken(type, dateDefault);
+      if (!token) continue;
+      const comment = ` type:${token}`;
+      // Scalar value → comment after the value; block list → on the key
+      // line (which re-parses as the value's `commentBefore`).
+      if (pair.value && !isSeq(pair.value)) {
+        (pair.value as { comment?: string | null }).comment = comment;
+      } else {
+        (pair.key as { comment?: string | null }).comment = comment;
+      }
+    }
+  }
+
+  return `---\n${String(doc)}---\n`;
 }
 
 /**
- * Splice a fresh frontmatter `block` into `source`, replacing any
- * existing block. When `source` has no frontmatter the block is
- * inserted at offset 0.
+ * Splice a fresh `block` into `source`, replacing any existing block.
  */
 export function spliceFrontmatter(source: string, block: string): string {
   const split = splitFrontmatter(source);
-  if (split.span === null) {
-    return block + source;
-  }
+  if (split.span === null) return block + source;
   return block + source.slice(split.span.end);
 }
 
 /**
- * Report whether `yamlText` contains YAML the entries-based serializer
- * cannot losslessly reproduce — comments, anchors, aliases, or syntax
- * the parser rejects outright. When `true`, the Properties UI degrades
- * to read-only so a commit cannot silently destroy the content.
+ * Whether `yamlText` contains YAML the serializer cannot losslessly
+ * reproduce — foreign comments, anchors, aliases, or rejected syntax.
+ * Recognized `# type:` comments (trailing on scalars, or `commentBefore`
+ * on block-list values) do NOT count.
  */
 export function hasUnmodelableYaml(yamlText: string): boolean {
   let doc: ReturnType<typeof parseDocument>;
@@ -74,7 +92,15 @@ export function hasUnmodelableYaml(yamlText: string): boolean {
       commentBefore?: string | null;
       anchor?: string;
     };
-    if (n.comment || n.commentBefore || n.anchor) {
+    if (n.anchor) {
+      flagged = true;
+      return visit.BREAK;
+    }
+    if (n.comment && !isTypeComment(n.comment)) {
+      flagged = true;
+      return visit.BREAK;
+    }
+    if (n.commentBefore && !isTypeComment(n.commentBefore)) {
       flagged = true;
       return visit.BREAK;
     }

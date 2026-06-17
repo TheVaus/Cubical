@@ -7,6 +7,9 @@ import {
 } from "./serializeFrontmatter";
 import { parseFrontmatterYaml, splitFrontmatter } from "../ast/frontmatter";
 import type { FrontmatterEntry } from "../ast/types";
+import { parseTypeComments, type PropertyType } from "./typeComments";
+
+const ISO = "YYYY-MM-DD";
 
 /** Serialize → split → parse, returning the re-parsed entries. */
 function roundTrip(entries: FrontmatterEntry[]): FrontmatterEntry[] {
@@ -151,5 +154,90 @@ describe("hasUnmodelableYaml", () => {
 
   it("returns false for empty YAML", () => {
     expect(hasUnmodelableYaml("")).toBe(false);
+  });
+});
+
+describe("serializeFrontmatter with type comments", () => {
+  it("writes a trailing type comment for a scalar value", () => {
+    const out = serializeFrontmatter(
+      [["price", 9.99]],
+      new Map<string, PropertyType>([["price", { kind: "currency" }]]),
+      ISO,
+    );
+    expect(out).toContain("# type:number/currency");
+    expect(out).toContain("price: 9.99");
+  });
+
+  it("omits the param for a default-format date, writes it otherwise", () => {
+    const def = serializeFrontmatter(
+      [["a", "2026-06-17"]],
+      new Map<string, PropertyType>([["a", { kind: "date", format: ISO }]]),
+      ISO,
+    );
+    expect(def).toContain("# type:date");
+    expect(def).not.toContain("# type:date:");
+
+    const custom = serializeFrontmatter(
+      [["a", "17-06-26"]],
+      new Map<string, PropertyType>([
+        ["a", { kind: "date", format: "DD-MM-YY" }],
+      ]),
+      ISO,
+    );
+    expect(custom).toContain("# type:date:DD-MM-YY");
+  });
+
+  it("writes the comment on the key line for a block-list value", () => {
+    const out = serializeFrontmatter(
+      [["people", ["Ann"]]],
+      new Map<string, PropertyType>([["people", { kind: "list-of-strings" }]]),
+      ISO,
+    );
+    const firstLine = out.split("\n").find((l) => l.startsWith("people:"))!;
+    expect(firstLine).toContain("# type:list");
+  });
+
+  it("does not annotate inferred-only or raw kinds", () => {
+    const out = serializeFrontmatter(
+      [["n", 3]],
+      new Map<string, PropertyType>([["n", { kind: "number" }]]),
+      ISO,
+    );
+    expect(out).not.toContain("# type:");
+  });
+
+  it("round-trips: serialize then parseTypeComments recovers the types", () => {
+    const types = new Map<string, PropertyType>([
+      ["price", { kind: "currency" }],
+      ["d", { kind: "date", format: "DD-MM-YY" }],
+      ["tags", { kind: "list-of-tags" }],
+    ]);
+    const out = serializeFrontmatter(
+      [
+        ["price", 9.99],
+        ["d", "17-06-26"],
+        ["tags", ["draft"]],
+      ],
+      types,
+      ISO,
+    );
+    const body = out.replace(/^---\n/, "").replace(/---\n$/, "");
+    expect(parseTypeComments(body)).toEqual(types);
+  });
+});
+
+describe("hasUnmodelableYaml with type comments", () => {
+  it("allows recognized type comments incl. dated and block-list", () => {
+    expect(hasUnmodelableYaml("price: 9.99 # type:number/currency\n")).toBe(
+      false,
+    );
+    expect(hasUnmodelableYaml("d: 17-06-26 # type:date:DD-MM-YY\n")).toBe(false);
+    expect(hasUnmodelableYaml("people: # type:list\n  - Ann\n")).toBe(false);
+  });
+
+  it("still flags foreign comments and anchors", () => {
+    expect(hasUnmodelableYaml("a: 1 # just a note\n")).toBe(true);
+    expect(hasUnmodelableYaml("a: &x 1\nb: *x\n")).toBe(true);
+    expect(hasUnmodelableYaml("a: 1 # type:bogus\n")).toBe(true);
   });
 });
