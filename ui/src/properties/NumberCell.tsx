@@ -1,5 +1,6 @@
 import { createEffect, createSignal, on, type Component } from "solid-js";
 
+import { truncateInt } from "./format";
 import { inputStyle } from "./styles";
 
 /**
@@ -12,6 +13,8 @@ import { inputStyle } from "./styles";
 export interface NumberCellProps {
   value: number;
   onCommit: (next: number) => void;
+  /** When true, the committed value is truncated to an integer. */
+  integer?: boolean;
 }
 
 const NumberCell: Component<NumberCellProps> = (props) => {
@@ -36,7 +39,9 @@ const NumberCell: Component<NumberCellProps> = (props) => {
       setDraft(String(props.value));
       return;
     }
-    if (parsed !== props.value) props.onCommit(parsed);
+    const final = props.integer ? truncateInt(parsed) : parsed;
+    if (final !== props.value) props.onCommit(final);
+    setDraft(String(final));
   };
 
   return (
