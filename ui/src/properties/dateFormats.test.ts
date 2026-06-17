@@ -16,10 +16,10 @@ describe("table", () => {
     for (const t of DATE_FORMAT_TOKENS) expect(isKnownDateFormat(t)).toBe(true);
     expect(isKnownDateFormat("MMM D")).toBe(false);
   });
-  it("marks YYYY-MM-DD native and YYYY numeric", () => {
-    expect(getDateFormat("YYYY-MM-DD")!.native).toBe(true);
-    expect(getDateFormat("YYYY")!.numeric).toBe(true);
-    expect(getDateFormat("DD-MM-YY")!.native).toBe(false);
+  it("assigns the right widget per format", () => {
+    expect(getDateFormat("YYYY-MM-DD")!.widget).toBe("date");
+    expect(getDateFormat("YYYY")!.widget).toBe("number");
+    expect(getDateFormat("DD-MM-YY")!.widget).toBe("text");
   });
 });
 
@@ -56,6 +56,26 @@ describe("convertDate", () => {
       value: "",
       lossy: true,
     });
+  });
+  it("widens date → datetime lossily (no time to invent)", () => {
+    expect(convertDate("2026-06-17", "YYYY-MM-DD HH:MM")).toEqual({
+      value: "",
+      lossy: true,
+    });
+  });
+  it("narrows datetime → date, dropping time (lossy)", () => {
+    expect(convertDate("2026-06-17 14:30", "YYYY-MM-DD")).toEqual({
+      value: "2026-06-17",
+      lossy: true,
+    });
+  });
+});
+
+describe("YYYY-MM-DD HH:MM", () => {
+  it("validates and round-trips", () => {
+    expect(validateDate("2026-06-17 14:30", "YYYY-MM-DD HH:MM")).toBe(true);
+    expect(validateDate("2026-06-17 25:00", "YYYY-MM-DD HH:MM")).toBe(false);
+    expect(getDateFormat("YYYY-MM-DD HH:MM")!.widget).toBe("datetime");
   });
 });
 

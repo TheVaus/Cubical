@@ -21,11 +21,9 @@ import NumberCell from "./properties/NumberCell";
 import BooleanCell from "./properties/BooleanCell";
 import DateCell from "./properties/DateCell";
 import StringListCell from "./properties/StringListCell";
-import TagListCell from "./properties/TagListCell";
 import RawCell from "./properties/RawCell";
 import CurrencyCell from "./properties/CurrencyCell";
-import DateTimeCell from "./properties/DateTimeCell";
-import MultilineCell from "./properties/MultilineCell";
+import EnumCell from "./properties/EnumCell";
 import { DATE_FORMAT_TOKENS, convertDate } from "./properties/dateFormats";
 import {
   parseTypeComments,
@@ -69,49 +67,45 @@ interface TypeFamily {
 }
 
 const TYPE_MENU: TypeFamily[] = [
+  { label: "Text", leaves: [{ type: { kind: "string" }, label: "Text" }] },
+  { label: "Integer", leaves: [{ type: { kind: "int" }, label: "Integer" }] },
   {
-    label: "Text",
+    label: "Float",
     leaves: [
-      { type: { kind: "string" }, label: "Plain" },
-      { type: { kind: "multiline" }, label: "Multiline" },
-    ],
-  },
-  {
-    label: "Number",
-    leaves: [
-      { type: { kind: "int" }, label: "Integer" },
       { type: { kind: "float" }, label: "Decimal" },
-      { type: { kind: "currency" }, label: "Currency (USD)" },
+      { type: { kind: "currency", currency: "usd" }, label: "Currency (USD)" },
+      { type: { kind: "currency", currency: "nis" }, label: "Currency (NIS)" },
+      { type: { kind: "currency", currency: "eur" }, label: "Currency (EUR)" },
     ],
   },
+  { label: "Boolean", leaves: [{ type: { kind: "boolean" }, label: "Boolean" }] },
   {
-    label: "Checkbox",
-    leaves: [{ type: { kind: "boolean" }, label: "Checkbox" }],
+    label: "Enum",
+    leaves: [{ type: { kind: "enum", values: [] }, label: "Enum (set of values)" }],
   },
   {
     label: "Date",
-    leaves: [
-      { type: { kind: "datetime" }, label: "Date & time" },
-      ...DATE_FORMAT_TOKENS.map(
-        (format): TypeLeaf => ({
-          type: { kind: "date", format },
-          label: `Date · ${format}`,
-        }),
-      ),
-    ],
+    leaves: DATE_FORMAT_TOKENS.map(
+      (format): TypeLeaf => ({
+        type: { kind: "date", format },
+        label: `Date · ${format}`,
+      }),
+    ),
   },
-  {
-    label: "List",
-    leaves: [
-      { type: { kind: "list-of-strings" }, label: "List" },
-      { type: { kind: "list-of-tags" }, label: "Tags" },
-    ],
-  },
+  { label: "List", leaves: [{ type: { kind: "list-of-strings" }, label: "List" }] },
 ];
 
-/** Whether two property types are the same selection (kind + date format). */
+/**
+ * Whether a menu leaf matches the active type, for highlighting. Compares
+ * kind, date format, and currency code; enum values are ignored (the menu
+ * leaf is always the empty `enum()`).
+ */
 function sameType(a: PropertyType, b: PropertyType): boolean {
-  return a.kind === b.kind && (a.format ?? null) === (b.format ?? null);
+  return (
+    a.kind === b.kind &&
+    (a.format ?? null) === (b.format ?? null) &&
+    (a.currency ?? null) === (b.currency ?? null)
+  );
 }
 
 export interface PropertiesProps {
@@ -151,6 +145,7 @@ interface RowProps {
   onCloseMenu: () => void;
   onChangeType: (type: PropertyType) => void;
   onCommitValue: (value: unknown) => void;
+  onSetEnumValues: (values: string[]) => void;
   onRename: (next: string) => boolean;
   onRevertLossy: () => void;
   onOpenRaw: () => void;
@@ -235,15 +230,7 @@ const PropertyRow: Component<RowProps> = (props) => {
             onCommit={(v) => props.onCommitValue(v)}
           />
         </Show>
-        <Show when={props.type.kind === "multiline"}>
-          <MultilineCell
-            value={String(props.value ?? "")}
-            onCommit={(v) => props.onCommitValue(v)}
-          />
-        </Show>
-        <Show
-          when={props.type.kind === "number" || props.type.kind === "float"}
-        >
+        <Show when={props.type.kind === "float"}>
           <NumberCell
             value={typeof props.value === "number" ? props.value : 0}
             onCommit={(v) => props.onCommitValue(v)}
@@ -259,6 +246,7 @@ const PropertyRow: Component<RowProps> = (props) => {
         <Show when={props.type.kind === "currency"}>
           <CurrencyCell
             value={typeof props.value === "number" ? props.value : 0}
+            currency={props.type.currency ?? "usd"}
             onCommit={(v) => props.onCommitValue(v)}
           />
         </Show>
@@ -266,6 +254,14 @@ const PropertyRow: Component<RowProps> = (props) => {
           <BooleanCell
             value={props.value === true}
             onCommit={(v) => props.onCommitValue(v)}
+          />
+        </Show>
+        <Show when={props.type.kind === "enum"}>
+          <EnumCell
+            value={props.value}
+            values={props.type.values ?? []}
+            onCommit={(v) => props.onCommitValue(v)}
+            onSetValues={(vals) => props.onSetEnumValues(vals)}
           />
         </Show>
         <Show when={props.type.kind === "date"}>
@@ -279,20 +275,8 @@ const PropertyRow: Component<RowProps> = (props) => {
             onCommit={(v) => props.onCommitValue(v)}
           />
         </Show>
-        <Show when={props.type.kind === "datetime"}>
-          <DateTimeCell
-            value={String(props.value ?? "")}
-            onCommit={(v) => props.onCommitValue(v)}
-          />
-        </Show>
         <Show when={props.type.kind === "list-of-strings"}>
           <StringListCell
-            value={Array.isArray(props.value) ? (props.value as string[]) : []}
-            onCommit={(v) => props.onCommitValue(v)}
-          />
-        </Show>
-        <Show when={props.type.kind === "list-of-tags"}>
-          <TagListCell
             value={Array.isArray(props.value) ? (props.value as string[]) : []}
             onCommit={(v) => props.onCommitValue(v)}
             {...(props.onNavigateTag
@@ -556,11 +540,14 @@ const Properties: Component<PropertiesProps> = (props) => {
 
   const changeType = (key: string, type: PropertyType) => {
     const current = entryMap().get(key);
-    // Date formats reformat the value; everything else uses coerceValue.
+    // Dates reformat the value; enum keeps the value (the set is defined
+    // next, via the cell); everything else uses coerceValue.
     const result =
       type.kind === "date"
         ? convertDate(current, effectiveFormat(type, props.dateDefault))
-        : coerceValue(current, type.kind);
+        : type.kind === "enum"
+          ? { value: current, lossy: false }
+          : coerceValue(current, type.kind);
     updateMap(
       setLossy,
       lossy(),
@@ -574,6 +561,27 @@ const Properties: Component<PropertiesProps> = (props) => {
         ([k, v]): FrontmatterEntry => (k === key ? [k, result.value] : [k, v]),
       ),
       buildAnnotations(typeMap(), key, type),
+    );
+  };
+
+  /**
+   * Redefine an enum property's allowed values (from the cell's values
+   * editor). Rewrites the type comment; if the current value is no longer
+   * in the set, it's snapped to the first value (or cleared when empty).
+   */
+  const setEnumValues = (key: string, values: string[]) => {
+    const current = entryMap().get(key);
+    const inSet = values.includes(String(current));
+    const nextValue = inSet
+      ? current
+      : values.length > 0
+        ? (Number.isFinite(Number(values[0])) ? Number(values[0]) : values[0])
+        : current;
+    commit(
+      entries().map(
+        ([k, v]): FrontmatterEntry => (k === key ? [k, nextValue] : [k, v]),
+      ),
+      buildAnnotations(typeMap(), key, { kind: "enum", values }),
     );
   };
 
@@ -688,6 +696,7 @@ const Properties: Component<PropertiesProps> = (props) => {
               }}
               onChangeType={(type) => changeType(key, type)}
               onCommitValue={(v) => commitValue(key, v)}
+              onSetEnumValues={(vals) => setEnumValues(key, vals)}
               onRename={(next) => renameKey(key, next)}
               onRevertLossy={() => revertLossy(key)}
               onOpenRaw={() => props.onOpenRaw()}

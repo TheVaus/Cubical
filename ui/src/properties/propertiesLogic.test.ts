@@ -14,10 +14,10 @@ describe("resolveType", () => {
     expect(resolveType(true, map, "price", 9.99)).toEqual({ kind: "currency" });
   });
   it("falls back to inference when no comment", () => {
-    expect(resolveType(true, map, "count", 3)).toEqual({ kind: "number" });
+    expect(resolveType(true, map, "count", 3)).toEqual({ kind: "int" });
   });
   it("ignores comments and infers when typed is disabled", () => {
-    expect(resolveType(false, map, "price", 9.99)).toEqual({ kind: "number" });
+    expect(resolveType(false, map, "price", 9.99)).toEqual({ kind: "float" });
   });
 });
 

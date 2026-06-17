@@ -8,52 +8,67 @@ import {
   typeToToken,
 } from "./typeComments";
 
+const ISO = "YYYY-MM-DD";
+
 describe("parseTypeToken", () => {
   it("maps canonical tokens to property types", () => {
     expect(parseTypeToken(" type:text")).toEqual({ kind: "string" });
-    expect(parseTypeToken(" type:text/multiline")).toEqual({
-      kind: "multiline",
-    });
-    expect(parseTypeToken(" type:number/int")).toEqual({ kind: "int" });
-    expect(parseTypeToken(" type:number/currency")).toEqual({
-      kind: "currency",
-    });
-    expect(parseTypeToken(" type:checkbox")).toEqual({ kind: "boolean" });
-    expect(parseTypeToken(" type:datetime")).toEqual({ kind: "datetime" });
+    expect(parseTypeToken(" type:int")).toEqual({ kind: "int" });
+    expect(parseTypeToken(" type:float")).toEqual({ kind: "float" });
+    expect(parseTypeToken(" type:boolean")).toEqual({ kind: "boolean" });
     expect(parseTypeToken(" type:list")).toEqual({ kind: "list-of-strings" });
-    expect(parseTypeToken(" type:tags")).toEqual({ kind: "list-of-tags" });
   });
 
-  it("parses bare and formatted dates", () => {
+  it("parses currency with a code", () => {
+    expect(parseTypeToken(" type:float/currency/usd")).toEqual({
+      kind: "currency",
+      currency: "usd",
+    });
+    expect(parseTypeToken(" type:float/currency/NIS")).toEqual({
+      kind: "currency",
+      currency: "nis",
+    });
+  });
+
+  it("parses enum value sets (numbers stay tokens here)", () => {
+    expect(parseTypeToken(" type:enum(alive,dead)")).toEqual({
+      kind: "enum",
+      values: ["alive", "dead"],
+    });
+    expect(parseTypeToken(" type:enum(1, 0)")).toEqual({
+      kind: "enum",
+      values: ["1", "0"],
+    });
+    expect(parseTypeToken(" type:enum()")).toEqual({ kind: "enum", values: [] });
+  });
+
+  it("parses bare and formatted dates incl. spaces", () => {
     expect(parseTypeToken(" type:date")).toEqual({ kind: "date" });
     expect(parseTypeToken(" type:date:DD-MM-YY")).toEqual({
       kind: "date",
       format: "DD-MM-YY",
     });
-    // Unknown date format is still a date; format dropped (falls back later).
-    expect(parseTypeToken(" type:date:WUT")).toEqual({ kind: "date" });
-  });
-
-  it("accepts aliases and future currency params", () => {
-    expect(parseTypeToken("type:date/datetime")).toEqual({ kind: "datetime" });
-    expect(parseTypeToken("type:list/tags")).toEqual({ kind: "list-of-tags" });
-    expect(parseTypeToken("type:number/currency:EUR")).toEqual({
-      kind: "currency",
+    expect(parseTypeToken(" type:date:YYYY-MM-DD HH:MM")).toEqual({
+      kind: "date",
+      format: "YYYY-MM-DD HH:MM",
     });
+    // Unknown date format is still a date; format dropped.
+    expect(parseTypeToken(" type:date:WUT")).toEqual({ kind: "date" });
   });
 
   it("returns undefined for non-type or unknown kind", () => {
     expect(parseTypeToken("just a note")).toBeUndefined();
     expect(parseTypeToken("type:bogus")).toBeUndefined();
+    expect(parseTypeToken("type:number")).toBeUndefined();
     expect(parseTypeToken(null)).toBeUndefined();
   });
 });
 
 describe("isTypeComment", () => {
-  it("is true for any recognized type token incl. dates", () => {
-    expect(isTypeComment(" type:number/currency")).toBe(true);
-    expect(isTypeComment(" type:date:DD-MM-YY")).toBe(true);
-    expect(isTypeComment(" type:date:WUT")).toBe(true); // still a date
+  it("is true for any recognized type token", () => {
+    expect(isTypeComment(" type:float/currency/eur")).toBe(true);
+    expect(isTypeComment(" type:enum(a,b)")).toBe(true);
+    expect(isTypeComment(" type:date:YYYY-MM-DD HH:MM")).toBe(true);
     expect(isTypeComment(" a regular comment")).toBe(false);
     expect(isTypeComment(" type:nonsense")).toBe(false);
   });
@@ -61,36 +76,35 @@ describe("isTypeComment", () => {
 
 describe("typeToToken", () => {
   it("emits canonical tokens; omits default date format", () => {
-    expect(typeToToken({ kind: "currency" }, "YYYY-MM-DD")).toBe(
-      "number/currency",
+    expect(typeToToken({ kind: "currency", currency: "nis" }, ISO)).toBe(
+      "float/currency/nis",
     );
-    expect(typeToToken({ kind: "date" }, "YYYY-MM-DD")).toBe("date");
-    expect(
-      typeToToken({ kind: "date", format: "YYYY-MM-DD" }, "YYYY-MM-DD"),
-    ).toBe("date");
-    expect(
-      typeToToken({ kind: "date", format: "DD-MM-YY" }, "YYYY-MM-DD"),
-    ).toBe("date:DD-MM-YY");
-    expect(typeToToken({ kind: "number" }, "YYYY-MM-DD")).toBeNull();
-    expect(typeToToken({ kind: "raw" }, "YYYY-MM-DD")).toBeNull();
+    expect(typeToToken({ kind: "enum", values: ["a", "b"] }, ISO)).toBe(
+      "enum(a,b)",
+    );
+    expect(typeToToken({ kind: "date" }, ISO)).toBe("date");
+    expect(typeToToken({ kind: "date", format: ISO }, ISO)).toBe("date");
+    expect(typeToToken({ kind: "date", format: "DD-MM-YY" }, ISO)).toBe(
+      "date:DD-MM-YY",
+    );
+    expect(typeToToken({ kind: "raw" }, ISO)).toBeNull();
   });
 
   it("round-trips through parseTypeToken", () => {
     const cases: PropertyType[] = [
       { kind: "string" },
-      { kind: "multiline" },
       { kind: "int" },
       { kind: "float" },
-      { kind: "currency" },
+      { kind: "currency", currency: "usd" },
       { kind: "boolean" },
+      { kind: "enum", values: ["alive", "dead"] },
       { kind: "date" },
       { kind: "date", format: "DD-MM-YY" },
-      { kind: "datetime" },
+      { kind: "date", format: "YYYY-MM-DD HH:MM" },
       { kind: "list-of-strings" },
-      { kind: "list-of-tags" },
     ];
     for (const t of cases) {
-      const token = typeToToken(t, "YYYY-MM-DD");
+      const token = typeToToken(t, ISO);
       expect(token).not.toBeNull();
       expect(parseTypeToken(` type:${token}`)).toEqual(t);
     }
@@ -100,15 +114,18 @@ describe("typeToToken", () => {
 describe("parseTypeComments", () => {
   it("reads trailing type comments per top-level key", () => {
     const yaml =
-      "price: 9.99 # type:number/currency\n" +
-      "d: 17-06-26 # type:date:DD-MM-YY\n" +
+      "price: 9.99 # type:float/currency/usd\n" +
+      "status: alive # type:enum(alive,dead)\n" +
       "people: # type:list\n  - Ann\n" +
       "plain: hi\n";
     const map = parseTypeComments(yaml);
-    expect(map.get("price")).toEqual<PropertyType>({ kind: "currency" });
-    expect(map.get("d")).toEqual<PropertyType>({
-      kind: "date",
-      format: "DD-MM-YY",
+    expect(map.get("price")).toEqual<PropertyType>({
+      kind: "currency",
+      currency: "usd",
+    });
+    expect(map.get("status")).toEqual<PropertyType>({
+      kind: "enum",
+      values: ["alive", "dead"],
     });
     expect(map.get("people")).toEqual<PropertyType>({
       kind: "list-of-strings",

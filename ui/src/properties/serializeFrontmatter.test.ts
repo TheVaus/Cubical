@@ -161,10 +161,12 @@ describe("serializeFrontmatter with type comments", () => {
   it("writes a trailing type comment for a scalar value", () => {
     const out = serializeFrontmatter(
       [["price", 9.99]],
-      new Map<string, PropertyType>([["price", { kind: "currency" }]]),
+      new Map<string, PropertyType>([
+        ["price", { kind: "currency", currency: "usd" }],
+      ]),
       ISO,
     );
-    expect(out).toContain("# type:number/currency");
+    expect(out).toContain("# type:float/currency/usd");
     expect(out).toContain("price: 9.99");
   });
 
@@ -197,10 +199,10 @@ describe("serializeFrontmatter with type comments", () => {
     expect(firstLine).toContain("# type:list");
   });
 
-  it("does not annotate inferred-only or raw kinds", () => {
+  it("does not annotate raw kinds", () => {
     const out = serializeFrontmatter(
       [["n", 3]],
-      new Map<string, PropertyType>([["n", { kind: "number" }]]),
+      new Map<string, PropertyType>([["n", { kind: "raw" }]]),
       ISO,
     );
     expect(out).not.toContain("# type:");
@@ -208,15 +210,17 @@ describe("serializeFrontmatter with type comments", () => {
 
   it("round-trips: serialize then parseTypeComments recovers the types", () => {
     const types = new Map<string, PropertyType>([
-      ["price", { kind: "currency" }],
+      ["price", { kind: "currency", currency: "eur" }],
+      ["status", { kind: "enum", values: ["alive", "dead"] }],
       ["d", { kind: "date", format: "DD-MM-YY" }],
-      ["tags", { kind: "list-of-tags" }],
+      ["topics", { kind: "list-of-strings" }],
     ]);
     const out = serializeFrontmatter(
       [
         ["price", 9.99],
+        ["status", "alive"],
         ["d", "17-06-26"],
-        ["tags", ["draft"]],
+        ["topics", ["#draft"]],
       ],
       types,
       ISO,
@@ -228,7 +232,7 @@ describe("serializeFrontmatter with type comments", () => {
 
 describe("hasUnmodelableYaml with type comments", () => {
   it("allows recognized type comments incl. dated and block-list", () => {
-    expect(hasUnmodelableYaml("price: 9.99 # type:number/currency\n")).toBe(
+    expect(hasUnmodelableYaml("price: 9.99 # type:float/currency/usd\n")).toBe(
       false,
     );
     expect(hasUnmodelableYaml("d: 17-06-26 # type:date:DD-MM-YY\n")).toBe(false);

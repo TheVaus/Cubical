@@ -1,16 +1,17 @@
 import { createEffect, createSignal, on, type Component } from "solid-js";
 
-import { formatCurrencyUSD, parseCurrencyInput } from "./format";
+import { formatCurrency, parseCurrencyInput } from "./format";
 import { inputStyle } from "./styles";
 
 /**
- * Currency-valued frontmatter cell (spec §8). Stores a BARE number in
- * the YAML; the `$` and formatting are display-only. USD only. While
- * focused the raw number is shown for editing; blurred, it renders
- * formatted.
+ * Currency-valued frontmatter cell (spec §4.1). Stores a BARE number in
+ * the YAML; the symbol and formatting are display-only and driven by the
+ * `currency` code (usd/nis/eur). While focused the raw number is shown
+ * for editing; blurred, it renders formatted.
  */
 export interface CurrencyCellProps {
   value: number;
+  currency: string;
   onCommit: (next: number) => void;
 }
 
@@ -37,7 +38,8 @@ const CurrencyCell: Component<CurrencyCellProps> = (props) => {
     setDraft(String(parsed));
   };
 
-  const display = () => (focused() ? draft() : formatCurrencyUSD(props.value));
+  const display = () =>
+    focused() ? draft() : formatCurrency(props.value, props.currency);
 
   return (
     <input

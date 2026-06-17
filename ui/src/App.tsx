@@ -1950,7 +1950,8 @@ const App: Component = () => {
                         "white-space": "pre-wrap",
                       }}
                     >{`---
-price: 9.99    # type:number/currency
+price: 9.99    # type:float/currency/usd
+status: alive  # type:enum(alive,dead)
 due: 17-06-26  # type:date:DD-MM-YY
 ---`}</pre>
                     <p style={{ margin: 0 }}>

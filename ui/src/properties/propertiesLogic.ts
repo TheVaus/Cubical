@@ -19,7 +19,7 @@ export function resolveType(
   value: unknown,
 ): PropertyType {
   const explicit = typedEnabled ? typeMap.get(key) : undefined;
-  return explicit ?? { kind: inferType(key, value) };
+  return explicit ?? { kind: inferType(value) };
 }
 
 /** The effective date format for a resolved type given the vault default. */

@@ -4,12 +4,14 @@ import { getDateFormat, validateDate } from "./dateFormats";
 import { inputStyle } from "./styles";
 
 /**
- * Date-valued frontmatter cell (spec §4b). Renders per the resolved
- * `format`:
- *  - `YYYY-MM-DD` → native `<input type=date>`.
- *  - `YYYY`       → numeric year input (commits a number).
- *  - others       → text input validated against the format on commit
- *                   (invalid → reverts to the last committed value).
+ * Date-valued frontmatter cell (spec §4.3). Renders per the resolved
+ * `format`'s widget:
+ *  - `date`     → native `<input type=date>` (YYYY-MM-DD).
+ *  - `datetime` → native `<input type=datetime-local>`; the wire uses a
+ *                 `T` separator, the stored value a space (`YYYY-MM-DD HH:MM`).
+ *  - `number`   → year input (commits a number).
+ *  - `text`     → text input validated against the format on commit
+ *                 (invalid → reverts to the last committed value).
  * The committed value is written verbatim in the chosen format.
  */
 export interface DateCellProps {
@@ -32,50 +34,72 @@ const DateCell: Component<DateCellProps> = (props) => {
   );
 
   const def = () => getDateFormat(props.format);
+  const widget = () => def()?.widget ?? "text";
 
-  const commit = () => {
-    const text = draft().trim();
-    const numeric = def()?.numeric ?? false;
-    // Empty is allowed (clears the value).
+  // `datetime-local` uses `T`; the stored value uses a space separator.
+  const toInput = (stored: string): string => stored.replace(" ", "T");
+  const fromInput = (input: string): string => input.replace("T", " ");
+
+  const commit = (rawText: string) => {
+    const text = rawText.trim();
     if (text !== "" && !validateDate(text, props.format)) {
       setDraft(String(props.value ?? ""));
       return;
     }
-    const next: string | number = numeric && text !== "" ? Number(text) : text;
+    const next: string | number =
+      widget() === "number" && text !== "" ? Number(text) : text;
     if (next !== props.value) props.onCommit(next);
   };
 
   return (
     <Show
-      when={def()?.native}
+      when={widget() === "datetime"}
       fallback={
-        <input
-          type="text"
-          inputmode={def()?.numeric ? "numeric" : "text"}
-          placeholder={def()?.placeholder ?? props.format}
-          value={draft()}
-          onInput={(e) => setDraft(e.currentTarget.value)}
-          onFocus={() => setFocused(true)}
-          onBlur={() => {
-            setFocused(false);
-            commit();
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") e.currentTarget.blur();
-          }}
-          style={inputStyle(focused())}
-        />
+        <Show
+          when={widget() === "date"}
+          fallback={
+            <input
+              type="text"
+              inputmode={widget() === "number" ? "numeric" : "text"}
+              placeholder={def()?.placeholder ?? props.format}
+              value={draft()}
+              onInput={(e) => setDraft(e.currentTarget.value)}
+              onFocus={() => setFocused(true)}
+              onBlur={() => {
+                setFocused(false);
+                commit(draft());
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") e.currentTarget.blur();
+              }}
+              style={inputStyle(focused())}
+            />
+          }
+        >
+          <input
+            type="date"
+            value={draft()}
+            onInput={(e) => setDraft(e.currentTarget.value)}
+            onChange={() => commit(draft())}
+            onFocus={() => setFocused(true)}
+            onBlur={() => {
+              setFocused(false);
+              commit(draft());
+            }}
+            style={inputStyle(focused())}
+          />
+        </Show>
       }
     >
       <input
-        type="date"
-        value={draft()}
-        onInput={(e) => setDraft(e.currentTarget.value)}
-        onChange={commit}
+        type="datetime-local"
+        value={toInput(draft())}
+        onInput={(e) => setDraft(fromInput(e.currentTarget.value))}
+        onChange={() => commit(draft())}
         onFocus={() => setFocused(true)}
         onBlur={() => {
           setFocused(false);
-          commit();
+          commit(draft());
         }}
         style={inputStyle(focused())}
       />

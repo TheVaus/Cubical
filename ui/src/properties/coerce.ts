@@ -18,17 +18,19 @@ export interface Coercion {
 }
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-const ISO_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
 const TRUTHY = new Set(["true", "yes", "1", "on"]);
 const FALSY = new Set(["false", "no", "0", "off", ""]);
 
-/** Coerce `value` into the target cell `kind`. */
+/**
+ * Coerce `value` into the target cell `kind`. `currency` is a float;
+ * `enum` is left untouched here (its value-set coercion needs the allowed
+ * values, handled in `Properties.changeType`); `date` cross-format
+ * conversion is likewise handled by `dateFormats.convertDate`.
+ */
 export function coerceValue(value: unknown, kind: CellKind): Coercion {
   switch (kind) {
     case "string":
-    case "multiline":
       return toStringValue(value);
-    case "number":
     case "float":
     case "currency":
       return toNumberValue(value);
@@ -38,14 +40,12 @@ export function coerceValue(value: unknown, kind: CellKind): Coercion {
       return toBooleanValue(value);
     case "date":
       return toDateValue(value);
-    case "datetime":
-      return toDateTimeValue(value);
-    case "list-of-strings":
-    case "list-of-tags":
-      return toListValue(value);
+    case "enum":
     case "raw":
-      // `raw` is not a user-pickable override; leave the value untouched.
+      // Not coerced here; the value is left untouched.
       return { value, lossy: false };
+    case "list-of-strings":
+      return toListValue(value);
   }
 }
 
@@ -89,14 +89,6 @@ function toIntValue(value: unknown): Coercion {
   const n = num.value as number;
   const i = Math.trunc(n);
   return { value: i, lossy: num.lossy || i !== n };
-}
-
-function toDateTimeValue(value: unknown): Coercion {
-  if (typeof value === "string") {
-    if (ISO_DATETIME.test(value)) return { value, lossy: false };
-    if (ISO_DATE.test(value)) return { value: `${value}T00:00`, lossy: false };
-  }
-  return { value: "", lossy: true };
 }
 
 function toListValue(value: unknown): Coercion {

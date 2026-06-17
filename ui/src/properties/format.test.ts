@@ -1,22 +1,36 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  formatCurrencyUSD,
-  normalizeDateTime,
+  formatCurrency,
+  isKnownCurrency,
   parseCurrencyInput,
   truncateInt,
 } from "./format";
 
-describe("formatCurrencyUSD", () => {
-  it("formats as USD with two decimals and separators", () => {
-    expect(formatCurrencyUSD(1234.5)).toBe("$1,234.50");
-    expect(formatCurrencyUSD(0)).toBe("$0.00");
+describe("formatCurrency", () => {
+  it("formats known currencies with their symbol", () => {
+    expect(formatCurrency(1234.5, "usd")).toBe("$1,234.50");
+    expect(formatCurrency(1234.5, "eur")).toBe("€1,234.50");
+    expect(formatCurrency(1234.5, "nis")).toBe("₪1,234.50");
+  });
+  it("falls back to a plain number for an unknown code", () => {
+    expect(formatCurrency(1234.5, "xyz")).toBe("1,234.5");
+  });
+});
+
+describe("isKnownCurrency", () => {
+  it("recognizes supported codes", () => {
+    expect(isKnownCurrency("usd")).toBe(true);
+    expect(isKnownCurrency("nis")).toBe(true);
+    expect(isKnownCurrency("eur")).toBe(true);
+    expect(isKnownCurrency("gbp")).toBe(false);
   });
 });
 
 describe("parseCurrencyInput", () => {
-  it("strips $ and commas and parses a number", () => {
+  it("strips symbols and commas and parses a number", () => {
     expect(parseCurrencyInput("$1,234.50")).toBe(1234.5);
+    expect(parseCurrencyInput("₪9.99")).toBe(9.99);
     expect(parseCurrencyInput("9.99")).toBe(9.99);
   });
   it("returns null for non-numeric input", () => {
@@ -30,17 +44,5 @@ describe("truncateInt", () => {
     expect(truncateInt(3.7)).toBe(3);
     expect(truncateInt(-3.7)).toBe(-3);
     expect(truncateInt(5)).toBe(5);
-  });
-});
-
-describe("normalizeDateTime", () => {
-  it("passes through an ISO datetime", () => {
-    expect(normalizeDateTime("2026-06-17T14:30")).toBe("2026-06-17T14:30");
-  });
-  it("promotes a bare date to midnight", () => {
-    expect(normalizeDateTime("2026-06-17")).toBe("2026-06-17T00:00");
-  });
-  it("returns empty for unparseable input", () => {
-    expect(normalizeDateTime("nope")).toBe("");
   });
 });

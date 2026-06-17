@@ -21,17 +21,17 @@ describe("coerceValue → string", () => {
   });
 });
 
-describe("coerceValue → number", () => {
+describe("coerceValue → float", () => {
   it("parses a numeric string non-lossily", () => {
-    expect(coerceValue("42", "number")).toEqual({ value: 42, lossy: false });
+    expect(coerceValue("42", "float")).toEqual({ value: 42, lossy: false });
   });
 
   it("falls back to 0 and flags lossy for a non-numeric string", () => {
-    expect(coerceValue("abc", "number")).toEqual({ value: 0, lossy: true });
+    expect(coerceValue("abc", "float")).toEqual({ value: 0, lossy: true });
   });
 
   it("keeps a number non-lossily", () => {
-    expect(coerceValue(7, "number")).toEqual({ value: 7, lossy: false });
+    expect(coerceValue(7, "float")).toEqual({ value: 7, lossy: false });
   });
 });
 
@@ -80,7 +80,7 @@ describe("coerceValue → list", () => {
   });
 
   it("keeps a string array non-lossily", () => {
-    expect(coerceValue(["a", "b"], "list-of-tags")).toEqual({
+    expect(coerceValue(["a", "b"], "list-of-strings")).toEqual({
       value: ["a", "b"],
       lossy: false,
     });
@@ -94,21 +94,14 @@ describe("coerceValue → list", () => {
 });
 
 describe("coerceValue — new kinds", () => {
-  it("multiline behaves like string", () => {
-    expect(coerceValue(42, "multiline")).toEqual({ value: "42", lossy: false });
-  });
-
   it("int truncates and flags fractional loss", () => {
     expect(coerceValue(3.7, "int")).toEqual({ value: 3, lossy: true });
     expect(coerceValue(5, "int")).toEqual({ value: 5, lossy: false });
     expect(coerceValue("8", "int")).toEqual({ value: 8, lossy: false });
   });
 
-  it("float behaves like number", () => {
+  it("float and currency coerce to a number", () => {
     expect(coerceValue("1.5", "float")).toEqual({ value: 1.5, lossy: false });
-  });
-
-  it("currency coerces to a number", () => {
     expect(coerceValue("9.99", "currency")).toEqual({
       value: 9.99,
       lossy: false,
@@ -116,15 +109,10 @@ describe("coerceValue — new kinds", () => {
     expect(coerceValue("x", "currency")).toEqual({ value: 0, lossy: true });
   });
 
-  it("datetime keeps ISO datetime, promotes date, else empty", () => {
-    expect(coerceValue("2026-06-17T14:30", "datetime")).toEqual({
-      value: "2026-06-17T14:30",
+  it("enum leaves the value untouched (handled in Properties)", () => {
+    expect(coerceValue("alive", "enum")).toEqual({
+      value: "alive",
       lossy: false,
     });
-    expect(coerceValue("2026-06-17", "datetime")).toEqual({
-      value: "2026-06-17T00:00",
-      lossy: false,
-    });
-    expect(coerceValue(123, "datetime")).toEqual({ value: "", lossy: true });
   });
 });

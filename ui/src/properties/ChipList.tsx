@@ -10,30 +10,29 @@ import {
 import { chipStyle, miniButtonStyle } from "./styles";
 
 /**
- * Shared chip-row primitive behind `StringListCell` and `TagListCell`
- * (L2 Session F, spec §2.4). Renders a string array as removable chips
- * with click-to-edit text and a trailing `+` add affordance.
+ * Shared chip-row primitive behind `StringListCell` (spec §4.4). Renders
+ * a string array as removable chips with click-to-edit text and a
+ * trailing `+` add affordance.
  *
- * `isTag` switches the chip presentation to the tag style (`#` prefix,
- * accent color). It does *not* change storage — the committed array
- * always holds bare strings.
+ * Tag styling is **per item**: a chip whose stored string starts with `#`
+ * renders accent-colored (mono). The `#` is part of the stored value, not
+ * added by the renderer. When `onChipClick` is supplied, clicking a
+ * `#`-chip navigates (the `#` is stripped for the lookup) and editing
+ * moves to a `✎` button; plain chips always click-to-edit.
  *
  * While any chip is being edited, incoming `value` prop changes are
- * ignored so an `onAstChange` refresh cannot clobber the edit
- * (brainstorming decision (d)).
+ * ignored so an `onAstChange` refresh cannot clobber the edit.
  */
 export interface ChipListProps {
   value: string[];
-  isTag: boolean;
   onCommit: (next: string[]) => void;
-  /**
-   * Optional click handler invoked when the chip body is clicked. When
-   * supplied, the chip body becomes a navigation gesture (used by the
-   * L3 Session E tag chip → tag-page wiring) and editing moves to a
-   * dedicated `✎` button shown beside `×`. When omitted, the chip body
-   * starts an inline edit (the original L2 Session F behaviour).
-   */
+  /** Optional navigation handler for `#`-prefixed chips (tag pages). */
   onChipClick?: (chip: string) => void;
+}
+
+/** A chip renders as a tag when its stored value starts with `#`. */
+function isTagChip(chip: string): boolean {
+  return chip.startsWith("#");
 }
 
 function sameArray(a: string[], b: string[]): boolean {
@@ -103,77 +102,81 @@ const ChipList: Component<ChipListProps> = (props) => {
       }}
     >
       <For each={chips()}>
-        {(chip, i) => (
-          <Show
-            when={editing() === i()}
-            fallback={
-              <span style={chipStyle(props.isTag)}>
-                <button
-                  type="button"
-                  onClick={() =>
-                    props.onChipClick
-                      ? props.onChipClick(chip)
-                      : startEdit(i())
-                  }
-                  title={props.onChipClick ? `Open #${chip}` : "Edit"}
-                  style={{
-                    ...miniButtonStyle(),
-                    color: "inherit",
-                    "font-family": "inherit",
-                    "font-size": "inherit",
-                    padding: "0",
-                  }}
-                >
-                  {props.isTag ? `#${chip}` : chip}
-                </button>
-                <Show when={props.onChipClick}>
+        {(chip, i) => {
+          const tag = () => isTagChip(chip);
+          const navigable = () => tag() && props.onChipClick !== undefined;
+          return (
+            <Show
+              when={editing() === i()}
+              fallback={
+                <span style={chipStyle(tag())}>
                   <button
                     type="button"
-                    onClick={() => startEdit(i())}
-                    aria-label={`Edit ${chip}`}
-                    title="Edit"
+                    onClick={() =>
+                      navigable()
+                        ? props.onChipClick!(chip.replace(/^#/, ""))
+                        : startEdit(i())
+                    }
+                    title={navigable() ? `Open ${chip}` : "Edit"}
+                    style={{
+                      ...miniButtonStyle(),
+                      color: "inherit",
+                      "font-family": "inherit",
+                      "font-size": "inherit",
+                      padding: "0",
+                    }}
+                  >
+                    {chip}
+                  </button>
+                  <Show when={navigable()}>
+                    <button
+                      type="button"
+                      onClick={() => startEdit(i())}
+                      aria-label={`Edit ${chip}`}
+                      title="Edit"
+                      style={miniButtonStyle()}
+                    >
+                      ✎
+                    </button>
+                  </Show>
+                  <button
+                    type="button"
+                    onClick={() => removeChip(i())}
+                    aria-label={`Remove ${chip}`}
                     style={miniButtonStyle()}
                   >
-                    ✎
+                    ×
                   </button>
-                </Show>
-                <button
-                  type="button"
-                  onClick={() => removeChip(i())}
-                  aria-label={`Remove ${chip}`}
-                  style={miniButtonStyle()}
-                >
-                  ×
-                </button>
-              </span>
-            }
-          >
-            <input
-              type="text"
-              value={draft()}
-              ref={(el) => queueMicrotask(() => el.focus())}
-              onInput={(e) => setDraft(e.currentTarget.value)}
-              onBlur={commitEdit}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") e.currentTarget.blur();
-              }}
-              style={{
-                width: "7rem",
-                padding: "0 var(--space-2)",
-                height: "1.5rem",
-                "font-family": props.isTag
-                  ? "var(--font-mono)"
-                  : "var(--font-body)",
-                "font-size": "var(--text-xs)",
-                color: "var(--c-fg-primary)",
-                background: "var(--c-bg-primary)",
-                border: "1px solid var(--c-accent)",
-                "border-radius": "var(--radius-full)",
-                outline: "none",
-              }}
-            />
-          </Show>
-        )}
+                </span>
+              }
+            >
+              <input
+                type="text"
+                value={draft()}
+                ref={(el) => queueMicrotask(() => el.focus())}
+                onInput={(e) => setDraft(e.currentTarget.value)}
+                onBlur={commitEdit}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
+                }}
+                style={{
+                  width: "7rem",
+                  padding: "0 var(--space-2)",
+                  height: "1.5rem",
+                  "font-family": tag()
+                    ? "var(--font-mono)"
+                    : "var(--font-body)",
+                  "font-size": "var(--text-xs)",
+                  color: "var(--c-fg-primary)",
+                  background: "var(--c-bg-primary)",
+                  border: "1px solid var(--c-accent)",
+                  "border-radius": "var(--radius-full)",
+                  outline: "none",
+                }}
+              />
+            </Show>
+          );
+        }}
       </For>
       <button
         type="button"

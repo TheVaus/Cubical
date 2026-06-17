@@ -1,5 +1,5 @@
 /**
- * Curated date-format table (spec §4b). No date library: each format has
+ * Curated date-format table (spec §4.3). No date library: each format has
  * an explicit validation regex and parse/format rules. Pure + node-test
  * friendly. The grammar (typeComments) stores the token verbatim, so
  * adding a format is a one-row change here.
@@ -11,16 +11,20 @@ interface DateParts {
   y: number;
   m?: number;
   d?: number;
+  h?: number;
+  min?: number;
 }
+
+/** Which input widget a format uses. */
+export type DateWidget = "date" | "datetime" | "number" | "text";
 
 export interface DateFormatDef {
   token: string;
   /** Placeholder/hint shown in the text input. */
   placeholder: string;
-  /** Use the native `<input type=date>` (only YYYY-MM-DD). */
-  native: boolean;
-  /** Value is a YAML number, not a string (only YYYY). */
-  numeric: boolean;
+  widget: DateWidget;
+  /** Whether the format carries a time component (H/M). */
+  hasTime: boolean;
   regex: RegExp;
   /** Parse a string into parts, or null if it does not match. */
   toParts(s: string): DateParts | null;
@@ -31,15 +35,17 @@ export interface DateFormatDef {
 const pad = (n: number): string => String(n).padStart(2, "0");
 
 /**
- * Parts are well-formed when the month (1–12) and day (1–31) are in
- * range. Used to skip formats that share a regex but produce impossible
- * values — e.g. `17/06/2026` can't be `MM/DD/YYYY` (month 17), so the
- * parser falls through to `DD/MM/YYYY`.
+ * Parts are well-formed when month (1–12), day (1–31), hour (0–23), and
+ * minute (0–59) are in range. Used to skip formats that share a regex but
+ * produce impossible values — e.g. `17/06/2026` can't be `MM/DD/YYYY`
+ * (month 17), so the parser falls through to `DD/MM/YYYY`.
  */
 function validParts(p: DateParts | null): p is DateParts {
   if (!p) return false;
   if (p.m !== undefined && (p.m < 1 || p.m > 12)) return false;
   if (p.d !== undefined && (p.d < 1 || p.d > 31)) return false;
+  if (p.h !== undefined && (p.h < 0 || p.h > 23)) return false;
+  if (p.min !== undefined && (p.min < 0 || p.min > 59)) return false;
   return true;
 }
 
@@ -47,8 +53,8 @@ export const DATE_FORMATS: DateFormatDef[] = [
   {
     token: "YYYY-MM-DD",
     placeholder: "YYYY-MM-DD",
-    native: true,
-    numeric: false,
+    widget: "date",
+    hasTime: false,
     regex: /^(\d{4})-(\d{2})-(\d{2})$/,
     toParts(s) {
       const m = this.regex.exec(s);
@@ -59,10 +65,28 @@ export const DATE_FORMATS: DateFormatDef[] = [
     },
   },
   {
+    token: "YYYY-MM-DD HH:MM",
+    placeholder: "YYYY-MM-DD HH:MM",
+    widget: "datetime",
+    hasTime: true,
+    regex: /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/,
+    toParts(s) {
+      const m = this.regex.exec(s);
+      return m
+        ? { y: +m[1]!, m: +m[2]!, d: +m[3]!, h: +m[4]!, min: +m[5]! }
+        : null;
+    },
+    fromParts(p) {
+      return p.m && p.d && p.h !== undefined && p.min !== undefined
+        ? `${p.y}-${pad(p.m)}-${pad(p.d)} ${pad(p.h)}:${pad(p.min)}`
+        : null;
+    },
+  },
+  {
     token: "YYYY",
     placeholder: "YYYY",
-    native: false,
-    numeric: true,
+    widget: "number",
+    hasTime: false,
     regex: /^(\d{4})$/,
     toParts(s) {
       const m = this.regex.exec(s);
@@ -75,8 +99,8 @@ export const DATE_FORMATS: DateFormatDef[] = [
   {
     token: "YYYY-MM",
     placeholder: "YYYY-MM",
-    native: false,
-    numeric: false,
+    widget: "text",
+    hasTime: false,
     regex: /^(\d{4})-(\d{2})$/,
     toParts(s) {
       const m = this.regex.exec(s);
@@ -89,8 +113,8 @@ export const DATE_FORMATS: DateFormatDef[] = [
   {
     token: "DD-MM-YYYY",
     placeholder: "DD-MM-YYYY",
-    native: false,
-    numeric: false,
+    widget: "text",
+    hasTime: false,
     regex: /^(\d{2})-(\d{2})-(\d{4})$/,
     toParts(s) {
       const m = this.regex.exec(s);
@@ -103,8 +127,8 @@ export const DATE_FORMATS: DateFormatDef[] = [
   {
     token: "DD-MM-YY",
     placeholder: "DD-MM-YY",
-    native: false,
-    numeric: false,
+    widget: "text",
+    hasTime: false,
     regex: /^(\d{2})-(\d{2})-(\d{2})$/,
     toParts(s) {
       const m = this.regex.exec(s);
@@ -117,8 +141,8 @@ export const DATE_FORMATS: DateFormatDef[] = [
   {
     token: "MM/DD/YYYY",
     placeholder: "MM/DD/YYYY",
-    native: false,
-    numeric: false,
+    widget: "text",
+    hasTime: false,
     regex: /^(\d{2})\/(\d{2})\/(\d{4})$/,
     toParts(s) {
       const m = this.regex.exec(s);
@@ -131,8 +155,8 @@ export const DATE_FORMATS: DateFormatDef[] = [
   {
     token: "DD/MM/YYYY",
     placeholder: "DD/MM/YYYY",
-    native: false,
-    numeric: false,
+    widget: "text",
+    hasTime: false,
     regex: /^(\d{2})\/(\d{2})\/(\d{4})$/,
     toParts(s) {
       const m = this.regex.exec(s);
@@ -175,7 +199,8 @@ export function validateDate(value: unknown, token: string): boolean {
  * Convert `value` to the `toToken` format, best-effort. Parses against
  * every known format to recover parts, then renders. Returns a blank +
  * `lossy` when no format parses the input, or when the target needs a
- * month/day the source lacks (no parts are invented).
+ * month/day the source lacks. Narrowing that drops a time the source had
+ * (datetime → date) succeeds but is flagged `lossy`.
  */
 export function convertDate(
   value: unknown,
@@ -185,15 +210,22 @@ export function convertDate(
   if (!target) return { value: "", lossy: true };
   const s = String(value ?? "").trim();
   let parts: DateParts | null = null;
+  let sourceHadTime = false;
   for (const fmt of DATE_FORMATS) {
     const p = fmt.toParts(s);
     if (validParts(p)) {
       parts = p;
+      sourceHadTime = fmt.hasTime;
       break;
     }
   }
   if (!parts) return { value: "", lossy: true };
   const rendered = target.fromParts(parts);
   if (rendered === null) return { value: "", lossy: true };
-  return { value: target.numeric ? Number(rendered) : rendered, lossy: false };
+  // Dropping a time component the source carried is a (recoverable) loss.
+  const droppedTime = sourceHadTime && !target.hasTime;
+  return {
+    value: target.widget === "number" ? Number(rendered) : rendered,
+    lossy: droppedTime,
+  };
 }
