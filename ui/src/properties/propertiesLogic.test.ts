@@ -23,12 +23,11 @@ describe("resolveType", () => {
 });
 
 describe("effectiveFormat", () => {
-  it("prefers the type's inline format, then the vault default", () => {
-    expect(effectiveFormat({ kind: "date", format: "DD-MM-YY" }, "YYYY")).toBe(
+  it("uses the inline format, else ISO (a format-less date is ISO-shaped)", () => {
+    expect(effectiveFormat({ kind: "date", format: "DD-MM-YY" })).toBe(
       "DD-MM-YY",
     );
-    expect(effectiveFormat({ kind: "date" }, "YYYY")).toBe("YYYY");
-    expect(effectiveFormat({ kind: "date" }, undefined)).toBe("YYYY-MM-DD");
+    expect(effectiveFormat({ kind: "date" })).toBe("YYYY-MM-DD");
   });
 });
 

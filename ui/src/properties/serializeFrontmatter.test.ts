@@ -164,7 +164,6 @@ describe("serializeFrontmatter with type comments", () => {
       new Map<string, PropertyType>([
         ["price", { kind: "currency", currency: "nis" }],
       ]),
-      ISO,
     );
     expect(out).toContain("# type:float/currency/nis");
     expect(out).toContain("price: 9.99");
@@ -176,28 +175,24 @@ describe("serializeFrontmatter with type comments", () => {
       new Map<string, PropertyType>([
         ["price", { kind: "currency", currency: "usd" }],
       ]),
-      ISO,
       "usd",
     );
     expect(out).toContain("# type:float/currency");
     expect(out).not.toContain("# type:float/currency/");
   });
 
-  it("omits the param for a default-format date, writes it otherwise", () => {
-    const def = serializeFrontmatter(
+  it("always writes the date format inline", () => {
+    const iso = serializeFrontmatter(
       [["a", "2026-06-17"]],
       new Map<string, PropertyType>([["a", { kind: "date", format: ISO }]]),
-      ISO,
     );
-    expect(def).toContain("# type:date");
-    expect(def).not.toContain("# type:date:");
+    expect(iso).toContain("# type:date:YYYY-MM-DD");
 
     const custom = serializeFrontmatter(
       [["a", "17-06-26"]],
       new Map<string, PropertyType>([
         ["a", { kind: "date", format: "DD-MM-YY" }],
       ]),
-      ISO,
     );
     expect(custom).toContain("# type:date:DD-MM-YY");
   });
@@ -206,7 +201,6 @@ describe("serializeFrontmatter with type comments", () => {
     const out = serializeFrontmatter(
       [["people", ["Ann"]]],
       new Map<string, PropertyType>([["people", { kind: "list-of-strings" }]]),
-      ISO,
     );
     const firstLine = out.split("\n").find((l) => l.startsWith("people:"))!;
     expect(firstLine).toContain("# type:list");
@@ -216,7 +210,6 @@ describe("serializeFrontmatter with type comments", () => {
     const out = serializeFrontmatter(
       [["n", 3]],
       new Map<string, PropertyType>([["n", { kind: "raw" }]]),
-      ISO,
     );
     expect(out).not.toContain("# type:");
   });
@@ -236,7 +229,6 @@ describe("serializeFrontmatter with type comments", () => {
         ["topics", ["#draft"]],
       ],
       types,
-      ISO,
     );
     const body = out.replace(/^---\n/, "").replace(/---\n$/, "");
     expect(parseTypeComments(body)).toEqual(types);

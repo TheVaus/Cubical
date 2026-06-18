@@ -67,34 +67,55 @@ interface TypeFamily {
   leaves: TypeLeaf[];
 }
 
-const TYPE_MENU: TypeFamily[] = [
-  { label: "Text", leaves: [{ type: { kind: "string" }, label: "Text" }] },
-  { label: "Integer", leaves: [{ type: { kind: "int" }, label: "Integer" }] },
-  {
-    label: "Float",
-    leaves: [
-      { type: { kind: "float" }, label: "Decimal" },
-      { type: { kind: "currency", currency: "usd" }, label: "Currency (USD)" },
-      { type: { kind: "currency", currency: "nis" }, label: "Currency (NIS)" },
-      { type: { kind: "currency", currency: "eur" }, label: "Currency (EUR)" },
-    ],
-  },
-  { label: "Boolean", leaves: [{ type: { kind: "boolean" }, label: "Boolean" }] },
-  {
-    label: "Enum",
-    leaves: [{ type: { kind: "enum", values: [] }, label: "Enum (set of values)" }],
-  },
-  {
-    label: "Date",
-    leaves: DATE_FORMAT_TOKENS.map(
-      (format): TypeLeaf => ({
-        type: { kind: "date", format },
-        label: `Date · ${format}`,
-      }),
-    ),
-  },
-  { label: "List", leaves: [{ type: { kind: "list-of-strings" }, label: "List" }] },
-];
+/**
+ * Build the type menu. The Date submenu leads with the vault default
+ * format (that's what the `properties.date_format_default` setting seeds),
+ * then lists every format as an explicit override.
+ */
+function buildTypeMenu(dateDefault: string): TypeFamily[] {
+  return [
+    { label: "Text", leaves: [{ type: { kind: "string" }, label: "Text" }] },
+    { label: "Integer", leaves: [{ type: { kind: "int" }, label: "Integer" }] },
+    {
+      label: "Float",
+      leaves: [
+        { type: { kind: "float" }, label: "Decimal" },
+        { type: { kind: "currency", currency: "usd" }, label: "Currency (USD)" },
+        { type: { kind: "currency", currency: "nis" }, label: "Currency (NIS)" },
+        { type: { kind: "currency", currency: "eur" }, label: "Currency (EUR)" },
+      ],
+    },
+    {
+      label: "Boolean",
+      leaves: [{ type: { kind: "boolean" }, label: "Boolean" }],
+    },
+    {
+      label: "Enum",
+      leaves: [
+        { type: { kind: "enum", values: [] }, label: "Enum (set of values)" },
+      ],
+    },
+    {
+      label: "Date",
+      leaves: [
+        {
+          type: { kind: "date", format: dateDefault },
+          label: `Default (${dateDefault})`,
+        },
+        ...DATE_FORMAT_TOKENS.map(
+          (format): TypeLeaf => ({
+            type: { kind: "date", format },
+            label: `Date · ${format}`,
+          }),
+        ),
+      ],
+    },
+    {
+      label: "List",
+      leaves: [{ type: { kind: "list-of-strings" }, label: "List" }],
+    },
+  ];
+}
 
 /**
  * Whether a menu leaf matches the active type, for highlighting. Compares
@@ -131,6 +152,8 @@ export interface PropertiesProps {
   dateDefault: string;
   /** Vault default currency code (`properties.default_currency`). */
   currencyDefault: string;
+  /** Render the `tags` property's list as tag chips even without `#`. */
+  tagsKeyAsTags: boolean;
 }
 
 interface RowProps {
@@ -139,6 +162,8 @@ interface RowProps {
   type: PropertyType;
   format: string;
   currency: string;
+  menu: TypeFamily[];
+  tagsKey: boolean;
   lossyOriginal: { value: unknown } | undefined;
   menuOpen: boolean;
   autoFocus: boolean;
@@ -291,6 +316,7 @@ const PropertyRow: Component<RowProps> = (props) => {
         <Show when={props.type.kind === "list-of-strings"}>
           <StringListCell
             value={Array.isArray(props.value) ? (props.value as string[]) : []}
+            allTags={props.tagsKey}
             onCommit={(v) => props.onCommitValue(v)}
             {...(props.onNavigateTag
               ? { onNavigateTag: props.onNavigateTag }
@@ -363,7 +389,7 @@ const PropertyRow: Component<RowProps> = (props) => {
                 "box-shadow": "var(--shadow-md)",
               }}
             >
-              <For each={TYPE_MENU}>
+              <For each={props.menu}>
                 {(family) => (
                   <>
                     <button
@@ -493,6 +519,10 @@ const Properties: Component<PropertiesProps> = (props) => {
     return parseTypeComments(splitFrontmatter(props.getSource()).yaml ?? "");
   });
 
+  // Type menu, rebuilt when the vault default date format changes (it
+  // leads the Date submenu).
+  const menu = createMemo(() => buildTypeMenu(props.dateDefault));
+
   // Modelable when there is no frontmatter (we can add it) or the
   // existing block has no comments/anchors/aliases (spec §2.4 / (a)).
   const modelable = createMemo(() => {
@@ -506,12 +536,7 @@ const Properties: Component<PropertiesProps> = (props) => {
     nextEntries: FrontmatterEntry[],
     types: Map<string, PropertyType> = typeMap(),
   ) => {
-    const block = serializeFrontmatter(
-      nextEntries,
-      types,
-      props.dateDefault,
-      props.currencyDefault,
-    );
+    const block = serializeFrontmatter(nextEntries, types, props.currencyDefault);
     const source = props.getSource();
     const span = splitFrontmatter(source).span;
     if (span) {
@@ -560,7 +585,7 @@ const Properties: Component<PropertiesProps> = (props) => {
     // next, via the cell); everything else uses coerceValue.
     const result =
       type.kind === "date"
-        ? convertDate(current, effectiveFormat(type, props.dateDefault))
+        ? convertDate(current, effectiveFormat(type))
         : type.kind === "enum"
           ? { value: current, lossy: false }
           : coerceValue(current, type.kind);
@@ -699,8 +724,10 @@ const Properties: Component<PropertiesProps> = (props) => {
               keyName={key}
               value={entryMap().get(key)}
               type={resolvedType(key)}
-              format={effectiveFormat(resolvedType(key), props.dateDefault)}
+              format={effectiveFormat(resolvedType(key))}
               currency={effectiveCurrency(resolvedType(key), props.currencyDefault)}
+              menu={menu()}
+              tagsKey={props.tagsKeyAsTags && key === "tags"}
               lossyOriginal={lossy().get(key)}
               menuOpen={menuKey() === key}
               autoFocus={pendingFocusKey() === key}

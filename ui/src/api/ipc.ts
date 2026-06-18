@@ -260,7 +260,8 @@ export type Setting =
   | { key: "plugins.dataview_enabled"; value: boolean }
   | { key: "properties.typed_enabled"; value: boolean }
   | { key: "properties.date_format_default"; value: string }
-  | { key: "properties.default_currency"; value: string };
+  | { key: "properties.default_currency"; value: string }
+  | { key: "properties.tags_key_as_tags"; value: boolean };
 
 /** Narrows a `Setting` key to its corresponding value type. */
 export type SettingValue<K extends Setting["key"]> = Extract<

@@ -76,24 +76,28 @@ describe("isTypeComment", () => {
 });
 
 describe("typeToToken", () => {
-  it("emits canonical tokens; omits default date format", () => {
-    expect(typeToToken({ kind: "currency", currency: "nis" }, ISO)).toBe(
+  it("emits canonical tokens; omits the default currency code", () => {
+    // currencyDefault is "usd" by default.
+    expect(typeToToken({ kind: "currency", currency: "nis" })).toBe(
       "float/currency/nis",
     );
-    // A currency matching the default (usd) is written bare.
-    expect(typeToToken({ kind: "currency", currency: "usd" }, ISO)).toBe(
+    // A currency matching the default is written bare.
+    expect(typeToToken({ kind: "currency", currency: "usd" })).toBe(
       "float/currency",
     );
-    expect(typeToToken({ kind: "currency" }, ISO)).toBe("float/currency");
-    expect(typeToToken({ kind: "enum", values: ["a", "b"] }, ISO)).toBe(
-      "enum(a,b)",
+    expect(typeToToken({ kind: "currency" })).toBe("float/currency");
+    // A non-default currencyDefault flips which one is bare.
+    expect(typeToToken({ kind: "currency", currency: "nis" }, "nis")).toBe(
+      "float/currency",
     );
-    expect(typeToToken({ kind: "date" }, ISO)).toBe("date");
-    expect(typeToToken({ kind: "date", format: ISO }, ISO)).toBe("date");
-    expect(typeToToken({ kind: "date", format: "DD-MM-YY" }, ISO)).toBe(
+    expect(typeToToken({ kind: "enum", values: ["a", "b"] })).toBe("enum(a,b)");
+    // Dates always write their format inline (no default omission).
+    expect(typeToToken({ kind: "date" })).toBe("date");
+    expect(typeToToken({ kind: "date", format: ISO })).toBe("date:YYYY-MM-DD");
+    expect(typeToToken({ kind: "date", format: "DD-MM-YY" })).toBe(
       "date:DD-MM-YY",
     );
-    expect(typeToToken({ kind: "raw" }, ISO)).toBeNull();
+    expect(typeToToken({ kind: "raw" })).toBeNull();
   });
 
   it("round-trips through parseTypeToken", () => {
@@ -110,7 +114,7 @@ describe("typeToToken", () => {
       { kind: "list-of-strings" },
     ];
     for (const t of cases) {
-      const token = typeToToken(t, ISO);
+      const token = typeToToken(t);
       expect(token).not.toBeNull();
       expect(parseTypeToken(` type:${token}`)).toEqual(t);
     }

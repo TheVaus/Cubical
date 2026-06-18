@@ -23,12 +23,13 @@ export function resolveType(
   return explicit ?? { kind: inferType(value) };
 }
 
-/** The effective date format for a resolved type given the vault default. */
-export function effectiveFormat(
-  type: PropertyType,
-  vaultDefault: string | undefined,
-): string {
-  return effectiveDateFormat(type.format, vaultDefault);
+/**
+ * The effective date format for a resolved type. A type without an explicit
+ * format (inferred or a bare `# type:date`) resolves to ISO — its stored
+ * value is ISO-shaped — *not* the vault default, which only seeds new picks.
+ */
+export function effectiveFormat(type: PropertyType): string {
+  return effectiveDateFormat(type.format, undefined);
 }
 
 /** inline currency → vault default → USD, ignoring unknown codes. */

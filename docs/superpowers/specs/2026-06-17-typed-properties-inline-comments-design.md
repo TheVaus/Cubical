@@ -75,7 +75,7 @@ price: 9.99                # type:float/currency/usd
 alive: true                # type:boolean
 status: alive              # type:enum(alive,dead)
 flag: 1                    # type:enum(1,0)
-due: 2026-06-17            # type:date        (default format → bare)
+due: 2026-06-17            # type:date:YYYY-MM-DD
 meeting: 2026-06-17 14:30  # type:date:YYYY-MM-DD HH:MM
 year: 2026                 # type:date:YYYY
 topics:                    # type:list
@@ -110,11 +110,13 @@ topics:                    # type:list
 plain float render (no crash). The value is always a bare float; the code
 only selects the symbol/format (`Intl.NumberFormat`).
 
-Mirroring dates, the **default currency** is a vault setting
-(`properties.default_currency`, default `usd`). A currency matching the
-default is written **bare** (`# type:float/currency`); a differing code is
-written inline (`# type:float/currency/eur`). Effective code = inline →
-vault default → `usd`.
+The **default currency** is a vault setting (`properties.default_currency`,
+default `usd`). A currency matching the default is written **bare**
+(`# type:float/currency`); a differing code is written inline
+(`# type:float/currency/eur`). Effective code = inline → vault default →
+`usd`. Omitting the default is safe here (unlike dates) because the value
+is a format-agnostic number — changing the default only re-skins the
+symbol, never breaks a stored value.
 
 ### 4.2 Enum
 
@@ -126,10 +128,15 @@ valid (no values yet) and renders a values editor.
 
 ### 4.3 Date formats
 
-Curated picklist; the value is stored **in the format**. Default is a vault
-setting (`properties.date_format_default`, default `YYYY-MM-DD`); a property
-using the default writes bare `# type:date`, only a non-default writes
-`# type:date:<FORMAT>`. Effective format = inline → vault default → ISO.
+Curated picklist; the value is stored **in the format**. The format is
+**always written inline** (`# type:date:<FORMAT>`) — unlike currency, a
+date's value is stored *in* its format, so a bare `# type:date` resolving
+via a vault default would mis-read the value if the default ever changed.
+Effective format = inline → ISO (a format-less date — inferred or a bare
+`# type:date` — is ISO-shaped). The vault setting
+`properties.date_format_default` seeds the **"Default" entry** at the top of
+the Date menu (what a new date pick uses); it does not re-interpret existing
+values.
 
 | Token | Example | Widget | YAML value |
 | --- | --- | --- | --- |
@@ -161,6 +168,14 @@ string **starts with `#`** render as accent-colored tag chips and, when a
 tag-navigation handler is present, click to open that tag's page (the `#`
 is stripped for the lookup); other items render as plain string chips and
 click to edit.
+
+**Special `tags` key:** because the ecosystem convention stores tags
+without a `#` (`tags: [draft, wip]`), the `tags` property renders *every*
+item as a tag chip even without a `#` — gated by the vault setting
+`properties.tags_key_as_tags` (default **on**). The displayed chip shows a
+leading `#` when the stored value lacks one (display only; the stored value
+is unchanged). Only `tags` is special-cased — `aliases`/`cssclasses` are
+not tags — but the implementation is a small key set, easy to extend.
 
 ## 5. Resolution
 
@@ -236,11 +251,15 @@ Settings ▸ Editor (matching the core-plugin precedent):
 - **`properties.date_format_default`** (string, default `YYYY-MM-DD`) and
   **`properties.default_currency`** (string, default `usd`), shown as
   dropdowns (visible when typed properties are on) over the curated format
-  tokens / currency codes. All keys live in `.cubical/config.toml`; defaults
-  applied in TS (`getSetting(...) ?? default`); no backend change.
-- A help block documents the `# type:` format, that it lives in the note and
-  is portable, how to set a type, and that turning the feature off leaves
-  comments intact.
+  tokens / currency codes.
+- **`properties.tags_key_as_tags`** (boolean, default **on**), an on/off
+  toggle for rendering the `tags` property as tag chips even without `#`
+  (§4.4).
+- All keys live in `.cubical/config.toml`; defaults applied in TS
+  (`getSetting(...) ?? default`); no backend change.
+- A help block documents every type's `# type:` syntax (a full reference),
+  that it lives in the note and is portable, how to set a type, and that
+  turning the feature off leaves comments intact.
 
 ### 8b.4 Behavior when OFF
 

@@ -26,13 +26,14 @@ import { chipStyle, miniButtonStyle } from "./styles";
 export interface ChipListProps {
   value: string[];
   onCommit: (next: string[]) => void;
-  /** Optional navigation handler for `#`-prefixed chips (tag pages). */
+  /**
+   * When true, every item is a tag chip regardless of a `#` prefix (the
+   * special `tags` property). Items without a `#` are shown with one
+   * (display only — the stored value is unchanged).
+   */
+  allTags?: boolean;
+  /** Optional navigation handler for tag chips (tag pages). */
   onChipClick?: (chip: string) => void;
-}
-
-/** A chip renders as a tag when its stored value starts with `#`. */
-function isTagChip(chip: string): boolean {
-  return chip.startsWith("#");
 }
 
 function sameArray(a: string[], b: string[]): boolean {
@@ -103,8 +104,12 @@ const ChipList: Component<ChipListProps> = (props) => {
     >
       <For each={chips()}>
         {(chip, i) => {
-          const tag = () => isTagChip(chip);
+          const tag = () => (props.allTags ?? false) || chip.startsWith("#");
           const navigable = () => tag() && props.onChipClick !== undefined;
+          // Display a leading `#` for a tags-property item that lacks one;
+          // the stored value stays bare.
+          const display = () =>
+            tag() && !chip.startsWith("#") ? `#${chip}` : chip;
           return (
             <Show
               when={editing() === i()}
@@ -117,7 +122,7 @@ const ChipList: Component<ChipListProps> = (props) => {
                         ? props.onChipClick!(chip.replace(/^#/, ""))
                         : startEdit(i())
                     }
-                    title={navigable() ? `Open ${chip}` : "Edit"}
+                    title={navigable() ? `Open ${display()}` : "Edit"}
                     style={{
                       ...miniButtonStyle(),
                       color: "inherit",
@@ -126,7 +131,7 @@ const ChipList: Component<ChipListProps> = (props) => {
                       padding: "0",
                     }}
                   >
-                    {chip}
+                    {display()}
                   </button>
                   <Show when={navigable()}>
                     <button

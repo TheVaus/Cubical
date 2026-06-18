@@ -205,6 +205,7 @@ const App: Component = () => {
   const [typedProps, setTypedProps] = createSignal(true);
   const [dateDefault, setDateDefault] = createSignal("YYYY-MM-DD");
   const [currencyDefault, setCurrencyDefault] = createSignal("usd");
+  const [tagsKeyAsTags, setTagsKeyAsTags] = createSignal(true);
 
   // Conflict banner state — surfaces when an external edit lands on a
   // dirty buffer (spec §2.7). `externalHash` holds the most recent
@@ -743,6 +744,17 @@ const App: Component = () => {
     }
   };
 
+  /** Toggle rendering the `tags` property as tag chips (Settings ▸ Editor). */
+  const setTagsKeyAsTagsValue = (val: boolean) => {
+    setTagsKeyAsTags(val);
+    const id = vaultId();
+    if (id) {
+      setSetting(id, "properties.tags_key_as_tags", val).catch((e) => {
+        console.error("persisting properties.tags_key_as_tags failed", e);
+      });
+    }
+  };
+
   /** Set a core plugin's on/off state and persist to vault settings. */
   const setCorePlugin = (
     id: string,
@@ -1236,6 +1248,15 @@ const App: Component = () => {
       } catch (e) {
         console.error("loading properties.default_currency failed", e);
       }
+      try {
+        const stored = await getSetting(
+          resp.vault_id,
+          "properties.tags_key_as_tags",
+        );
+        setTagsKeyAsTags(stored ?? true);
+      } catch (e) {
+        console.error("loading properties.tags_key_as_tags failed", e);
+      }
 
       // Load each core plugin's enablement (absent ⇒ default).
       {
@@ -1684,6 +1705,7 @@ const App: Component = () => {
                     typedEnabled={typedProps()}
                     dateDefault={dateDefault()}
                     currencyDefault={currencyDefault()}
+                    tagsKeyAsTags={tagsKeyAsTags()}
                   />
                 </Show>
                 <Editor
@@ -1966,6 +1988,37 @@ const App: Component = () => {
                         )}
                       </For>
                     </select>
+                  </div>
+                  <div class="set-row">
+                    <div>
+                      <div class="set-row__lab">Render “tags” as tags</div>
+                      <div class="set-row__desc">
+                        Show the <code>tags</code> property's list as tag chips
+                        even when items don't start with <code>#</code>.
+                      </div>
+                    </div>
+                    <div class="seg-control">
+                      <button
+                        type="button"
+                        class="seg-control__btn"
+                        classList={{
+                          "seg-control__btn--active": !tagsKeyAsTags(),
+                        }}
+                        onClick={() => setTagsKeyAsTagsValue(false)}
+                      >
+                        Off
+                      </button>
+                      <button
+                        type="button"
+                        class="seg-control__btn"
+                        classList={{
+                          "seg-control__btn--active": tagsKeyAsTags(),
+                        }}
+                        onClick={() => setTagsKeyAsTagsValue(true)}
+                      >
+                        On
+                      </button>
+                    </div>
                   </div>
                   <div
                     class="set-row__desc"

@@ -81,7 +81,6 @@ export function isTypeComment(comment: string | null | undefined): boolean {
  */
 export function typeToToken(
   type: PropertyType,
-  defaultFormat: string,
   defaultCurrency = "usd",
 ): string | null {
   switch (type.kind) {
@@ -92,7 +91,9 @@ export function typeToToken(
     case "float":
       return "float";
     case "currency":
-      // A currency matching the vault default is written bare, like dates.
+      // A currency matching the vault default is written bare. Safe because
+      // the value is a format-agnostic number — changing the default only
+      // re-skins the symbol.
       return type.currency && type.currency !== defaultCurrency
         ? `float/currency/${type.currency}`
         : "float/currency";
@@ -101,9 +102,10 @@ export function typeToToken(
     case "enum":
       return `enum(${(type.values ?? []).join(",")})`;
     case "date":
-      return type.format && type.format !== defaultFormat
-        ? `date:${type.format}`
-        : "date";
+      // Always write the format inline. Unlike currency, a date's value is
+      // stored *in* its format, so omitting it and resolving via the vault
+      // default would mis-read existing values if the default ever changes.
+      return type.format ? `date:${type.format}` : "date";
     case "list-of-strings":
       return "list";
     case "raw":
