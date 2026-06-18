@@ -235,7 +235,7 @@ Eleven dependency-ordered sessions (A–J feature; K closeout). Per-session scop
 - *Per-inline byte positions:* not introduced. `LinkExtraction::position` is the start of the enclosing block's span. Good enough for ordering rows in the index; per-inline spans are post-L1 work and can land alongside the first feature that needs them (the click-to-navigate work in Session B uses Live Preview decorations, which have their own positions).
 - *Internal-only `cubical_ast::wikilink`:* kept private. The `resolve_link` IPC re-implements the anchor split inline (six lines) rather than promoting the tokenizer to public surface for a single non-AST consumer. The AST grammar stays the source of truth via fixtures, not via shared code.
 
-**Tests:** 170 Rust passing (was 121 + 49 new across the layer), 127 vitest passing (was 104 + 23 new). `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --check`, `npx tsc --noEmit`, and `npm run build` all clean.
+**Gates green.**
 
 **What's left for L3.** Sessions B–K — Live Preview + click-to-navigate, backlinks panel, tags, virtual tag pages, link/tag autocomplete, block references, embeds, unlinked mentions, pending-rewrites cache, and the layer closeout. The index this session built is the substrate they consume.
 
@@ -281,7 +281,7 @@ The visible range gets `mark-wikilink` (resolved or pending) or `mark-wikilink-u
 - *Click handler scope:* clicks with any modifier (Cmd/Ctrl/Shift/Alt) bypass the router entirely. Plain left-click only. Multi-pane / open-in-new-tab flows are deferred (no tab system yet — `ui.md` §11.4 + L3 spec §7).
 - *Resolver Facet shape:* the facet carries `{ get, fetch }` rather than the full `WikiLinkResolver`. The `invalidate` and `onUpdate` halves live with `App.tsx` and the `Editor.tsx` subscription respectively — the plugin only needs the two read/write operations.
 
-**Tests:** 170 Rust passing (unchanged — no Rust gap surfaced this session), 161 vitest passing (was 127 + 34 new: 7 inline-rule, 7 resolver, 9 click-router, 9 decoration shapes, 2 raw-source-toggle structural). `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --check`, `npx tsc --noEmit`, and `npm run build` all clean.
+**Gates green.**
 
 **Interactive smoke status.** Hands-on `cargo tauri dev` smoke was not performed in this session — the native Tauri window can't be browser-driven and the session ran in an automated context with no operator at the keyboard. The unit-test coverage exercises every pure decision (decoration mapping for each shape; resolver cache hit/miss/invalidate/onUpdate; click router for resolved/unresolved/pending; create-by-convention path), plus the `livePreviewDecorations` bundle structural regression. End-to-end behaviour (heading-anchor scroll lands at the right pixel; modal dismissal on backdrop click; resolver invalidation flips a warning to accent without reload) needs a hands-on smoke at the next opportunity. Recommended smoke vault:
 
@@ -337,7 +337,7 @@ Confirm: off-cursor hides brackets, the cursor-line reveal works, `NeverCreated`
 - *Case-collision fix*: `ui/src/sidebar/backlinks.ts` was renamed to `backlinksState.ts` (commit `96090dc`) because macOS's case-insensitive APFS collides it with `Backlinks.tsx`. The TS `forceConsistentCasingInFileNames` check rejected the original pairing; the rename + 2-line importer updates fixed it cleanly. Worth noting because Sessions D/I will introduce more panel components — keep helpers under non-PascalCase suffixes like `<thing>State.ts` to avoid the same collision.
 - *Reducer + token discipline for race safety*: every fetch increments a local `token`; the `.then` / `.catch` only commits its state mutation if its captured token still matches the latest. Cheap, no AbortController needed for L3 — backlinks fetches are short — and prevents a late slow response from overwriting an in-progress fast one.
 
-**Tests:** 186 Rust passing (was 170 + 16 new: 2 query + 9 snippet + 5 handler), 172 vitest passing (was 161 + 11 new — `backlinkKey` ×2, `basenameWithoutExtension` ×4, `reduceBacklinksState` ×5). `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --check`, `npx tsc --noEmit`, and `npm run build` all clean.
+**Gates green.**
 
 **Interactive smoke status.** Hands-on `cargo tauri dev` smoke was not performed this session — the native Tauri window can't be browser-driven and the session ran in an automated context with no operator at the keyboard. Unit-test coverage exercises every pure decision (the query's ordering and source-path projection; the snippet helper across 9 grammatical cases including UTF-8 boundaries; the handler across empty / single / multiple / missing-source / unknown-vault paths; the view-state reducer across all 4 action transitions; the pure helpers for keying and display naming) plus the full build and type gates. End-to-end behaviour (the panel populating on selection, the 200ms debounce flipping a freshly-created backlink into view, the row click navigating through `handleSelectFile` without disturbing autosave, the collapsed state persisting across vault reopen, the empty-state copy when there are no backlinks) needs a hands-on smoke at the next opportunity. Recommended smoke vault:
 
@@ -397,7 +397,7 @@ Confirm: opening `Target.md` populates the panel with two rows (`NoteA`, `NoteB`
 - *Lezer `Tag` node carries no sub-nodes:* the decoration plugin treats the whole token as one mark; no need for separate marker children (unlike wiki-links, which need to split brackets from body). Keeps the rule under 20 lines.
 - *Smoke vault at `~/Developer/sandbox/tag-test/`:* `Inbox.md` exercises every form (inline simple, nested, deep nested, case-collapse, mid-word negative, code-span negative, frontmatter sequence); `Project.md` adds the YAML block-sequence form (`tags:\n  - foo`) and an inline-in-list shape. README documents the manual smoke procedure.
 
-**Tests:** 228 Rust passing (was 186 + 42 new: 19 tag tokenizer + 6 tag query + 1 migration_004 assertion + 15 extract_tags + 1 scan_populates_tags), 231 vitest passing (was 172 + 59 new across new TS tag tokenizer, Lezer rule, decoration, parity fixtures, and the renamed normalize split). `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`, `npx tsc --noEmit`, and `npm run build` all clean.
+**Gates green.**
 
 **Interactive smoke status.** Hands-on `cargo tauri dev` smoke was not performed this session — the native Tauri window can't be browser-driven and the session ran in an automated context with no operator at the keyboard. Unit-test coverage exercises every pure decision (the tokenizer across 19 grammatical cases on each side; the extraction across emphasis / lists / quotes / code-block exclusion / frontmatter sequence / frontmatter scalar / case-dedup / leading-`#`-strip / non-tag values; the index queries across replace / atomic / dedup / cross-source / FK cascade; the migration shape; the Lezer rule across boundary / nested / multi-token / code-span exclusion; the decoration across mark-tag emission and active-line muting) plus the full build + type + clippy + fmt gates. End-to-end behaviour (chip rendering against the real editor styles; the watcher firing within ~100ms of an in-place edit; `Cmd/Ctrl+E` raw-source toggle revealing literal source for tag tokens) needs a hands-on smoke at the next opportunity. Recommended smoke vault: the just-created `~/Developer/sandbox/tag-test/` whose `README.md` walks through the 7-step verification.
 
@@ -433,7 +433,7 @@ Confirm: opening `Target.md` populates the panel with two rows (`NoteA`, `NoteB`
 - *Editor tag click only fires off the active line:* the decoration paints `cm-md-tag` off-cursor and `cm-md-mark-muted` on-cursor (so the raw source is editable). Clicks on the muted source fall through to CM's default caret-move; mirrors how wiki-links behave. Acceptable for v1 — the spec doesn't require active-line click navigation.
 - *Tag chip gesture in Properties (body navigates, `✎` edits):* the obvious alternative is modifier-click for navigate, but plain click matches the editor decoration's behaviour and reads as a hyperlink. Two-click edit (`✎` then type) is a small cost; tag chips are added/removed more often than they're renamed.
 
-**Tests:** 242 Rust passing (was 228 + 14 new: 6 `files_for_tag_prefix` query + 8 `query_tag_page` handler including 3 pure `derive_title` cases), 252 vitest passing (was 233 + 19 new in `tagMousedown.test.ts`). `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`, `npx tsc --noEmit`, `npm run build`, and `cargo build -p cubical-app` all clean.
+**Gates green.**
 
 **Interactive smoke status.** Hands-on `cargo tauri dev` smoke was not performed this session — same constraint as Session D's closeout (the native Tauri window can't be browser-driven and the session ran in an automated context). Unit-test coverage exercises every pure decision (the query across exact / descendants / sibling-prefix-exclusion / case-insensitivity / dedup / LIKE-escape / empty; the handler across vault lookup / basename derivation / error path; the click helper across left-click intercept / modifier-bail / right-click-bail / DOM walk-up / Text-node-target lift / slice → tag-path stripping); the Tauri binary builds clean so the new `query_tag_page` command is registered in the `invoke_handler` list and reachable end-to-end. End-to-end behaviour (clicking a `#project` decoration in `Inbox.md` opens a tag page listing `Inbox.md` + `Project.md`; clicking a row navigates back to the editor with that file open; the page updates within ~100ms when a third file picks up the tag; `← Back` returns to the open file unchanged) needs a hands-on smoke at the next opportunity. Recommended smoke vault: the existing `~/Developer/sandbox/tag-test/` whose `Inbox.md` + `Project.md` already share `#project/cubical/*` for a clean prefix-match demo.
 
@@ -453,7 +453,7 @@ Confirm: opening `Target.md` populates the panel with two rows (`NoteA`, `NoteB`
 
 **Out of scope, on purpose.** The §5.5 triple-parse stays deferred to L5 — link *extraction* keeps its own parse in Pass 1; only link *resolution* moved. The watcher path and `resolve_target` semantics are unchanged; no public-API churn beyond the internal `cubical-core::vault` surface.
 
-**Tests:** 247 Rust passing (was 242 + 5 new: 2 `PathResolver`, 2 `extract_links_off_executor`, 1 `scan_resolves_forward_references`), 252 vitest passing (unchanged — no UI surface). `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`, `npx tsc --noEmit`, `npx vitest run`, and `npm run build` all clean.
+**Gates green.**
 
 **Smoke status.** A programmatic timing smoke (throwaway `#[ignore]` test, not committed) scanned the 30k-file / 124 MB `~/Developer/sandbox/cubical-cancel-test` vault in **~10 s** (was multi-minute) — the O(N²) is gone; the residual is dominated by content hashing + the still-deferred §5.5 triple-parse. Interactive `cargo tauri dev` was not run (the native window can't be browser-driven in this automated context) — the forward-reference + existing resolution tests prove correctness; the timing smoke confirms wall-clock feel.
 
@@ -474,7 +474,7 @@ Confirm: opening `Target.md` populates the panel with two rows (`NoteA`, `NoteB`
 - *Substring for links, prefix for tags.* Link queries match anywhere in the path (you often remember a word from the middle of a note name); tag queries are prefix-only (matches how hierarchical `#a/b/c` tags read and how the tag-page prefix query already behaves).
 - *Gating by Lezer ancestry, not regex.* "Outside code" is decided by walking the syntax tree, not by trying to detect code spans textually — robust against nested/fenced constructs.
 
-**Tests:** 256 Rust passing (was 247 + 9 new: 3 `files_for_link_query`, 3 `tag_paths_for_prefix`, 3 autocomplete handlers), 268 vitest passing (was 252 + 16 new in `autocomplete.test.ts`). `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`, `npx tsc --noEmit`, `npx vitest run`, and `npm run build` all clean.
+**Gates green.**
 
 **Smoke status.** Interactive `cargo tauri dev` was not run (the native Tauri window can't be browser-driven in this automated context — same constraint as Sessions D–E and the perf fix). The behaviour is fully covered by unit + headless tests: trigger detection (open/closed/pipe/anchor/boundary cases), insert-text construction (with/without existing closer), code-context gating (fenced + inline), and handler behaviour (candidates, titles, prefix match, binary exclusion, unknown-vault error); the app binary builds clean so both commands are registered and reachable end-to-end. A hands-on smoke (type `[[`/`#` in a real vault, confirm the dropdown + insertion, confirm no trigger inside a code fence) is recommended at the next opportunity.
 
@@ -521,7 +521,7 @@ Confirm: opening `Target.md` populates the panel with two rows (`NoteA`, `NoteB`
 - *`flushAutosave()` before the IPC is load-bearing* — it both aligns disk/buffer bytes and guarantees the clean-buffer silent reload (vs. a conflict banner).
 - *Idempotency comes for free* — `create_block_ref` returns the existing id when the line already has one; the clipboard still gets a correct link and the no-op disk write's echo is harmless.
 
-**Tests:** 279 vitest passing (was 268 + 11 new: 6 in `blockRef.test.ts`, 5 `findBlockIds` in `decorations.test.ts`). 271 Rust unchanged (no backend edits). `npx tsc --noEmit`, `npx vitest run`, `npm run build`, and `cargo test --workspace` all clean.
+**Gates green.**
 
 **Smoke status.** Interactive `cargo tauri dev` was not run (the native window can't be browser-driven in this automated context — same constraint as Sessions D–G). The pure logic is fully unit-tested: byte-offset conversion (ASCII/multi-byte/astral), link building (`.md` strip + nested path), and decoration scanning (trailing id, own-line id, active-line reveal, fenced-code skip, mid-line/attached rejection). The flush→IPC→clipboard glue is thin and exercised end-to-end only by a hands-on smoke: open a note, `Cmd/Ctrl+Shift+B`, confirm the clipboard holds `[[note#^id]]`, `^id` lands in the `.md`, the editor shows it muted off the cursor line and raw on it, the pasted link resolves, and a `^id` inside a code fence is not decorated.
 
@@ -537,7 +537,7 @@ Confirm: opening `Target.md` populates the panel with two rows (`NoteA`, `NoteB`
 
 **Passive by design.** No click-to-navigate, no panel. Broken *wiki-link* surfacing stays deferred (no backend query/IPC exists); when it lands it would feed this same footer indicator.
 
-**Tests:** 282 vitest (was 279 + 3 `formatBrokenBlockRefs`). 271 Rust unchanged. `npx tsc --noEmit`, `npx vitest run`, `npm run build`, `cargo test --workspace` all clean.
+**Gates green.**
 
 **Smoke status.** Interactive `cargo tauri dev` not run (automated-context constraint). The formatter is fully unit-tested; the signal/refresh/render glue is thin and exercised end-to-end only by a hands-on smoke: write `[[B#^missing]]` (B lacks `^missing`), confirm `⚠ 1 broken block ref` with a tooltip, add `^missing` to B and confirm the indicator clears after the file-change refresh.
 
@@ -556,7 +556,7 @@ Confirm: opening `Target.md` populates the panel with two rows (`NoteA`, `NoteB`
 - *`denyWikiLink=false`* in the source's `isInhibited` call. Block autocomplete *wants* to be inside a `WikiLink`; the tag source passes `true` for the opposite reason.
 - *No prefix filter in the handler.* The full per-file id list (capped at 50) is returned once per fresh trigger; CM6's `validFor` does inter-keystroke filtering locally.
 
-**Tests:** 273 Rust passing (was 271 + 2 handler tests) + 293 vitest passing (was 282 + 11: 6 `detectBlockTrigger`, 2 `blockInsertion`, 3 `blockCompletionSource`). `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`, `npx tsc --noEmit`, `npx vitest run`, and `npm run build` all clean.
+**Gates green.**
 
 **Smoke status.** Interactive `cargo tauri dev` not run (automated-context constraint). Pure logic fully unit-tested end-to-end (trigger detection, insertion, code-context inhibition, target resolution → ids); the live dropdown is verified by a hands-on smoke: in note A type `[[B#^` where B has minted ids (`Cmd/Ctrl+Shift+B`), confirm the dropdown lists them; typing narrows; Enter inserts `id]]`; no dropdown for an unresolved target or inside a fenced code block.
 
@@ -581,7 +581,7 @@ Confirm: opening `Target.md` populates the panel with two rows (`NoteA`, `NoteB`
 - *Unreadable file → `Unresolved`.* The embed surface treats "can't read" the same as "doesn't exist" — no filesystem error leakage through `get_embed`.
 - *No backend recursion / depth / cycle handling.* Per-call slice; the H.2 widget owns the chain.
 
-**Tests:** 289 Rust passing (was 273 + 16 new: 11 extractor in `vault::embeds`, 5 handler in `commands::embeds`). 293 vitest unchanged (no UI logic added). `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`, `npx tsc --noEmit`, `npx vitest run`, `npm run build` all clean.
+**Gates green.**
 
 **Smoke status.** No editor surface this session — `get_embed` reachable only via dev-console `__TAURI__.core.invoke(...)`. Optional hands-on: invoke with `Daily`, `Daily#Intro`, `Daily#^id`, and `ghost` and confirm the response matches the kind/content expectation. The handler tests cover every branch end-to-end against real vault scans + real file writes.
 
@@ -610,7 +610,7 @@ Confirm: opening `Target.md` populates the panel with two rows (`NoteA`, `NoteB`
 - *Failures cache as unresolved.* Same policy as `WikiLinkResolver`. Spec §2.8 doesn't distinguish "IPC died" from "file missing" — both render the unresolved placeholder.
 - *Per-file `jsdom` pragma, not a global vitest env switch.* Two new tests need DOM (`embedRender.test.ts` + `embed.test.ts`); the existing 290+ tests don't, and many would slow if the whole suite booted jsdom. `// @vitest-environment jsdom` at the top of each DOM test plus `jsdom` as a `devDependency` keeps the cost local.
 
-**Tests:** 289 Rust passing (unchanged — no Rust gap this session). 321 vitest passing (was 293 + 28 new: 8 `embedResolver` + 11 `embedRender` + 9 `embed`). `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all --check`, `npx tsc --noEmit`, `npx vitest run`, `npm run build` all clean.
+**Gates green.**
 
 **Smoke status.** Interactive `cargo tauri dev` not run (automated-context constraint). Pure logic fully unit-tested end-to-end (resolver including re-kick edge case, renderer including 5 branches + recursion + cycle threading, extension including identity preservation + remount-on-entry-change). Smoke vault for next hands-on session:
 
