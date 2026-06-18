@@ -49,18 +49,33 @@ Code-style rules enforced by review and (where noted) by tooling. Load this when
 
 ## Sessions
 
-- Every session that touches user-facing surface area has an
-  interactive `cargo tauri dev` smoke pass *executed* against a real
-  vault before the layer or fix tag lands.
-- Recorded recipes alone do not satisfy session close. The smoke
-  is performed by a human operator; the executed runbook is
-  committed alongside the spec with the operator's identifier and
-  the build commit.
-- A session that cannot run the smoke in its own context (automated
-  harness, no operator) records the recipes and *blocks the tag*
-  on a follow-up interactive session that runs them.
-- Layer transitions get a tag (`l0`, `l1`, …); structural-fix
-  sessions use a descriptive suffix (`l4a-fix`).
+**Ceremony scales with the work — don't pay layer-scale process for a small
+change.** Pick the lightest row that fits:
+
+| Task | Process | Process docs |
+|---|---|---|
+| Trivial / mechanical (typo, rename, obvious fix) | just do it, then commit | none |
+| Standard feature surface | **one** working doc — design + task list together, written once — then record what landed in the layer spec at session end | 1 |
+| Layer / novel / architectural | full brainstorm → spec → plan → closeout | the `superpowers/` set |
+
+- **Write outcomes once, at the end.** Don't live-update the layer spec
+  mid-session; capture a terse "what landed" in its §"What was built" when
+  the work is done. Per-session test/gate deltas live in git history, not the
+  spec.
+
+**Smoke testing.** Run an interactive `cargo tauri dev` smoke for any change
+that touches a rendered or interactive surface, and note in the session that
+it passed — that's enough for per-session work. Headless/backend-only work
+needs no GUI smoke.
+
+- The **recorded** runbook (operator identifier + build commit, committed
+  alongside the spec) is required only at **layer-close**, as the gate for
+  the layer tag — not every session.
+- A layer-close that can't run the operator smoke in its own context records
+  the recipe and blocks the **layer tag** (not individual sessions) on a
+  follow-up interactive pass.
+- Layer transitions get a tag (`l0`, `l1`, …); structural-fix sessions use a
+  descriptive suffix (`l4a-fix`).
 
 ## Documentation
 
