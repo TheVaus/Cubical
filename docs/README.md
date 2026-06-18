@@ -52,6 +52,8 @@ Crates without Tauri deps (`cubical-core`, `cubical-ast`, `cubical-index`, `cubi
 
 The rule that keeps these docs consistent: **every fact has exactly one owner; every other doc links to it rather than restating it.** When you add or change a fact, update the owner — never a copy.
 
+This is enforced by `scripts/check_docs.py` (in the gate set — see `CLAUDE.md`): it fails on broken internal links, on the schemas / precedence rule / layer-tag enumeration appearing outside their owner, and on `CLAUDE.md` exceeding its primer line budget.
+
 | Fact | Owner |
 |---|---|
 | What Cubical is + non-negotiables | [`../CLAUDE.md`](../CLAUDE.md) |

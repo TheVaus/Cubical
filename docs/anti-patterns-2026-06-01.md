@@ -1,8 +1,9 @@
 # Anti-patterns survey — 2026-06-01
 
-Personal notes — not indexed from `docs/README.md`, not referenced from
-`CLAUDE.md`, intentionally invisible to the session primer. Address
-whenever; none of these block any layer's Definition of Done.
+Known perf debt — out of the auto-loaded primer, but linked from
+[`build-order.md`](build-order.md) ("Known open perf debt") so it stays
+discoverable instead of rotting. None of these block any layer's Definition
+of Done; address opportunistically.
 
 Four anti-patterns found during a post-L3-close review. Each was
 investigated for documented intent; none of the four has a recorded

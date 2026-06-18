@@ -34,6 +34,19 @@ Code-style rules enforced by review and (where noted) by tooling. Load this when
 - One logical change per commit.
 - Layer transitions get a tag (`l0`, `l1`, …).
 
+## Branches
+
+- **Branch per stream of work, off `main`.** A multi-session feature or
+  layer shares one branch (e.g. `feat/typed-properties`, which several
+  sessions build on in sequence). *Unrelated* work — a docs pass, an
+  orthogonal fix — gets its **own** branch; don't graft it onto an active
+  feature branch.
+- **One session at a time in the checkout.** The repo is a single working
+  directory with no worktrees, so two sessions running at once share one
+  tree and race each other's commits. Run sessions sequentially; if isolated
+  parallel work is genuinely needed, it still uses a branch in this same
+  checkout, not a second working tree.
+
 ## Sessions
 
 - Every session that touches user-facing surface area has an

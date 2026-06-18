@@ -32,3 +32,7 @@ update this table on layer close, nowhere else.
 | 3 — Knowledge Graph | Closed | `l3` (06-01) | [`layer-3-spec.md`](layer-3-spec.md) |
 | 4 — Search | Sub-layers merged; `l4` close-tag pending operator GUI smoke | `l4a` (06-03) · `l4a-fix`/`.1` (06-06) · `l4b`/`l4c`/`l4a-fix.2` (06-08) · `l4d` (06-15) | [`layer-4-spec.md`](layer-4-spec.md) |
 | 5 — Daily-Driver Polish | Not started (v1.0 cut) | — | — |
+
+## Known open perf debt
+
+Non-blocking, doesn't gate any layer: [`anti-patterns-2026-06-01.md`](anti-patterns-2026-06-01.md) — four perf anti-patterns surfaced post-L3 (N+1 in scan, full-tree decoration walk, row-at-a-time INSERTs, sequential async). Re-validated 2026-06-17: all four still open. Pick up opportunistically.
