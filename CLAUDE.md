@@ -50,8 +50,6 @@ their own sessions: tabs/multi-document (single→multi-buffer fork; handoff
 `docs/superpowers/2026-06-12-ui-rework-progress.md`) and per-occurrence
 search snippet cards.
 
-**Tests:** 500 vitest + 519 Rust on `main`. Gates: `cargo test --workspace`,
-`cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all
---check`, `npx tsc --noEmit`, `npx vitest run`, `npm run build`,
-`python3 scripts/check_docs.py` (docs consistency). Layer
+**Tests:** 500 vitest + 519 Rust on `main`. Gates: run `scripts/check.sh`
+(cargo fmt/clippy/test, tsc, vitest, build, docs check). Layer
 status/tags/dates: `docs/build-order.md`.
