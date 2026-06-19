@@ -592,7 +592,7 @@ The Layer is complete when *all* of these are true:
 
 ## 13. First-session task list
 
-Bedrock predates the `superpowers/plans/` workflow; its session sequencing was planned inline here and lives in this file's git history. The scaffold's pure-handler / thin-shim crate layout is documented in `CLAUDE.md` (Repository layout) and `migration-touchpoints.md`. What landed is recorded in §14 below.
+Bedrock predates the `superpowers/plans/` workflow; its session sequencing was planned inline here and lives in this file's git history. The scaffold's pure-handler / thin-shim crate layout is documented in `docs/README.md` (Repository layout) and `migration-touchpoints.md`. What landed is recorded in §14 below.
 
 ---
 
@@ -631,4 +631,4 @@ Bedrock predates the `superpowers/plans/` workflow; its session sequencing was p
 
 ### 14.6 Session protocol change
 
-The session protocol in §13 was updated to redirect to `CLAUDE.md` rather than state the protocol inline. Current protocol: sessions rewrite the 4-6 line Project state block in `CLAUDE.md` and record milestones in the relevant layer spec's "What was built" section.
+The session protocol in §13 was updated to redirect to `CLAUDE.md` rather than state the protocol inline. The current protocol is owned by `CLAUDE.md` (Session protocol) and `docs/conventions.md` (Sessions) — not restated here.
