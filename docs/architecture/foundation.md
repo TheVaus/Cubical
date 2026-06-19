@@ -4,11 +4,12 @@
 
 ## 1. Philosophy
 
-Cubical is a Personal Knowledge Management application built on three commitments:
+Cubical is a Personal Knowledge Management application built on four commitments:
 
 1. **The user's vault is sovereign.** It is plain markdown, fully portable, and survives the app being uninstalled, the company shutting down, or the user editing files in any external tool. The vault works without Cubical; Cubical only works because the vault works.
 2. **Performance is a feature, not a polish item.** Every architectural choice is measured against latency at the keystroke, scroll, and search. "Fast enough" is not the bar. "Imperceptible" is.
 3. **The app does not lock the user in.** No proprietary file formats for content. No required cloud account. No data inside Cubical that the user cannot export, inspect, or take elsewhere.
+4. **Features are composable building blocks.** Most user-facing capabilities are independent, toggleable blocks the user stacks to taste — not a fused monolith. The user decides which parts of Cubical are switched on; the design pressure on every new feature is "can this be a block that turns off cleanly?"
 
 These commitments produce hard rules that downstream decisions must respect:
 
@@ -16,6 +17,9 @@ These commitments produce hard rules that downstream decisions must respect:
 - The app must gracefully handle external modifications to the vault (renames in Finder, edits in vim, file additions by Dropbox sync) made while Cubical is closed.
 - No legacy runtimes (Electron, Node) are part of the shipped product.
 - Plugin code is hardware-sandboxed by default; capability grants are explicit and granular.
+- A feature toggle changes behaviour and derived state only — never the `.md` source of truth or the vault's portability. Switching a feature off leaves the vault byte-identical and simply drops that feature's derived state, which is rebuilt if it is switched back on.
+
+**On composability (commitment 4) — scope and honesty.** A direction realized incrementally, and *most* features, not all. The always-on substrate — vault, canonical AST (`document-model.md`), index, IPC — is bedrock, not a toggle; blocks stack on top of it. Blocks form a **dependency graph**, not free stacking: a block can't be active while a block it depends on is off (backlinks need the link index; embeds need link resolution). The seed mechanism already exists — the Core Plugins registry + `.cubical/config.toml` `plugins.*` toggles (e.g. `dataview_enabled`) — graduating into the full plugin ABI ([`planned.md`](planned.md) §8). The cost to respect: every toggle multiplies the interaction and test surface, so tested **default sets** and known-good combinations matter more than raw togglability.
 
 ---
 

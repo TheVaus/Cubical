@@ -17,6 +17,7 @@ These are load-bearing decisions. Not up for debate in a working session. Surfac
 - Plugin code is sandboxed. The plugin ABI is WASI/WASM. JavaScript is supported as a *source language* via Javy/QuickJS-WASM, never as an unsandboxed runtime.
 - Desktop only for v1. Mobile is deferred but the architecture must not preclude it.
 - No file-identity UUIDs injected into any `.md` file before Layer 7. The vault is the user's vault, byte-for-byte, until sync onboarding.
+- Most user-facing features are composable on/off blocks, not a monolith: the substrate (vault, AST, index, IPC) is always-on; a feature toggles without touching the `.md` source of truth. Design every feature to switch off cleanly. Scope + mechanism: [`foundation.md`](docs/architecture/foundation.md) §1 (commitment 4).
 
 For non-features explicitly cut from scope, see [`docs/architecture/constraints.md`](docs/architecture/constraints.md).
 
