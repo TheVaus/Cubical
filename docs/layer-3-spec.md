@@ -1,5 +1,7 @@
 # Cubical — Layer 3: Knowledge Graph
 
+> **Historical record**, frozen at layer close (tag + date in [`build-order.md`](build-order.md)). The plan and "what was built" below are the state *as of then*; current canonical truth lives in [`architecture/`](architecture/README.md). Where work later diverged, it's noted inline as a deviation — not silently overwritten.
+
 L3 turns a vault from a pile of independent `.md` files into a connected graph. Links between notes resolve and navigate, backlinks surface automatically, tags organise, and renaming a file no longer breaks every note that referenced it.
 
 L2 closed the editing surface (write-path, Live Preview, theming, Properties). L3 is the first layer where the vault is *more than its files* — the derived index earns its keep. v1.0 still cuts at the end of L5.

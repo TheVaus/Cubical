@@ -68,7 +68,8 @@ This is enforced by `scripts/check_docs.py` (in the gate set — see `CLAUDE.md`
 | Tauri-coupled surfaces | [`migration-touchpoints.md`](migration-touchpoints.md) |
 | Out-of-scope non-features | [`architecture/constraints.md`](architecture/constraints.md) |
 
-Two structural rules:
+Three structural rules:
 
 - **CLAUDE.md is a router, not a record.** It auto-loads every session, so it carries only identity, non-negotiables, protocol, current state, and pointers — never a copy of anything owned elsewhere. Keep it small.
+- **Closed layer specs are historical records.** A `layer-N-spec.md` is frozen at layer close (banner at its top): it preserves the *plan* and *what was built* as of then. Current canonical truth lives in [`architecture/`](architecture/). Don't read a closed spec as current state, and when something changes later, update the architecture owner — not the frozen spec. Plan-vs-reality divergence is captured as an inline deviation, so the original intent survives without masquerading as current truth.
 - **Archival lifecycle.** When a layer closes: collapse its layer-spec §"Session slicing" to a one-line pointer; move its `plans/`/`specs/`/`prompts/` and loose `*-kickoff`/`*-runbook` notes into the matching [`superpowers/archive/`](superpowers/archive/) subdir; repoint any references in the layer spec. Only in-flight work lives outside `archive/`.

@@ -1,5 +1,7 @@
 # Cubical — Layer 1: Document Model
 
+> **Historical record**, frozen at layer close (tag + date in [`build-order.md`](build-order.md)). The plan and "what was built" below are the state *as of then*; current canonical truth lives in [`architecture/`](architecture/README.md). Where work later diverged, it's noted inline as a deviation — not silently overwritten.
+
 The canonical Markdown AST, frontmatter indexing, and the editor's Lezer integration.
 
 > **Before starting Session B:** Read `docs/layer-0-spec.md §14.2` — L0 deviated from the original spec in two ways that affect this layer's code: the crate dependency direction is reversed (`cubical-core` depends on `cubical-index`, not the other way around), and `CubicalError` lives in `cubical-app`, not `cubical-core`.

@@ -1,5 +1,7 @@
 # Cubical — Layer 4: Search
 
+> **Record as of sub-layer close** — L4-A…D shipped and merged; the `l4` layer tag is still pending (status in [`build-order.md`](build-order.md)). Read the plan and "what was built" below as historical; current canonical truth lives in [`architecture/`](architecture/README.md). Divergences are noted inline as deviations.
+
 L4 turns the vault from a connected graph into a *queryable* one. Free-text search ranks every note by relevance; field-scoped queries reach into headings, code blocks, and frontmatter; tag filters compose; the persistent search panel and the `Cmd/Ctrl+K` Omni-Bar are the user-visible surface. L4 also introduces Dataview-style libSQL queries — typed-frontmatter projection that complements full-text.
 
 L3 closed the knowledge-graph layer. The link, tag, and block indexes it built are the substrate L4's relevance ranking layers on. v1.0 still cuts at end of L5.

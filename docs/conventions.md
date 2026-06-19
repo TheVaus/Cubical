@@ -58,10 +58,17 @@ change.** Pick the lightest row that fits:
 | Standard feature surface | **one** working doc — design + task list together, written once — then record what landed in the layer spec at session end | 1 |
 | Layer / novel / architectural | full brainstorm → spec → plan → closeout | the `superpowers/` set |
 
-- **Write outcomes once, at the end.** Don't live-update the layer spec
-  mid-session; capture a terse "what landed" in its §"What was built" when
-  the work is done. Per-session test/gate deltas live in git history, not the
-  spec.
+- **Write outcomes once, at the end — capture the *why*, not the *what*.**
+  Don't live-update the layer spec mid-session. In its §"What was built",
+  record **decisions** (including rejected alternatives), **deviations from
+  the plan**, and **non-obvious constraints** — the things that evaporate if
+  unwritten. Skip narration the code and git already show: files touched,
+  step-by-step build logs, per-session test counts. A good record is closer
+  to 5–10 lines of *why* than a 100-line build log.
+- **Record divergence explicitly.** When the work departs from the plan
+  written above it, note the deviation — don't leave the superseded plan to
+  silently contradict what shipped. The plan stays (it's the valuable record
+  of original intent); the deviation reconciles it with reality.
 
 **Smoke testing.** Run an interactive `cargo tauri dev` smoke for any change
 that touches a rendered or interactive surface, and note in the session that

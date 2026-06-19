@@ -1,5 +1,7 @@
 # Cubical — Layer 0: Bedrock
 
+> **Historical record**, frozen at layer close (tag + date in [`build-order.md`](build-order.md)). The plan and "what was built" below are the state *as of then*; current canonical truth lives in [`architecture/`](architecture/README.md). Where work later diverged, it's noted inline as a deviation — not silently overwritten.
+
 The foundation everything else is built on. Layer 0's job is to make the vault concept real, give Rust safe and fast access to it, set up the database and IPC scaffolding, and prove the dev loop works end-to-end with an empty app.
 
 **No feature work in Layer 0.** No editor, no search, no parsing. Just bedrock.

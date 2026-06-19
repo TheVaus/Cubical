@@ -1,5 +1,7 @@
 # Cubical — Layer 2: Editing
 
+> **Historical record**, frozen at layer close (tag + date in [`build-order.md`](build-order.md)). The plan and "what was built" below are the state *as of then*; current canonical truth lives in [`architecture/`](architecture/README.md). Where work later diverged, it's noted inline as a deviation — not silently overwritten.
+
 The first user-visible polish layer. L2 turns the L1 read-only editor surface into something a person can actually use: typing persists, the markdown looks like a document rather than source, frontmatter has a real editing UI, and the app respects light/dark theme.
 
 L2 is the **first demo-able milestone** in the build order (`CLAUDE.md`). v1.0 still cuts at the end of L5.
