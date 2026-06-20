@@ -37,20 +37,25 @@ For non-features explicitly cut from scope, see [`docs/architecture/constraints.
 
 ## Project state
 
-**Now — `feat/typed-properties` (2026-06-17).** Typed properties via inline
-YAML `type:` comments + a curated date-format table; pure
-`ui/src/properties/{typeComments,inferType}.ts` (+tests). Spec/plan:
-`docs/superpowers/{specs,plans}/2026-06-17-typed-properties-inline-comments*`.
+**Now — `feat/configurable-statusbar` (2026-06-20).** Status bar made
+configurable: master on/off (footer *unmounts* when off) + per-item toggles
+in a new Settings ▸ Status bar tab; durable per-vault `statusbar.*` keys;
+system alerts (scan/broken-refs/pending) stay always-on. Omnibar gained a
+`kind:"command"` surface seeded with "Toggle status bar". Pure+tested
+helpers: `ui/src/statusbar/{segments,separators}.ts`, `omnibar/commands.ts`.
+Spec/plan: `docs/superpowers/{specs,plans}/2026-06-20-configurable-statusbar*`.
+Interactive `cargo tauri dev` smoke pending an operator.
 
-**On `main`:** Core Plugins + portable `.cubical/config.toml` settings
-(2026-06-16); all Layer 4 sub-layers merged (`l4a`–`l4d`). The **`l4`
-close-tag is the only open gate** — blocks on one interactive `cargo tauri
-dev` operator smoke (L4-D widget render, indexing banner, R6/R10,
-keyboard-nav focus ring); recipe in `layer-4-spec.md` §9.5–9.6. Deferred to
-their own sessions: tabs/multi-document (single→multi-buffer fork; handoff
-`docs/superpowers/2026-06-12-ui-rework-progress.md`) and per-occurrence
+**On `main`:** Typed properties (inline `# type:` comments) merged but
+**defaulted off** (`properties.typed_enabled` absent → false) — `.md`-storage
+approach slated for a vault-level type registry (spec
+`docs/superpowers/specs/2026-06-20-typed-properties-vault-registry-design.md`,
+pointer in `docs/architecture/planned.md` §14). Core Plugins + portable
+`.cubical/config.toml` settings; all Layer 4 merged (`l4a`–`l4d`). The **`l4`
+close-tag is still the only open gate** — interactive operator smoke, recipe
+`layer-4-spec.md` §9.5–9.6. Deferred: tabs/multi-document, per-occurrence
 search snippet cards.
 
-**Tests:** 500 vitest + 519 Rust on `main`. Gates: run `scripts/check.sh`
+**Tests:** 556 vitest + 519 Rust. Gates: run `scripts/check.sh`
 (cargo fmt/clippy/test, tsc, vitest, build, docs check). Layer
 status/tags/dates: `docs/build-order.md`.
