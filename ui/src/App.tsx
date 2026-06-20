@@ -60,7 +60,20 @@ import { computeWindow } from "./virtualList";
 import { buildFileTree, flattenTree, type FlatRow } from "./sidebar/fileTree";
 import { buildBlockRefLink } from "./editor/blockRef";
 import { formatBrokenBlockRefs } from "./statusbar/brokenRefs";
+import { formatPendingRewrites } from "./statusbar/pendingRewritesLabel";
 import PendingRewrites from "./statusbar/PendingRewrites";
+import {
+  STATUSBAR_SEGMENTS,
+  STATUSBAR_ENABLED_KEY,
+  STATUSBAR_DEFAULT,
+  VAULT_PATH_SEGMENT,
+  FILE_PATH_SEGMENT,
+  WORD_COUNT_SEGMENT,
+  BLOCK_COUNT_SEGMENT,
+  segmentVisible,
+  type StatusbarSegment,
+} from "./statusbar/segments";
+import { leadingSeparators } from "./statusbar/separators";
 import { ToastHost, showToast } from "./Toast";
 import { validateRenameTarget } from "./fileRename";
 import { resolveRawState } from "./editor/rawSource";
@@ -201,8 +214,8 @@ const App: Component = () => {
   );
 
   // Typed-properties feature flag + default date format, seeded on vault
-  // open. Absent → enabled / "YYYY-MM-DD".
-  const [typedProps, setTypedProps] = createSignal(true);
+  // open. Absent → disabled / "YYYY-MM-DD".
+  const [typedProps, setTypedProps] = createSignal(false);
   const [dateDefault, setDateDefault] = createSignal("YYYY-MM-DD");
   const [currencyDefault, setCurrencyDefault] = createSignal("usd");
   const [tagsKeyAsTags, setTagsKeyAsTags] = createSignal(true);
@@ -273,9 +286,24 @@ const App: Component = () => {
   const toggleLeftSidebar = () => setLeftCollapsed((v) => !v);
   // UI rework: Settings modal (theme + editor/vault prefs live here now).
   const [settingsOpen, setSettingsOpen] = createSignal(false);
-  type SettingsTab = "appearance" | "editor" | "plugins" | "vault" | "shortcuts";
+  type SettingsTab =
+    | "appearance"
+    | "editor"
+    | "plugins"
+    | "statusbar"
+    | "vault"
+    | "shortcuts";
   const [settingsTab, setSettingsTab] = createSignal<SettingsTab>("appearance");
   const [corePlugins, setCorePlugins] = createSignal<Record<string, boolean>>({});
+  // Configurable status bar: master enable + per-item visibility, keyed by
+  // full setting key (e.g. "statusbar.show_word_count"). Seeded on vault open.
+  const [statusbarConfig, setStatusbarConfig] = createSignal<
+    Record<string, boolean>
+  >({});
+  const statusbarEnabled = () =>
+    statusbarConfig()[STATUSBAR_ENABLED_KEY] ?? STATUSBAR_DEFAULT;
+  const segVisible = (seg: StatusbarSegment) =>
+    segmentVisible(statusbarConfig(), seg);
   const [rightSidebarRefreshTick, setRightSidebarRefreshTick] = createSignal(0);
   let rightSidebarRefreshTimer: ReturnType<typeof setTimeout> | undefined;
   const RIGHT_SIDEBAR_REFRESH_DEBOUNCE_MS = 200;
@@ -769,6 +797,16 @@ const App: Component = () => {
     });
   };
 
+  /** Set a status-bar setting (master or a segment) and persist to the vault. */
+  const setStatusbarSetting = (key: BooleanSettingKey, value: boolean) => {
+    const v = vaultId();
+    if (!v) return;
+    setStatusbarConfig((prev) => ({ ...prev, [key]: value }));
+    setSetting(v, key, value).catch((e) => {
+      console.error(`saving ${key} failed`, e);
+    });
+  };
+
   /**
    * Toggle the right sidebar collapsed/expanded and persist the new
    * value to the vault. With no vault open the change is in-memory
@@ -1220,13 +1258,16 @@ const App: Component = () => {
         console.error("loading raw_source_default failed", e);
       }
 
-      // Seed typed-properties flag + default date format (absent → on / ISO).
+      // Seed typed-properties flag + default date format (absent → off / ISO).
+      // Off by default: inline `# type:` comments are slated for replacement
+      // by a vault-level type registry (see the future-work spec), so we
+      // don't write app metadata into `.md` files until a user opts in.
       try {
         const stored = await getSetting(
           resp.vault_id,
           "properties.typed_enabled",
         );
-        setTypedProps(stored ?? true);
+        setTypedProps(stored ?? false);
       } catch (e) {
         console.error("loading properties.typed_enabled failed", e);
       }
@@ -1271,6 +1312,24 @@ const App: Component = () => {
           }
         }
         setCorePlugins(enab);
+      }
+
+      // Seed status-bar config (master + each segment). Absent ⇒ default (on).
+      {
+        const cfg: Record<string, boolean> = {};
+        const keys: BooleanSettingKey[] = [
+          STATUSBAR_ENABLED_KEY,
+          ...STATUSBAR_SEGMENTS.map((s) => s.settingKey),
+        ];
+        for (const k of keys) {
+          try {
+            cfg[k] = (await getSetting(resp.vault_id, k)) ?? STATUSBAR_DEFAULT;
+          } catch (e) {
+            console.error(`loading ${k} failed`, e);
+            cfg[k] = STATUSBAR_DEFAULT;
+          }
+        }
+        setStatusbarConfig(cfg);
       }
 
       // Seed the right-sidebar collapsed state from this vault's
@@ -1844,6 +1903,7 @@ const App: Component = () => {
                     { id: "appearance", label: "🎨 Appearance" },
                     { id: "editor", label: "📝 Editor" },
                     { id: "plugins", label: "🧩 Plugins" },
+                    { id: "statusbar", label: "📊 Status bar" },
                     { id: "vault", label: "🗄 Vault" },
                     { id: "shortcuts", label: "⌨ Shortcuts" },
                   ] as { id: SettingsTab; label: string }[]
@@ -2155,6 +2215,84 @@ topics:         # type:list
                   }}
                 </For>
               </Show>
+              <Show when={settingsTab() === "statusbar"}>
+                <h2 class="modal__h2">Status bar</h2>
+                <div class="set-row">
+                  <div>
+                    <div class="set-row__lab">Show status bar</div>
+                    <div class="set-row__desc">
+                      The bar along the bottom. When off, it disappears entirely.
+                    </div>
+                  </div>
+                  <div class="seg-control">
+                    <button
+                      type="button"
+                      class="seg-control__btn"
+                      classList={{
+                        "seg-control__btn--active": !statusbarEnabled(),
+                      }}
+                      onClick={() =>
+                        setStatusbarSetting(STATUSBAR_ENABLED_KEY, false)
+                      }
+                    >
+                      Off
+                    </button>
+                    <button
+                      type="button"
+                      class="seg-control__btn"
+                      classList={{
+                        "seg-control__btn--active": statusbarEnabled(),
+                      }}
+                      onClick={() =>
+                        setStatusbarSetting(STATUSBAR_ENABLED_KEY, true)
+                      }
+                    >
+                      On
+                    </button>
+                  </div>
+                </div>
+                <For each={STATUSBAR_SEGMENTS}>
+                  {(seg) => {
+                    const on = () => segVisible(seg);
+                    return (
+                      <div
+                        class="set-row"
+                        style={{
+                          opacity: statusbarEnabled() ? 1 : 0.5,
+                          "pointer-events": statusbarEnabled() ? "auto" : "none",
+                        }}
+                      >
+                        <div>
+                          <div class="set-row__lab">{seg.name}</div>
+                          <div class="set-row__desc">{seg.description}</div>
+                        </div>
+                        <div class="seg-control">
+                          <button
+                            type="button"
+                            class="seg-control__btn"
+                            classList={{ "seg-control__btn--active": !on() }}
+                            onClick={() =>
+                              setStatusbarSetting(seg.settingKey, false)
+                            }
+                          >
+                            Off
+                          </button>
+                          <button
+                            type="button"
+                            class="seg-control__btn"
+                            classList={{ "seg-control__btn--active": on() }}
+                            onClick={() =>
+                              setStatusbarSetting(seg.settingKey, true)
+                            }
+                          >
+                            On
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  }}
+                </For>
+              </Show>
               <Show when={settingsTab() === "vault"}>
                 <h2 class="modal__h2">Vault</h2>
                 <div class="set-row">
@@ -2288,51 +2426,95 @@ topics:         # type:list
         </div>
       </Show>
 
-      <Show when={vaultId()}>
+      <Show when={vaultId() && statusbarEnabled()}>
         <footer class="statusbar">
-          {/* left: vault dir + system status */}
-          <span class="statusbar__group statusbar__group--proj">
-            <span class="statusbar__dir" title={vaultPath() ?? ""}>
-              {vaultPath() ?? vaultId()}
-            </span>
-            <Show when={scanStatus() === "in_progress"}>
-              <span class="statusbar__sep">·</span>
-              <span>
-                Scanning… {filesProcessed()} / {filesTotalEstimate()}
-              </span>
-            </Show>
-            <Show when={formatBrokenBlockRefs(brokenBlockRefs())}>
-              {(display) => (
-                <>
-                  <span class="statusbar__sep">·</span>
-                  <span
-                    title={display().title}
-                    style={{ color: "var(--c-warning, var(--c-accent))" }}
-                  >
-                    {display().label}
+          {/* left: vault dir + system status (alerts always render when active) */}
+          {(() => {
+            const vaultVis = () => segVisible(VAULT_PATH_SEGMENT);
+            const scanVis = () => scanStatus() === "in_progress";
+            const brokenVis = () => !!formatBrokenBlockRefs(brokenBlockRefs());
+            const pendingVis = () =>
+              !!formatPendingRewrites(pendingRewritesCount());
+            const sep = () =>
+              leadingSeparators([
+                vaultVis(),
+                scanVis(),
+                brokenVis(),
+                pendingVis(),
+              ]);
+            return (
+              <span class="statusbar__group statusbar__group--proj">
+                <Show when={vaultVis()}>
+                  <span class="statusbar__dir" title={vaultPath() ?? ""}>
+                    {vaultPath() ?? vaultId()}
                   </span>
-                </>
-              )}
-            </Show>
-            <PendingRewrites
-              vaultId={vaultId()}
-              count={pendingRewritesCount()}
-              onError={(m: string) => showToast(m)}
-            />
-          </span>
+                </Show>
+                <Show when={scanVis()}>
+                  <Show when={sep()[1]}>
+                    <span class="statusbar__sep">·</span>
+                  </Show>
+                  <span>
+                    Scanning… {filesProcessed()} / {filesTotalEstimate()}
+                  </span>
+                </Show>
+                <Show when={formatBrokenBlockRefs(brokenBlockRefs())}>
+                  {(display) => (
+                    <>
+                      <Show when={sep()[2]}>
+                        <span class="statusbar__sep">·</span>
+                      </Show>
+                      <span
+                        title={display().title}
+                        style={{ color: "var(--c-warning, var(--c-accent))" }}
+                      >
+                        {display().label}
+                      </span>
+                    </>
+                  )}
+                </Show>
+                <Show when={sep()[3]}>
+                  <span class="statusbar__sep">·</span>
+                </Show>
+                <PendingRewrites
+                  vaultId={vaultId()}
+                  count={pendingRewritesCount()}
+                  onError={(m: string) => showToast(m)}
+                />
+              </span>
+            );
+          })()}
 
           {/* middle: current file info */}
           <Show when={view().kind === "file" && !!selectedPath()}>
-            <span class="statusbar__group statusbar__mid">
-              <b>{wordCount()}</b> words
-              <span class="statusbar__sep">·</span>
-              <b>{blockCount()}</b> blocks
-            </span>
+            {(() => {
+              const wordVis = () => segVisible(WORD_COUNT_SEGMENT);
+              const blockVis = () => segVisible(BLOCK_COUNT_SEGMENT);
+              const sep = () => leadingSeparators([wordVis(), blockVis()]);
+              return (
+                <span class="statusbar__group statusbar__mid">
+                  <Show when={wordVis()}>
+                    <b>{wordCount()}</b> words
+                  </Show>
+                  <Show when={blockVis()}>
+                    <Show when={sep()[1]}>
+                      <span class="statusbar__sep">·</span>
+                    </Show>
+                    <b>{blockCount()}</b> blocks
+                  </Show>
+                </span>
+              );
+            })()}
           </Show>
 
           {/* right: current file dir (vault-relative path) */}
           <span class="statusbar__group statusbar__group--file">
-            <Show when={view().kind === "file" && selectedPath()}>
+            <Show
+              when={
+                view().kind === "file" &&
+                selectedPath() &&
+                segVisible(FILE_PATH_SEGMENT)
+              }
+            >
               <span class="statusbar__dir" title={selectedPath() ?? ""}>
                 {selectedPath()}
               </span>
