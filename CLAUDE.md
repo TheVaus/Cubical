@@ -23,6 +23,14 @@ For non-features explicitly cut from scope, see [`docs/architecture/constraints.
 
 ---
 
+## Code quality
+
+- Code must be maintainable and production-ready — no shortcuts that defer cleanup to the next session.
+- Follow SRP: each module, function, and component owns one concern. Split when a unit starts serving two masters.
+- Respect logical boundaries — don't reach across layers or domains; route through the established IPC/API surface.
+
+---
+
 ## Session protocol
 
 **Loading:** Auto-loaded every session. Start at the index [`docs/README.md`](docs/README.md) for the doc map. If the task touches design, load `docs/architecture/README.md` and the relevant sub-file; if editing code, `docs/conventions.md`; if touching IPC / Tauri, `docs/migration-touchpoints.md`; if editing docs, follow **Doc discipline** in the index.
@@ -41,21 +49,17 @@ For non-features explicitly cut from scope, see [`docs/architecture/constraints.
 configurable: master on/off (footer *unmounts* when off) + per-item toggles
 in a new Settings ▸ Status bar tab; durable per-vault `statusbar.*` keys;
 system alerts (scan/broken-refs/pending) stay always-on. Omnibar gained a
-`kind:"command"` surface seeded with "Toggle status bar". Pure+tested
-helpers: `ui/src/statusbar/{segments,separators}.ts`, `omnibar/commands.ts`.
-Spec/plan: `docs/superpowers/{specs,plans}/2026-06-20-configurable-statusbar*`.
-Interactive `cargo tauri dev` smoke pending an operator.
+`kind:"command"` surface seeded with "Toggle status bar". Spec/plan in
+`docs/superpowers/{specs,plans}/2026-06-20-configurable-statusbar*`; interactive
+`cargo tauri dev` smoke pending an operator.
 
-**On `main`:** Typed properties (inline `# type:` comments) merged but
-**defaulted off** (`properties.typed_enabled` absent → false) — `.md`-storage
-approach slated for a vault-level type registry (spec
-`docs/superpowers/specs/2026-06-20-typed-properties-vault-registry-design.md`,
-pointer in `docs/architecture/planned.md` §14). Core Plugins + portable
+**On `main`:** Typed properties (inline `# type:`) merged but **defaulted off**
+(`properties.typed_enabled` absent → false) — `.md`-storage approach slated for a
+vault-level type registry (spec in `docs/superpowers/specs/`, pointer in
+`docs/architecture/planned.md` §14). Core Plugins + portable
 `.cubical/config.toml` settings; all Layer 4 merged (`l4a`–`l4d`). The **`l4`
-close-tag is still the only open gate** — interactive operator smoke, recipe
-`layer-4-spec.md` §9.5–9.6. Deferred: tabs/multi-document, per-occurrence
-search snippet cards.
+close-tag is the only open gate** — interactive operator smoke, recipe
+`layer-4-spec.md` §9.5–9.6. Deferred: tabs/multi-document, per-occurrence search.
 
-**Tests:** 556 vitest + 519 Rust. Gates: run `scripts/check.sh`
-(cargo fmt/clippy/test, tsc, vitest, build, docs check). Layer
-status/tags/dates: `docs/build-order.md`.
+**Tests:** 556 vitest + 519 Rust. Gates: `scripts/check.sh` (fmt/clippy/test,
+tsc, vitest, build, docs). Layer status/tags/dates: `docs/build-order.md`.
