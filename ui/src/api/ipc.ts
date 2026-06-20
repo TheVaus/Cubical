@@ -261,7 +261,12 @@ export type Setting =
   | { key: "properties.typed_enabled"; value: boolean }
   | { key: "properties.date_format_default"; value: string }
   | { key: "properties.default_currency"; value: string }
-  | { key: "properties.tags_key_as_tags"; value: boolean };
+  | { key: "properties.tags_key_as_tags"; value: boolean }
+  | { key: "statusbar.enabled"; value: boolean }
+  | { key: "statusbar.show_vault_path"; value: boolean }
+  | { key: "statusbar.show_file_path"; value: boolean }
+  | { key: "statusbar.show_word_count"; value: boolean }
+  | { key: "statusbar.show_block_count"; value: boolean };
 
 /** Narrows a `Setting` key to its corresponding value type. */
 export type SettingValue<K extends Setting["key"]> = Extract<
