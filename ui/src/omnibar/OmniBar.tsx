@@ -28,6 +28,7 @@ export interface OmniBarProps {
   onClose: () => void;
   onOpenNote: (path: string) => void;
   onOpenTag: (tag: string) => void;
+  onRunCommand: (id: string) => void;
 }
 
 const OmniBar: Component<OmniBarProps> = (props) => {
@@ -69,7 +70,8 @@ const OmniBar: Component<OmniBarProps> = (props) => {
   const activate = (r: RankedItem | undefined) => {
     if (!r) return;
     if (r.item.kind === "note") props.onOpenNote(r.item.path);
-    else props.onOpenTag(r.item.tag);
+    else if (r.item.kind === "tag") props.onOpenTag(r.item.tag);
+    else props.onRunCommand(r.item.id);
     props.onClose();
   };
 
@@ -227,7 +229,11 @@ const OmniRow: Component<{
           "font-size": "var(--text-xs)",
         }}
       >
-        {props.ranked.item.kind === "tag" ? "#" : "◧"}
+        {props.ranked.item.kind === "tag"
+          ? "#"
+          : props.ranked.item.kind === "command"
+            ? "⚡"
+            : "◧"}
       </span>
       <span
         style={{

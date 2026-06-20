@@ -123,3 +123,26 @@ describe("rankItems typo tolerance", () => {
     expect(rankItems("rx", [note("ra")], 50)).toEqual([]);
   });
 });
+
+describe("command-kind ranking", () => {
+  it("ranks note < tag < command when score and length tie", () => {
+    // All three share the same matchable text so score/length tie and the
+    // kind tie-break decides order.
+    const items: OmniItem[] = [
+      { kind: "command", id: "x.toggle", title: "abc" },
+      { kind: "tag", tag: "abc" },
+      { kind: "note", title: "abc", path: "abc.md" },
+    ];
+    const ranked = rankItems("abc", items, 10);
+    expect(ranked.map((r) => r.item.kind)).toEqual(["note", "tag", "command"]);
+  });
+
+  it("matches commands by their title", () => {
+    const items: OmniItem[] = [
+      { kind: "command", id: "statusbar.toggle", title: "Toggle status bar" },
+    ];
+    const ranked = rankItems("toggle", items, 10);
+    expect(ranked).toHaveLength(1);
+    expect(ranked[0]?.item.kind).toBe("command");
+  });
+});

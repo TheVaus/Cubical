@@ -89,6 +89,7 @@ import SearchPanel from "./sidebar/SearchPanel";
 import TagPage from "./TagPage";
 import OmniBar from "./omnibar/OmniBar";
 import { type OmniItem, type RankedItem } from "./omnibar/ranker";
+import { OMNI_COMMANDS } from "./omnibar/commands";
 import {
   CORE_PLUGINS,
   corePluginEnabled,
@@ -369,7 +370,12 @@ const App: Component = () => {
       .filter((f) => f.type_id === "markdown")
       .map((f) => ({ kind: "note", title: fileStem(f.path), path: f.path }));
     const tags: OmniItem[] = vaultTags().map((t) => ({ kind: "tag", tag: t }));
-    return [...notes, ...tags];
+    const commands: OmniItem[] = OMNI_COMMANDS.map((c) => ({
+      kind: "command",
+      id: c.id,
+      title: c.title,
+    }));
+    return [...notes, ...tags, ...commands];
   });
   const recentNotes = createMemo<RankedItem[]>(() =>
     [...files()]
@@ -805,6 +811,13 @@ const App: Component = () => {
     setSetting(v, key, value).catch((e) => {
       console.error(`saving ${key} failed`, e);
     });
+  };
+
+  /** Run an omni-bar command by id. */
+  const handleRunCommand = (id: string) => {
+    if (id === "statusbar.toggle") {
+      setStatusbarSetting(STATUSBAR_ENABLED_KEY, !statusbarEnabled());
+    }
   };
 
   /**
@@ -1876,6 +1889,7 @@ const App: Component = () => {
         onClose={() => setOmniOpen(false)}
         onOpenNote={(path) => void handleNavigateWikilink(path, null)}
         onOpenTag={(tag) => void handleNavigateTag(tag)}
+        onRunCommand={handleRunCommand}
       />
 
       <Show when={settingsOpen()}>

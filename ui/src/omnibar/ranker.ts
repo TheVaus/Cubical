@@ -1,11 +1,14 @@
-/** A heterogeneous Omni-Bar target: a note or a tag. */
+/** A heterogeneous Omni-Bar target: a note, a tag, or a runnable command. */
 export type OmniItem =
   | { kind: "note"; title: string; path: string }
-  | { kind: "tag"; tag: string };
+  | { kind: "tag"; tag: string }
+  | { kind: "command"; id: string; title: string };
 
 /** The text a query is matched against for an item. */
 export function matchText(item: OmniItem): string {
-  return item.kind === "note" ? item.title : item.tag;
+  if (item.kind === "note") return item.title;
+  if (item.kind === "tag") return item.tag;
+  return item.title;
 }
 
 /**
@@ -110,8 +113,12 @@ export function scoreMatch(text: string, indices: number[]): number {
 /**
  * Rank `items` against `query` (non-empty), best first. Non-matches are
  * dropped. Deterministic ties: higher score → shorter target → note
- * before tag → alphabetical. Capped at `limit`.
+ * before tag before command → alphabetical. Capped at `limit`.
  */
+function kindRank(item: OmniItem): number {
+  return item.kind === "note" ? 0 : item.kind === "tag" ? 1 : 2;
+}
+
 export function rankItems(
   query: string,
   items: OmniItem[],
@@ -155,7 +162,9 @@ export function rankItems(
     const al = matchText(a.item).length;
     const bl = matchText(b.item).length;
     if (al !== bl) return al - bl;
-    if (a.item.kind !== b.item.kind) return a.item.kind === "note" ? -1 : 1;
+    const ar = kindRank(a.item);
+    const br = kindRank(b.item);
+    if (ar !== br) return ar - br;
     return matchText(a.item).localeCompare(matchText(b.item));
   });
   return ranked.slice(0, limit);
