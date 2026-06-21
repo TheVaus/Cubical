@@ -632,6 +632,33 @@ export function getEmbed(req: GetEmbedRequest): Promise<GetEmbedResponse> {
 }
 
 // ---------------------------------------------------------------------------
+// get_property (property-reference interpolation — cross-file [[note.prop]])
+// ---------------------------------------------------------------------------
+
+export interface GetPropertyRequest {
+  vault_id: string;
+  /** Target note name as written (left of the dot). */
+  note_raw: string;
+  /** Top-level frontmatter key (right of the first dot). */
+  property: string;
+}
+
+export type PropertyRefKind = "resolved" | "note_unresolved" | "property_missing";
+
+export interface GetPropertyResponse {
+  kind: PropertyRefKind;
+  /** Scalar rendered to a display string; null unless kind === "resolved". */
+  value: string | null;
+}
+
+/** Resolve a cross-file `[[note.prop]]` to its frontmatter scalar value. */
+export function getProperty(
+  req: GetPropertyRequest,
+): Promise<GetPropertyResponse> {
+  return invoke("get_property", { req });
+}
+
+// ---------------------------------------------------------------------------
 // get_unlinked_mentions / link_mention (L3 Session I)
 // ---------------------------------------------------------------------------
 

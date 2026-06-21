@@ -37,7 +37,8 @@ use api::types::{
     FlushPendingRewritesResponse, GetBacklinksRequest, GetBacklinksResponse,
     GetBrokenBlockRefsRequest, GetBrokenBlockRefsResponse, GetCanonicalAstRequest,
     GetCanonicalAstResponse, GetEmbedRequest, GetEmbedResponse, GetFrontmatterRequest,
-    GetFrontmatterResponse, GetPendingRewritesBreakdownRequest,
+    GetFrontmatterResponse, GetPropertyRequest, GetPropertyResponse,
+    GetPendingRewritesBreakdownRequest,
     GetPendingRewritesBreakdownResponse, GetPendingRewritesCountRequest,
     GetPendingRewritesCountResponse, GetSettingRequest, GetSettingResponse, GetVaultInfoRequest,
     GetVaultInfoResponse, LinkAutocompleteRequest, LinkAutocompleteResponse, ListFilesRequest,
@@ -92,6 +93,7 @@ pub fn run() {
             get_canonical_ast,
             resolve_link,
             get_embed,
+            get_property,
             get_unlinked_mentions,
             link_mention,
             get_backlinks,
@@ -236,6 +238,15 @@ async fn get_embed(
     req: GetEmbedRequest,
 ) -> Result<GetEmbedResponse, CubicalError> {
     commands::embeds::get_embed(state.inner(), req).await
+}
+
+/// Tauri shim — see [`commands::property_ref::get_property`].
+#[tauri::command]
+async fn get_property(
+    state: tauri::State<'_, AppState>,
+    req: GetPropertyRequest,
+) -> Result<GetPropertyResponse, CubicalError> {
+    commands::property_ref::get_property(state.inner(), req).await
 }
 
 /// Tauri shim — see [`commands::mentions::get_unlinked_mentions`].
