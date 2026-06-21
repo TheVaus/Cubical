@@ -724,5 +724,156 @@
       "frontmatter": null,
       "source_len": 20
     }
+  },
+  {
+    "name": "property_ref_cross_file",
+    "input": "Age is [[Gandalf.age]] today.\n",
+    "expected": {
+      "blocks": [
+        {
+          "inlines": [
+            {
+              "kind": "text",
+              "value": "Age is "
+            },
+            {
+              "kind": "property_ref",
+              "note": "Gandalf",
+              "property": "age"
+            },
+            {
+              "kind": "text",
+              "value": " today."
+            }
+          ],
+          "kind": "paragraph",
+          "span": {
+            "end": 30,
+            "start": 0
+          }
+        }
+      ],
+      "frontmatter": null,
+      "source_len": 30
+    }
+  },
+  {
+    "name": "property_ref_self",
+    "input": "My level: [[.level]].\n",
+    "expected": {
+      "blocks": [
+        {
+          "inlines": [
+            {
+              "kind": "text",
+              "value": "My level: "
+            },
+            {
+              "kind": "property_ref",
+              "note": null,
+              "property": "level"
+            },
+            {
+              "kind": "text",
+              "value": "."
+            }
+          ],
+          "kind": "paragraph",
+          "span": {
+            "end": 22,
+            "start": 0
+          }
+        }
+      ],
+      "frontmatter": null,
+      "source_len": 22
+    }
+  },
+  {
+    "name": "property_ref_deep_splits_first_dot",
+    "input": "Deep [[a.b.c]] ref.\n",
+    "expected": {
+      "blocks": [
+        {
+          "inlines": [
+            {
+              "kind": "text",
+              "value": "Deep "
+            },
+            {
+              "kind": "property_ref",
+              "note": "a",
+              "property": "b.c"
+            },
+            {
+              "kind": "text",
+              "value": " ref."
+            }
+          ],
+          "kind": "paragraph",
+          "span": {
+            "end": 20,
+            "start": 0
+          }
+        }
+      ],
+      "frontmatter": null,
+      "source_len": 20
+    }
+  },
+  {
+    "name": "property_ref_dotted_filename_not_a_link",
+    "input": "Link to [[2026.06.20]] daily.\n",
+    "expected": {
+      "blocks": [
+        {
+          "inlines": [
+            {
+              "kind": "text",
+              "value": "Link to "
+            },
+            {
+              "kind": "property_ref",
+              "note": "2026",
+              "property": "06.20"
+            },
+            {
+              "kind": "text",
+              "value": " daily."
+            }
+          ],
+          "kind": "paragraph",
+          "span": {
+            "end": 30,
+            "start": 0
+          }
+        }
+      ],
+      "frontmatter": null,
+      "source_len": 30
+    }
+  },
+  {
+    "name": "property_ref_malformed_falls_back_to_text",
+    "input": "Edge [[Gandalf.]] and [[.]] noise.\n",
+    "expected": {
+      "blocks": [
+        {
+          "inlines": [
+            {
+              "kind": "text",
+              "value": "Edge [[Gandalf.]] and [[.]] noise."
+            }
+          ],
+          "kind": "paragraph",
+          "span": {
+            "end": 35,
+            "start": 0
+          }
+        }
+      ],
+      "frontmatter": null,
+      "source_len": 35
+    }
   }
 ]
