@@ -24,6 +24,15 @@ pub enum TokenizedRun {
         /// `true` when prefixed `!` (embed).
         embed: bool,
     },
+    /// A frontmatter property reference: `[[note.prop]]` (cross-file) or
+    /// `[[.prop]]` (self, `note == None`). Top-level key only; the target
+    /// is split at the FIRST dot.
+    PropertyRef {
+        /// Resolved note name, or `None` for a self-reference.
+        note: Option<String>,
+        /// Property (frontmatter key) name, trimmed, non-empty.
+        property: String,
+    },
 }
 
 /// Scan a text run for `[[…]]` and `![[…]]`. Always returns at least one
@@ -136,6 +145,25 @@ fn parse_body(body: &str, is_embed: bool) -> Option<TokenizedRun> {
     if target.is_empty() {
         return None;
     }
+    // Property-ref branch: a dotted target with no anchor is a frontmatter
+    // reference, not a navigational link. Split at the FIRST dot.
+    if anchor.is_none() {
+        if let Some(dot) = target.find('.') {
+            let note_raw = target[..dot].trim();
+            let property = target[dot + 1..].trim();
+            if property.is_empty() {
+                return None;
+            }
+            return Some(TokenizedRun::PropertyRef {
+                note: if note_raw.is_empty() {
+                    None
+                } else {
+                    Some(note_raw.to_string())
+                },
+                property: property.to_string(),
+            });
+        }
+    }
     Some(TokenizedRun::WikiLink {
         target: target.to_string(),
         display,
@@ -159,6 +187,50 @@ mod tests {
 
     fn text(s: &str) -> TokenizedRun {
         TokenizedRun::Text(s.into())
+    }
+
+    fn pref(note: Option<&str>, property: &str) -> TokenizedRun {
+        TokenizedRun::PropertyRef {
+            note: note.map(|s| s.to_string()),
+            property: property.to_string(),
+        }
+    }
+
+    #[test]
+    fn cross_file_property_ref() {
+        assert_eq!(
+            scan_wikilinks("[[Gandalf.age]]"),
+            vec![pref(Some("Gandalf"), "age")]
+        );
+    }
+
+    #[test]
+    fn self_property_ref() {
+        assert_eq!(scan_wikilinks("[[.age]]"), vec![pref(None, "age")]);
+    }
+
+    #[test]
+    fn property_ref_splits_on_first_dot_only() {
+        // Top-level only: remainder kept verbatim, won't resolve later.
+        assert_eq!(scan_wikilinks("[[a.b.c]]"), vec![pref(Some("a"), "b.c")]);
+    }
+
+    #[test]
+    fn empty_property_falls_back_to_text() {
+        assert_eq!(
+            scan_wikilinks("[[Gandalf.]]"),
+            vec![text("[[Gandalf.]]")]
+        );
+        assert_eq!(scan_wikilinks("[[.]]"), vec![text("[[.]]")]);
+    }
+
+    #[test]
+    fn dotted_target_with_anchor_stays_wikilink() {
+        // Anchor present → not a property ref (broken link later; acceptable).
+        assert!(matches!(
+            scan_wikilinks("[[Gandalf.age#h]]").as_slice(),
+            [TokenizedRun::WikiLink { .. }]
+        ));
     }
 
     #[test]

@@ -186,4 +186,15 @@ describe("normalize — wiki-links", () => {
     ).toBe(true);
     expect(p.inlines.some((i) => i.kind === "wiki_link")).toBe(false);
   });
+
+  it("normalizes property refs into inline nodes", () => {
+    const doc = normalize("Age: [[Gandalf.age]] and [[.level]].\n");
+    const p = doc.blocks[0]!;
+    if (p.kind !== "paragraph") throw new Error("expected paragraph");
+    const refs = p.inlines.filter((i) => i.kind === "property_ref");
+    expect(refs).toEqual([
+      { kind: "property_ref", note: "Gandalf", property: "age" },
+      { kind: "property_ref", note: null, property: "level" },
+    ]);
+  });
 });

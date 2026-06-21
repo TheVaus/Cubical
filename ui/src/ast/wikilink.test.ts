@@ -104,4 +104,29 @@ describe("scanWikilinks", () => {
       wl("note", { display: "see #3" }),
     ]);
   });
+
+  it("parses a cross-file property ref", () => {
+    expect(scanWikilinks("[[Gandalf.age]]")).toEqual([
+      { kind: "property_ref", note: "Gandalf", property: "age" },
+    ]);
+  });
+
+  it("parses a self property ref", () => {
+    expect(scanWikilinks("[[.age]]")).toEqual([
+      { kind: "property_ref", note: null, property: "age" },
+    ]);
+  });
+
+  it("splits a property ref on the first dot only", () => {
+    expect(scanWikilinks("[[a.b.c]]")).toEqual([
+      { kind: "property_ref", note: "a", property: "b.c" },
+    ]);
+  });
+
+  it("falls back to text for an empty property", () => {
+    expect(scanWikilinks("[[Gandalf.]]")).toEqual([
+      { kind: "text", value: "[[Gandalf.]]" },
+    ]);
+    expect(scanWikilinks("[[.]]")).toEqual([{ kind: "text", value: "[[.]]" }]);
+  });
 });

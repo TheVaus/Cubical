@@ -232,6 +232,16 @@ pub enum Inline {
         /// `true` when the link was written `![[…]]` (an embed).
         embed: bool,
     },
+    /// `[[note.prop]]` / `[[.prop]]` — a read-only frontmatter value
+    /// reference, resolved at display time. `note == None` is a
+    /// self-reference (current note). Top-level key only. See
+    /// `docs/superpowers/specs/2026-06-20-property-reference-interpolation-design.md`.
+    PropertyRef {
+        /// Target note name, or `None` for a self-reference.
+        note: Option<String>,
+        /// Top-level frontmatter key to read.
+        property: String,
+    },
     /// Inline `#tag` / `#parent/child` token. The `path` is the tag body
     /// without the leading `#`, preserving the casing as written; the
     /// libSQL `tags` index does the case-insensitive matching. See
