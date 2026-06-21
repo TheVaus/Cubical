@@ -93,10 +93,12 @@ fn rewrite_wiki_link(source: &str, old_token: &str, new_token: &str) -> Option<S
     // entirely when nothing matches. The walk is cheap relative to
     // string assembly.
     for run in &runs {
-        if let TokenizedRun::WikiLink { target, .. } = run {
-            if target == old_token {
-                hits += 1;
-            }
+        match run {
+            TokenizedRun::WikiLink { target, .. } if target == old_token => hits += 1,
+            // A property ref `[[note.prop]]` whose note part is the renamed
+            // note must follow the rename too, or it would break.
+            TokenizedRun::PropertyRef { note: Some(n), .. } if n == old_token => hits += 1,
+            _ => {}
         }
     }
     if hits == 0 {
@@ -120,9 +122,28 @@ fn rewrite_wiki_link(source: &str, old_token: &str, new_token: &str) -> Option<S
                 };
                 emit_wikilink(&mut out, &effective_target, &display, &anchor, embed);
             }
+            TokenizedRun::PropertyRef { note, property } => {
+                let effective_note = match &note {
+                    Some(n) if n == old_token => Some(new_token.to_string()),
+                    other => other.clone(),
+                };
+                emit_property_ref(&mut out, &effective_note, &property);
+            }
         }
     }
     Some(out)
+}
+
+/// Re-emit a property-reference token to its on-disk form
+/// (`[[note.prop]]` / `[[.prop]]`).
+fn emit_property_ref(out: &mut String, note: &Option<String>, property: &str) {
+    out.push_str("[[");
+    if let Some(n) = note {
+        out.push_str(n);
+    }
+    out.push('.');
+    out.push_str(property);
+    out.push_str("]]");
 }
 
 /// Re-emit a wiki-link token to its on-disk form.
@@ -622,6 +643,10 @@ fn rewrite_block_ref_referrers(source: &str, old_token: &str, new_token: &str) -
                 };
                 emit_wikilink(&mut out, &target, &display, &new_anchor, embed);
             }
+            TokenizedRun::PropertyRef { note, property } => {
+                // Property refs carry no anchor — pass through unchanged.
+                emit_property_ref(&mut out, &note, &property);
+            }
         }
     }
     Some(out)
@@ -750,6 +775,18 @@ mod tests {
         let src = "See [[Daily]] for context.\n";
         let out = apply_pending(src, &[row(RewriteKind::WikiLink, "Daily", "Journal")]);
         assert_eq!(out, "See [[Journal]] for context.\n");
+    }
+
+    #[test]
+    fn property_ref_note_follows_rename() {
+        // Renaming a note must also update property refs pointing at it,
+        // while self-refs and untouched property names pass through.
+        let src = "Age [[Gandalf.age]], self [[.level]], other [[Frodo.hp]].\n";
+        let out = apply_pending(src, &[row(RewriteKind::WikiLink, "Gandalf", "Mithrandir")]);
+        assert_eq!(
+            out,
+            "Age [[Mithrandir.age]], self [[.level]], other [[Frodo.hp]].\n"
+        );
     }
 
     #[test]

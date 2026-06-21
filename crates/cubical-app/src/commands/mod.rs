@@ -18,6 +18,7 @@ pub mod dataview;
 pub mod embeds;
 pub mod links;
 pub mod mentions;
+pub mod property_ref;
 pub mod rename;
 pub mod search;
 pub mod snippet;

@@ -550,6 +550,40 @@ pub struct GetEmbedResponse {
     pub content: Option<String>,
 }
 
+// -- get_property (property-reference interpolation) --------------------
+
+/// Request payload for `get_property` — a cross-file `[[note.prop]]`
+/// reference. Self-refs (`[[.prop]]`) are resolved on the frontend and
+/// never reach this command.
+#[derive(Debug, Clone, Deserialize)]
+pub struct GetPropertyRequest {
+    pub vault_id: String,
+    /// Target note name as written (left of the dot), no `[[`/`]]`.
+    pub note_raw: String,
+    /// Top-level frontmatter key to read (right of the first dot).
+    pub property: String,
+}
+
+/// Outcome of resolving a property reference.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PropertyRefKind {
+    /// Note resolved and the key held a renderable scalar.
+    Resolved,
+    /// The note name didn't resolve to any file in the vault.
+    NoteUnresolved,
+    /// Note resolved but the key was absent or not a scalar.
+    PropertyMissing,
+}
+
+/// Response payload for `get_property`.
+#[derive(Debug, Clone, Serialize)]
+pub struct GetPropertyResponse {
+    pub kind: PropertyRefKind,
+    /// The scalar rendered to a display string. `None` unless `Resolved`.
+    pub value: Option<String>,
+}
+
 // -- get_unlinked_mentions (L3 Session I) ------------------------------
 
 /// Request payload for `get_unlinked_mentions`.
