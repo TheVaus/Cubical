@@ -217,10 +217,7 @@ mod tests {
 
     #[test]
     fn empty_property_falls_back_to_text() {
-        assert_eq!(
-            scan_wikilinks("[[Gandalf.]]"),
-            vec![text("[[Gandalf.]]")]
-        );
+        assert_eq!(scan_wikilinks("[[Gandalf.]]"), vec![text("[[Gandalf.]]")]);
         assert_eq!(scan_wikilinks("[[.]]"), vec![text("[[.]]")]);
     }
 
