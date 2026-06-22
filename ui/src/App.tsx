@@ -51,6 +51,7 @@ import {
   createPropertyResolver,
   type PropertyResolver,
 } from "./editor/propertyResolver";
+import { isValidNoteName, noteNameError } from "./vault/noteName";
 import {
   createDataviewRunner,
   type DataviewRunner,
@@ -1533,7 +1534,31 @@ const App: Component = () => {
                             <Show
                               when={isRenaming()}
                               fallback={
-                                <span class="tree-row__name">{display()}</span>
+                                <span
+                                  class="tree-row__name"
+                                  classList={{
+                                    "tree-row__name--dotted":
+                                      isMarkdown && !isValidNoteName(row.name),
+                                  }}
+                                  title={
+                                    isMarkdown && !isValidNoteName(row.name)
+                                      ? noteNameError(row.name)
+                                      : undefined
+                                  }
+                                >
+                                  {display()}
+                                  <Show
+                                    when={isMarkdown && !isValidNoteName(row.name)}
+                                  >
+                                    <span
+                                      class="tree-row__dotted-badge"
+                                      aria-hidden="true"
+                                    >
+                                      {" "}
+                                      ⚠
+                                    </span>
+                                  </Show>
+                                </span>
                               }
                             >
                               <input
