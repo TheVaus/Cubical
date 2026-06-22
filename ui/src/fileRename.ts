@@ -9,9 +9,12 @@
  * See `docs/layer-3-spec.md` §9.16.
  */
 
+import { isValidNoteName, noteNameError } from "./vault/noteName";
+
 export type RenameValidationError =
   | { code: "empty"; message: string }
-  | { code: "same"; message: string };
+  | { code: "same"; message: string }
+  | { code: "dotted"; message: string };
 
 export function validateRenameTarget(
   fromPath: string,
@@ -23,6 +26,12 @@ export function validateRenameTarget(
   }
   if (trimmed === fromPath) {
     return { code: "same", message: "Name unchanged." };
+  }
+  // A dotted note name isn't `[[ ]]`-linkable — the dot is the
+  // property-ref separator. Validate the final path segment only.
+  const base = trimmed.slice(trimmed.lastIndexOf("/") + 1);
+  if (!isValidNoteName(base)) {
+    return { code: "dotted", message: noteNameError(base) };
   }
   return null;
 }

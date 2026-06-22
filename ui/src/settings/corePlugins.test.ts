@@ -18,4 +18,11 @@ describe("CORE_PLUGINS", () => {
     expect(dataview.settingKey).toBe("plugins.dataview_enabled");
     expect(dataview.defaultEnabled).toBe(true);
   });
+
+  test("ships the property-refs entry, default-on", () => {
+    const pr = CORE_PLUGINS.find((p) => p.id === "property-refs")!;
+    expect(pr).toBeDefined();
+    expect(pr.settingKey).toBe("plugins.property_refs_enabled");
+    expect(pr.defaultEnabled).toBe(true);
+  });
 });

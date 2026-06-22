@@ -366,6 +366,14 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A dotted note name isn't [[ ]]-linkable (dot = property-ref separator). */
+.tree-row__name--dotted {
+  color: var(--c-warning, var(--c-fg-muted));
+}
+.tree-row__dotted-badge {
+  font-size: 0.85em;
+  opacity: 0.8;
+}
 .tree-row__input {
   flex: 1;
   min-width: 0;

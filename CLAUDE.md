@@ -45,21 +45,21 @@ For non-features explicitly cut from scope, see [`docs/architecture/constraints.
 
 ## Project state
 
-**Now — `feat/configurable-statusbar` (2026-06-20).** Status bar made
-configurable: master on/off (footer *unmounts* when off) + per-item toggles
-in a new Settings ▸ Status bar tab; durable per-vault `statusbar.*` keys;
-system alerts (scan/broken-refs/pending) stay always-on. Omnibar gained a
-`kind:"command"` surface seeded with "Toggle status bar". Spec/plan in
-`docs/superpowers/{specs,plans}/2026-06-20-configurable-statusbar*`; interactive
-`cargo tauri dev` smoke pending an operator.
+**Just merged to `main` (2026-06-20).** Two features, each still needing an
+interactive `cargo tauri dev` operator smoke (recipes in their plans):
+**property-reference interpolation** — inline read-only refs `[[note.prop]]`
+/ `[[.prop]]`, raw-scalar v1, default-on core plugin; and **configurable
+status bar** — master + per-item toggles, durable `statusbar.*` keys. Specs/
+plans: `docs/superpowers/{specs,plans}/2026-06-20-{property-reference-interpolation,configurable-statusbar}*`.
+**Parked:** `feat/typed-properties` — inline `# type:` comments, edits stashed.
 
 **On `main`:** Typed properties (inline `# type:`) merged but **defaulted off**
-(`properties.typed_enabled` absent → false) — `.md`-storage approach slated for a
-vault-level type registry (spec in `docs/superpowers/specs/`, pointer in
-`docs/architecture/planned.md` §14). Core Plugins + portable
+— `.md`-storage approach slated for a vault-level type registry
+(`docs/architecture/planned.md` §14). Core Plugins + portable
 `.cubical/config.toml` settings; all Layer 4 merged (`l4a`–`l4d`). The **`l4`
-close-tag is the only open gate** — interactive operator smoke, recipe
+close-tag is the only structural open gate** — operator smoke, recipe
 `layer-4-spec.md` §9.5–9.6. Deferred: tabs/multi-document, per-occurrence search.
 
-**Tests:** 556 vitest + 519 Rust. Gates: `scripts/check.sh` (fmt/clippy/test,
-tsc, vitest, build, docs). Layer status/tags/dates: `docs/build-order.md`.
+**Tests:** 590 vitest + 530 Rust on `main`. Gates: `scripts/check.sh`
+(fmt/clippy/test, tsc, vitest, build, docs). Layer status/tags/dates:
+`docs/build-order.md`.

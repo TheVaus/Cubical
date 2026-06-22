@@ -106,7 +106,8 @@ fn walk_inlines(inlines: &[Inline], seen: &mut Vec<(String, String)>) {
             Inline::Text { .. }
             | Inline::Code { .. }
             | Inline::LineBreak
-            | Inline::WikiLink { .. } => {}
+            | Inline::WikiLink { .. }
+            | Inline::PropertyRef { .. } => {}
         }
     }
 }

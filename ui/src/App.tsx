@@ -48,6 +48,11 @@ import {
   type EmbedResolver,
 } from "./editor/embedResolver";
 import {
+  createPropertyResolver,
+  type PropertyResolver,
+} from "./editor/propertyResolver";
+import { isValidNoteName, noteNameError } from "./vault/noteName";
+import {
   createDataviewRunner,
   type DataviewRunner,
 } from "./editor/dataview";
@@ -241,6 +246,12 @@ const App: Component = () => {
   // from "Couldn't resolve" to its content without a reload.
   const [embedResolver, setEmbedResolver] =
     createSignal<EmbedResolver | null>(null);
+
+  // Per-vault cross-file property resolver for `[[note.prop]]`. Invalidated
+  // on every `vault:file-changed` so an edited frontmatter value flips to
+  // its new value without a reload.
+  const [propertyResolver, setPropertyResolver] =
+    createSignal<PropertyResolver | null>(null);
 
   // L4-D — per-vault dataview runner for ```query blocks (mirrors the
   // embed resolver lifecycle). Created in `handleOpen`, cleared on close,
@@ -1062,6 +1073,9 @@ const App: Component = () => {
         // L3 Session H.2: a change may have altered embed targets or
         // their contents — re-fetch on the next widget rebuild.
         embedResolver()?.invalidate();
+        // Property refs: a change may have altered a referenced note's
+        // frontmatter — re-resolve on the next widget rebuild.
+        propertyResolver()?.invalidate();
         // L4-D: a change may have altered frontmatter/tags a ```query
         // block projects — re-evaluate on the next widget rebuild.
         dataviewRunner()?.invalidate();
@@ -1228,6 +1242,7 @@ const App: Component = () => {
       setRightSidebarPanel("backlinks");
       setWikilinkResolver(null);
       setEmbedResolver(null);
+      setPropertyResolver(null);
       setDataviewRunner(null);
       setAutocompleteProvider(null);
       seenHash = null;
@@ -1239,6 +1254,7 @@ const App: Component = () => {
       setScanStatus(resp.scan_status);
       setWikilinkResolver(createWikiLinkResolver(resp.vault_id));
       setEmbedResolver(createEmbedResolver(resp.vault_id));
+      setPropertyResolver(createPropertyResolver(resp.vault_id));
       setDataviewRunner(
         createDataviewRunner(resp.vault_id, (path) =>
           void handleNavigateWikilink(path, null),
@@ -1587,7 +1603,31 @@ const App: Component = () => {
                             <Show
                               when={isRenaming()}
                               fallback={
-                                <span class="tree-row__name">{display()}</span>
+                                <span
+                                  class="tree-row__name"
+                                  classList={{
+                                    "tree-row__name--dotted":
+                                      isMarkdown && !isValidNoteName(row.name),
+                                  }}
+                                  title={
+                                    isMarkdown && !isValidNoteName(row.name)
+                                      ? noteNameError(row.name)
+                                      : undefined
+                                  }
+                                >
+                                  {display()}
+                                  <Show
+                                    when={isMarkdown && !isValidNoteName(row.name)}
+                                  >
+                                    <span
+                                      class="tree-row__dotted-badge"
+                                      aria-hidden="true"
+                                    >
+                                      {" "}
+                                      ⚠
+                                    </span>
+                                  </Show>
+                                </span>
                               }
                             >
                               <input
@@ -1786,6 +1826,11 @@ const App: Component = () => {
                   rawSource={effectiveRaw()}
                   wikilinkResolver={wikilinkResolver()}
                   embedResolver={embedResolver()}
+                  propertyResolver={propertyResolver()}
+                  propertyRefsEnabled={corePluginEnabled(
+                    corePlugins(),
+                    CORE_PLUGINS.find((p) => p.id === "property-refs")!,
+                  )}
                   dataviewRunner={
                     corePluginEnabled(
                       corePlugins(),

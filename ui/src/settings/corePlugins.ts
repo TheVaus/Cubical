@@ -20,6 +20,14 @@ export const CORE_PLUGINS: CorePlugin[] = [
     settingKey: "plugins.dataview_enabled",
     defaultEnabled: true,
   },
+  {
+    id: "property-refs",
+    name: "Property references",
+    description:
+      "Render [[note.prop]] / [[.prop]] as inline frontmatter values.",
+    settingKey: "plugins.property_refs_enabled",
+    defaultEnabled: true,
+  },
 ];
 
 /** Resolve a plugin's on/off state: the stored value, else its default. */

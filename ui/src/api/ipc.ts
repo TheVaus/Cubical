@@ -258,6 +258,7 @@ export type Setting =
   // L3 Session J — periodic flush interval (seconds). Default 300.
   | { key: "pending_rewrites.flush_interval_secs"; value: number }
   | { key: "plugins.dataview_enabled"; value: boolean }
+  | { key: "plugins.property_refs_enabled"; value: boolean }
   | { key: "properties.typed_enabled"; value: boolean }
   | { key: "properties.date_format_default"; value: string }
   | { key: "properties.default_currency"; value: string }
@@ -634,6 +635,33 @@ export interface GetEmbedResponse {
 /** Resolve `target_raw` and return its embedded content slice. */
 export function getEmbed(req: GetEmbedRequest): Promise<GetEmbedResponse> {
   return invoke("get_embed", { req });
+}
+
+// ---------------------------------------------------------------------------
+// get_property (property-reference interpolation — cross-file [[note.prop]])
+// ---------------------------------------------------------------------------
+
+export interface GetPropertyRequest {
+  vault_id: string;
+  /** Target note name as written (left of the dot). */
+  note_raw: string;
+  /** Top-level frontmatter key (right of the first dot). */
+  property: string;
+}
+
+export type PropertyRefKind = "resolved" | "note_unresolved" | "property_missing";
+
+export interface GetPropertyResponse {
+  kind: PropertyRefKind;
+  /** Scalar rendered to a display string; null unless kind === "resolved". */
+  value: string | null;
+}
+
+/** Resolve a cross-file `[[note.prop]]` to its frontmatter scalar value. */
+export function getProperty(
+  req: GetPropertyRequest,
+): Promise<GetPropertyResponse> {
+  return invoke("get_property", { req });
 }
 
 // ---------------------------------------------------------------------------

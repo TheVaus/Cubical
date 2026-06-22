@@ -123,6 +123,15 @@ function appendContentWithNestedEmbeds(
       host.appendChild(document.createTextNode(run.value));
       continue;
     }
+    if (run.kind === "property_ref") {
+      // Property refs inside an embed body stay as literal source — they
+      // are resolved by the host editor's decoration layer, not here.
+      const noteRaw = run.note ?? "";
+      host.appendChild(
+        document.createTextNode(`[[${noteRaw}.${run.property}]]`),
+      );
+      continue;
+    }
     if (!run.embed) {
       // Plain wiki-link inside an embed body: stays as literal source.
       // Reconstruct `[[target|display]]` / `[[target#anchor]]` form.

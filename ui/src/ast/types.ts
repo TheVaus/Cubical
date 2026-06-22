@@ -102,4 +102,5 @@ export type Inline =
       anchor: Anchor | null;
       embed: boolean;
     }
+  | { kind: "property_ref"; note: string | null; property: string }
   | { kind: "tag"; path: string };

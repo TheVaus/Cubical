@@ -526,6 +526,9 @@ fn split_inlines(inlines: Vec<Inline>) -> Vec<Inline> {
                                 embed,
                             });
                         }
+                        WikiRun::PropertyRef { note, property } => {
+                            out.push(Inline::PropertyRef { note, property });
+                        }
                     }
                 }
             }
@@ -698,6 +701,7 @@ mod tests {
                 Inline::Image { .. } => "image",
                 Inline::LineBreak => "break",
                 Inline::WikiLink { .. } => "wiki_link",
+                Inline::PropertyRef { .. } => "property_ref",
                 Inline::Tag { .. } => "tag",
             })
             .collect();
@@ -733,6 +737,24 @@ mod tests {
             panic!("expected paragraph");
         };
         assert!(inlines.iter().any(|i| matches!(i, Inline::LineBreak)));
+    }
+
+    #[test]
+    fn property_refs_become_inline_nodes() {
+        let doc = parse("Age: [[Gandalf.age]] and [[.level]].\n");
+        let Block::Paragraph { inlines, .. } = &doc.blocks[0] else {
+            panic!("expected paragraph");
+        };
+        let refs: Vec<(Option<&str>, &str)> = inlines
+            .iter()
+            .filter_map(|i| match i {
+                Inline::PropertyRef { note, property } => {
+                    Some((note.as_deref(), property.as_str()))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(refs, vec![(Some("Gandalf"), "age"), (None, "level")]);
     }
 
     #[test]

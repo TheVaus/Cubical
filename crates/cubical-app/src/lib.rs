@@ -39,17 +39,17 @@ use api::types::{
     GetCanonicalAstResponse, GetEmbedRequest, GetEmbedResponse, GetFrontmatterRequest,
     GetFrontmatterResponse, GetPendingRewritesBreakdownRequest,
     GetPendingRewritesBreakdownResponse, GetPendingRewritesCountRequest,
-    GetPendingRewritesCountResponse, GetSettingRequest, GetSettingResponse, GetVaultInfoRequest,
-    GetVaultInfoResponse, LinkAutocompleteRequest, LinkAutocompleteResponse, ListFilesRequest,
-    ListFilesResponse, ListRecentRenameOpsRequest, ListRecentRenameOpsResponse, ListTagsRequest,
-    ListTagsResponse, OpenVaultRequest, OpenVaultResponse, QueryTagPageRequest,
-    QueryTagPageResponse, ReadFileTextRequest, ReadFileTextResponse, ReloadSettingsRequest,
-    ReloadSettingsResponse, RenameBlockIdRequest, RenameBlockIdResponse, RenameFileRequest,
-    RenameFileResponse, RenameTagRequest, RenameTagResponse, ResolveLinkRequest,
-    ResolveLinkResponse, SearchHealthDto, SearchIndexStatusDto, SearchRequest, SearchResponse,
-    SearchVaultRequest, SetSettingRequest, SetSettingResponse, TagAutocompleteRequest,
-    TagAutocompleteResponse, UndoRenameRequest, UndoRenameResponse, WriteFileTextRequest,
-    WriteFileTextResponse,
+    GetPendingRewritesCountResponse, GetPropertyRequest, GetPropertyResponse, GetSettingRequest,
+    GetSettingResponse, GetVaultInfoRequest, GetVaultInfoResponse, LinkAutocompleteRequest,
+    LinkAutocompleteResponse, ListFilesRequest, ListFilesResponse, ListRecentRenameOpsRequest,
+    ListRecentRenameOpsResponse, ListTagsRequest, ListTagsResponse, OpenVaultRequest,
+    OpenVaultResponse, QueryTagPageRequest, QueryTagPageResponse, ReadFileTextRequest,
+    ReadFileTextResponse, ReloadSettingsRequest, ReloadSettingsResponse, RenameBlockIdRequest,
+    RenameBlockIdResponse, RenameFileRequest, RenameFileResponse, RenameTagRequest,
+    RenameTagResponse, ResolveLinkRequest, ResolveLinkResponse, SearchHealthDto,
+    SearchIndexStatusDto, SearchRequest, SearchResponse, SearchVaultRequest, SetSettingRequest,
+    SetSettingResponse, TagAutocompleteRequest, TagAutocompleteResponse, UndoRenameRequest,
+    UndoRenameResponse, WriteFileTextRequest, WriteFileTextResponse,
 };
 use error::CubicalError;
 use state::AppState;
@@ -92,6 +92,7 @@ pub fn run() {
             get_canonical_ast,
             resolve_link,
             get_embed,
+            get_property,
             get_unlinked_mentions,
             link_mention,
             get_backlinks,
@@ -236,6 +237,15 @@ async fn get_embed(
     req: GetEmbedRequest,
 ) -> Result<GetEmbedResponse, CubicalError> {
     commands::embeds::get_embed(state.inner(), req).await
+}
+
+/// Tauri shim — see [`commands::property_ref::get_property`].
+#[tauri::command]
+async fn get_property(
+    state: tauri::State<'_, AppState>,
+    req: GetPropertyRequest,
+) -> Result<GetPropertyResponse, CubicalError> {
+    commands::property_ref::get_property(state.inner(), req).await
 }
 
 /// Tauri shim — see [`commands::mentions::get_unlinked_mentions`].

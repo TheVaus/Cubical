@@ -295,6 +295,10 @@ impl Walker {
                 // appears in the `body` field.
                 self.tags.push(path.clone());
             }
+            Inline::PropertyRef { .. } => {
+                // The rendered value is display-time, cross-file state not
+                // known at index time — contribute nothing to the body.
+            }
         }
     }
 
@@ -329,6 +333,7 @@ impl Walker {
                     out.push_str(text);
                 }
                 Inline::Tag { .. } => {}
+                Inline::PropertyRef { .. } => {}
             }
         }
     }

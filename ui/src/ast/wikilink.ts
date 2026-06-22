@@ -19,7 +19,8 @@ export type TokenizedRun =
       display: string | null;
       anchor: Anchor | null;
       embed: boolean;
-    };
+    }
+  | { kind: "property_ref"; note: string | null; property: string };
 
 /**
  * Scan a text run for `[[…]]` and `![[…]]`. Returns an empty array for
@@ -113,5 +114,20 @@ function parseBody(body: string, embed: boolean): TokenizedRun | null {
   }
   const target = targetRaw.trim();
   if (target.length === 0) return null;
+  // Property-ref branch: a dotted target with no anchor is a frontmatter
+  // reference, not a navigational link. Split at the FIRST dot.
+  if (anchor === null) {
+    const dot = target.indexOf(".");
+    if (dot >= 0) {
+      const noteRaw = target.slice(0, dot).trim();
+      const property = target.slice(dot + 1).trim();
+      if (property.length === 0) return null;
+      return {
+        kind: "property_ref",
+        note: noteRaw.length === 0 ? null : noteRaw,
+        property,
+      };
+    }
+  }
   return { kind: "wiki_link", target, display, anchor, embed };
 }

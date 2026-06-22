@@ -40,4 +40,19 @@ describe("validateRenameTarget", () => {
       validateRenameTarget("notes/Daily.md", "notes/Journal.md"),
     ).toBeNull();
   });
+
+  it("rejects a dotted target (unreachable by [[ ]] link)", () => {
+    const res = validateRenameTarget("Daily.md", "2026.06.20.md");
+    expect(res?.code).toBe("dotted");
+    expect(res?.message).toContain("dot");
+  });
+
+  it("allows a dot in a parent directory but not the note name", () => {
+    expect(validateRenameTarget("Daily.md", "v1.2/Journal.md")?.code).not.toBe(
+      "dotted",
+    );
+    expect(validateRenameTarget("Daily.md", "notes/v1.2.md")?.code).toBe(
+      "dotted",
+    );
+  });
 });
