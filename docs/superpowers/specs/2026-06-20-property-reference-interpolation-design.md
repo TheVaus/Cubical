@@ -1,7 +1,8 @@
 # Property Reference Interpolation — Design
 
 **Date:** 2026-06-20
-**Status:** Designed, not scheduled. Approved direction (Approach A).
+**Status:** Shipped on `feat/property-ref-interpolation` (Approach A,
+default-on core plugin). Implementation: [`docs/superpowers/plans/2026-06-20-property-reference-interpolation.md`](../plans/2026-06-20-property-reference-interpolation.md).
 **Relationship:** Independent of the typed-properties
 [vault registry](2026-06-20-typed-properties-vault-registry-design.md) — v1
 renders raw scalars, so it takes **no** dependency on type storage and can

@@ -37,10 +37,18 @@ For non-features explicitly cut from scope, see [`docs/architecture/constraints.
 
 ## Project state
 
-**Now — `feat/typed-properties` (2026-06-17).** Typed properties via inline
-YAML `type:` comments + a curated date-format table; pure
-`ui/src/properties/{typeComments,inferType}.ts` (+tests). Spec/plan:
-`docs/superpowers/{specs,plans}/2026-06-17-typed-properties-inline-comments*`.
+**Now — `feat/property-ref-interpolation` (2026-06-20).** Inline read-only
+frontmatter-value refs `[[note.prop]]` / `[[.prop]]`, raw-scalar v1,
+default-on core plugin, registry-independent. Built end-to-end (tokenizer →
+`Inline::PropertyRef` → `get_property` IPC → embed-style resolver → CM
+widget → dotted-name guard); full `scripts/check.sh` green. Spec/plan:
+`docs/superpowers/{specs,plans}/2026-06-20-property-reference-interpolation*`.
+**Open gate:** interactive `cargo tauri dev` operator smoke (recipe in the
+plan, Task 12 Step 2) — not yet run.
+
+**Parked:** `feat/typed-properties` (2026-06-17) — inline YAML `# type:`
+comments; working-tree edits stashed on that branch to clear the deck for
+this feature.
 
 **On `main`:** Core Plugins + portable `.cubical/config.toml` settings
 (2026-06-16); all Layer 4 sub-layers merged (`l4a`–`l4d`). The **`l4`
@@ -51,6 +59,6 @@ their own sessions: tabs/multi-document (single→multi-buffer fork; handoff
 `docs/superpowers/2026-06-12-ui-rework-progress.md`) and per-occurrence
 search snippet cards.
 
-**Tests:** 500 vitest + 519 Rust on `main`. Gates: run `scripts/check.sh`
-(cargo fmt/clippy/test, tsc, vitest, build, docs check). Layer
-status/tags/dates: `docs/build-order.md`.
+**Tests:** 577 vitest + 530 Rust on `feat/property-ref-interpolation`.
+Gates: run `scripts/check.sh` (cargo fmt/clippy/test, tsc, vitest, build,
+docs check). Layer status/tags/dates: `docs/build-order.md`.
