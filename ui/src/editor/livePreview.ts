@@ -21,6 +21,8 @@
  *     `![[…]]` block-replace decorations and their base CSS.
  *   - `dataviewBlockField` + `dataviewBaseTheme` (dataview.ts) — the
  *     L4-D ```query block-replace widget and its base CSS.
+ *   - `propertyRefField` + `propertyRefBaseTheme` (propertyRef.ts) — the
+ *     `[[note.prop]]` / `[[.prop]]` inline value widget and its base CSS.
  *
  * Future preview-only extensions (e.g. L4-B's editor-side search-hit
  * highlight) join this list, not the base extension list of
@@ -32,6 +34,7 @@ import type { Extension } from "@codemirror/state";
 import { livePreviewDecorations } from "./decorations";
 import { embedBlockField, embedBaseTheme } from "./embed";
 import { dataviewBlockField, dataviewBaseTheme } from "./dataview";
+import { propertyRefField, propertyRefBaseTheme } from "./propertyRef";
 
 export const livePreviewBundle: Extension = [
   livePreviewDecorations,
@@ -39,4 +42,6 @@ export const livePreviewBundle: Extension = [
   embedBaseTheme,
   dataviewBlockField,
   dataviewBaseTheme,
+  propertyRefField,
+  propertyRefBaseTheme,
 ];

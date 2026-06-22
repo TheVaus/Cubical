@@ -48,6 +48,10 @@ import {
   type EmbedResolver,
 } from "./editor/embedResolver";
 import {
+  createPropertyResolver,
+  type PropertyResolver,
+} from "./editor/propertyResolver";
+import {
   createDataviewRunner,
   type DataviewRunner,
 } from "./editor/dataview";
@@ -201,8 +205,8 @@ const App: Component = () => {
   );
 
   // Typed-properties feature flag + default date format, seeded on vault
-  // open. Absent → enabled / "YYYY-MM-DD".
-  const [typedProps, setTypedProps] = createSignal(true);
+  // open. Absent → disabled / "YYYY-MM-DD".
+  const [typedProps, setTypedProps] = createSignal(false);
   const [dateDefault, setDateDefault] = createSignal("YYYY-MM-DD");
   const [currencyDefault, setCurrencyDefault] = createSignal("usd");
   const [tagsKeyAsTags, setTagsKeyAsTags] = createSignal(true);
@@ -227,6 +231,12 @@ const App: Component = () => {
   // from "Couldn't resolve" to its content without a reload.
   const [embedResolver, setEmbedResolver] =
     createSignal<EmbedResolver | null>(null);
+
+  // Per-vault cross-file property resolver for `[[note.prop]]`. Invalidated
+  // on every `vault:file-changed` so an edited frontmatter value flips to
+  // its new value without a reload.
+  const [propertyResolver, setPropertyResolver] =
+    createSignal<PropertyResolver | null>(null);
 
   // L4-D — per-vault dataview runner for ```query blocks (mirrors the
   // embed resolver lifecycle). Created in `handleOpen`, cleared on close,
@@ -1011,6 +1021,9 @@ const App: Component = () => {
         // L3 Session H.2: a change may have altered embed targets or
         // their contents — re-fetch on the next widget rebuild.
         embedResolver()?.invalidate();
+        // Property refs: a change may have altered a referenced note's
+        // frontmatter — re-resolve on the next widget rebuild.
+        propertyResolver()?.invalidate();
         // L4-D: a change may have altered frontmatter/tags a ```query
         // block projects — re-evaluate on the next widget rebuild.
         dataviewRunner()?.invalidate();
@@ -1177,6 +1190,7 @@ const App: Component = () => {
       setRightSidebarPanel("backlinks");
       setWikilinkResolver(null);
       setEmbedResolver(null);
+      setPropertyResolver(null);
       setDataviewRunner(null);
       setAutocompleteProvider(null);
       seenHash = null;
@@ -1188,6 +1202,7 @@ const App: Component = () => {
       setScanStatus(resp.scan_status);
       setWikilinkResolver(createWikiLinkResolver(resp.vault_id));
       setEmbedResolver(createEmbedResolver(resp.vault_id));
+      setPropertyResolver(createPropertyResolver(resp.vault_id));
       setDataviewRunner(
         createDataviewRunner(resp.vault_id, (path) =>
           void handleNavigateWikilink(path, null),
@@ -1220,13 +1235,16 @@ const App: Component = () => {
         console.error("loading raw_source_default failed", e);
       }
 
-      // Seed typed-properties flag + default date format (absent → on / ISO).
+      // Seed typed-properties flag + default date format (absent → off / ISO).
+      // Off by default: inline `# type:` comments are slated for replacement
+      // by a vault-level type registry (see the future-work spec), so we
+      // don't write app metadata into `.md` files until a user opts in.
       try {
         const stored = await getSetting(
           resp.vault_id,
           "properties.typed_enabled",
         );
-        setTypedProps(stored ?? true);
+        setTypedProps(stored ?? false);
       } catch (e) {
         console.error("loading properties.typed_enabled failed", e);
       }
@@ -1714,6 +1732,11 @@ const App: Component = () => {
                   rawSource={effectiveRaw()}
                   wikilinkResolver={wikilinkResolver()}
                   embedResolver={embedResolver()}
+                  propertyResolver={propertyResolver()}
+                  propertyRefsEnabled={corePluginEnabled(
+                    corePlugins(),
+                    CORE_PLUGINS.find((p) => p.id === "property-refs")!,
+                  )}
                   dataviewRunner={
                     corePluginEnabled(
                       corePlugins(),

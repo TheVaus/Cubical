@@ -32,6 +32,12 @@ import {
   embedResolverUpdated,
   openNotePathFacet,
 } from "./editor/embed";
+import type { PropertyResolver } from "./editor/propertyResolver";
+import {
+  propertyRefsEnabledFacet,
+  propertyResolverFacet,
+  propertyResolverUpdated,
+} from "./editor/propertyRef";
 import type { DataviewRunner } from "./editor/dataview";
 import { dataviewRunnerFacet, dataviewRunnerUpdated } from "./editor/dataview";
 import {
@@ -100,6 +106,20 @@ const wikilinkResolverCompartment = new Compartment();
  * `embedResolver` prop changes.
  */
 const embedResolverCompartment = new Compartment();
+
+/**
+ * Holds the per-editor property resolver supplied to the property-ref
+ * widget via {@link propertyResolverFacet}. Reconfigured whenever the
+ * parent's `propertyResolver` prop changes.
+ */
+const propertyResolverCompartment = new Compartment();
+
+/**
+ * Holds the property-refs enablement flag supplied via
+ * {@link propertyRefsEnabledFacet}. Reconfigured whenever the parent's
+ * `propertyRefsEnabled` prop changes (the core-plugin toggle).
+ */
+const propertyRefsEnabledCompartment = new Compartment();
 
 /**
  * Holds the open-note vault-relative path supplied to the embed widget
@@ -216,6 +236,17 @@ export interface EditorProps {
    */
   embedResolver?: EmbedResolver | null;
   /**
+   * Per-vault resolver for cross-file property refs (`[[note.prop]]`).
+   * `null` when no vault is open — cross-file refs then render broken,
+   * self-refs still resolve from the open document.
+   */
+  propertyResolver?: PropertyResolver | null;
+  /**
+   * Whether the property-refs core plugin is enabled. `false` makes the
+   * widget emit nothing (refs show as raw `[[…]]`). Defaults to `true`.
+   */
+  propertyRefsEnabled?: boolean;
+  /**
    * Per-vault runner for ```query blocks (L4-D). `null` when no vault is
    * open — the dataview widget renders nothing in that state.
    */
@@ -311,6 +342,22 @@ const Editor: Component<EditorProps> = (props) => {
     if (resolver && targetView) {
       unsubEmbedResolver = resolver.onUpdate(() => {
         targetView.dispatch({ effects: embedResolverUpdated.of(null) });
+      });
+    }
+  };
+
+  // Unsubscribe handle for the property resolver's onUpdate notifications.
+  let unsubPropertyResolver: (() => void) | undefined;
+
+  const subscribePropertyResolver = (
+    resolver: PropertyResolver | null | undefined,
+    targetView: EditorView | undefined,
+  ) => {
+    unsubPropertyResolver?.();
+    unsubPropertyResolver = undefined;
+    if (resolver && targetView) {
+      unsubPropertyResolver = resolver.onUpdate(() => {
+        targetView.dispatch({ effects: propertyResolverUpdated.of(null) });
       });
     }
   };
@@ -469,6 +516,12 @@ const Editor: Component<EditorProps> = (props) => {
           embedResolverCompartment.of(
             embedResolverFacet.of(props.embedResolver ?? null),
           ),
+          propertyResolverCompartment.of(
+            propertyResolverFacet.of(props.propertyResolver ?? null),
+          ),
+          propertyRefsEnabledCompartment.of(
+            propertyRefsEnabledFacet.of(props.propertyRefsEnabled ?? true),
+          ),
           dataviewRunnerCompartment.of(
             dataviewRunnerFacet.of(props.dataviewRunner ?? null),
           ),
@@ -583,6 +636,7 @@ const Editor: Component<EditorProps> = (props) => {
 
     subscribeResolver(props.wikilinkResolver, view);
     subscribeEmbedResolver(props.embedResolver, view);
+    subscribePropertyResolver(props.propertyResolver, view);
     subscribeDataviewRunner(props.dataviewRunner, view);
 
     // Dev-only diagnostic handle — see `declare global` block above for context.
@@ -740,6 +794,40 @@ const Editor: Component<EditorProps> = (props) => {
     ),
   );
 
+  // Swap the property resolver facet when the parent's prop changes (a
+  // different vault is open). Reconfigure the facet via the compartment
+  // and re-bind the onUpdate subscription so cache notifications dispatch
+  // into the right view.
+  createEffect(
+    on(
+      () => props.propertyResolver,
+      (resolver) => {
+        view?.dispatch({
+          effects: propertyResolverCompartment.reconfigure(
+            propertyResolverFacet.of(resolver ?? null),
+          ),
+        });
+        subscribePropertyResolver(resolver, view);
+      },
+      { defer: true },
+    ),
+  );
+
+  // Swap the property-refs enablement flag when the toggle changes.
+  createEffect(
+    on(
+      () => props.propertyRefsEnabled,
+      (enabled) => {
+        view?.dispatch({
+          effects: propertyRefsEnabledCompartment.reconfigure(
+            propertyRefsEnabledFacet.of(enabled ?? true),
+          ),
+        });
+      },
+      { defer: true },
+    ),
+  );
+
   // Swap the dataview runner facet when the parent's prop changes (a
   // different vault is open). Reconfigure the facet via the compartment
   // and re-bind the onUpdate subscription so cache notifications dispatch
@@ -799,6 +887,7 @@ const Editor: Component<EditorProps> = (props) => {
     }
     unsubResolver?.();
     unsubEmbedResolver?.();
+    unsubPropertyResolver?.();
     if (astPending !== undefined) clearTimeout(astPending);
     view?.destroy();
     view = undefined;

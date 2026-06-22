@@ -57,6 +57,16 @@ export const propertyResolverFacet = Facet.define<
 });
 
 /**
+ * Whether the property-refs core plugin is enabled for the open vault.
+ * `false` makes the field emit no decorations, so both self- and
+ * cross-file refs fall back to their raw `[[…]]` source text. Defaults
+ * to `true`.
+ */
+export const propertyRefsEnabledFacet = Facet.define<boolean, boolean>({
+  combine: (values) => values[0] ?? true,
+});
+
+/**
  * StateEffect dispatched by `Editor.tsx` whenever the resolver's cache
  * changes; the field watches transactions for it and rebuilds.
  */
@@ -132,6 +142,7 @@ function renderStateFor(
 }
 
 export function buildPropertyDecorations(state: EditorState): DecorationSet {
+  if (!state.facet(propertyRefsEnabledFacet)) return Decoration.none;
   const resolver = state.facet(propertyResolverFacet);
   const tree = syntaxTree(state);
   const doc = state.doc;
@@ -169,7 +180,9 @@ export const propertyRefField = StateField.define<DecorationSet>({
     const treeChanged = syntaxTree(tr.startState) !== syntaxTree(tr.state);
     const facetChanged =
       tr.startState.facet(propertyResolverFacet) !==
-      tr.state.facet(propertyResolverFacet);
+        tr.state.facet(propertyResolverFacet) ||
+      tr.startState.facet(propertyRefsEnabledFacet) !==
+        tr.state.facet(propertyRefsEnabledFacet);
     const activeLineChanged =
       tr.startState.doc.lineAt(tr.startState.selection.main.head).number !==
       tr.state.doc.lineAt(tr.state.selection.main.head).number;

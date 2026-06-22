@@ -258,6 +258,7 @@ export type Setting =
   // L3 Session J — periodic flush interval (seconds). Default 300.
   | { key: "pending_rewrites.flush_interval_secs"; value: number }
   | { key: "plugins.dataview_enabled"; value: boolean }
+  | { key: "plugins.property_refs_enabled"; value: boolean }
   | { key: "properties.typed_enabled"; value: boolean }
   | { key: "properties.date_format_default"; value: string }
   | { key: "properties.default_currency"; value: string }
