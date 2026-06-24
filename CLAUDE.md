@@ -45,13 +45,13 @@ For non-features explicitly cut from scope, see [`docs/architecture/constraints.
 
 ## Project state
 
-**Just merged to `main` (2026-06-20).** Two features, each still needing an
-interactive `cargo tauri dev` operator smoke (recipes in their plans):
-**property-reference interpolation** — inline read-only refs `[[note.prop]]`
-/ `[[.prop]]`, raw-scalar v1, default-on core plugin; and **configurable
-status bar** — master + per-item toggles, durable `statusbar.*` keys. Specs/
-plans: `docs/superpowers/{specs,plans}/2026-06-20-{property-reference-interpolation,configurable-statusbar}*`.
-**Parked:** `feat/typed-properties` — inline `# type:` comments, edits stashed.
+**Uncommitted on `main` (2026-06-23), gates green; not committed** (tree also
+carries pre-existing work in `events.rs`, `cubical-search/index.rs`, `ui/` — keep
+commits scoped): deleted-file pruning fix, rename-coalescing fix, **create files +
+folders** (migration 007 `folders`, `create_file`/`create_folder` IPCs, tree-header
+buttons). Detail: `layer-0-spec.md` §14.1 (2026-06-23) + §14.2 #5; `layer-3-spec.md`
+§9.15. Also awaiting smoke (2026-06-20): property-ref interpolation + configurable
+status bar (`docs/superpowers/specs/2026-06-20-*`). **Parked:** `feat/typed-properties`.
 
 **On `main`:** Typed properties (inline `# type:`) merged but **defaulted off**
 — `.md`-storage approach slated for a vault-level type registry
@@ -60,6 +60,6 @@ plans: `docs/superpowers/{specs,plans}/2026-06-20-{property-reference-interpolat
 close-tag is the only structural open gate** — operator smoke, recipe
 `layer-4-spec.md` §9.5–9.6. Deferred: tabs/multi-document, per-occurrence search.
 
-**Tests:** 590 vitest + 530 Rust on `main`. Gates: `scripts/check.sh`
-(fmt/clippy/test, tsc, vitest, build, docs). Layer status/tags/dates:
+**Tests:** 604 vitest + 555 Rust (working tree). Gates: `scripts/check.sh`
+(fmt/clippy/test, tsc, vitest, build, docs) — all green. Layer status/tags/dates:
 `docs/build-order.md`.

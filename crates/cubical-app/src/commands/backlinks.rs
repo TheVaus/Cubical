@@ -8,6 +8,7 @@
 //!
 //! See `docs/layer-3-spec.md` §2.3 and §3.1.
 
+use cubical_core::vault::pending::materialize_on_read;
 use cubical_index::backlinks_for;
 
 use crate::api::types::{Backlink, GetBacklinksRequest, GetBacklinksResponse};
@@ -38,7 +39,18 @@ pub async fn get_backlinks(
     for row in rows {
         let abs = open.vault.root().join(&row.source_path);
         let context = match std::fs::read_to_string(&abs) {
-            Ok(text) => build_snippet(&text, row.position),
+            Ok(raw) => {
+                // Materialize pending rename rewrites before snipping:
+                // the link `position` was extracted against the
+                // materialized view, and an unflushed referrer still
+                // holds the OLD link text on disk. Without this the
+                // snippet shows the stale name (and can be offset-
+                // misaligned when the rewrite changes the token length).
+                let text = materialize_on_read(open.vault.index(), &row.source_path, &raw)
+                    .await
+                    .unwrap_or(raw);
+                build_snippet(&text, row.position)
+            }
             Err(e) => {
                 tracing::debug!(
                     path = %row.source_path,
@@ -139,6 +151,57 @@ mod tests {
         .await
         .expect("ok");
         assert!(resp.backlinks.is_empty());
+    }
+
+    #[tokio::test]
+    async fn get_backlinks_snippet_reflects_pending_rewrites() {
+        // A referrer whose on-disk text still holds the OLD wiki-link
+        // (a pending rename rewrite hasn't flushed yet) must surface a
+        // snippet showing the CURRENT name, not the stale one — and the
+        // link `position` was extracted against the materialized text,
+        // so the snippet must be built from the materialized text too.
+        // Regression guard for "backlinks point to the old file name".
+        use cubical_index::{enqueue_pending, NewPendingRewrite, RewriteKind};
+        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        seed_md(&vault, "Note.md", "target\n").await;
+        // Ref.md's disk still says [[a]]; the index link was extracted
+        // from the materialized view "see [[Journal]]" (so its position
+        // points into THAT text), and a pending rewrite a→Journal exists.
+        seed_md(&vault, "Ref.md", "see [[a]]\n").await;
+        let materialized = "see [[Journal]]\n";
+        let pos = materialized.find("[[").unwrap() as u64;
+        replace_links_for_file(vault.index(), "Ref.md", &[link_at("a", "Note.md", pos)])
+            .await
+            .unwrap();
+        enqueue_pending(
+            vault.index(),
+            &[NewPendingRewrite {
+                target_file: "Ref.md".into(),
+                rewrite_kind: RewriteKind::WikiLink,
+                old_token: "a".into(),
+                new_token: "Journal".into(),
+                created_at: 0,
+                rename_op_id: 1,
+            }],
+        )
+        .await
+        .unwrap();
+
+        let resp = get_backlinks(
+            &state,
+            GetBacklinksRequest {
+                vault_id: "v1".into(),
+                path: "Note.md".into(),
+            },
+        )
+        .await
+        .expect("ok");
+        assert_eq!(resp.backlinks.len(), 1);
+        assert!(
+            resp.backlinks[0].context.contains("Journal"),
+            "snippet must reflect the materialized link, got {:?}",
+            resp.backlinks[0].context,
+        );
     }
 
     #[tokio::test]

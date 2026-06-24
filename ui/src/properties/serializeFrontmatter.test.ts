@@ -136,12 +136,12 @@ describe("hasUnmodelableYaml", () => {
     expect(hasUnmodelableYaml("title: foo\ntags: [a, b]\n")).toBe(false);
   });
 
-  it("returns true when a comment is present", () => {
-    expect(hasUnmodelableYaml("title: foo # a comment\n")).toBe(true);
+  it("treats a trailing comment as modelable (it is preserved, not flagged)", () => {
+    expect(hasUnmodelableYaml("title: foo # a comment\n")).toBe(false);
   });
 
-  it("returns true when a leading comment is present", () => {
-    expect(hasUnmodelableYaml("# header comment\ntitle: foo\n")).toBe(true);
+  it("treats a leading comment as modelable", () => {
+    expect(hasUnmodelableYaml("# header comment\ntitle: foo\n")).toBe(false);
   });
 
   it("returns true when an anchor/alias is present", () => {
@@ -154,6 +154,89 @@ describe("hasUnmodelableYaml", () => {
 
   it("returns false for empty YAML", () => {
     expect(hasUnmodelableYaml("")).toBe(false);
+  });
+});
+
+describe("serializeFrontmatter preserves foreign content (in-place edit)", () => {
+  it("keeps a trailing comment on an unchanged key when another value changes", () => {
+    const existing = "title: Hi # keep me\ncount: 1\n";
+    const out = serializeFrontmatter(
+      [
+        ["title", "Hi"],
+        ["count", 2],
+      ],
+      undefined,
+      "usd",
+      existing,
+    );
+    expect(out).toContain("# keep me");
+    expect(out).toContain("count: 2");
+  });
+
+  it("keeps a standalone comment line above a key even when its value changes", () => {
+    const existing = "# section\ntitle: Hi\n";
+    const out = serializeFrontmatter([["title", "Bye"]], undefined, "usd", existing);
+    expect(out).toContain("# section");
+    expect(out).toContain("title: Bye");
+  });
+
+  it("keeps comments on surviving keys when a key is deleted", () => {
+    const existing = "a: 1 # note a\nb: 2\n";
+    const out = serializeFrontmatter([["a", 1]], undefined, "usd", existing);
+    expect(out).toContain("# note a");
+    expect(out).not.toMatch(/^b:/m);
+  });
+
+  it("keeps existing comments when a new key is added", () => {
+    const existing = "a: 1 # note a\n";
+    const out = serializeFrontmatter(
+      [
+        ["a", 1],
+        ["b", 2],
+      ],
+      undefined,
+      "usd",
+      existing,
+    );
+    expect(out).toContain("# note a");
+    expect(out).toContain("b: 2");
+  });
+
+  it("keeps a comment with its key when keys are reordered", () => {
+    const existing = "a: 1 # note a\nb: 2\n";
+    const out = serializeFrontmatter(
+      [
+        ["b", 2],
+        ["a", 1],
+      ],
+      undefined,
+      "usd",
+      existing,
+    );
+    const aLine = out.split("\n").find((l) => l.startsWith("a:"))!;
+    expect(aLine).toContain("# note a");
+  });
+
+  it("applies a type comment while preserving a foreign comment on another key", () => {
+    const existing = "title: Hi # keep\nprice: 9.99\n";
+    const out = serializeFrontmatter(
+      [
+        ["title", "Hi"],
+        ["price", 9.99],
+      ],
+      new Map<string, PropertyType>([
+        ["price", { kind: "currency", currency: "nis" }],
+      ]),
+      "usd",
+      existing,
+    );
+    expect(out).toContain("# keep");
+    expect(out).toContain("# type:float/currency/nis");
+  });
+
+  it("falls back to a fresh build when there is no existing block", () => {
+    const out = serializeFrontmatter([["a", 1]], undefined, "usd");
+    expect(out).toBe("---\na: 1\n---\n");
   });
 });
 
@@ -235,18 +318,19 @@ describe("serializeFrontmatter with type comments", () => {
   });
 });
 
-describe("hasUnmodelableYaml with type comments", () => {
-  it("allows recognized type comments incl. dated and block-list", () => {
+describe("hasUnmodelableYaml — comments allowed, anchors/aliases not", () => {
+  it("allows comments of every shape (type hints, notes, unknown tokens)", () => {
     expect(hasUnmodelableYaml("price: 9.99 # type:float/currency/usd\n")).toBe(
       false,
     );
     expect(hasUnmodelableYaml("d: 17-06-26 # type:date:DD-MM-YY\n")).toBe(false);
     expect(hasUnmodelableYaml("people: # type:list\n  - Ann\n")).toBe(false);
+    expect(hasUnmodelableYaml("a: 1 # just a note\n")).toBe(false);
+    expect(hasUnmodelableYaml("a: 1 # type:bogus\n")).toBe(false);
   });
 
-  it("still flags foreign comments and anchors", () => {
-    expect(hasUnmodelableYaml("a: 1 # just a note\n")).toBe(true);
+  it("still flags anchors and aliases", () => {
     expect(hasUnmodelableYaml("a: &x 1\nb: *x\n")).toBe(true);
-    expect(hasUnmodelableYaml("a: 1 # type:bogus\n")).toBe(true);
+    expect(hasUnmodelableYaml("a: &anchor 1\n")).toBe(true);
   });
 });

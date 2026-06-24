@@ -51,9 +51,10 @@ import { miniButtonStyle } from "./properties/styles";
  * so raw-mode frontmatter edits flow back in. Individual cells hold a
  * focus-guarded draft so a refresh never clobbers an in-progress edit.
  *
- * Round-trip safety: when the frontmatter uses YAML the entries-based
- * serializer cannot reproduce (comments, anchors, aliases), the panel
- * degrades to read-only rather than risk destroying content.
+ * Round-trip safety: commits edit the existing block in place, so foreign
+ * comments and blank lines survive. Only anchors and aliases are
+ * unmodelable — for those the panel degrades to read-only rather than risk
+ * destroying content.
  */
 
 /** A leaf type the user can pick (kind + optional date format). */
@@ -536,9 +537,15 @@ const Properties: Component<PropertiesProps> = (props) => {
     nextEntries: FrontmatterEntry[],
     types: Map<string, PropertyType> = typeMap(),
   ) => {
-    const block = serializeFrontmatter(nextEntries, types, props.currencyDefault);
     const source = props.getSource();
-    const span = splitFrontmatter(source).span;
+    const split = splitFrontmatter(source);
+    const block = serializeFrontmatter(
+      nextEntries,
+      types,
+      props.currencyDefault,
+      split.yaml ?? undefined,
+    );
+    const span = split.span;
     if (span) {
       props.applyEdit(span.start, span.end, block);
     } else {
@@ -679,8 +686,8 @@ const Properties: Component<PropertiesProps> = (props) => {
                 color: "var(--c-warning)",
               }}
             >
-              Cubical can't safely edit this frontmatter (it uses comments,
-              anchors, or aliases).
+              Cubical can't safely edit this frontmatter (it uses anchors or
+              aliases).
             </p>
             <pre
               style={{

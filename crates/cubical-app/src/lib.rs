@@ -32,8 +32,10 @@ pub mod state;
 
 use api::types::{
     BlockIdAutocompleteRequest, BlockIdAutocompleteResponse, CancelVaultScanRequest,
-    CloseVaultRequest, CreateBlockRefRequest, CreateBlockRefResponse, DataviewQueryRequest,
-    DataviewResult, FlushPendingRewritesForTargetRequest, FlushPendingRewritesRequest,
+    CloseVaultRequest, CreateBlockRefRequest, CreateBlockRefResponse, CreateFileAtPathRequest,
+    CreateFileAtPathResponse, CreateFileRequest, CreateFileResponse, CreateFolderRequest,
+    CreateFolderResponse, DataviewQueryRequest, DataviewResult,
+    FlushPendingRewritesForTargetRequest, FlushPendingRewritesRequest,
     FlushPendingRewritesResponse, GetBacklinksRequest, GetBacklinksResponse,
     GetBrokenBlockRefsRequest, GetBrokenBlockRefsResponse, GetCanonicalAstRequest,
     GetCanonicalAstResponse, GetEmbedRequest, GetEmbedResponse, GetFrontmatterRequest,
@@ -84,6 +86,9 @@ pub fn run() {
             cancel_vault_scan,
             get_vault_info,
             list_files,
+            create_file,
+            create_file_at_path,
+            create_folder,
             get_frontmatter,
             read_file_text,
             write_file_text,
@@ -165,6 +170,33 @@ async fn list_files(
     req: ListFilesRequest,
 ) -> Result<ListFilesResponse, CubicalError> {
     commands::vault::list_files(state.inner(), req).await
+}
+
+/// Tauri shim — see [`commands::vault::create_file`].
+#[tauri::command]
+async fn create_file(
+    state: tauri::State<'_, AppState>,
+    req: CreateFileRequest,
+) -> Result<CreateFileResponse, CubicalError> {
+    commands::vault::create_file(state.inner(), req).await
+}
+
+/// Tauri shim — see [`commands::vault::create_file_at_path`].
+#[tauri::command]
+async fn create_file_at_path(
+    state: tauri::State<'_, AppState>,
+    req: CreateFileAtPathRequest,
+) -> Result<CreateFileAtPathResponse, CubicalError> {
+    commands::vault::create_file_at_path(state.inner(), req).await
+}
+
+/// Tauri shim — see [`commands::vault::create_folder`].
+#[tauri::command]
+async fn create_folder(
+    state: tauri::State<'_, AppState>,
+    req: CreateFolderRequest,
+) -> Result<CreateFolderResponse, CubicalError> {
+    commands::vault::create_folder(state.inner(), req).await
 }
 
 /// Tauri shim — see [`commands::vault::get_frontmatter`].

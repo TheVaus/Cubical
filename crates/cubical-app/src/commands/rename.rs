@@ -183,6 +183,105 @@ async fn enforce_fifty_per_file_fuse(
     Ok(())
 }
 
+/// Enqueue one pending rewrite, **coalescing** with any in-flight row
+/// for the same `(target_file, rewrite_kind, old_token)`.
+///
+/// `old_token` is the referrer's untouched on-disk text, which is stable
+/// across a chain of renames (the referrer isn't flushed between them).
+/// So successive renames of the same target collapse onto a single row
+/// rather than stacking:
+/// - an existing row has its `new_token` updated to the latest name
+///   (and is re-stamped with the new `created_at` / `rename_op_id`);
+/// - when the resulting `new_token` equals `old_token` the rewrite is a
+///   net no-op (e.g. the file was renamed back to its original name), so
+///   the row is dropped;
+/// - a brand-new no-op (derived `new_token == old_token` with no existing
+///   row) is never inserted in the first place.
+///
+/// This keeps the pending-rewrites count reflecting the *net* edits: a
+/// `A → B → A` round trip cancels to zero instead of doubling. Runs
+/// inside the caller's transaction so the coalesce is atomic with the
+/// rename's FK rekeys.
+async fn enqueue_coalesced(
+    tx: &libsql::Transaction,
+    target_file: &str,
+    rewrite_kind: &str,
+    old_token: &str,
+    new_token: &str,
+    now: i64,
+    rename_op_id: i64,
+) -> Result<(), CubicalError> {
+    let existing_id: Option<i64> = {
+        let mut rows = tx
+            .query(
+                "SELECT id FROM pending_rewrites \
+                 WHERE target_file = ?1 AND rewrite_kind = ?2 AND old_token = ?3",
+                params![target_file, rewrite_kind, old_token],
+            )
+            .await?;
+        match rows.next().await? {
+            Some(row) => Some(row.get(0)?),
+            None => None,
+        }
+    };
+
+    match existing_id {
+        Some(id) if new_token == old_token => {
+            // Net no-op — drop the in-flight rewrite entirely.
+            tx.execute("DELETE FROM pending_rewrites WHERE id = ?1", params![id])
+                .await?;
+        }
+        Some(id) => {
+            tx.execute(
+                "UPDATE pending_rewrites \
+                 SET new_token = ?1, created_at = ?2, rename_op_id = ?3 WHERE id = ?4",
+                params![new_token, now, rename_op_id, id],
+            )
+            .await?;
+        }
+        None if new_token == old_token => {
+            // Nothing in flight and nothing to do — don't enqueue a no-op.
+        }
+        None => {
+            tx.execute(
+                "INSERT INTO pending_rewrites \
+                 (target_file, rewrite_kind, old_token, new_token, created_at, rename_op_id) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    target_file,
+                    rewrite_kind,
+                    old_token,
+                    new_token,
+                    now,
+                    rename_op_id
+                ],
+            )
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+/// Portable setting (`.cubical/config.toml`): when true (the default),
+/// a `rename_file` also reconnects + rewrites broken links whose raw
+/// text names the renamed file. When false, only links that already
+/// resolve to the old path are rewritten.
+pub const WIKILINKS_REWRITE_BROKEN_KEY: &str = "wikilinks.rewrite_broken_links_on_rename";
+
+/// Read a boolean setting from the open vault's in-memory `SettingsMap`
+/// (the portable `.cubical/config.toml` mirror). Returns `default` when
+/// the vault is gone, the key is absent, or the value isn't a bool.
+async fn read_bool_setting(state: &AppState, vault_id: &str, key: &str, default: bool) -> bool {
+    let guard = state.vaults().read().await;
+    let Some(open) = guard.get(vault_id) else {
+        return default;
+    };
+    let map = open.settings.read().await;
+    map.get(key)
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(default)
+}
+
 // -- Rename IPC handlers -------------------------------------------------
 
 /// `rename_file` (L3 Session J, spec §2.10).
@@ -240,7 +339,7 @@ pub async fn rename_file<R: Runtime>(
 
     // Resolve referrers BEFORE the transaction so the SELECT and the
     // INSERTs share a single round-trip view.
-    let referrers: Vec<(String, String)> = {
+    let mut referrers: Vec<(String, String)> = {
         let mut rows = conn
             .query(
                 "SELECT DISTINCT source_path, target_raw FROM links WHERE target_path = ?1",
@@ -254,6 +353,30 @@ pub async fn rename_file<R: Runtime>(
         out
     };
 
+    // Repair path (`wikilinks.rewrite_broken_links_on_rename`, default on):
+    // also pick up links that are already BROKEN (`target_path IS NULL`)
+    // but whose raw text names the file being renamed — orphans left by an
+    // earlier rename the index couldn't follow. Matched by the old file's
+    // bare basename or its path-minus-`.md` (the two forms a wiki-link
+    // could have been written in). They get reconnected + queued for a text
+    // rewrite alongside the resolved referrers below.
+    let old_basename = basename_without_md(&req.from_path).to_string();
+    let old_path_no_md = strip_md_suffix(&req.from_path).to_string();
+    let rewrite_broken =
+        read_bool_setting(state, &req.vault_id, WIKILINKS_REWRITE_BROKEN_KEY, true).await;
+    if rewrite_broken {
+        let mut rows = conn
+            .query(
+                "SELECT DISTINCT source_path, target_raw FROM links \
+                 WHERE target_path IS NULL AND (target_raw = ?1 OR target_raw = ?2)",
+                params![old_basename.clone(), old_path_no_md.clone()],
+            )
+            .await?;
+        while let Some(row) = rows.next().await? {
+            referrers.push((row.get(0)?, row.get(1)?));
+        }
+    }
+
     let rename_op_id = mint_rename_op_id(&vault).await?;
     let now = unix_now_secs();
 
@@ -266,17 +389,14 @@ pub async fn rename_file<R: Runtime>(
     tx.execute("PRAGMA defer_foreign_keys = 1", ()).await?;
     for (source_path, target_raw) in &referrers {
         let new_token = derive_wikilink_new_token(target_raw, &req.from_path, &req.to_path);
-        tx.execute(
-            "INSERT INTO pending_rewrites \
-             (target_file, rewrite_kind, old_token, new_token, created_at, rename_op_id) \
-             VALUES (?1, 'wiki_link', ?2, ?3, ?4, ?5)",
-            params![
-                source_path.clone(),
-                target_raw.clone(),
-                new_token,
-                now,
-                rename_op_id
-            ],
+        enqueue_coalesced(
+            &tx,
+            source_path,
+            "wiki_link",
+            target_raw,
+            &new_token,
+            now,
+            rename_op_id,
         )
         .await?;
     }
@@ -311,6 +431,21 @@ pub async fn rename_file<R: Runtime>(
         params![req.to_path.clone(), req.from_path.clone()],
     )
     .await?;
+    // Reconnect the broken links picked up above: point their NULL
+    // target_path at the new file so they resolve again (their text gets
+    // fixed by the queued rewrite). Same gate as the enqueue.
+    if rewrite_broken {
+        tx.execute(
+            "UPDATE links SET target_path = ?1 \
+             WHERE target_path IS NULL AND (target_raw = ?2 OR target_raw = ?3)",
+            params![
+                req.to_path.clone(),
+                old_basename.clone(),
+                old_path_no_md.clone()
+            ],
+        )
+        .await?;
+    }
 
     tx.execute(
         "UPDATE files SET path = ?1 WHERE path = ?2",
@@ -448,17 +583,14 @@ pub async fn rename_tag<R: Runtime>(
 
     let tx = conn.transaction().await?;
     for file_path in &files {
-        tx.execute(
-            "INSERT INTO pending_rewrites \
-             (target_file, rewrite_kind, old_token, new_token, created_at, rename_op_id) \
-             VALUES (?1, 'tag', ?2, ?3, ?4, ?5)",
-            params![
-                file_path.clone(),
-                req.old_tag.clone(),
-                req.new_tag.clone(),
-                now,
-                rename_op_id
-            ],
+        enqueue_coalesced(
+            &tx,
+            file_path,
+            "tag",
+            &req.old_tag,
+            &req.new_tag,
+            now,
+            rename_op_id,
         )
         .await?;
     }
@@ -546,17 +678,14 @@ pub async fn rename_block_id<R: Runtime>(
 
     let tx = conn.transaction().await?;
     for target in &targets {
-        tx.execute(
-            "INSERT INTO pending_rewrites \
-             (target_file, rewrite_kind, old_token, new_token, created_at, rename_op_id) \
-             VALUES (?1, 'block_ref', ?2, ?3, ?4, ?5)",
-            params![
-                target.clone(),
-                req.old_id.clone(),
-                req.new_id.clone(),
-                now,
-                rename_op_id
-            ],
+        enqueue_coalesced(
+            &tx,
+            target,
+            "block_ref",
+            &req.old_id,
+            &req.new_id,
+            now,
+            rename_op_id,
         )
         .await?;
     }
@@ -1179,6 +1308,116 @@ mod tests {
         assert_eq!(n.len(), 1);
     }
 
+    /// Seed a single referrer (`Project.md`) whose body links `[[Daily]]`
+    /// and create `Daily.md` on disk so `rename_file` can move it.
+    async fn seed_one_referrer_to_daily(vault: &Vault) {
+        seed_file(vault, "Daily.md", "markdown").await;
+        seed_file(vault, "Project.md", "markdown").await;
+        replace_links_for_file(
+            vault.index(),
+            "Project.md",
+            &[LinkRow {
+                target_raw: "Daily".into(),
+                target_path: Some("Daily.md".into()),
+                anchor_kind: None,
+                anchor_value: None,
+                display_text: None,
+                is_embed: false,
+                position: 0,
+            }],
+        )
+        .await
+        .unwrap();
+        std::fs::write(vault.root().join("Daily.md"), "body\n").unwrap();
+    }
+
+    #[tokio::test]
+    async fn rename_file_round_trip_cancels_pending_rows() {
+        // Renaming Daily → Journal then back Journal → Daily must net to
+        // ZERO pending rewrites: the second rename coalesces with the
+        // in-flight row (same target_file + old_token) and, because the
+        // new_token equals the untouched on-disk old_token, drops it.
+        // Regression guard for the "rename back doubles the count" bug.
+        let (_d, vault, state) = fresh("v1").await;
+        seed_one_referrer_to_daily(&vault).await;
+
+        let r1 = rename_file(
+            &state,
+            &mock_app(),
+            RenameFileRequest {
+                vault_id: "v1".into(),
+                from_path: "Daily.md".into(),
+                to_path: "Journal.md".into(),
+            },
+        )
+        .await
+        .expect("ok");
+        assert_eq!(r1.pending_count, 1, "first rename enqueues one row");
+
+        let r2 = rename_file(
+            &state,
+            &mock_app(),
+            RenameFileRequest {
+                vault_id: "v1".into(),
+                from_path: "Journal.md".into(),
+                to_path: "Daily.md".into(),
+            },
+        )
+        .await
+        .expect("ok");
+        assert_eq!(
+            r2.pending_count, 0,
+            "renaming back to the original must cancel, not double",
+        );
+        assert!(
+            pending_for_target(vault.index(), "Project.md")
+                .await
+                .unwrap()
+                .is_empty(),
+            "the referrer's pending row must be gone after the round trip",
+        );
+    }
+
+    #[tokio::test]
+    async fn rename_file_chained_coalesces_into_single_row() {
+        // Daily → Journal → Archive must leave ONE pending row that maps
+        // the on-disk token straight to the final name, not two stacked
+        // rows.
+        let (_d, vault, state) = fresh("v1").await;
+        seed_one_referrer_to_daily(&vault).await;
+
+        rename_file(
+            &state,
+            &mock_app(),
+            RenameFileRequest {
+                vault_id: "v1".into(),
+                from_path: "Daily.md".into(),
+                to_path: "Journal.md".into(),
+            },
+        )
+        .await
+        .expect("ok");
+        let r2 = rename_file(
+            &state,
+            &mock_app(),
+            RenameFileRequest {
+                vault_id: "v1".into(),
+                from_path: "Journal.md".into(),
+                to_path: "Archive.md".into(),
+            },
+        )
+        .await
+        .expect("ok");
+
+        assert_eq!(r2.pending_count, 1, "chained renames coalesce to one row");
+        let p = pending_for_target(vault.index(), "Project.md")
+            .await
+            .unwrap();
+        assert_eq!(p.len(), 1);
+        assert_eq!(p[0].old_token, "Daily", "old_token tracks the on-disk text");
+        assert_eq!(p[0].new_token, "Archive", "new_token is the latest name");
+    }
+
     #[tokio::test]
     async fn rename_file_keeps_search_index_in_sync() {
         use cubical_search::query::{run_search, FieldScope, SearchQuery, SortMode};
@@ -1227,6 +1466,285 @@ mod tests {
         assert!(
             after.hits.iter().all(|h| h.path != "Daily.md"),
             "old path must be dropped from the search index"
+        );
+    }
+
+    #[tokio::test]
+    async fn rename_reconnects_broken_links_by_raw_name_when_enabled() {
+        // Repair path (default-on `wikilinks.rewrite_broken_links_on_rename`):
+        // a referrer whose `[[a]]` link is already BROKEN (target_path NULL,
+        // e.g. orphaned by an earlier rename) must be reconnected to the new
+        // path and queued for a text rewrite, matched by its raw name.
+        use cubical_index::backlinks_for;
+        let (_d, vault, state) = fresh("v1").await;
+        seed_file(&vault, "a.md", "markdown").await;
+        seed_file(&vault, "Broken.md", "markdown").await;
+        replace_links_for_file(
+            vault.index(),
+            "Broken.md",
+            &[LinkRow {
+                target_raw: "a".into(),
+                target_path: None, // broken — resolves to nothing
+                anchor_kind: None,
+                anchor_value: None,
+                display_text: None,
+                is_embed: false,
+                position: 4,
+            }],
+        )
+        .await
+        .unwrap();
+        std::fs::write(vault.root().join("a.md"), "body\n").unwrap();
+        std::fs::write(vault.root().join("Broken.md"), "see [[a]]\n").unwrap();
+
+        rename_file(
+            &state,
+            &mock_app(),
+            RenameFileRequest {
+                vault_id: "v1".into(),
+                from_path: "a.md".into(),
+                to_path: "b.md".into(),
+            },
+        )
+        .await
+        .expect("rename");
+
+        let bl = backlinks_for(vault.index(), "b.md").await.unwrap();
+        assert!(
+            bl.iter().any(|r| r.source_path == "Broken.md"),
+            "broken link reconnected as a backlink of b.md",
+        );
+        let p = pending_for_target(vault.index(), "Broken.md")
+            .await
+            .unwrap();
+        assert_eq!(p.len(), 1, "a rewrite is queued for the reconnected link");
+        assert_eq!(p[0].old_token, "a");
+        assert_eq!(p[0].new_token, "b");
+    }
+
+    #[tokio::test]
+    async fn rename_leaves_broken_links_when_disabled() {
+        // With the setting off, a broken `[[a]]` link stays broken — the
+        // rename only touches links that already resolve to the old path.
+        use cubical_index::backlinks_for;
+        let (_d, vault, state) = fresh("v1").await;
+        {
+            let guard = state.vaults().read().await;
+            let open = guard.get("v1").unwrap();
+            open.settings.write().await.insert(
+                "wikilinks.rewrite_broken_links_on_rename".into(),
+                serde_json::json!(false),
+            );
+        }
+        seed_file(&vault, "a.md", "markdown").await;
+        seed_file(&vault, "Broken.md", "markdown").await;
+        replace_links_for_file(
+            vault.index(),
+            "Broken.md",
+            &[LinkRow {
+                target_raw: "a".into(),
+                target_path: None,
+                anchor_kind: None,
+                anchor_value: None,
+                display_text: None,
+                is_embed: false,
+                position: 4,
+            }],
+        )
+        .await
+        .unwrap();
+        std::fs::write(vault.root().join("a.md"), "body\n").unwrap();
+        std::fs::write(vault.root().join("Broken.md"), "see [[a]]\n").unwrap();
+
+        rename_file(
+            &state,
+            &mock_app(),
+            RenameFileRequest {
+                vault_id: "v1".into(),
+                from_path: "a.md".into(),
+                to_path: "b.md".into(),
+            },
+        )
+        .await
+        .expect("rename");
+
+        let bl = backlinks_for(vault.index(), "b.md").await.unwrap();
+        assert!(
+            !bl.iter().any(|r| r.source_path == "Broken.md"),
+            "broken link must be left untouched when the setting is off",
+        );
+        assert!(pending_for_target(vault.index(), "Broken.md")
+            .await
+            .unwrap()
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn chained_rename_keeps_backlinks_for_unflushed_referrer() {
+        // User-reported: a.md has backlinks; rename a→b (referrers NOT
+        // flushed, disk still `[[a]]`), then rename b→c. Backlinks must
+        // survive the whole chain — `links.target_path` must track the
+        // final name, and the referrer must remain a backlink of c.md.
+        use cubical_index::backlinks_for;
+        let (_d, vault, state) = fresh("v1").await;
+        seed_file(&vault, "a.md", "markdown").await;
+        seed_file(&vault, "Ref.md", "markdown").await;
+        // Ref.md links [[a]] (raw stays "a" until flushed).
+        replace_links_for_file(
+            vault.index(),
+            "Ref.md",
+            &[LinkRow {
+                target_raw: "a".into(),
+                target_path: Some("a.md".into()),
+                anchor_kind: None,
+                anchor_value: None,
+                display_text: None,
+                is_embed: false,
+                position: 0,
+            }],
+        )
+        .await
+        .unwrap();
+        std::fs::write(vault.root().join("a.md"), "body\n").unwrap();
+        std::fs::write(vault.root().join("Ref.md"), "see [[a]]\n").unwrap();
+
+        // a → b
+        rename_file(
+            &state,
+            &mock_app(),
+            RenameFileRequest {
+                vault_id: "v1".into(),
+                from_path: "a.md".into(),
+                to_path: "b.md".into(),
+            },
+        )
+        .await
+        .expect("a→b");
+        let bl_b = backlinks_for(vault.index(), "b.md").await.unwrap();
+        assert_eq!(
+            bl_b.iter()
+                .map(|r| r.source_path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Ref.md"],
+            "after a→b, Ref.md must be a backlink of b.md",
+        );
+
+        // b → c, WITHOUT flushing Ref.md (its disk still says [[a]]).
+        rename_file(
+            &state,
+            &mock_app(),
+            RenameFileRequest {
+                vault_id: "v1".into(),
+                from_path: "b.md".into(),
+                to_path: "c.md".into(),
+            },
+        )
+        .await
+        .expect("b→c");
+        let bl_c = backlinks_for(vault.index(), "c.md").await.unwrap();
+        assert_eq!(
+            bl_c.iter()
+                .map(|r| r.source_path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Ref.md"],
+            "after b→c, Ref.md must STILL be a backlink (of c.md)",
+        );
+        // And the coalesced pending row must rewrite the on-disk [[a]] → [[c]].
+        let p = pending_for_target(vault.index(), "Ref.md").await.unwrap();
+        assert_eq!(p.len(), 1, "one coalesced pending row, not two");
+        assert_eq!(p[0].old_token, "a");
+        assert_eq!(p[0].new_token, "c");
+    }
+
+    #[tokio::test]
+    async fn chained_rename_keeps_backlinks_for_referrer_flushed_to_intermediate() {
+        // User-reported "opened ones stuck at b.md": rename a→b, the
+        // referrer is FLUSHED (its disk now says [[b]], like opening it
+        // in the app does), then rename b→c. The referrer must follow to
+        // c.md — its disk [[b]] must end up rewritable to [[c]] and it
+        // must remain a backlink of c.md.
+        use cubical_index::backlinks_for;
+        let (_d, vault, state) = fresh("v1").await;
+        seed_file(&vault, "a.md", "markdown").await;
+        seed_file(&vault, "Ref.md", "markdown").await;
+        replace_links_for_file(
+            vault.index(),
+            "Ref.md",
+            &[LinkRow {
+                target_raw: "a".into(),
+                target_path: Some("a.md".into()),
+                anchor_kind: None,
+                anchor_value: None,
+                display_text: None,
+                is_embed: false,
+                position: 4,
+            }],
+        )
+        .await
+        .unwrap();
+        std::fs::write(vault.root().join("a.md"), "body\n").unwrap();
+        std::fs::write(vault.root().join("Ref.md"), "see [[a]]\n").unwrap();
+
+        // a → b
+        rename_file(
+            &state,
+            &mock_app(),
+            RenameFileRequest {
+                vault_id: "v1".into(),
+                from_path: "a.md".into(),
+                to_path: "b.md".into(),
+            },
+        )
+        .await
+        .expect("a→b");
+
+        // Flush Ref.md: its disk becomes [[b]] and the pending row drains
+        // (this is what opening/editing the referrer effectively does).
+        flush_pending_for_target(&vault, "Ref.md", None)
+            .await
+            .expect("flush");
+        assert_eq!(
+            std::fs::read_to_string(vault.root().join("Ref.md")).unwrap(),
+            "see [[b]]\n",
+            "after flush, Ref.md on disk points at [[b]]",
+        );
+        // Re-extract like the watcher would after that write, so the
+        // index reflects the flushed text (target_raw='b').
+        let src = std::fs::read_to_string(vault.root().join("Ref.md")).unwrap();
+        cubical_core::refresh_links(&vault, "Ref.md", &src)
+            .await
+            .unwrap();
+
+        // b → c
+        rename_file(
+            &state,
+            &mock_app(),
+            RenameFileRequest {
+                vault_id: "v1".into(),
+                from_path: "b.md".into(),
+                to_path: "c.md".into(),
+            },
+        )
+        .await
+        .expect("b→c");
+
+        let bl_c = backlinks_for(vault.index(), "c.md").await.unwrap();
+        assert_eq!(
+            bl_c.iter()
+                .map(|r| r.source_path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Ref.md"],
+            "after flush-then-b→c, Ref.md must still be a backlink of c.md",
+        );
+        // Materializing Ref.md's on-disk [[b]] must yield [[c]].
+        let on_disk = std::fs::read_to_string(vault.root().join("Ref.md")).unwrap();
+        let materialized =
+            cubical_core::vault::pending::materialize_on_read(vault.index(), "Ref.md", &on_disk)
+                .await
+                .unwrap();
+        assert_eq!(
+            materialized, "see [[c]]\n",
+            "opening Ref.md must show [[c]], not the stale [[b]]",
         );
     }
 

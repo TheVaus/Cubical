@@ -23,6 +23,7 @@
 
 mod blocks;
 mod error;
+mod folders;
 mod links;
 mod migrations;
 mod pending;
@@ -34,6 +35,7 @@ pub use blocks::{
     replace_blocks_for_file, BlockRefRow, BlockRow, BrokenBlockRef,
 };
 pub use error::IndexError;
+pub use folders::{delete_folder, list_folders, sweep_stale_folders, upsert_folder};
 pub use links::{
     backlinks_for, files_for_link_query, links_from, links_to, replace_links_for_file, BacklinkRow,
     LinkRow,

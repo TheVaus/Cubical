@@ -6,6 +6,7 @@ use crate::schema::{build_schema, register_tokenizers, Fields};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use tantivy::collector::DocSetCollector;
 use tantivy::query::AllQuery;
@@ -32,6 +33,11 @@ pub struct SearchIndex {
     index: Index,
     writer: Mutex<IndexWriter>,
     reader: IndexReader,
+    /// Count of successful `commit()` calls. Tantivy commits are
+    /// expensive (segment merge + fsync + GC), so callers batch them;
+    /// this counter lets tests assert a bulk operation commits O(1)
+    /// times rather than once per document.
+    commit_count: AtomicU64,
 }
 
 impl SearchIndex {
@@ -91,6 +97,7 @@ impl SearchIndex {
             index,
             writer: Mutex::new(writer),
             reader,
+            commit_count: AtomicU64::new(0),
         })
     }
 
@@ -185,7 +192,16 @@ impl SearchIndex {
             writer.commit()?;
         }
         self.reader.reload()?;
+        self.commit_count.fetch_add(1, Ordering::Relaxed);
         Ok(())
+    }
+
+    /// Number of successful commits so far. Used by tests to assert that
+    /// a bulk operation (e.g. flushing a rename's pending rewrites across
+    /// thousands of files) commits the index a bounded number of times
+    /// instead of once per file.
+    pub fn commit_count(&self) -> u64 {
+        self.commit_count.load(Ordering::Relaxed)
     }
 
     /// Total document count (after the most recent reload).

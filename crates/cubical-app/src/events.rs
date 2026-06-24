@@ -363,42 +363,56 @@ pub fn spawn_watcher_dispatcher(
     flush_own_writes: FlushOwnWrites,
 ) {
     tokio::spawn(async move {
-        while let Some(ev) = events_rx.recv().await {
-            let arrived = Instant::now();
-            handle_watch_event(&app, &vault_id, &vault, &ev, arrived, &flush_own_writes).await;
+        while let Some(first) = events_rx.recv().await {
+            // Drain everything already queued so a burst of writes — a
+            // rename flushing thousands of backlinks, or an external bulk
+            // edit — is processed as one batch with a single search
+            // commit, instead of one commit per file.
+            let mut batch = vec![first];
+            while let Ok(next) = events_rx.try_recv() {
+                batch.push(next);
+            }
+            handle_watch_batch(&app, &vault_id, &vault, batch, &flush_own_writes).await;
         }
         tracing::debug!(vault_id = %vault_id, "watcher dispatcher: channel closed");
     });
 }
 
-async fn handle_watch_event(
+async fn handle_watch_batch(
     app: &AppHandle,
     vault_id: &str,
     vault: &Vault,
-    ev: &WatchEvent,
-    arrived: Instant,
+    batch: Vec<WatchEvent>,
     flush_own_writes: &FlushOwnWrites,
 ) {
-    let new_content_hash = apply_watch_event_to_db(vault, ev).await;
+    let arrived = Instant::now();
 
-    if consume_own_write_hash(flush_own_writes, ev, new_content_hash.as_deref()).await {
-        tracing::debug!(
+    // Apply every event's DB + index writes, then commit the search index
+    // once for the whole batch.
+    let hashes = apply_watch_events_batch(vault, &batch).await;
+
+    // Emit `vault:file-changed` AFTER the commit: the reader uses
+    // `ReloadPolicy::Manual`, so the UI's file-changed re-query only sees
+    // committed docs. Own-writes are suppressed — their bytes are already
+    // indexed, but the editor that produced them needs no echo.
+    for (ev, new_content_hash) in batch.iter().zip(hashes) {
+        if consume_own_write_hash(flush_own_writes, ev, new_content_hash.as_deref()).await {
+            tracing::debug!(
+                vault_id = %vault_id,
+                "watcher: suppressing vault:file-changed for own-write",
+            );
+            continue;
+        }
+        let payload = file_changed_payload(vault_id, ev, new_content_hash);
+        tracing::info!(
             vault_id = %vault_id,
-            "watcher: suppressing vault:file-changed for own-write",
+            kind = ?payload.kind,
+            path = %payload.path,
+            elapsed_ms = arrived.elapsed().as_millis(),
+            "watcher: emitting vault:file-changed",
         );
-        return;
+        emit_file_changed(app, payload);
     }
-
-    let payload = file_changed_payload(vault_id, ev, new_content_hash);
-    let elapsed_ms = arrived.elapsed().as_millis();
-    tracing::info!(
-        vault_id = %vault_id,
-        kind = ?payload.kind,
-        path = %payload.path,
-        elapsed_ms,
-        "watcher: emitting vault:file-changed",
-    );
-    emit_file_changed(app, payload);
 }
 
 /// Apply one watcher event to the index — the `files` row plus an
@@ -413,6 +427,32 @@ async fn handle_watch_event(
 pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) -> Option<String> {
     let now = unix_now_secs();
     let conn = vault.index().connection();
+
+    // Directory `Created`/`Modified` → record it in `folders` and skip
+    // all file-oriented extraction (a dir has no content/hash/links). The
+    // caller still emits `vault:file-changed`, so the tree refetches and
+    // the new folder appears. (`Removed` is handled in the match below:
+    // the path is already gone from disk and can't be stat'd as a dir.)
+    if let WatchEvent::Created(rel) | WatchEvent::Modified(rel) = ev {
+        if vault.root().join(rel).is_dir() {
+            let path_str = rel.to_string_lossy().into_owned();
+            if let Err(e) = cubical_index::upsert_folder(vault.index(), &path_str, now).await {
+                tracing::warn!(path = %path_str, error = %e, "watcher: folder upsert failed");
+            }
+            let (message, detail) = audit_payload_for(ev);
+            if let Err(e) = conn
+                .execute(
+                    "INSERT INTO audit_log (timestamp, level, category, message, detail)
+                     VALUES (?1, 'info', 'watcher', ?2, ?3)",
+                    params![now, message, detail],
+                )
+                .await
+            {
+                tracing::warn!(error = %e, "watcher: folder audit_log insert failed");
+            }
+            return None;
+        }
+    }
 
     // -- Update files row -------------------------------------------------
     let new_content_hash = match ev {
@@ -538,19 +578,29 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) -> O
             }
         }
         WatchEvent::Removed(rel) => {
-            // Row stays — refresh `last_seen` only. L3 cleanup work
-            // will reconcile path-keyed identity properly; deleting
-            // here would orphan future block refs that still point at
-            // the old path. Spec §6 calls for `last_seen` refresh.
+            // The file is gone from disk — drop its `files` row so it
+            // stops surfacing in the tree / `list_files`. The
+            // `ON DELETE CASCADE` FKs on `frontmatter`, `links`, `tags`,
+            // `blocks`, and `block_refs` (keyed on the owning/source
+            // path) carry this file's OUTBOUND rows with it. INBOUND
+            // references (other files' `links.target_path` /
+            // `block_refs.target_file_path`, which have no FK) are left
+            // intact so they correctly degrade to broken links.
             let path_str = rel.to_string_lossy().into_owned();
             if let Err(e) = conn
                 .execute(
-                    "UPDATE files SET last_seen = ?1 WHERE path = ?2",
-                    params![now, path_str.clone()],
+                    "DELETE FROM files WHERE path = ?1",
+                    params![path_str.clone()],
                 )
                 .await
             {
-                tracing::warn!(path = %path_str, error = %e, "watcher: files last_seen update failed");
+                tracing::warn!(path = %path_str, error = %e, "watcher: files row delete failed");
+            }
+            // The removed path could have been a directory rather than a
+            // file (it's gone now, so we can't tell which) — drop any
+            // matching `folders` row too. No-op when it was a file.
+            if let Err(e) = cubical_index::delete_folder(vault.index(), &path_str).await {
+                tracing::warn!(path = %path_str, error = %e, "watcher: folder row delete failed");
             }
             // L4-A: remove the file from the Tantivy index. The libSQL
             // `files` row sticks around (see above) but the search doc
@@ -609,15 +659,41 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) -> O
         tracing::warn!(error = %e, "watcher: audit_log insert failed");
     }
 
-    // L4-A: commit the Tantivy index for this dispatcher invocation.
-    // The watcher's debounce is upstream, so each call here corresponds
-    // to one user-visible change worth a search-side commit. Errors are
-    // logged and swallowed — same policy as the rest of the dispatcher.
-    if let Err(e) = vault.search().commit() {
-        tracing::warn!(error = %e, "watcher: search commit failed");
-    }
+    // NB: no `search().commit()` here. The dispatcher batches one commit
+    // per drained burst of events (see `apply_watch_events_batch`). A bulk
+    // rewrite — e.g. a rename flushing pending rewrites across thousands
+    // of backlinks — fires one watch event per file; committing per event
+    // would do O(n) segment merges + fsyncs and dominated the operation.
+    // This matches the "caller commits" contract the scan path
+    // (`SEARCH_COMMIT_EVERY`) and `search_refresh` already follow.
 
     new_content_hash
+}
+
+/// Apply a drained burst of watch events to the index, then commit the
+/// Tantivy index **once** for the whole batch. Returns each event's
+/// post-update content hash (in input order) so the caller can run its
+/// own-write gate + emit `vault:file-changed`.
+///
+/// This batching is the fix for the per-event-commit perf cliff: a
+/// rename flushing thousands of backlinks fires one `Modified` event per
+/// file, and a Tantivy commit (segment merge + fsync + GC) per file
+/// turned a bulk flush into a multi-minute hang. One commit per drained
+/// burst makes it O(1) commits instead of O(events).
+pub(crate) async fn apply_watch_events_batch(
+    vault: &Vault,
+    events: &[WatchEvent],
+) -> Vec<Option<String>> {
+    let mut hashes = Vec::with_capacity(events.len());
+    for ev in events {
+        hashes.push(apply_watch_event_to_db(vault, ev).await);
+    }
+    // One commit for the whole burst — the reader reloads here, so every
+    // doc in the batch becomes queryable together.
+    if let Err(e) = vault.search().commit() {
+        tracing::warn!(error = %e, "watcher: batch search commit failed");
+    }
+    hashes
 }
 
 /// Pull size/mtime/hash for an absolute path. Hashing happens off the
@@ -914,6 +990,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn created_dir_event_records_folder_and_skips_files_table() {
+        // A directory create must land in `folders`, not `files`.
+        let dir = tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("projects")).unwrap();
+        let vault = Vault::open(dir.path()).await.expect("vault open");
+
+        let hash =
+            apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("projects"))).await;
+        assert!(hash.is_none(), "a directory carries no content hash");
+
+        let folders = cubical_index::list_folders(vault.index()).await.unwrap();
+        assert_eq!(folders, vec!["projects"], "dir recorded in folders");
+
+        let conn = vault.index().connection();
+        let mut rows = conn
+            .query("SELECT COUNT(*) FROM files WHERE path = 'projects'", ())
+            .await
+            .unwrap();
+        let n: i64 = rows.next().await.unwrap().unwrap().get(0).unwrap();
+        assert_eq!(n, 0, "a directory must not leak into the files table");
+    }
+
+    #[tokio::test]
+    async fn removed_event_deletes_matching_folder_row() {
+        let dir = tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("projects")).unwrap();
+        let vault = Vault::open(dir.path()).await.expect("vault open");
+        apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("projects"))).await;
+        assert_eq!(
+            cubical_index::list_folders(vault.index())
+                .await
+                .unwrap()
+                .len(),
+            1,
+        );
+
+        std::fs::remove_dir(dir.path().join("projects")).unwrap();
+        apply_watch_event_to_db(&vault, &WatchEvent::Removed(PathBuf::from("projects"))).await;
+        assert!(
+            cubical_index::list_folders(vault.index())
+                .await
+                .unwrap()
+                .is_empty(),
+            "Removed must drop the folder row",
+        );
+    }
+
+    #[tokio::test]
     async fn renamed_event_audits_with_from_and_to() {
         let (_dir, vault) = fresh_vault_with_one_md("a.md").await;
 
@@ -955,6 +1079,60 @@ mod tests {
         let hash =
             apply_watch_event_to_db(&vault, &WatchEvent::Removed(PathBuf::from("note.md"))).await;
         assert!(hash.is_none(), "Removed must not carry a hash");
+    }
+
+    #[tokio::test]
+    async fn removed_event_deletes_files_row_and_cascades_children() {
+        // External delete (app open): the watcher's Removed branch must
+        // DROP the `files` row so the file stops showing in the tree, and
+        // the ON DELETE CASCADE FKs must carry its outbound frontmatter /
+        // links / tags / blocks rows with it. Regression guard for the
+        // "deleted file lingers in the file tree" bug.
+        let dir = tempdir().unwrap();
+        let p = dir.path().join("note.md");
+        std::fs::write(&p, "---\ntitle: Hi\n---\n\n#planning body\n").unwrap();
+        let vault = Vault::open(dir.path()).await.expect("vault open");
+
+        // Created seeds the files row plus its outbound index rows.
+        apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("note.md"))).await;
+        let conn = vault.index().connection();
+        let count = |sql: &'static str| {
+            let conn = conn.clone();
+            async move {
+                let mut rows = conn.query(sql, ()).await.unwrap();
+                let row = rows.next().await.unwrap().expect("count row");
+                row.get::<i64>(0).unwrap()
+            }
+        };
+        assert_eq!(
+            count("SELECT COUNT(*) FROM files WHERE path='note.md'").await,
+            1
+        );
+        assert_eq!(
+            count("SELECT COUNT(*) FROM frontmatter WHERE file_path='note.md'").await,
+            1,
+            "Created should have seeded a frontmatter row",
+        );
+
+        // Now delete it on disk and fire Removed.
+        std::fs::remove_file(&p).unwrap();
+        apply_watch_event_to_db(&vault, &WatchEvent::Removed(PathBuf::from("note.md"))).await;
+
+        assert_eq!(
+            count("SELECT COUNT(*) FROM files WHERE path='note.md'").await,
+            0,
+            "Removed must delete the files row",
+        );
+        assert_eq!(
+            count("SELECT COUNT(*) FROM frontmatter WHERE file_path='note.md'").await,
+            0,
+            "ON DELETE CASCADE must drop the outbound frontmatter row",
+        );
+        assert_eq!(
+            count("SELECT COUNT(*) FROM tags WHERE file_path='note.md'").await,
+            0,
+            "ON DELETE CASCADE must drop the outbound tag row",
+        );
     }
 
     #[test]
@@ -1072,9 +1250,9 @@ mod tests {
     // ------------------------------------------------------------------
     // L4-A: watcher → Tantivy fan-out.
     //
-    // The dispatcher commits the search index once per invocation, so
-    // these tests query directly after the dispatcher returns — no
-    // explicit `vault.search().commit()` needed.
+    // `apply_watch_event_to_db` no longer commits (the dispatcher batches
+    // one commit per drained burst), so these tests drive the index via
+    // `apply_watch_events_batch`, which commits the batch once.
 
     #[tokio::test]
     async fn modified_event_refreshes_search_index() {
@@ -1090,11 +1268,11 @@ mod tests {
         std::fs::write(&p, "old body\n").unwrap();
         let vault = Vault::open(dir.path()).await.expect("vault open");
 
-        // Seed Created, then rewrite the file and fire Modified. The
-        // dispatcher commits after each call so both upserts land.
-        apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("note.md"))).await;
+        // Seed Created, then rewrite the file and fire Modified. Each
+        // batch call commits once so both upserts land.
+        apply_watch_events_batch(&vault, &[WatchEvent::Created(PathBuf::from("note.md"))]).await;
         std::fs::write(&p, "freshly indexed unicorn token\n").unwrap();
-        apply_watch_event_to_db(&vault, &WatchEvent::Modified(PathBuf::from("note.md"))).await;
+        apply_watch_events_batch(&vault, &[WatchEvent::Modified(PathBuf::from("note.md"))]).await;
 
         // doc_count should be exactly 1 (upsert is delete-by-path then
         // add, never duplicates).
@@ -1144,14 +1322,14 @@ mod tests {
         // Removed branch policy) but the search doc must go — no stale
         // results pointing at a deleted file.
         let (_dir, vault) = fresh_vault_with_one_md("gone.md").await;
-        apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("gone.md"))).await;
+        apply_watch_events_batch(&vault, &[WatchEvent::Created(PathBuf::from("gone.md"))]).await;
         assert_eq!(
             vault.search().doc_count().unwrap(),
             1,
             "Created should seed exactly one search doc",
         );
 
-        apply_watch_event_to_db(&vault, &WatchEvent::Removed(PathBuf::from("gone.md"))).await;
+        apply_watch_events_batch(&vault, &[WatchEvent::Removed(PathBuf::from("gone.md"))]).await;
         assert_eq!(
             vault.search().doc_count().unwrap(),
             0,
@@ -1166,21 +1344,59 @@ mod tests {
         // watcher emits next; we don't simulate it here — what matters
         // is that the OLD path is gone after the Renamed call.
         let (_dir, vault) = fresh_vault_with_one_md("a.md").await;
-        apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("a.md"))).await;
+        apply_watch_events_batch(&vault, &[WatchEvent::Created(PathBuf::from("a.md"))]).await;
         assert_eq!(vault.search().doc_count().unwrap(), 1);
 
-        apply_watch_event_to_db(
+        apply_watch_events_batch(
             &vault,
-            &WatchEvent::Renamed {
+            &[WatchEvent::Renamed {
                 from: PathBuf::from("a.md"),
                 to: PathBuf::from("b.md"),
-            },
+            }],
         )
         .await;
         assert_eq!(
             vault.search().doc_count().unwrap(),
             0,
             "Renamed must remove the old path's search doc",
+        );
+    }
+
+    #[tokio::test]
+    async fn batch_commits_once_for_many_events() {
+        // Regression guard for the per-event-commit perf bug: a bulk
+        // rewrite (a rename flushing thousands of backlinks) fires one
+        // watch event per file. The dispatcher must commit the Tantivy
+        // index ONCE for the whole drained batch — a commit per file does
+        // O(n) segment merges + fsyncs and turned a big flush into a
+        // multi-minute hang.
+        let dir = tempdir().unwrap();
+        let n = 50usize;
+        let mut events = Vec::with_capacity(n);
+        for i in 0..n {
+            let rel = format!("note{i}.md");
+            std::fs::write(
+                dir.path().join(&rel),
+                format!("# Note {i}\n\nbody token{i}\n"),
+            )
+            .unwrap();
+            events.push(WatchEvent::Modified(PathBuf::from(rel)));
+        }
+        let vault = Vault::open(dir.path()).await.expect("vault open");
+
+        let before = vault.search().commit_count();
+        apply_watch_events_batch(&vault, &events).await;
+        let delta = vault.search().commit_count() - before;
+
+        assert_eq!(
+            delta, 1,
+            "a batch of {n} events must commit exactly once (got {delta})"
+        );
+        // Functionality preserved: every file is indexed + queryable.
+        assert_eq!(
+            vault.search().doc_count().unwrap(),
+            n as u64,
+            "all batched docs must be searchable after the single commit",
         );
     }
 }

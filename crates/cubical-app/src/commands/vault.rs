@@ -16,12 +16,13 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::api::types::{
-    CancelVaultScanRequest, CloseVaultRequest, FileEntry, FrontmatterEntry, GetCanonicalAstRequest,
-    GetCanonicalAstResponse, GetFrontmatterRequest, GetFrontmatterResponse, GetSettingRequest,
-    GetSettingResponse, GetVaultInfoRequest, GetVaultInfoResponse, ListFilesRequest,
-    ListFilesResponse, OpenVaultRequest, OpenVaultResponse, ReadFileTextRequest,
-    ReadFileTextResponse, ReloadSettingsRequest, ReloadSettingsResponse, ScanStatus,
-    SetSettingRequest, SetSettingResponse, WriteFileTextRequest, WriteFileTextResponse,
+    CancelVaultScanRequest, CloseVaultRequest, CreateFileAtPathRequest, CreateFileAtPathResponse,
+    CreateFileRequest, CreateFileResponse, CreateFolderRequest, CreateFolderResponse, FileEntry,
+    FrontmatterEntry, GetCanonicalAstRequest, GetCanonicalAstResponse, GetFrontmatterRequest,
+    GetFrontmatterResponse, GetSettingRequest, GetSettingResponse, GetVaultInfoRequest,
+    GetVaultInfoResponse, ListFilesRequest, ListFilesResponse, OpenVaultRequest, OpenVaultResponse,
+    ReadFileTextRequest, ReadFileTextResponse, ReloadSettingsRequest, ReloadSettingsResponse,
+    ScanStatus, SetSettingRequest, SetSettingResponse, WriteFileTextRequest, WriteFileTextResponse,
 };
 use crate::error::CubicalError;
 use crate::events::{spawn_scan_dispatcher, spawn_watcher_dispatcher, AppHandle};
@@ -266,10 +267,197 @@ pub async fn list_files(
         }
     };
 
+    // Folder paths (not paginated) so the tree can render empty dirs.
+    let folders = cubical_index::list_folders(open.vault.index()).await?;
+
     Ok(ListFilesResponse {
         files,
         total: clamp_to_u32(total),
+        folders,
     })
+}
+
+// -- create_file / create_folder -----------------------------------------
+
+/// Clone the open `Vault` handle out from under the read lock so the
+/// (blocking) filesystem work below doesn't hold the vault-map guard.
+async fn clone_vault(state: &AppState, vault_id: &str) -> Result<Vault, CubicalError> {
+    let guard = state.vaults().read().await;
+    let open = guard
+        .get(vault_id)
+        .ok_or_else(|| CubicalError::VaultNotOpen(vault_id.to_string()))?;
+    Ok(open.vault.clone())
+}
+
+/// Validate + normalize a caller-supplied parent directory. Vault paths
+/// are relative with `/` separators; `""` is the root. Rejects absolute
+/// paths and any `..` component so a create can't escape the vault.
+fn normalize_parent_dir(parent_dir: &str) -> Result<String, CubicalError> {
+    let trimmed = parent_dir.trim_matches('/');
+    if trimmed.is_empty() {
+        return Ok(String::new());
+    }
+    for seg in trimmed.split('/') {
+        if seg == ".." || seg == "." || seg.is_empty() {
+            return Err(CubicalError::InvalidRequest(format!(
+                "invalid parent_dir: {parent_dir}"
+            )));
+        }
+    }
+    Ok(trimmed.to_string())
+}
+
+/// First free `base`/`base N` name (with optional `ext`) that doesn't
+/// already exist on disk under `parent_abs`. Returns the chosen
+/// vault-relative path. Caps the probe at a sane bound so a pathological
+/// directory can't spin forever.
+fn first_free_path(
+    parent_rel: &str,
+    parent_abs: &std::path::Path,
+    base: &str,
+    ext: Option<&str>,
+) -> Result<String, CubicalError> {
+    for i in 0..10_000 {
+        let stem = if i == 0 {
+            base.to_string()
+        } else {
+            format!("{base} {i}")
+        };
+        let name = match ext {
+            Some(e) => format!("{stem}.{e}"),
+            None => stem,
+        };
+        if !parent_abs.join(&name).exists() {
+            let rel = if parent_rel.is_empty() {
+                name
+            } else {
+                format!("{parent_rel}/{name}")
+            };
+            return Ok(rel);
+        }
+    }
+    Err(CubicalError::Io(format!(
+        "could not find a free name for '{base}' in '{parent_rel}'"
+    )))
+}
+
+/// Validate + normalize a caller-supplied file path. Same rules as
+/// [`normalize_parent_dir`] but the result must name a file (non-empty
+/// final segment). Rejects absolute paths and any `..`/`.` component so
+/// a create can't escape the vault.
+fn normalize_rel_file_path(path: &str) -> Result<String, CubicalError> {
+    let trimmed = path.trim_matches('/');
+    if trimmed.is_empty() {
+        return Err(CubicalError::InvalidRequest("empty path".into()));
+    }
+    for seg in trimmed.split('/') {
+        if seg == ".." || seg == "." || seg.is_empty() {
+            return Err(CubicalError::InvalidRequest(format!(
+                "invalid path: {path}"
+            )));
+        }
+    }
+    Ok(trimmed.to_string())
+}
+
+/// Create an empty markdown note at `rel_path`: mkdir its parents, atomic
+/// -write empty bytes, and eagerly insert the `files` row so the caller
+/// can navigate to it before the watcher's `Created` echo lands. Shared
+/// by [`create_file`] and [`create_file_at_path`].
+async fn create_empty_markdown(vault: &Vault, rel_path: &str) -> Result<(), CubicalError> {
+    let abs_path = vault.root().join(rel_path);
+
+    let abs_for_write = abs_path.clone();
+    tokio::task::spawn_blocking(move || -> Result<(), String> {
+        if let Some(parent) = abs_for_write.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        atomic_write(&abs_for_write, b"").map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| CubicalError::Io(format!("create task join error: {e}")))?
+    .map_err(CubicalError::Io)?;
+
+    let now = unix_now_secs();
+    let hash = sha256_bytes_hex(b"");
+    vault
+        .index()
+        .connection()
+        .execute(
+            "INSERT INTO files (
+                path, type_id, size_bytes, mtime_unix, content_hash,
+                inode, last_seen, created_at, updated_at
+            ) VALUES (?1, 'markdown', 0, ?2, ?3, NULL, ?2, ?2, ?2)
+            ON CONFLICT(path) DO NOTHING",
+            libsql::params![rel_path.to_string(), now, hash],
+        )
+        .await?;
+    Ok(())
+}
+
+/// `create_file` — create a fresh empty markdown note with a
+/// collision-safe `Untitled` name inside `parent_dir` (`""` = root).
+///
+/// Inserts the `files` row eagerly (like [`write_file_text`]) so the
+/// caller can navigate to the note before the watcher's `Created` echo
+/// lands. Returns the new vault-relative path.
+pub async fn create_file(
+    state: &AppState,
+    req: CreateFileRequest,
+) -> Result<CreateFileResponse, CubicalError> {
+    let vault = clone_vault(state, &req.vault_id).await?;
+    let parent_rel = normalize_parent_dir(&req.parent_dir)?;
+    let parent_abs = vault.root().join(&parent_rel);
+
+    let rel_path = first_free_path(&parent_rel, &parent_abs, "Untitled", Some("md"))?;
+    create_empty_markdown(&vault, &rel_path).await?;
+    Ok(CreateFileResponse { path: rel_path })
+}
+
+/// `create_file_at_path` — create a fresh empty markdown note at an
+/// exact caller-chosen path. Powers the "create this note" action on an
+/// unresolved `[[wiki-link]]`: the target path comes from the link, not
+/// from `Untitled` naming. Rejects a path that already exists (clobbering
+/// would silently lose the user's file) or one that escapes the vault.
+pub async fn create_file_at_path(
+    state: &AppState,
+    req: CreateFileAtPathRequest,
+) -> Result<CreateFileAtPathResponse, CubicalError> {
+    let vault = clone_vault(state, &req.vault_id).await?;
+    let rel_path = normalize_rel_file_path(&req.path)?;
+    if vault.root().join(&rel_path).exists() {
+        return Err(CubicalError::InvalidRequest(format!(
+            "path already exists: {rel_path}"
+        )));
+    }
+    create_empty_markdown(&vault, &rel_path).await?;
+    Ok(CreateFileAtPathResponse { path: rel_path })
+}
+
+/// `create_folder` — create a fresh empty directory with a
+/// collision-safe `Untitled Folder` name inside `parent_dir`.
+///
+/// Inserts the `folders` row eagerly so the empty directory shows in the
+/// tree immediately; the watcher's `Created` echo upserts it idempotently.
+pub async fn create_folder(
+    state: &AppState,
+    req: CreateFolderRequest,
+) -> Result<CreateFolderResponse, CubicalError> {
+    let vault = clone_vault(state, &req.vault_id).await?;
+    let parent_rel = normalize_parent_dir(&req.parent_dir)?;
+    let parent_abs = vault.root().join(&parent_rel);
+
+    let rel_path = first_free_path(&parent_rel, &parent_abs, "Untitled Folder", None)?;
+    let abs_path = vault.root().join(&rel_path);
+
+    tokio::task::spawn_blocking(move || std::fs::create_dir_all(&abs_path))
+        .await
+        .map_err(|e| CubicalError::Io(format!("create_folder task join error: {e}")))?
+        .map_err(|e| CubicalError::Io(e.to_string()))?;
+
+    cubical_index::upsert_folder(vault.index(), &rel_path, unix_now_secs()).await?;
+
+    Ok(CreateFolderResponse { path: rel_path })
 }
 
 /// Read the parsed frontmatter index for one file.
@@ -843,6 +1031,169 @@ mod tests {
         let incoming = std::fs::canonicalize(dir_b.path()).unwrap();
         let guard = state.vaults().read().await;
         assert_eq!(find_open_vault_by_canonical_path(&guard, &incoming), None);
+    }
+
+    #[tokio::test]
+    async fn create_file_makes_untitled_and_suffixes_on_collision() {
+        let (dir, vault, state) = fresh_state_with_vault("v1").await;
+
+        let r1 = create_file(
+            &state,
+            CreateFileRequest {
+                vault_id: "v1".into(),
+                parent_dir: String::new(),
+            },
+        )
+        .await
+        .expect("first create");
+        assert_eq!(r1.path, "Untitled.md");
+        assert!(dir.path().join("Untitled.md").exists(), "file on disk");
+        // Eager files row exists so navigation works immediately.
+        let mut rows = vault
+            .index()
+            .connection()
+            .query("SELECT type_id FROM files WHERE path = 'Untitled.md'", ())
+            .await
+            .unwrap();
+        let ty: String = rows.next().await.unwrap().expect("row").get(0).unwrap();
+        assert_eq!(ty, "markdown");
+
+        // Second create must not clobber the first — it suffixes.
+        let r2 = create_file(
+            &state,
+            CreateFileRequest {
+                vault_id: "v1".into(),
+                parent_dir: String::new(),
+            },
+        )
+        .await
+        .expect("second create");
+        assert_eq!(r2.path, "Untitled 1.md");
+    }
+
+    #[tokio::test]
+    async fn create_file_into_new_subdir_creates_parent() {
+        let (dir, _vault, state) = fresh_state_with_vault("v1").await;
+        let r = create_file(
+            &state,
+            CreateFileRequest {
+                vault_id: "v1".into(),
+                parent_dir: "projects/2026".into(),
+            },
+        )
+        .await
+        .expect("create");
+        assert_eq!(r.path, "projects/2026/Untitled.md");
+        assert!(dir.path().join("projects/2026/Untitled.md").exists());
+    }
+
+    #[tokio::test]
+    async fn create_file_rejects_parent_dir_escape() {
+        let (_dir, _vault, state) = fresh_state_with_vault("v1").await;
+        let err = create_file(
+            &state,
+            CreateFileRequest {
+                vault_id: "v1".into(),
+                parent_dir: "../evil".into(),
+            },
+        )
+        .await
+        .expect_err("must reject ..");
+        assert!(matches!(err, CubicalError::InvalidRequest(_)));
+    }
+
+    #[tokio::test]
+    async fn create_file_at_path_creates_note_at_exact_path() {
+        // The "create a missing [[wiki-link]] target" flow: make an empty
+        // markdown note at exactly the caller-chosen path, creating parent
+        // dirs, and insert the files row so navigation works immediately.
+        let (dir, vault, state) = fresh_state_with_vault("v1").await;
+        let r = create_file_at_path(
+            &state,
+            CreateFileAtPathRequest {
+                vault_id: "v1".into(),
+                path: "notes/Missing.md".into(),
+            },
+        )
+        .await
+        .expect("create at path");
+        assert_eq!(r.path, "notes/Missing.md");
+        assert!(dir.path().join("notes/Missing.md").exists());
+
+        let mut rows = vault
+            .index()
+            .connection()
+            .query(
+                "SELECT type_id FROM files WHERE path = 'notes/Missing.md'",
+                (),
+            )
+            .await
+            .unwrap();
+        let ty: String = rows.next().await.unwrap().expect("row").get(0).unwrap();
+        assert_eq!(ty, "markdown");
+    }
+
+    #[tokio::test]
+    async fn create_file_at_path_rejects_existing_path() {
+        let (dir, _vault, state) = fresh_state_with_vault("v1").await;
+        std::fs::write(dir.path().join("Taken.md"), "body\n").unwrap();
+        let err = create_file_at_path(
+            &state,
+            CreateFileAtPathRequest {
+                vault_id: "v1".into(),
+                path: "Taken.md".into(),
+            },
+        )
+        .await
+        .expect_err("must reject an existing path");
+        assert!(matches!(err, CubicalError::InvalidRequest(_)));
+    }
+
+    #[tokio::test]
+    async fn create_file_at_path_rejects_escape() {
+        let (_dir, _vault, state) = fresh_state_with_vault("v1").await;
+        let err = create_file_at_path(
+            &state,
+            CreateFileAtPathRequest {
+                vault_id: "v1".into(),
+                path: "../evil.md".into(),
+            },
+        )
+        .await
+        .expect_err("must reject ..");
+        assert!(matches!(err, CubicalError::InvalidRequest(_)));
+    }
+
+    #[tokio::test]
+    async fn create_folder_makes_untitled_folder_and_tracks_it() {
+        let (dir, vault, state) = fresh_state_with_vault("v1").await;
+        let r = create_folder(
+            &state,
+            CreateFolderRequest {
+                vault_id: "v1".into(),
+                parent_dir: String::new(),
+            },
+        )
+        .await
+        .expect("create folder");
+        assert_eq!(r.path, "Untitled Folder");
+        assert!(dir.path().join("Untitled Folder").is_dir());
+        // Tracked in `folders` so it renders in the tree while empty.
+        let folders = cubical_index::list_folders(vault.index()).await.unwrap();
+        assert_eq!(folders, vec!["Untitled Folder"]);
+
+        // list_files surfaces it in the folders field.
+        let listing = list_files(
+            &state,
+            ListFilesRequest {
+                vault_id: "v1".into(),
+                limit: None,
+                offset: None,
+            },
+        )
+        .await
+        .expect("list");
+        assert_eq!(listing.folders, vec!["Untitled Folder"]);
     }
 
     /// Insert a `files` row + a couple of `frontmatter` rows for

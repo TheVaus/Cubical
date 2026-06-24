@@ -65,6 +65,39 @@ export interface FileEntry {
 export interface ListFilesResponse {
   files: FileEntry[];
   total: number;
+  /** Tracked folder paths (vault-relative, no trailing slash) so the
+   * tree can render empty directories. Not paginated. */
+  folders: string[];
+}
+
+export interface CreateFileRequest {
+  vault_id: string;
+  /** Parent dir (vault-relative, "" for root). */
+  parent_dir?: string;
+}
+
+export interface CreateFileResponse {
+  path: string;
+}
+
+export interface CreateFileAtPathRequest {
+  vault_id: string;
+  /** Exact vault-relative path of the note to create. Must not exist. */
+  path: string;
+}
+
+export interface CreateFileAtPathResponse {
+  path: string;
+}
+
+export interface CreateFolderRequest {
+  vault_id: string;
+  /** Parent dir (vault-relative, "" for root). */
+  parent_dir?: string;
+}
+
+export interface CreateFolderResponse {
+  path: string;
 }
 
 export interface CloseVaultRequest {
@@ -267,7 +300,10 @@ export type Setting =
   | { key: "statusbar.show_vault_path"; value: boolean }
   | { key: "statusbar.show_file_path"; value: boolean }
   | { key: "statusbar.show_word_count"; value: boolean }
-  | { key: "statusbar.show_block_count"; value: boolean };
+  | { key: "statusbar.show_block_count"; value: boolean }
+  // Rename repair — also rewrite broken links that name the renamed
+  // file. Default on.
+  | { key: "wikilinks.rewrite_broken_links_on_rename"; value: boolean };
 
 /** Narrows a `Setting` key to its corresponding value type. */
 export type SettingValue<K extends Setting["key"]> = Extract<
@@ -421,6 +457,24 @@ export function getVaultInfo(
 
 export function listFiles(req: ListFilesRequest): Promise<ListFilesResponse> {
   return invoke("list_files", { req });
+}
+
+export function createFile(
+  req: CreateFileRequest,
+): Promise<CreateFileResponse> {
+  return invoke("create_file", { req });
+}
+
+export function createFileAtPath(
+  req: CreateFileAtPathRequest,
+): Promise<CreateFileAtPathResponse> {
+  return invoke("create_file_at_path", { req });
+}
+
+export function createFolder(
+  req: CreateFolderRequest,
+): Promise<CreateFolderResponse> {
+  return invoke("create_folder", { req });
 }
 
 export function closeVault(req: CloseVaultRequest): Promise<void> {

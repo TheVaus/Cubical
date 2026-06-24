@@ -51,6 +51,31 @@ describe("buildFileTree", () => {
     const root = buildFileTree([{ path: "img.png", type_id: "image" }]);
     expect(root.files[0]!.typeId).toBe("image");
   });
+
+  it("materializes empty folders that hold no files", () => {
+    const root = buildFileTree([md("welcome.md")], [
+      "empty",
+      "projects/archive",
+    ]);
+    expect(root.folders.map((f) => f.path)).toEqual(["empty", "projects"]);
+    const projects = root.folders.find((f) => f.path === "projects")!;
+    expect(projects.folders.map((f) => f.path)).toEqual(["projects/archive"]);
+    expect(projects.folders[0]!.files).toHaveLength(0);
+  });
+
+  it("merges a tracked folder with files discovered under it", () => {
+    const root = buildFileTree([md("projects/roadmap.md")], ["projects"]);
+    expect(root.folders).toHaveLength(1);
+    expect(root.folders[0]!.path).toBe("projects");
+    expect(root.folders[0]!.files.map((f) => f.name)).toEqual(["roadmap.md"]);
+  });
+
+  it("flattens an empty tracked folder as a visible row", () => {
+    const rows = flattenTree(buildFileTree([], ["notes"]), new Set());
+    expect(rows).toEqual([
+      { kind: "folder", path: "notes", name: "notes", depth: 0, collapsed: false },
+    ]);
+  });
 });
 
 describe("flattenTree", () => {

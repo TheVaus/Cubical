@@ -19,6 +19,9 @@ import { CURRENCY_CODES } from "./properties/format";
 import type { CanonicalDocument, Frontmatter } from "./ast/types";
 import {
   createBlockRef,
+  createFile,
+  createFileAtPath,
+  createFolder,
   getBrokenBlockRefs,
   getSetting,
   listFiles,
@@ -32,13 +35,14 @@ import {
   openVault,
   readFileText,
   renameFile,
-  setSetting,
   writeFileText,
   type BrokenBlockRef,
   type FileEntry,
   type ResolvedAnchor,
-  type ScanStatus,
 } from "./api/ipc";
+import { createVaultSession } from "./core/vaultSession";
+import { persistSetting, seedSetting } from "./core/settings";
+import { errorMessage } from "./errorMessage";
 import {
   createWikiLinkResolver,
   type WikiLinkResolver,
@@ -138,12 +142,22 @@ const THEME_ICON: Record<ThemeMode, string> = {
 };
 
 const App: Component = () => {
-  const [vaultId, setVaultId] = createSignal<string | null>(null);
-  const [vaultPath, setVaultPath] = createSignal<string | null>(null);
-  const [scanStatus, setScanStatus] = createSignal<ScanStatus>("in_progress");
-  const [filesProcessed, setFilesProcessed] = createSignal(0);
-  const [filesTotalEstimate, setFilesTotalEstimate] = createSignal(0);
+  // Core substrate: the open vault's session identity. Features read
+  // `vaultId` from here; this holder knows nothing about them.
+  const {
+    vaultId,
+    setVaultId,
+    vaultPath,
+    setVaultPath,
+    scanStatus,
+    setScanStatus,
+    filesProcessed,
+    setFilesProcessed,
+    filesTotalEstimate,
+    setFilesTotalEstimate,
+  } = createVaultSession();
   const [files, setFiles] = createSignal<FileEntry[]>([]);
+  const [folders, setFolders] = createSignal<string[]>([]);
   const [error, setError] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal(false);
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
@@ -182,7 +196,7 @@ const App: Component = () => {
       return next;
     });
   const treeRows = createMemo<FlatRow[]>(() =>
-    flattenTree(buildFileTree(files()), collapsedFolders()),
+    flattenTree(buildFileTree(files(), folders()), collapsedFolders()),
   );
   const fileWindow = createMemo(() =>
     computeWindow(
@@ -218,6 +232,18 @@ const App: Component = () => {
   const effectiveRaw = createMemo(() =>
     resolveRawState(rawOverride(), rawDefault()),
   );
+
+  // `wikilinks.rewrite_broken_links_on_rename` — repair broken links that
+  // name a renamed file. Default on; seeded on vault open.
+  const [rewriteBrokenLinks, setRewriteBrokenLinks] = createSignal(true);
+  const setRewriteBrokenLinksValue = (val: boolean) => {
+    setRewriteBrokenLinks(val);
+    persistSetting(
+      vaultId(),
+      "wikilinks.rewrite_broken_links_on_rename",
+      val,
+    );
+  };
 
   // Typed-properties feature flag + default date format, seeded on vault
   // open. Absent → disabled / "YYYY-MM-DD".
@@ -301,6 +327,7 @@ const App: Component = () => {
   type SettingsTab =
     | "appearance"
     | "editor"
+    | "wikilinks"
     | "plugins"
     | "statusbar"
     | "vault"
@@ -454,6 +481,7 @@ const App: Component = () => {
     try {
       const resp = await listFiles({ vault_id: id });
       setFiles(resp.files);
+      setFolders(resp.folders);
     } catch (e) {
       console.error("listFiles failed", e);
     }
@@ -503,10 +531,7 @@ const App: Component = () => {
       // matches.
       scheduleSearchRefresh();
     } catch (e) {
-      const message =
-        typeof e === "object" && e !== null && "message" in e
-          ? String((e as { message: unknown }).message)
-          : String(e);
+      const message = errorMessage(e);
       setError(message);
     }
   };
@@ -553,10 +578,7 @@ const App: Component = () => {
         buildBlockRefLink(path, resp.block_id),
       );
     } catch (e) {
-      const message =
-        typeof e === "object" && e !== null && "message" in e
-          ? String((e as { message: unknown }).message)
-          : String(e);
+      const message = errorMessage(e);
       setError(message);
     }
   };
@@ -654,11 +676,21 @@ const App: Component = () => {
       if (selectedPath() === fromPath) {
         setSelectedPath(target);
       }
+      // `rename_file` rekeys the index (`links.target_path`, etc.)
+      // synchronously, but emits no `vault:file-changed` — that only
+      // arrives later (and debounced) from the watcher's disk-move echo.
+      // Proactively do the same invalidation a file-change does so every
+      // open view reflects the rename immediately instead of resolving
+      // stale wiki-link targets / showing the old name in the tree and
+      // backlinks panel.
+      wikilinkResolver()?.invalidate();
+      embedResolver()?.invalidate();
+      propertyResolver()?.invalidate();
+      dataviewRunner()?.invalidate();
+      void refreshFileList();
+      scheduleRightSidebarRefresh();
     } catch (e) {
-      const message =
-        typeof e === "object" && e !== null && "message" in e
-          ? String((e as { message: unknown }).message)
-          : String(e);
+      const message = errorMessage(e);
       showToast(message);
     }
   };
@@ -708,12 +740,7 @@ const App: Component = () => {
   const setTheme = (mode: ThemeMode) => {
     setThemeMode(mode);
     setResolvedTheme(applyTheme(mode));
-    const id = vaultId();
-    if (id) {
-      setSetting(id, "appearance.theme_mode", mode).catch((e) => {
-        console.error("persisting theme_mode failed", e);
-      });
-    }
+    persistSetting(vaultId(), "appearance.theme_mode", mode);
   };
 
   /**
@@ -736,68 +763,38 @@ const App: Component = () => {
     const next = !effectiveRaw();
     setRawDefault(next);
     setRawOverride(null);
-    const id = vaultId();
-    if (id) {
-      setSetting(id, "editor.raw_source_default", next).catch((e) => {
-        console.error("persisting raw_source_default failed", e);
-      });
-    }
+    persistSetting(vaultId(), "editor.raw_source_default", next);
   };
 
   /** Set the raw-source default explicitly (from Settings ▸ Editor). */
   const setRawDefaultValue = (val: boolean) => {
     setRawDefault(val);
     setRawOverride(null);
-    const id = vaultId();
-    if (id) {
-      setSetting(id, "editor.raw_source_default", val).catch((e) => {
-        console.error("persisting raw_source_default failed", e);
-      });
-    }
+    persistSetting(vaultId(), "editor.raw_source_default", val);
   };
 
   /** Set the typed-properties flag (from Settings ▸ Editor). */
   const setTypedPropsValue = (val: boolean) => {
     setTypedProps(val);
-    const id = vaultId();
-    if (id) {
-      setSetting(id, "properties.typed_enabled", val).catch((e) => {
-        console.error("persisting properties.typed_enabled failed", e);
-      });
-    }
+    persistSetting(vaultId(), "properties.typed_enabled", val);
   };
 
   /** Set the default date format (from Settings ▸ Editor). */
   const setDateDefaultValue = (val: string) => {
     setDateDefault(val);
-    const id = vaultId();
-    if (id) {
-      setSetting(id, "properties.date_format_default", val).catch((e) => {
-        console.error("persisting properties.date_format_default failed", e);
-      });
-    }
+    persistSetting(vaultId(), "properties.date_format_default", val);
   };
 
   /** Set the default currency (from Settings ▸ Editor). */
   const setCurrencyDefaultValue = (val: string) => {
     setCurrencyDefault(val);
-    const id = vaultId();
-    if (id) {
-      setSetting(id, "properties.default_currency", val).catch((e) => {
-        console.error("persisting properties.default_currency failed", e);
-      });
-    }
+    persistSetting(vaultId(), "properties.default_currency", val);
   };
 
   /** Toggle rendering the `tags` property as tag chips (Settings ▸ Editor). */
   const setTagsKeyAsTagsValue = (val: boolean) => {
     setTagsKeyAsTags(val);
-    const id = vaultId();
-    if (id) {
-      setSetting(id, "properties.tags_key_as_tags", val).catch((e) => {
-        console.error("persisting properties.tags_key_as_tags failed", e);
-      });
-    }
+    persistSetting(vaultId(), "properties.tags_key_as_tags", val);
   };
 
   /** Set a core plugin's on/off state and persist to vault settings. */
@@ -809,9 +806,7 @@ const App: Component = () => {
     const v = vaultId();
     if (!v) return;
     setCorePlugins((prev) => ({ ...prev, [id]: value }));
-    setSetting(v, settingKey, value).catch((e) => {
-      console.error(`saving ${settingKey} failed`, e);
-    });
+    persistSetting(v, settingKey, value);
   };
 
   /** Set a status-bar setting (master or a segment) and persist to the vault. */
@@ -819,9 +814,7 @@ const App: Component = () => {
     const v = vaultId();
     if (!v) return;
     setStatusbarConfig((prev) => ({ ...prev, [key]: value }));
-    setSetting(v, key, value).catch((e) => {
-      console.error(`saving ${key} failed`, e);
-    });
+    persistSetting(v, key, value);
   };
 
   /** Run an omni-bar command by id. */
@@ -839,12 +832,7 @@ const App: Component = () => {
   const toggleRightSidebar = () => {
     const next = !rightSidebarCollapsed();
     setRightSidebarCollapsed(next);
-    const id = vaultId();
-    if (id) {
-      setSetting(id, "ui.right_sidebar_collapsed", next).catch((e) => {
-        console.error("persisting ui.right_sidebar_collapsed failed", e);
-      });
-    }
+    persistSetting(vaultId(), "ui.right_sidebar_collapsed", next);
   };
 
   /**
@@ -855,12 +843,7 @@ const App: Component = () => {
   const handleRightSidebarSegmentChange = (id: string) => {
     if (id !== "backlinks" && id !== "unlinked_mentions") return;
     setRightSidebarPanel(id);
-    const v = vaultId();
-    if (v) {
-      setSetting(v, "ui.right_sidebar_panel", id).catch((e) => {
-        console.error("persisting ui.right_sidebar_panel failed", e);
-      });
-    }
+    persistSetting(vaultId(), "ui.right_sidebar_panel", id);
   };
 
   const handleSelectFile = async (file: FileEntry) => {
@@ -905,10 +888,7 @@ const App: Component = () => {
       // from our first write response. Until then, autosave omits the
       // expected_seen_hash (advisory in L2 §3.1).
     } catch (e) {
-      const message =
-        typeof e === "object" && e !== null && "message" in e
-          ? String((e as { message: unknown }).message)
-          : String(e);
+      const message = errorMessage(e);
       setError(message);
       setSelectedContent(null);
     }
@@ -927,10 +907,7 @@ const App: Component = () => {
       dirty = false;
       setConflictExternalHash(null);
     } catch (e) {
-      const message =
-        typeof e === "object" && e !== null && "message" in e
-          ? String((e as { message: unknown }).message)
-          : String(e);
+      const message = errorMessage(e);
       setError(message);
     }
   };
@@ -1014,20 +991,44 @@ const App: Component = () => {
     if (!offer || !id) return;
     setCreateOffer(null);
     try {
-      await writeFileText({
-        vault_id: id,
-        path: offer.path,
-        content: "",
-      });
-      // The newly-created file will land via `vault:file-changed`,
-      // which also invalidates the resolver. Navigate immediately.
+      // `write_file_text` only writes files that already exist; a
+      // not-yet-created wiki-link target needs the dedicated create
+      // path (which inserts the files row + writes empty bytes).
+      await createFileAtPath({ vault_id: id, path: offer.path });
+      // The newly-created file also lands via `vault:file-changed`,
+      // which invalidates the resolver. Navigate immediately.
       await handleNavigateWikilink(offer.path, null);
     } catch (e) {
-      const message =
-        typeof e === "object" && e !== null && "message" in e
-          ? String((e as { message: unknown }).message)
-          : String(e);
+      const message = errorMessage(e);
       setError(message);
+    }
+  };
+
+  // Create a fresh "Untitled" note at the vault root and open it; the
+  // user renames it via the editable title. Naming + collision handling
+  // happen backend-side.
+  const handleNewFile = async () => {
+    const id = vaultId();
+    if (!id) return;
+    try {
+      const resp = await createFile({ vault_id: id, parent_dir: "" });
+      await refreshFileList();
+      await handleNavigateWikilink(resp.path, null);
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+
+  // Create a fresh "Untitled Folder" at the vault root. It renders empty
+  // (tracked in the folders index) so the user can drop notes into it.
+  const handleNewFolder = async () => {
+    const id = vaultId();
+    if (!id) return;
+    try {
+      await createFolder({ vault_id: id, parent_dir: "" });
+      await refreshFileList();
+    } catch (e) {
+      setError(errorMessage(e));
     }
   };
 
@@ -1219,6 +1220,7 @@ const App: Component = () => {
       }
       // Reset any prior vault's UI state before the new one fires events.
       setFiles([]);
+      setFolders([]);
       setFilesProcessed(0);
       setFilesTotalEstimate(0);
       setScanStatus("in_progress");
@@ -1277,56 +1279,47 @@ const App: Component = () => {
 
       // Seed the raw-source default from this vault's settings. Absent
       // key → `false` (Live Preview is the out-of-the-box experience).
-      try {
-        const stored = await getSetting(
-          resp.vault_id,
-          "editor.raw_source_default",
-        );
-        setRawDefault(stored ?? false);
-      } catch (e) {
-        console.error("loading raw_source_default failed", e);
-      }
+      await seedSetting(
+        resp.vault_id,
+        "editor.raw_source_default",
+        false,
+        setRawDefault,
+      );
 
       // Seed typed-properties flag + default date format (absent → off / ISO).
       // Off by default: inline `# type:` comments are slated for replacement
       // by a vault-level type registry (see the future-work spec), so we
       // don't write app metadata into `.md` files until a user opts in.
-      try {
-        const stored = await getSetting(
-          resp.vault_id,
-          "properties.typed_enabled",
-        );
-        setTypedProps(stored ?? false);
-      } catch (e) {
-        console.error("loading properties.typed_enabled failed", e);
-      }
-      try {
-        const stored = await getSetting(
-          resp.vault_id,
-          "properties.date_format_default",
-        );
-        setDateDefault(stored ?? "YYYY-MM-DD");
-      } catch (e) {
-        console.error("loading properties.date_format_default failed", e);
-      }
-      try {
-        const stored = await getSetting(
-          resp.vault_id,
-          "properties.default_currency",
-        );
-        setCurrencyDefault(stored ?? "usd");
-      } catch (e) {
-        console.error("loading properties.default_currency failed", e);
-      }
-      try {
-        const stored = await getSetting(
-          resp.vault_id,
-          "properties.tags_key_as_tags",
-        );
-        setTagsKeyAsTags(stored ?? true);
-      } catch (e) {
-        console.error("loading properties.tags_key_as_tags failed", e);
-      }
+      await seedSetting(
+        resp.vault_id,
+        "wikilinks.rewrite_broken_links_on_rename",
+        true,
+        setRewriteBrokenLinks,
+      );
+      await seedSetting(
+        resp.vault_id,
+        "properties.typed_enabled",
+        false,
+        setTypedProps,
+      );
+      await seedSetting(
+        resp.vault_id,
+        "properties.date_format_default",
+        "YYYY-MM-DD",
+        setDateDefault,
+      );
+      await seedSetting(
+        resp.vault_id,
+        "properties.default_currency",
+        "usd",
+        setCurrencyDefault,
+      );
+      await seedSetting(
+        resp.vault_id,
+        "properties.tags_key_as_tags",
+        true,
+        setTagsKeyAsTags,
+      );
 
       // Load each core plugin's enablement (absent ⇒ default).
       {
@@ -1365,32 +1358,24 @@ const App: Component = () => {
       // settings. Absent key → expanded (false). The shell is the
       // primary surface for backlinks/mentions; default-open is the
       // right out-of-the-box experience.
-      try {
-        const stored = await getSetting(
-          resp.vault_id,
-          "ui.right_sidebar_collapsed",
-        );
-        setRightSidebarCollapsed(stored ?? false);
-      } catch (e) {
-        console.error("loading ui.right_sidebar_collapsed failed", e);
-      }
+      await seedSetting(
+        resp.vault_id,
+        "ui.right_sidebar_collapsed",
+        false,
+        setRightSidebarCollapsed,
+      );
 
       // L3 Session I: seed which right-sidebar panel is selected.
-      // Absent key → `backlinks` (preserves the Session C default).
-      try {
-        const stored = await getSetting(
-          resp.vault_id,
-          "ui.right_sidebar_panel",
-        );
-        if (stored !== null) setRightSidebarPanel(stored);
-      } catch (e) {
-        console.error("loading ui.right_sidebar_panel failed", e);
-      }
+      // Absent key → `backlinks` (the reset default above), so seeding the
+      // fallback is a no-op — preserving the Session C default.
+      await seedSetting(
+        resp.vault_id,
+        "ui.right_sidebar_panel",
+        "backlinks",
+        setRightSidebarPanel,
+      );
     } catch (e) {
-      const message =
-        typeof e === "object" && e !== null && "message" in e
-          ? String((e as { message: unknown }).message)
-          : String(e);
+      const message = errorMessage(e);
       setError(message);
     } finally {
       setBusy(false);
@@ -1499,6 +1484,67 @@ const App: Component = () => {
                 refreshSignal={searchRefreshTick()}
               >
               <div
+                class="tree-header"
+                style={{
+                  display: "flex",
+                  "align-items": "center",
+                  "justify-content": "space-between",
+                  gap: "var(--space-2)",
+                  padding: "var(--space-1) var(--space-2)",
+                }}
+              >
+                <span
+                  style={{
+                    "font-size": "var(--text-xs)",
+                    "text-transform": "uppercase",
+                    "letter-spacing": "0.05em",
+                    color: "var(--c-fg-muted)",
+                  }}
+                >
+                  Files
+                </span>
+                <span style={{ display: "flex", gap: "var(--space-1)" }}>
+                  <button
+                    type="button"
+                    class="tree-header__action"
+                    title="New file"
+                    aria-label="New file"
+                    disabled={!vaultId()}
+                    onClick={() => void handleNewFile()}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      cursor: vaultId() ? "pointer" : "default",
+                      color: "var(--c-fg-secondary)",
+                      "font-size": "var(--text-sm)",
+                      padding: "var(--space-1)",
+                      "line-height": 1,
+                    }}
+                  >
+                    ＋
+                  </button>
+                  <button
+                    type="button"
+                    class="tree-header__action"
+                    title="New folder"
+                    aria-label="New folder"
+                    disabled={!vaultId()}
+                    onClick={() => void handleNewFolder()}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      cursor: vaultId() ? "pointer" : "default",
+                      color: "var(--c-fg-secondary)",
+                      "font-size": "var(--text-sm)",
+                      padding: "var(--space-1)",
+                      "line-height": 1,
+                    }}
+                  >
+                    🗀
+                  </button>
+                </span>
+              </div>
+              <div
               role="listbox"
               aria-label="Vault files"
               ref={(el) => setViewportHeight(el.clientHeight || 600)}
@@ -1515,7 +1561,7 @@ const App: Component = () => {
               }}
             >
               <Show
-                when={files().length > 0}
+                when={treeRows().length > 0}
                 fallback={
                   <div
                     style={{
@@ -1961,6 +2007,7 @@ const App: Component = () => {
                   [
                     { id: "appearance", label: "🎨 Appearance" },
                     { id: "editor", label: "📝 Editor" },
+                    { id: "wikilinks", label: "🔗 Wiki links" },
                     { id: "plugins", label: "🧩 Plugins" },
                     { id: "statusbar", label: "📊 Status bar" },
                     { id: "vault", label: "🗄 Vault" },
@@ -2239,6 +2286,44 @@ topics:         # type:list
                     </p>
                   </div>
                 </Show>
+              </Show>
+              <Show when={settingsTab() === "wikilinks"}>
+                <h2 class="modal__h2">Wiki links</h2>
+                <div class="set-row">
+                  <div>
+                    <div class="set-row__lab">
+                      Repair broken links on rename
+                    </div>
+                    <div class="set-row__desc">
+                      When you rename a file, also fix links that point at
+                      its old name but had already broken (e.g. from an
+                      earlier rename). Off limits a rename to links that
+                      still resolve to the file.
+                    </div>
+                  </div>
+                  <div class="seg-control">
+                    <button
+                      type="button"
+                      class="seg-control__btn"
+                      classList={{
+                        "seg-control__btn--active": !rewriteBrokenLinks(),
+                      }}
+                      onClick={() => setRewriteBrokenLinksValue(false)}
+                    >
+                      Off
+                    </button>
+                    <button
+                      type="button"
+                      class="seg-control__btn"
+                      classList={{
+                        "seg-control__btn--active": rewriteBrokenLinks(),
+                      }}
+                      onClick={() => setRewriteBrokenLinksValue(true)}
+                    >
+                      On
+                    </button>
+                  </div>
+                </div>
               </Show>
               <Show when={settingsTab() === "plugins"}>
                 <h2 class="modal__h2">Core Plugins</h2>

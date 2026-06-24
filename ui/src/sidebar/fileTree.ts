@@ -55,15 +55,20 @@ function sortFolder(node: FolderNode): void {
  * Build a nested folder tree from flat entries. Empty path segments
  * (leading/trailing/duplicate slashes) are ignored. Returns the synthetic
  * root whose `folders`/`files` are the top level of the vault.
+ *
+ * `folderPaths` lists directories to materialize even when they hold no
+ * files — without it an empty folder (its path appears in no file) would
+ * be invisible, since folders are otherwise inferred from file paths.
  */
 export function buildFileTree(
   entries: ReadonlyArray<{ path: string; type_id: string }>,
+  folderPaths: ReadonlyArray<string> = [],
 ): FolderNode {
   const root: FolderNode = { name: "", path: "", folders: [], files: [] };
-  for (const entry of entries) {
-    const segments = entry.path.split("/").filter((s) => s.length > 0);
-    if (segments.length === 0) continue;
-    const fileName = segments.pop()!;
+
+  // Walk/create the folder chain for a path's directory segments,
+  // returning the deepest node. Shared by file entries and empty folders.
+  const ensureFolder = (segments: string[]): FolderNode => {
     let cursor = root;
     let cursorPath = "";
     for (const seg of segments) {
@@ -75,6 +80,22 @@ export function buildFileTree(
       }
       cursor = next;
     }
+    return cursor;
+  };
+
+  // Seed tracked (possibly empty) folders first so they survive even if
+  // no file lives under them.
+  for (const folderPath of folderPaths) {
+    const segments = folderPath.split("/").filter((s) => s.length > 0);
+    if (segments.length === 0) continue;
+    ensureFolder(segments);
+  }
+
+  for (const entry of entries) {
+    const segments = entry.path.split("/").filter((s) => s.length > 0);
+    if (segments.length === 0) continue;
+    const fileName = segments.pop()!;
+    const cursor = ensureFolder(segments);
     cursor.files.push({
       path: entry.path,
       name: fileName,

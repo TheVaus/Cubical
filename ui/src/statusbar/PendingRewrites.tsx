@@ -20,6 +20,7 @@ import {
   type PendingRewritesPopoverState,
 } from "./pendingRewritesState";
 import { formatPendingRewrites } from "./pendingRewritesLabel";
+import { errorMessage } from "../errorMessage";
 
 export interface PendingRewritesProps {
   /** Null until a vault is open. Component renders nothing in that case. */
@@ -72,10 +73,7 @@ const PendingRewrites: Component<PendingRewritesProps> = (props) => {
       })
       .catch((e: unknown) => {
         if (my !== token) return;
-        const message =
-          typeof e === "object" && e !== null && "message" in e
-            ? String((e as { message: unknown }).message)
-            : String(e);
+        const message = errorMessage(e);
         setState(
           reducePendingRewritesPopover(untrack(state), {
             type: "fetch:error",
@@ -125,10 +123,7 @@ const PendingRewrites: Component<PendingRewritesProps> = (props) => {
       // surface the toast.
       refetch();
     } catch (e) {
-      const message =
-        typeof e === "object" && e !== null && "message" in e
-          ? String((e as { message: unknown }).message)
-          : String(e);
+      const message = errorMessage(e);
       props.onError(message);
     } finally {
       setFlushing(false);
@@ -143,10 +138,7 @@ const PendingRewrites: Component<PendingRewritesProps> = (props) => {
       await undoRename({ vault_id: vid, rename_op_id });
       refetch();
     } catch (e) {
-      const message =
-        typeof e === "object" && e !== null && "message" in e
-          ? String((e as { message: unknown }).message)
-          : String(e);
+      const message = errorMessage(e);
       props.onError(message);
     } finally {
       setPendingUndoId(null);

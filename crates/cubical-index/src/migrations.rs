@@ -40,6 +40,8 @@ pub struct Migration {
 ///   `^block-id` definitions and resolved `[[#^id]]` references.
 /// - `v6` (L3 Session J): the `pending_rewrites` cache for deferred
 ///   per-file token rewrites produced by rename operations.
+/// - `v7`: the `folders` table so empty directories survive in the file
+///   tree (which is otherwise derived from `files` paths).
 ///
 /// Subsequent layers append entries here.
 pub const MIGRATIONS: &[Migration] = &[
@@ -67,11 +69,30 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 6,
         up: include_str!("../migrations/006_pending_rewrites.sql"),
     },
+    Migration {
+        version: 7,
+        up: include_str!("../migrations/007_folders.sql"),
+    },
 ];
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn migration_007_creates_folders_table() {
+        let m = MIGRATIONS
+            .iter()
+            .find(|m| m.version == 7)
+            .expect("007 migration must be registered");
+        let sql = m.up;
+        assert!(
+            sql.contains("CREATE TABLE folders"),
+            "must create folders table"
+        );
+        assert!(sql.contains("path"));
+        assert!(sql.contains("last_seen"));
+    }
 
     #[test]
     fn migration_006_creates_pending_rewrites_table() {

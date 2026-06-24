@@ -98,6 +98,66 @@ pub struct ListFilesResponse {
     pub files: Vec<FileEntry>,
     /// Total count of files in the index (independent of `limit`/`offset`).
     pub total: u32,
+    /// Every tracked folder path (vault-relative, no trailing slash).
+    /// Lets the file tree render empty directories, which the
+    /// files-derived tree can't represent on its own. Not paginated.
+    pub folders: Vec<String>,
+}
+
+// -- create_file / create_folder -----------------------------------------
+
+/// Request payload for `create_file`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateFileRequest {
+    /// Vault to create the file in.
+    pub vault_id: String,
+    /// Parent directory (vault-relative, `""` for the root). The new
+    /// file is created inside it with a collision-safe `Untitled` name.
+    #[serde(default)]
+    pub parent_dir: String,
+}
+
+/// Response payload for `create_file`.
+#[derive(Debug, Clone, Serialize)]
+pub struct CreateFileResponse {
+    /// Vault-relative path of the newly created file.
+    pub path: String,
+}
+
+/// Request payload for `create_file_at_path`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateFileAtPathRequest {
+    /// Vault to create the file in.
+    pub vault_id: String,
+    /// Exact vault-relative path of the note to create (e.g.
+    /// `"folder/Target.md"`). Must not already exist.
+    pub path: String,
+}
+
+/// Response payload for `create_file_at_path`.
+#[derive(Debug, Clone, Serialize)]
+pub struct CreateFileAtPathResponse {
+    /// Vault-relative path of the newly created file (normalized).
+    pub path: String,
+}
+
+/// Request payload for `create_folder`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateFolderRequest {
+    /// Vault to create the folder in.
+    pub vault_id: String,
+    /// Parent directory (vault-relative, `""` for the root). The new
+    /// folder is created inside it with a collision-safe `Untitled
+    /// Folder` name.
+    #[serde(default)]
+    pub parent_dir: String,
+}
+
+/// Response payload for `create_folder`.
+#[derive(Debug, Clone, Serialize)]
+pub struct CreateFolderResponse {
+    /// Vault-relative path of the newly created folder.
+    pub path: String,
 }
 
 /// Per-file row returned by `list_files`.

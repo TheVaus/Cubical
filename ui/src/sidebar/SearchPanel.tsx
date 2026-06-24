@@ -26,6 +26,7 @@ import {
 import { buildSearchQuery, type ScopeKind } from "./searchQuery";
 import { formatRelativeTime } from "./relativeTime";
 import { isSearchNavKey, nextSearchNavIndex } from "./searchNav";
+import { errorMessage } from "../errorMessage";
 
 /**
  * L4-B search surface for the left column. A persistent search bar sits
@@ -183,7 +184,7 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
       setCollapsed(new Set<string>());
       if (resp.still_indexing) ensurePolling();
     } catch (e) {
-      setError(messageOf(e));
+      setError(errorMessage(e));
       // Keep prior hits visible rather than flashing empty.
     }
   };
@@ -754,11 +755,5 @@ const SnippetCard: Component<{ card: ResultCard; onClick: () => void }> = (
     </For>
   </div>
 );
-
-function messageOf(e: unknown): string {
-  return typeof e === "object" && e !== null && "message" in e
-    ? String((e as { message: unknown }).message)
-    : String(e);
-}
 
 export default SearchPanel;

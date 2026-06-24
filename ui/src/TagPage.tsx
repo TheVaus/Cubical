@@ -8,6 +8,7 @@ import {
 } from "solid-js";
 
 import { queryTagPage, type TagPageFile } from "./api/ipc";
+import { errorMessage } from "./errorMessage";
 
 /**
  * Virtual tag-page state — what `queryTagPage` last produced for the
@@ -85,10 +86,7 @@ const TagPage: Component<TagPageProps> = (props) => {
       })
       .catch((e) => {
         if (my !== token) return;
-        const message =
-          typeof e === "object" && e !== null && "message" in e
-            ? String((e as { message: unknown }).message)
-            : String(e);
+        const message = errorMessage(e);
         setState({ phase: "error", message });
       });
   });

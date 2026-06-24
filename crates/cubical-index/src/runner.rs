@@ -218,7 +218,7 @@ mod tests {
     /// The version the highest-numbered known migration applies. Use
     /// this rather than hard-coding so adding a new migration only
     /// requires updating the `MIGRATIONS` slice — not every test.
-    const HIGHEST_KNOWN_VERSION: i64 = 6;
+    const HIGHEST_KNOWN_VERSION: i64 = 7;
 
     #[tokio::test]
     async fn fresh_db_applies_all_known_migrations() {

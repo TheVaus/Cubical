@@ -12,7 +12,9 @@
 use std::time::SystemTime;
 
 use cubical_ast::Anchor;
-use cubical_index::{replace_links_for_file, IndexError, LinkRow};
+use cubical_index::{
+    replace_links_for_file, sweep_stale_folders, upsert_folder, IndexError, LinkRow,
+};
 use libsql::params;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -73,6 +75,12 @@ pub async fn scan(
     let root = vault.root().to_path_buf();
     let registry = vault.registry_arc();
 
+    // Captured before the walk: every file the walk upserts is stamped
+    // with `last_seen >= scan_started_secs`. After the walk, rows still
+    // carrying an older `last_seen` were not seen this scan — they were
+    // deleted on disk while the app wasn't watching — and get swept.
+    let scan_started_secs = unix_now_secs();
+
     let mut files_processed: u32 = 0;
     let mut files_total_estimate: u32 = 0;
 
@@ -129,6 +137,22 @@ pub async fn scan(
             }
         };
         if !entry.file_type().is_file() {
+            // Record directories (other than the vault root) into the
+            // `folders` table so empty ones still render in the tree.
+            // Excluded dirs (dot-prefixed, `node_modules`) are already
+            // pruned by the walker's `filter_entry` above, so anything
+            // reaching here is a folder we want to track.
+            if entry.file_type().is_dir() && entry.depth() > 0 {
+                let rel = entry
+                    .path()
+                    .strip_prefix(&root)
+                    .unwrap_or(entry.path())
+                    .to_string_lossy()
+                    .into_owned();
+                if let Err(e) = upsert_folder(vault.index(), &rel, scan_started_secs).await {
+                    tracing::warn!(path = %rel, error = %e, "folder upsert failed; skipping");
+                }
+            }
             continue;
         }
         // Skip atomic-write scratch files left behind by a crashed
@@ -355,6 +379,37 @@ pub async fn scan(
         }
     }
 
+    // Sweep `files` rows for paths deleted while the app wasn't watching.
+    // Pass 1 stamped every on-disk file with `last_seen >= scan_started_secs`;
+    // anything still older vanished from disk and must leave the index so
+    // it stops surfacing in `list_files` / the tree. The `ON DELETE CASCADE`
+    // FKs carry each gone file's outbound rows with it. Mirrors the search
+    // reconcile above; skipped under cancellation, where the walk is
+    // incomplete and live rows would look stale.
+    if !cancel.is_cancelled() {
+        match conn
+            .execute(
+                "DELETE FROM files WHERE last_seen < ?1",
+                params![scan_started_secs],
+            )
+            .await
+        {
+            Ok(n) if n > 0 => tracing::info!(removed = n, "scan swept rows for deleted files"),
+            Ok(_) => {}
+            Err(e) => tracing::warn!(error = %e, "files sweep failed"),
+        }
+
+        // Same sweep for the `folders` table: a directory deleted while
+        // the app wasn't watching keeps a row whose `last_seen` predates
+        // this scan, so drop it. Folders are tracked only so empty ones
+        // stay visible; a stale row would show a ghost folder in the tree.
+        match sweep_stale_folders(vault.index(), scan_started_secs).await {
+            Ok(n) if n > 0 => tracing::info!(removed = n, "scan swept rows for deleted folders"),
+            Ok(_) => {}
+            Err(e) => tracing::warn!(error = %e, "folders sweep failed"),
+        }
+    }
+
     // ---- Pass 2: resolve all buffered links against the complete file
     // set, once. O(N) build + O(1) common-case lookups. Replaces the
     // old O(N²) per-file resolve. See docs/layer-3-spec.md §5.6.
@@ -565,6 +620,93 @@ mod tests {
         let after = run_search(vault.search(), &q).unwrap().hits;
         assert_eq!(after.len(), 1, "ghost doc reconciled away, live indexed");
         assert_eq!(after[0].path, "live.md");
+    }
+
+    #[tokio::test]
+    async fn scan_sweeps_files_rows_for_paths_deleted_while_app_closed() {
+        // A file deleted on disk while the app was closed fires no watcher
+        // event, so its `files` row would linger in `list_files` (and the
+        // tree) forever. The post-walk sweep must drop any row not seen by
+        // this scan (its `last_seen` predates the scan). Regression guard
+        // for the "deleted file lingers in the file tree" bug.
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("live.md"), "still here\n").unwrap();
+        let vault = Vault::open(dir.path()).await.expect("open");
+
+        // Seed a stale row for a path that does NOT exist on disk, with an
+        // ancient `last_seen` (a prior scan that saw it; the file has
+        // since been deleted externally).
+        vault
+            .index()
+            .connection()
+            .execute(
+                "INSERT INTO files (
+                    path, type_id, size_bytes, mtime_unix, content_hash,
+                    inode, last_seen, created_at, updated_at
+                 ) VALUES ('ghost.md', 'markdown', 0, 0, '', NULL, 0, 0, 0)",
+                (),
+            )
+            .await
+            .unwrap();
+
+        let (tx, _rx) = mpsc::channel::<ScanProgress>(8);
+        scan(vault.clone(), CancellationToken::new(), tx)
+            .await
+            .expect("scan");
+
+        let conn = vault.index().connection();
+        let count = |sql: &'static str| {
+            let conn = conn.clone();
+            async move {
+                let mut rows = conn.query(sql, ()).await.unwrap();
+                rows.next().await.unwrap().unwrap().get::<i64>(0).unwrap()
+            }
+        };
+        assert_eq!(
+            count("SELECT COUNT(*) FROM files WHERE path='ghost.md'").await,
+            0,
+            "stale row for a deleted file must be swept",
+        );
+        assert_eq!(
+            count("SELECT COUNT(*) FROM files WHERE path='live.md'").await,
+            1,
+            "the on-disk file must survive the sweep",
+        );
+    }
+
+    #[tokio::test]
+    async fn scan_records_directories_and_sweeps_deleted_ones() {
+        // Empty folders aren't representable in the files-derived tree, so
+        // the scan records every directory into `folders` (and sweeps rows
+        // for dirs deleted while the app wasn't watching).
+        let dir = tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("projects/2026")).unwrap();
+        fs::create_dir(dir.path().join("empty")).unwrap();
+        fs::write(dir.path().join("projects/note.md"), "hi\n").unwrap();
+        let vault = Vault::open(dir.path()).await.expect("open");
+
+        // Seed a stale folder row for a dir that no longer exists on disk.
+        vault
+            .index()
+            .connection()
+            .execute(
+                "INSERT INTO folders (path, created_at, last_seen) VALUES ('ghost', 0, 0)",
+                (),
+            )
+            .await
+            .unwrap();
+
+        let (tx, _rx) = mpsc::channel::<ScanProgress>(8);
+        scan(vault.clone(), CancellationToken::new(), tx)
+            .await
+            .expect("scan");
+
+        let got = cubical_index::list_folders(vault.index()).await.unwrap();
+        assert_eq!(
+            got,
+            vec!["empty", "projects", "projects/2026"],
+            "every on-disk dir recorded (incl. the empty one); ghost swept",
+        );
     }
 
     /// Index a doc directly into the search index (test helper for

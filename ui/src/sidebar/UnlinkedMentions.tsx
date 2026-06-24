@@ -13,6 +13,7 @@ import {
   type Mention,
 } from "../api/ipc";
 import { basenameWithoutExtension } from "./backlinksState";
+import { errorMessage } from "../errorMessage";
 import {
   mentionKey,
   reduceMentionsState,
@@ -61,10 +62,7 @@ const UnlinkedMentions: Component<UnlinkedMentionsProps> = (props) => {
       })
       .catch((e: unknown) => {
         if (my !== token) return;
-        const message =
-          typeof e === "object" && e !== null && "message" in e
-            ? String((e as { message: unknown }).message)
-            : String(e);
+        const message = errorMessage(e);
         setState(
           reduceMentionsState(untrack(state), { type: "fetch:error", message }),
         );
@@ -90,10 +88,7 @@ const UnlinkedMentions: Component<UnlinkedMentionsProps> = (props) => {
         reduceMentionsState(untrack(state), { type: "mention:linked", key: k }),
       );
     } catch (e) {
-      const message =
-        typeof e === "object" && e !== null && "message" in e
-          ? String((e as { message: unknown }).message)
-          : String(e);
+      const message = errorMessage(e);
       setLinkError({ key: k, message });
     } finally {
       setPending(null);

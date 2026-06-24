@@ -8,6 +8,7 @@ import {
 } from "solid-js";
 
 import { getBacklinks, type Backlink } from "../api/ipc";
+import { errorMessage } from "../errorMessage";
 import {
   backlinkKey,
   basenameWithoutExtension,
@@ -69,10 +70,7 @@ const Backlinks: Component<BacklinksProps> = (props) => {
       })
       .catch((e: unknown) => {
         if (my !== token) return;
-        const message =
-          typeof e === "object" && e !== null && "message" in e
-            ? String((e as { message: unknown }).message)
-            : String(e);
+        const message = errorMessage(e);
         setState(
           reduceBacklinksState(untrack(state), { type: "fetch:error", message }),
         );
