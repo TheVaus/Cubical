@@ -29,7 +29,7 @@ verifiable on its own.
 | **Theme picker** | Picker UI for built-in palette + light/dark/system mode; user themes scanned from `<vault>/.cubical/themes/*.css` | Font family/size overrides; High-Contrast built-in; plugin themes (L6) |
 | **Export** | `sanitize()` seam (identity pre-L7) + one **Copy-as-Markdown** action (whole note) | HTML/PDF export; selection-scoped copy |
 | **Keyboard shortcuts** | Centralized command/keymap registry binding existing core actions | User-remappable bindings; command palette; cheat-sheet overlay |
-| **Perf pass** | The four anti-patterns from [`anti-patterns-2026-06-01.md`](../../architecture/anti-patterns-2026-06-01.md) | Indexing-scale strategy; Pretext virtualization |
+| **Perf pass** | The four anti-patterns from [`anti-patterns-2026-06-01.md`](../../anti-patterns-2026-06-01.md) | Indexing-scale strategy; Pretext virtualization |
 
 ## 3. Approach
 
@@ -136,7 +136,7 @@ command palette, a `?` cheat-sheet overlay.
 ## 7. Perf pass — four anti-patterns
 
 Backend track, orthogonal to the UI work. Fixes the four still-open items from
-[`anti-patterns-2026-06-01.md`](../../architecture/anti-patterns-2026-06-01.md)
+[`anti-patterns-2026-06-01.md`](../../anti-patterns-2026-06-01.md)
 (re-validated still-open 2026-06-17):
 
 1. **N+1 in vault scan** — batch the per-file work.
