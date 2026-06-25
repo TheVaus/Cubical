@@ -24,6 +24,12 @@ ROOT = Path(subprocess.check_output(
     ["git", "rev-parse", "--show-toplevel"], text=True).strip())
 
 LINK = re.compile(r"\]\(([^)]+)\)")
+# Fenced code blocks hold illustrative content — e.g. a plan showing the literal
+# markdown to write into a not-yet-created file. Links inside them are example
+# syntax (out of scope per this module's contract), not navigable doc links, and
+# resolve relative to the future file's location, not the doc quoting them. Strip
+# fences before link-scanning so they don't register as broken links.
+FENCE = re.compile(r"```.*?```", re.DOTALL)
 TAG_ENUM = re.compile(r"l4a.*l4b.*l4c")          # an enumeration line, not a lone tag
 PRIMER_BUDGET = 65
 
@@ -53,7 +59,7 @@ def is_doc_link(target: str) -> bool:
 for f in tracked_md():
     if "superpowers/archive/" in rel(f):
         continue
-    text = f.read_text(encoding="utf-8", errors="replace")
+    text = FENCE.sub("", f.read_text(encoding="utf-8", errors="replace"))
     for m in LINK.finditer(text):
         target = m.group(1).strip()
         if not target or target.startswith(("http://", "https://", "#", "mailto:")):
