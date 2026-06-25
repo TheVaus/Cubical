@@ -4,7 +4,16 @@ import {
   findDuplicateBindings,
   parseKeySpec,
   chordMatches,
+  resolveGlobal,
+  type Command,
 } from "./commands";
+
+const cmd = (id: string, when?: () => boolean): Command => ({
+  id,
+  title: id,
+  run: () => {},
+  when,
+});
 
 const ev = (
   o: Partial<{
@@ -100,5 +109,41 @@ describe("chordMatches", () => {
         ev({ metaKey: true, shiftKey: true, key: "b" }),
       ),
     ).toBe(true);
+  });
+});
+
+describe("resolveGlobal", () => {
+  const binds = [
+    { key: "Mod-k", command: "omnibar.toggle", scope: "global" as const },
+    {
+      key: "Mod-e",
+      command: "editor.toggleRawSource",
+      scope: "editor" as const,
+    },
+  ];
+
+  it("returns the matching global command", () => {
+    const cmds = { "omnibar.toggle": cmd("omnibar.toggle") };
+    const r = resolveGlobal(binds, cmds, ev({ metaKey: true, key: "k" }));
+    expect(r?.id).toBe("omnibar.toggle");
+  });
+
+  it("ignores editor-scope bindings", () => {
+    const cmds = { "editor.toggleRawSource": cmd("editor.toggleRawSource") };
+    expect(
+      resolveGlobal(binds, cmds, ev({ metaKey: true, key: "e" })),
+    ).toBeUndefined();
+  });
+
+  it("skips a command whose when() is false", () => {
+    const cmds = { "omnibar.toggle": cmd("omnibar.toggle", () => false) };
+    expect(
+      resolveGlobal(binds, cmds, ev({ metaKey: true, key: "k" })),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined when no binding matches", () => {
+    const cmds = { "omnibar.toggle": cmd("omnibar.toggle") };
+    expect(resolveGlobal(binds, cmds, ev({ key: "x" }))).toBeUndefined();
   });
 });

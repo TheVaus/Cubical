@@ -98,3 +98,23 @@ export function chordMatches(spec: string, e: KeyEventLike): boolean {
     a.mod === b.mod && a.shift === b.shift && a.alt === b.alt && a.key === b.key
   );
 }
+
+/**
+ * Resolve a keyboard event to the global command it should run, or
+ * `undefined`. Honors `when?.()` guards and ignores non-`global` bindings.
+ */
+export function resolveGlobal(
+  bindings: readonly KeyBinding[],
+  commands: Record<string, Command>,
+  e: KeyEventLike,
+): Command | undefined {
+  for (const b of bindings) {
+    if (b.scope !== "global") continue;
+    if (!chordMatches(b.key, e)) continue;
+    const c = commands[b.command];
+    if (!c) continue;
+    if (c.when && !c.when()) continue;
+    return c;
+  }
+  return undefined;
+}
