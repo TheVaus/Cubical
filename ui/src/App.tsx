@@ -42,6 +42,11 @@ import {
 } from "./api/ipc";
 import { createVaultSession } from "./core/vaultSession";
 import { persistSetting, seedSetting } from "./core/settings";
+import {
+  DEFAULT_BINDINGS,
+  resolveGlobal,
+  type Command,
+} from "./core/commands";
 import { errorMessage } from "./errorMessage";
 import {
   createWikiLinkResolver,
@@ -1175,14 +1180,24 @@ const App: Component = () => {
     window.addEventListener("beforeunload", onBeforeUnload);
     onCleanup(() => window.removeEventListener("beforeunload", onBeforeUnload));
 
-    // L4-C: global Cmd/Ctrl+K toggles the Omni-Bar (no-op without a vault).
+    // Global shortcuts run through the core command registry. Commands are
+    // built from App closures here (the substrate stays feature-agnostic).
+    const globalCommands: Record<string, Command> = {
+      "omnibar.toggle": {
+        id: "omnibar.toggle",
+        title: "Toggle Omni-Bar",
+        when: () => vaultId() !== null,
+        run: () => {
+          void ensureTagsLoaded();
+          setOmniOpen((v) => !v);
+        },
+      },
+    };
     const onGlobalKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        if (!vaultId()) return;
-        e.preventDefault();
-        void ensureTagsLoaded();
-        setOmniOpen((v) => !v);
-      }
+      const c = resolveGlobal(DEFAULT_BINDINGS, globalCommands, e);
+      if (!c) return;
+      e.preventDefault();
+      c.run();
     };
     window.addEventListener("keydown", onGlobalKey);
     onCleanup(() => window.removeEventListener("keydown", onGlobalKey));

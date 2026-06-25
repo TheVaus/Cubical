@@ -62,7 +62,7 @@ export interface KeyChord {
 /** Parse a CodeMirror-notation spec ("Mod-Shift-b") into a {@link KeyChord}. */
 export function parseKeySpec(spec: string): KeyChord {
   const parts = spec.split("-");
-  const key = parts[parts.length - 1].toLowerCase();
+  const key = (parts[parts.length - 1] ?? "").toLowerCase();
   const mods = parts.slice(0, -1).map((m) => m.toLowerCase());
   return {
     mod: mods.includes("mod"),

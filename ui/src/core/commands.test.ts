@@ -9,12 +9,10 @@ import {
   type Command,
 } from "./commands";
 
-const cmd = (id: string, when?: () => boolean): Command => ({
-  id,
-  title: id,
-  run: () => {},
-  when,
-});
+const cmd = (id: string, when?: () => boolean): Command =>
+  when
+    ? { id, title: id, run: () => {}, when }
+    : { id, title: id, run: () => {} };
 
 const ev = (
   o: Partial<{
@@ -171,8 +169,8 @@ describe("toCmBindings", () => {
     };
     const out = toCmBindings(binds, cmds);
     expect(out).toHaveLength(1);
-    expect(out[0].key).toBe("Mod-e");
-    expect(out[0].run()).toBe(true);
+    expect(out[0]?.key).toBe("Mod-e");
+    expect(out[0]?.run()).toBe(true);
     expect(ran).toBe(1);
   });
 
@@ -181,7 +179,7 @@ describe("toCmBindings", () => {
       "editor.toggleRawSource": cmd("editor.toggleRawSource", () => false),
     };
     const out = toCmBindings(binds, cmds);
-    expect(out[0].run()).toBe(false);
+    expect(out[0]?.run()).toBe(false);
   });
 
   it("omits bindings whose command is missing", () => {
