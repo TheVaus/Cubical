@@ -5,6 +5,7 @@ import {
   parseKeySpec,
   chordMatches,
   resolveGlobal,
+  toCmBindings,
   type Command,
 } from "./commands";
 
@@ -145,5 +146,45 @@ describe("resolveGlobal", () => {
   it("returns undefined when no binding matches", () => {
     const cmds = { "omnibar.toggle": cmd("omnibar.toggle") };
     expect(resolveGlobal(binds, cmds, ev({ key: "x" }))).toBeUndefined();
+  });
+});
+
+describe("toCmBindings", () => {
+  const binds = [
+    { key: "Mod-k", command: "omnibar.toggle", scope: "global" as const },
+    {
+      key: "Mod-e",
+      command: "editor.toggleRawSource",
+      scope: "editor" as const,
+    },
+  ];
+
+  it("emits one entry per editor-scope binding with an existing command", () => {
+    let ran = 0;
+    const cmds = {
+      "editor.toggleRawSource": {
+        ...cmd("editor.toggleRawSource"),
+        run: () => {
+          ran++;
+        },
+      },
+    };
+    const out = toCmBindings(binds, cmds);
+    expect(out).toHaveLength(1);
+    expect(out[0].key).toBe("Mod-e");
+    expect(out[0].run()).toBe(true);
+    expect(ran).toBe(1);
+  });
+
+  it("run() returns false (falls through) when when() is false", () => {
+    const cmds = {
+      "editor.toggleRawSource": cmd("editor.toggleRawSource", () => false),
+    };
+    const out = toCmBindings(binds, cmds);
+    expect(out[0].run()).toBe(false);
+  });
+
+  it("omits bindings whose command is missing", () => {
+    expect(toCmBindings(binds, {})).toEqual([]);
   });
 });

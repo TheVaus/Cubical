@@ -118,3 +118,30 @@ export function resolveGlobal(
   }
   return undefined;
 }
+
+/**
+ * Build CodeMirror keymap entries from the `editor`-scope bindings. Each
+ * `run` invokes the command (honoring `when?.()`) and returns `true` when it
+ * ran so CodeMirror stops, `false` to fall through to later handlers. The
+ * returned shape is CodeMirror's `KeyBinding` ({ key, run }).
+ */
+export function toCmBindings(
+  bindings: readonly KeyBinding[],
+  commands: Record<string, Command>,
+): { key: string; run: () => boolean }[] {
+  const out: { key: string; run: () => boolean }[] = [];
+  for (const b of bindings) {
+    if (b.scope !== "editor") continue;
+    const c = commands[b.command];
+    if (!c) continue;
+    out.push({
+      key: b.key,
+      run: () => {
+        if (c.when && !c.when()) return false;
+        c.run();
+        return true;
+      },
+    });
+  }
+  return out;
+}
