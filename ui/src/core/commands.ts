@@ -50,3 +50,51 @@ export function findDuplicateBindings(
   }
   return [...dupes];
 }
+
+/** A normalized key chord. `key` is always lower-cased. */
+export interface KeyChord {
+  mod: boolean;
+  shift: boolean;
+  alt: boolean;
+  key: string;
+}
+
+/** Parse a CodeMirror-notation spec ("Mod-Shift-b") into a {@link KeyChord}. */
+export function parseKeySpec(spec: string): KeyChord {
+  const parts = spec.split("-");
+  const key = parts[parts.length - 1].toLowerCase();
+  const mods = parts.slice(0, -1).map((m) => m.toLowerCase());
+  return {
+    mod: mods.includes("mod"),
+    shift: mods.includes("shift"),
+    alt: mods.includes("alt"),
+    key,
+  };
+}
+
+interface KeyEventLike {
+  metaKey: boolean;
+  ctrlKey: boolean;
+  shiftKey: boolean;
+  altKey: boolean;
+  key: string;
+}
+
+/** Normalize a DOM keyboard event into a {@link KeyChord}. */
+export function eventToChord(e: KeyEventLike): KeyChord {
+  return {
+    mod: e.metaKey || e.ctrlKey,
+    shift: e.shiftKey,
+    alt: e.altKey,
+    key: e.key.toLowerCase(),
+  };
+}
+
+/** True when `spec` exactly describes the chord of event `e`. */
+export function chordMatches(spec: string, e: KeyEventLike): boolean {
+  const a = parseKeySpec(spec);
+  const b = eventToChord(e);
+  return (
+    a.mod === b.mod && a.shift === b.shift && a.alt === b.alt && a.key === b.key
+  );
+}
