@@ -3,6 +3,7 @@ import { EditorView, keymap } from "@codemirror/view";
 import { Compartment, EditorState } from "@codemirror/state";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
+import { DEFAULT_BINDINGS, toCmBindings, type Command } from "./core/commands";
 import { syntaxTree } from "@codemirror/language";
 
 import { normalize } from "./ast/normalize";
@@ -465,6 +466,27 @@ const Editor: Component<EditorProps> = (props) => {
       },
     );
 
+    // Editor shortcuts run through the core command registry. `run` closes
+    // over the outer `view` (assigned just below); commands fire only on
+    // keystroke, by which point `view` is set.
+    const editorCommands: Record<string, Command> = {
+      "editor.toggleRawSource": {
+        id: "editor.toggleRawSource",
+        title: "Toggle raw source",
+        run: () => props.onToggleRawSource?.(),
+      },
+      "editor.copyBlockRef": {
+        id: "editor.copyBlockRef",
+        title: "Copy block reference",
+        run: () => {
+          if (!view) return;
+          const head = view.state.selection.main.head;
+          const text = view.state.doc.toString();
+          props.onCopyBlockRef?.(byteOffsetOf(text, head));
+        },
+      },
+    };
+
     view = new EditorView({
       parent: host,
       state: EditorState.create({
@@ -472,22 +494,7 @@ const Editor: Component<EditorProps> = (props) => {
         extensions: [
           history(),
           keymap.of([
-            {
-              key: "Mod-e",
-              run: () => {
-                props.onToggleRawSource?.();
-                return true;
-              },
-            },
-            {
-              key: "Mod-Shift-b",
-              run: (view) => {
-                const head = view.state.selection.main.head;
-                const text = view.state.doc.toString();
-                props.onCopyBlockRef?.(byteOffsetOf(text, head));
-                return true;
-              },
-            },
+            ...toCmBindings(DEFAULT_BINDINGS, editorCommands),
             // Correct vertical cursor motion around tall block embeds.
             // CM6's geometric Up/Down overshoots a multi-row embed card
             // (one document line, many screen rows); these handlers
