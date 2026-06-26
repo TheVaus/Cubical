@@ -28,17 +28,31 @@ pub async fn get_backlinks(
     state: &AppState,
     req: GetBacklinksRequest,
 ) -> Result<GetBacklinksResponse, CubicalError> {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(&req.vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
+    // Clone the vault handle out from under the read lock, then drop the
+    // guard: the per-source loop below reads files + queries pending
+    // rewrites, and must NOT hold the vaults lock across those awaits.
+    // (It also must not block the async runtime with sync file I/O — the
+    // reads go through `spawn_blocking`. A file with many backlinks would
+    // otherwise interleave blocking reads with `materialize_on_read`
+    // awaits and could stall under concurrent watcher activity.)
+    let vault = {
+        let guard = state.vaults().read().await;
+        guard
+            .get(&req.vault_id)
+            .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?
+            .vault
+            .clone()
+    };
 
-    let rows = backlinks_for(open.vault.index(), &req.path).await?;
+    let rows = backlinks_for(vault.index(), &req.path).await?;
 
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
-        let abs = open.vault.root().join(&row.source_path);
-        let context = match std::fs::read_to_string(&abs) {
+        let abs = vault.root().join(&row.source_path);
+        let read = tokio::task::spawn_blocking(move || std::fs::read_to_string(&abs))
+            .await
+            .map_err(|e| CubicalError::Io(format!("backlink read join error: {e}")))?;
+        let context = match read {
             Ok(raw) => {
                 // Materialize pending rename rewrites before snipping:
                 // the link `position` was extracted against the
@@ -46,7 +60,7 @@ pub async fn get_backlinks(
                 // holds the OLD link text on disk. Without this the
                 // snippet shows the stale name (and can be offset-
                 // misaligned when the rewrite changes the token length).
-                let text = materialize_on_read(open.vault.index(), &row.source_path, &raw)
+                let text = materialize_on_read(vault.index(), &row.source_path, &raw)
                     .await
                     .unwrap_or(raw);
                 build_snippet(&text, row.position)
