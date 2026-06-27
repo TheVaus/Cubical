@@ -8,6 +8,7 @@ import {
   onMount,
   Show,
   type Component,
+  type JSX,
 } from "solid-js";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { UnlistenFn } from "@tauri-apps/api/event";
@@ -109,6 +110,7 @@ import {
   corePluginEnabled,
   type BooleanSettingKey,
 } from "./settings/corePlugins";
+import { toggleInfo, type InfoId } from "./settings/settingsInfo";
 
 /**
  * L2 Session A surface.
@@ -338,6 +340,10 @@ const App: Component = () => {
     | "vault"
     | "shortcuts";
   const [settingsTab, setSettingsTab] = createSignal<SettingsTab>("appearance");
+  // Which complex setting's info popover is open (`null` = none). One at a
+  // time; toggling the same `ⓘ` closes it (spec §State).
+  const [openInfo, setOpenInfo] = createSignal<InfoId | null>(null);
+  const flipInfo = (id: InfoId) => setOpenInfo((cur) => toggleInfo(cur, id));
   const [corePlugins, setCorePlugins] = createSignal<Record<string, boolean>>({});
   // Configurable status bar: master enable + per-item visibility, keyed by
   // full setting key (e.g. "statusbar.show_word_count"). Seeded on vault open.
@@ -1397,6 +1403,26 @@ const App: Component = () => {
     }
   };
 
+  /** `ⓘ` button + its popover, anchored inside a `.set-row__control`. */
+  const InfoButton = (props: { id: InfoId; children: JSX.Element }) => (
+    <>
+      <button
+        type="button"
+        class="set-info-btn"
+        aria-label="About this setting"
+        aria-expanded={openInfo() === props.id}
+        onClick={() => flipInfo(props.id)}
+      >
+        ⓘ
+      </button>
+      <Show when={openInfo() === props.id}>
+        <div class="set-info-pop" role="dialog" aria-label="Setting help">
+          {props.children}
+        </div>
+      </Show>
+    </>
+  );
+
   return (
     <div class="app-shell">
       <header class="topbar">
@@ -2004,14 +2030,26 @@ const App: Component = () => {
           role="dialog"
           aria-modal="true"
           aria-label="Settings"
-          onClick={() => setSettingsOpen(false)}
+          onClick={() => {
+            setSettingsOpen(false);
+            setOpenInfo(null);
+          }}
         >
           <div class="modal" onClick={(e) => e.stopPropagation()}>
+            <Show when={openInfo() !== null}>
+              <div
+                class="set-info-backdrop"
+                onClick={() => setOpenInfo(null)}
+              />
+            </Show>
             <button
               type="button"
               class="chrome-btn modal__close"
               aria-label="Close settings"
-              onClick={() => setSettingsOpen(false)}
+              onClick={() => {
+                setSettingsOpen(false);
+                setOpenInfo(null);
+              }}
             >
               ✕
             </button>
@@ -2037,7 +2075,10 @@ const App: Component = () => {
                     classList={{
                       "modal__navitem--active": settingsTab() === t.id,
                     }}
-                    onClick={() => setSettingsTab(t.id)}
+                    onClick={() => {
+                      setSettingsTab(t.id);
+                      setOpenInfo(null);
+                    }}
                   >
                     {t.label}
                   </button>
@@ -2110,23 +2151,123 @@ const App: Component = () => {
                       date &amp; time, list, …) for type-aware editors.
                     </div>
                   </div>
-                  <div class="seg-control">
-                    <button
-                      type="button"
-                      class="seg-control__btn"
-                      classList={{ "seg-control__btn--active": !typedProps() }}
-                      onClick={() => setTypedPropsValue(false)}
-                    >
-                      Off
-                    </button>
-                    <button
-                      type="button"
-                      class="seg-control__btn"
-                      classList={{ "seg-control__btn--active": typedProps() }}
-                      onClick={() => setTypedPropsValue(true)}
-                    >
-                      On
-                    </button>
+                  <div class="set-row__control">
+                    <InfoButton id="typed-props">
+                      <p style={{ margin: "0 0 var(--space-1) 0" }}>
+                        <strong>How it works.</strong> Pick a type from the{" "}
+                        <code>▾</code> menu on any property row. The Properties
+                        panel then shows the right editor — a <code>$</code>{" "}
+                        field for currency, a date picker, a dropdown for an
+                        enum, and so on. The type is saved as a plain comment{" "}
+                        <em>inside the note</em>, so it travels with the file and
+                        any tool can read it. Nothing is stored outside the
+                        vault.
+                      </p>
+
+                      <div
+                        style={{
+                          display: "grid",
+                          "grid-template-columns": "auto 1fr",
+                          "column-gap": "var(--space-2)",
+                          "row-gap": "var(--space-1)",
+                          "align-items": "baseline",
+                          margin: "var(--space-2) 0",
+                        }}
+                      >
+                        <For
+                          each={
+                            [
+                              ["# type:text", "Text."],
+                              ["# type:int", "Whole number."],
+                              ["# type:float", "Decimal number."],
+                              [
+                                "# type:float/currency/usd",
+                                "Currency — usd · nis · eur (symbol only; value stays a number).",
+                              ],
+                              ["# type:boolean", "True / false toggle."],
+                              [
+                                "# type:enum(alive,dead)",
+                                "One of a fixed set of values.",
+                              ],
+                              [
+                                "# type:date",
+                                "A date. Formats: YYYY-MM-DD, YYYY-MM-DD HH:MM, YYYY, DD-MM-YYYY, MM/DD/YYYY, … — e.g. # type:date:DD-MM-YY.",
+                              ],
+                              [
+                                "# type:list",
+                                "A list of strings; items starting with # become clickable tags.",
+                              ],
+                            ] as [string, string][]
+                          }
+                        >
+                          {([token, desc]) => (
+                            <>
+                              <code
+                                style={{
+                                  "font-family": "var(--font-mono)",
+                                  "font-size": "var(--text-xs)",
+                                  color: "var(--c-accent)",
+                                  "white-space": "nowrap",
+                                }}
+                              >
+                                {token}
+                              </code>
+                              <span style={{ "font-size": "var(--text-xs)" }}>
+                                {desc}
+                              </span>
+                            </>
+                          )}
+                        </For>
+                      </div>
+
+                      <p style={{ margin: "0 0 var(--space-1) 0" }}>
+                        Example frontmatter:
+                      </p>
+                      <pre
+                        style={{
+                          margin: "0 0 var(--space-1) 0",
+                          padding: "var(--space-2)",
+                          "font-family": "var(--font-mono)",
+                          "font-size": "var(--text-xs)",
+                          background: "var(--c-bg-primary)",
+                          border: "1px solid var(--c-border-subtle)",
+                          "border-radius": "var(--radius-sm)",
+                          "white-space": "pre-wrap",
+                        }}
+                      >{`---
+name: Ann       # type:text
+price: 9.99     # type:float/currency/eur
+status: alive   # type:enum(alive,dead)
+meeting: 2026-06-17 14:30  # type:date:YYYY-MM-DD HH:MM
+topics:         # type:list
+  - "#draft"
+---`}</pre>
+                      <p style={{ margin: 0 }}>
+                        A date using the default format, or a currency using the
+                        default code, is written without the extra detail — only
+                        a different one is written inline. Turning this off
+                        leaves any existing <code># type:</code> comments
+                        untouched.
+                      </p>
+                    </InfoButton>
+                    <div class="seg-control">
+                      <button
+                        type="button"
+                        class="seg-control__btn"
+                        classList={{ "seg-control__btn--active": !typedProps() }}
+                        onClick={() => setTypedPropsValue(false)}
+                      >
+                        Off
+                      </button>
+                      <button
+                        type="button"
+                        class="seg-control__btn"
+                        classList={{ "seg-control__btn--active": typedProps() }}
+                        onClick={() => setTypedPropsValue(true)}
+                      >
+                        On
+                      </button>
+                    </div>
                   </div>
                 </div>
                 <Show when={typedProps()}>
@@ -2201,105 +2342,6 @@ const App: Component = () => {
                       </button>
                     </div>
                   </div>
-                  <div
-                    class="set-row__desc"
-                    style={{ "margin-top": "var(--space-2)" }}
-                  >
-                    <p style={{ margin: "0 0 var(--space-1) 0" }}>
-                      <strong>How it works.</strong> Pick a type from the{" "}
-                      <code>▾</code> menu on any property row. The Properties
-                      panel then shows the right editor — a <code>$</code> field
-                      for currency, a date picker, a dropdown for an enum, and so
-                      on. The type is saved as a plain comment{" "}
-                      <em>inside the note</em>, so it travels with the file and
-                      any tool can read it. Nothing is stored outside the vault.
-                    </p>
-
-                    <div
-                      style={{
-                        display: "grid",
-                        "grid-template-columns": "auto 1fr",
-                        "column-gap": "var(--space-2)",
-                        "row-gap": "var(--space-1)",
-                        "align-items": "baseline",
-                        margin: "var(--space-2) 0",
-                      }}
-                    >
-                      <For
-                        each={
-                          [
-                            ["# type:text", "Text."],
-                            ["# type:int", "Whole number."],
-                            ["# type:float", "Decimal number."],
-                            [
-                              "# type:float/currency/usd",
-                              "Currency — usd · nis · eur (symbol only; value stays a number).",
-                            ],
-                            ["# type:boolean", "True / false toggle."],
-                            [
-                              "# type:enum(alive,dead)",
-                              "One of a fixed set of values.",
-                            ],
-                            [
-                              "# type:date",
-                              "A date. Formats: YYYY-MM-DD, YYYY-MM-DD HH:MM, YYYY, DD-MM-YYYY, MM/DD/YYYY, … — e.g. # type:date:DD-MM-YY.",
-                            ],
-                            [
-                              "# type:list",
-                              "A list of strings; items starting with # become clickable tags.",
-                            ],
-                          ] as [string, string][]
-                        }
-                      >
-                        {([token, desc]) => (
-                          <>
-                            <code
-                              style={{
-                                "font-family": "var(--font-mono)",
-                                "font-size": "var(--text-xs)",
-                                color: "var(--c-accent)",
-                                "white-space": "nowrap",
-                              }}
-                            >
-                              {token}
-                            </code>
-                            <span style={{ "font-size": "var(--text-xs)" }}>
-                              {desc}
-                            </span>
-                          </>
-                        )}
-                      </For>
-                    </div>
-
-                    <p style={{ margin: "0 0 var(--space-1) 0" }}>
-                      Example frontmatter:
-                    </p>
-                    <pre
-                      style={{
-                        margin: "0 0 var(--space-1) 0",
-                        padding: "var(--space-2)",
-                        "font-family": "var(--font-mono)",
-                        "font-size": "var(--text-xs)",
-                        background: "var(--c-bg-primary)",
-                        border: "1px solid var(--c-border-subtle)",
-                        "border-radius": "var(--radius-sm)",
-                        "white-space": "pre-wrap",
-                      }}
-                    >{`---
-name: Ann       # type:text
-price: 9.99     # type:float/currency/eur
-status: alive   # type:enum(alive,dead)
-meeting: 2026-06-17 14:30  # type:date:YYYY-MM-DD HH:MM
-topics:         # type:list
-  - "#draft"
----`}</pre>
-                    <p style={{ margin: 0 }}>
-                      A date using the default format, or a currency using the
-                      default code, is written without the extra detail — only a
-                      different one is written inline. Turning this off leaves
-                      any existing <code># type:</code> comments untouched.
-                    </p>
-                  </div>
                 </Show>
               </Show>
               <Show when={settingsTab() === "wikilinks"}>
@@ -2316,27 +2358,40 @@ topics:         # type:list
                       still resolve to the file.
                     </div>
                   </div>
-                  <div class="seg-control">
-                    <button
-                      type="button"
-                      class="seg-control__btn"
-                      classList={{
-                        "seg-control__btn--active": !rewriteBrokenLinks(),
-                      }}
-                      onClick={() => setRewriteBrokenLinksValue(false)}
-                    >
-                      Off
-                    </button>
-                    <button
-                      type="button"
-                      class="seg-control__btn"
-                      classList={{
-                        "seg-control__btn--active": rewriteBrokenLinks(),
-                      }}
-                      onClick={() => setRewriteBrokenLinksValue(true)}
-                    >
-                      On
-                    </button>
+                  <div class="set-row__control">
+                    <InfoButton id="wiki-repair">
+                      <p>
+                        <strong>On:</strong> renaming a file also fixes links
+                        that point at its old name but had already broken from
+                        an earlier rename.
+                      </p>
+                      <p>
+                        <strong>Off:</strong> a rename only updates links that
+                        still resolve to the file.
+                      </p>
+                    </InfoButton>
+                    <div class="seg-control">
+                      <button
+                        type="button"
+                        class="seg-control__btn"
+                        classList={{
+                          "seg-control__btn--active": !rewriteBrokenLinks(),
+                        }}
+                        onClick={() => setRewriteBrokenLinksValue(false)}
+                      >
+                        Off
+                      </button>
+                      <button
+                        type="button"
+                        class="seg-control__btn"
+                        classList={{
+                          "seg-control__btn--active": rewriteBrokenLinks(),
+                        }}
+                        onClick={() => setRewriteBrokenLinksValue(true)}
+                      >
+                        On
+                      </button>
+                    </div>
                   </div>
                 </div>
               </Show>
@@ -2351,23 +2406,50 @@ topics:         # type:list
                           <div class="set-row__lab">{p.name}</div>
                           <div class="set-row__desc">{p.description}</div>
                         </div>
-                        <div class="seg-control">
-                          <button
-                            type="button"
-                            class="seg-control__btn"
-                            classList={{ "seg-control__btn--active": !on() }}
-                            onClick={() => setCorePlugin(p.id, p.settingKey, false)}
-                          >
-                            Off
-                          </button>
-                          <button
-                            type="button"
-                            class="seg-control__btn"
-                            classList={{ "seg-control__btn--active": on() }}
-                            onClick={() => setCorePlugin(p.id, p.settingKey, true)}
-                          >
-                            On
-                          </button>
+                        <div class="set-row__control">
+                          <Show when={p.id === "dataview"}>
+                            <InfoButton id="dataview">
+                              <p>
+                                A <code>query</code> block renders live results
+                                from your vault as a table, list, or count — it
+                                updates as notes change.
+                              </p>
+                              <pre>{'```query\nfrom #project where status = "active"\n```'}</pre>
+                            </InfoButton>
+                          </Show>
+                          <Show when={p.id === "property-refs"}>
+                            <InfoButton id="property-refs">
+                              <p>
+                                <code>[[note.prop]]</code> shows a value from
+                                another note's frontmatter inline;{" "}
+                                <code>[[.prop]]</code> reads the current note's
+                                own.
+                              </p>
+                              <pre>{"# In Ann.md\n---\nrole: Engineer\n---\n\n# In any note\nAnn is a [[Ann.role]]."}</pre>
+                            </InfoButton>
+                          </Show>
+                          <div class="seg-control">
+                            <button
+                              type="button"
+                              class="seg-control__btn"
+                              classList={{ "seg-control__btn--active": !on() }}
+                              onClick={() =>
+                                setCorePlugin(p.id, p.settingKey, false)
+                              }
+                            >
+                              Off
+                            </button>
+                            <button
+                              type="button"
+                              class="seg-control__btn"
+                              classList={{ "seg-control__btn--active": on() }}
+                              onClick={() =>
+                                setCorePlugin(p.id, p.settingKey, true)
+                              }
+                            >
+                              On
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );
