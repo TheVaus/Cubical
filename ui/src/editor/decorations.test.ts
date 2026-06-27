@@ -21,6 +21,7 @@ import {
   findBlockIds,
   findFrontmatter,
   livePreviewDecorations,
+  type CursorState,
   type DecoEntry,
   type DecoKind,
 } from "./decorations";
@@ -30,18 +31,24 @@ import type { WikiLinkResolution } from "./wikilinkResolver";
 
 const parser = defaultParser.configure([wikilinkExtension, tagExtension]);
 
+/** A collapsed caret at `offset`, or a full selection range, as CursorState. */
+function toCursor(c: number | CursorState): CursorState {
+  return typeof c === "number" ? { head: c, from: c, to: c } : c;
+}
+
+/** Document offset of the start of 1-based `line` — for line-based tests. */
+function at(src: string, line: number): number {
+  return Text.of(src.split("\n")).line(line).from;
+}
+
 function run(
   src: string,
-  activeLine: number,
+  cursor: number | CursorState,
   resolverLookup?: (targetRaw: string) => WikiLinkResolution | undefined,
 ): DecoEntry[] {
   const tree = parser.parse(src);
   const doc = Text.of(src.split("\n"));
-  return collectDecorations(tree, doc, activeLine, resolverLookup);
-}
-
-function kinds(entries: DecoEntry[]): DecoKind[] {
-  return entries.map((e) => e.kind);
+  return collectDecorations(tree, doc, toCursor(cursor), resolverLookup);
 }
 
 function ofKind(entries: DecoEntry[], kind: DecoKind): DecoEntry[] {
@@ -63,7 +70,7 @@ function slice(src: string, e: DecoEntry): string {
 describe("collectDecorations — ATX headings", () => {
   it("hides the # marker and tags the line with its heading level", () => {
     const src = "# Title\n\nbody";
-    const entries = run(src, 3);
+    const entries = run(src, at(src, 3));
     const lineDeco = one(ofKind(entries, "line-h1"));
     expect(lineDeco.from).toBe(0);
     expect(lineDeco.to).toBe(0);
@@ -72,7 +79,7 @@ describe("collectDecorations — ATX headings", () => {
 
   it("scales each heading level 1-6 with its own line class", () => {
     const src = "# h1\n## h2\n### h3\n#### h4\n##### h5\n###### h6";
-    const entries = run(src, 99 /* no real active line */);
+    const entries = run(src, at(src, 1));
     expect(ofKind(entries, "line-h1")).toHaveLength(1);
     expect(ofKind(entries, "line-h2")).toHaveLength(1);
     expect(ofKind(entries, "line-h3")).toHaveLength(1);
@@ -83,7 +90,7 @@ describe("collectDecorations — ATX headings", () => {
 
   it("reveals the marker as muted on the cursor line but keeps the heading class", () => {
     const src = "# Title\n\nbody";
-    const entries = run(src, 1);
+    const entries = run(src, at(src, 1));
     expect(ofKind(entries, "line-h1")).toHaveLength(1);
     expect(ofKind(entries, "hide")).toHaveLength(0);
     expect(slice(src, one(ofKind(entries, "mark-marker-muted")))).toBe("# ");
@@ -93,7 +100,7 @@ describe("collectDecorations — ATX headings", () => {
 describe("collectDecorations — Setext headings", () => {
   it("tags the content line and hides the underline row", () => {
     const src = "Title\n=====\n\nbody";
-    const entries = run(src, 4);
+    const entries = run(src, at(src, 4));
     expect(ofKind(entries, "line-h1")).toHaveLength(1);
     expect(slice(src, one(ofKind(entries, "hide")))).toBe("=====");
   });
@@ -102,7 +109,7 @@ describe("collectDecorations — Setext headings", () => {
 describe("collectDecorations — inline emphasis", () => {
   it("italicises Emphasis and hides both * markers", () => {
     const src = "text *word* end\n";
-    const entries = run(src, 2);
+    const entries = run(src, at(src, 2));
     expect(slice(src, one(ofKind(entries, "mark-em")))).toBe("*word*");
     const hidden = ofKind(entries, "hide");
     expect(hidden.map((e) => slice(src, e))).toEqual(["*", "*"]);
@@ -110,7 +117,7 @@ describe("collectDecorations — inline emphasis", () => {
 
   it("bolds StrongEmphasis and hides both ** markers", () => {
     const src = "text **word** end\n";
-    const entries = run(src, 2);
+    const entries = run(src, at(src, 2));
     expect(slice(src, one(ofKind(entries, "mark-strong")))).toBe("**word**");
     const hidden = ofKind(entries, "hide");
     expect(hidden.map((e) => slice(src, e))).toEqual(["**", "**"]);
@@ -120,7 +127,7 @@ describe("collectDecorations — inline emphasis", () => {
 describe("collectDecorations — inline code", () => {
   it("styles InlineCode and hides the backtick markers", () => {
     const src = "call `fn()` now\n";
-    const entries = run(src, 2);
+    const entries = run(src, at(src, 2));
     expect(slice(src, one(ofKind(entries, "mark-code")))).toBe("`fn()`");
     const hidden = ofKind(entries, "hide");
     expect(hidden.map((e) => slice(src, e))).toEqual(["`", "`"]);
@@ -130,7 +137,7 @@ describe("collectDecorations — inline code", () => {
 describe("collectDecorations — code blocks", () => {
   it("tags every line of a fenced block and hides both fence lines", () => {
     const src = "```\ncode\n```\n\nafter";
-    const entries = run(src, 5);
+    const entries = run(src, at(src, 5));
     expect(ofKind(entries, "line-code")).toHaveLength(3);
     const hidden = ofKind(entries, "hide");
     expect(hidden.map((e) => slice(src, e))).toEqual(["```", "```"]);
@@ -140,7 +147,7 @@ describe("collectDecorations — code blocks", () => {
 describe("collectDecorations — blockquotes", () => {
   it("tags each quote line and hides the > marker", () => {
     const src = "> quoted\n> lines\n\nafter";
-    const entries = run(src, 4);
+    const entries = run(src, at(src, 4));
     expect(ofKind(entries, "line-quote")).toHaveLength(2);
     const hidden = ofKind(entries, "hide");
     expect(hidden.map((e) => slice(src, e))).toEqual(["> ", "> "]);
@@ -150,13 +157,13 @@ describe("collectDecorations — blockquotes", () => {
 describe("collectDecorations — lists", () => {
   it("replaces a bullet marker with a bullet glyph", () => {
     const src = "- item\n\nafter";
-    const entries = run(src, 3);
+    const entries = run(src, at(src, 3));
     expect(slice(src, one(ofKind(entries, "bullet")))).toBe("-");
   });
 
   it("keeps ordered-list numerals — no bullet, no hide", () => {
     const src = "1. first\n2. second\n\nafter";
-    const entries = run(src, 4);
+    const entries = run(src, at(src, 4));
     expect(ofKind(entries, "bullet")).toHaveLength(0);
     expect(ofKind(entries, "hide")).toHaveLength(0);
   });
@@ -165,7 +172,7 @@ describe("collectDecorations — lists", () => {
 describe("collectDecorations — links", () => {
   it("underlines the link text and hides the brackets and url", () => {
     const src = "see [docs](http://x) now\n";
-    const entries = run(src, 2);
+    const entries = run(src, at(src, 2));
     expect(slice(src, one(ofKind(entries, "mark-link")))).toBe("docs");
     const hidden = ofKind(entries, "hide")
       .map((e) => slice(src, e))
@@ -180,8 +187,8 @@ describe("collectDecorations — out of scope nodes stay raw", () => {
     // decorated node in L3 Session B; see the wiki-link describe block
     // below for the new contract.
     const src = "![alt](http://x)\n\n---\n\n#tag is not a heading\n\nend";
-    const entries = run(src, 7);
-    expect(kinds(entries)).toEqual(["line-active"]);
+    const entries = run(src, at(src, 7));
+    expect(entries).toEqual([]);
   });
 });
 
@@ -197,7 +204,7 @@ describe("collectDecorations — wiki-links (L3 Session B)", () => {
 
   it("[[note]] off-cursor: hide [[ and ]], visible target as mark-wikilink", () => {
     const src = "see [[note]] here\n";
-    const entries = run(src, 99, resolvedAll);
+    const entries = run(src, at(src, 2), resolvedAll);
     expect(slice(src, one(ofKind(entries, "mark-wikilink")))).toBe("note");
     const hidden = ofKind(entries, "hide").map((e) => slice(src, e));
     expect(hidden).toEqual(["[[", "]]"]);
@@ -205,7 +212,7 @@ describe("collectDecorations — wiki-links (L3 Session B)", () => {
 
   it("[[note|display]] off-cursor: hide [[note|, show display as mark-wikilink", () => {
     const src = "[[note|display]]\n";
-    const entries = run(src, 99, resolvedAll);
+    const entries = run(src, at(src, 2), resolvedAll);
     expect(slice(src, one(ofKind(entries, "mark-wikilink")))).toBe("display");
     const hidden = ofKind(entries, "hide").map((e) => slice(src, e));
     expect(hidden).toEqual(["[[note|", "]]"]);
@@ -213,7 +220,7 @@ describe("collectDecorations — wiki-links (L3 Session B)", () => {
 
   it("[[note#heading]] off-cursor: visible target, hide [[ and #heading]]", () => {
     const src = "[[note#heading]]\n";
-    const entries = run(src, 99, resolvedAll);
+    const entries = run(src, at(src, 2), resolvedAll);
     expect(slice(src, one(ofKind(entries, "mark-wikilink")))).toBe("note");
     const hidden = ofKind(entries, "hide").map((e) => slice(src, e));
     expect(hidden).toEqual(["[[", "#heading]]"]);
@@ -221,7 +228,7 @@ describe("collectDecorations — wiki-links (L3 Session B)", () => {
 
   it("[[note#^id]] off-cursor: visible target, hide [[ and #^id]]", () => {
     const src = "[[note#^id]]\n";
-    const entries = run(src, 99, resolvedAll);
+    const entries = run(src, at(src, 2), resolvedAll);
     expect(slice(src, one(ofKind(entries, "mark-wikilink")))).toBe("note");
     const hidden = ofKind(entries, "hide").map((e) => slice(src, e));
     expect(hidden).toEqual(["[[", "#^id]]"]);
@@ -229,7 +236,7 @@ describe("collectDecorations — wiki-links (L3 Session B)", () => {
 
   it("![[diagram]] off-cursor: visible target + hidden brackets (no inline embed indicator — retired in L4-A-fix Contract 2)", () => {
     const src = "![[diagram]]\n";
-    const entries = run(src, 99, resolvedAll);
+    const entries = run(src, at(src, 2), resolvedAll);
     expect(slice(src, one(ofKind(entries, "mark-wikilink")))).toBe("diagram");
     const hidden = ofKind(entries, "hide").map((e) => slice(src, e));
     expect(hidden).toEqual(["![[", "]]"]);
@@ -238,7 +245,7 @@ describe("collectDecorations — wiki-links (L3 Session B)", () => {
   it("does not emit mark-wikilink-embed for embed tokens (retired in L4-A-fix Contract 2)", () => {
     const doc = Text.of(["paragraph", "", "![[Daily]]", "", "tail"]);
     const tree = parser.parse(doc.toString());
-    const entries = collectDecorations(tree, doc, 1);
+    const entries = collectDecorations(tree, doc, toCursor(0));
     for (const e of entries) {
       expect(e.kind).not.toBe("mark-wikilink-embed");
     }
@@ -246,7 +253,7 @@ describe("collectDecorations — wiki-links (L3 Session B)", () => {
 
   it("unresolved target gets mark-wikilink-unresolved instead of mark-wikilink", () => {
     const src = "[[missing]]\n";
-    const entries = run(src, 99, unresolvedAll);
+    const entries = run(src, at(src, 2), unresolvedAll);
     expect(slice(src, one(ofKind(entries, "mark-wikilink-unresolved")))).toBe(
       "missing",
     );
@@ -258,26 +265,26 @@ describe("collectDecorations — wiki-links (L3 Session B)", () => {
     // — that flashes warnings the user has no reason to see. The next
     // decoration rebuild after the IPC returns will repaint correctly.
     const src = "[[note]]\n";
-    const entries = run(src, 99, () => undefined);
+    const entries = run(src, at(src, 2), () => undefined);
     expect(slice(src, one(ofKind(entries, "mark-wikilink")))).toBe("note");
     expect(ofKind(entries, "mark-wikilink-unresolved")).toHaveLength(0);
   });
 
-  it("on the cursor line, the wiki-link token becomes mark-marker-muted", () => {
+  it("when the cursor touches it, the wiki-link token becomes mark-marker-muted", () => {
     const src = "[[note|display]]\n";
-    const entries = run(src, 1, unresolvedAll);
+    const entries = run(src, 1, unresolvedAll); // caret inside the token
     expect(ofKind(entries, "mark-wikilink")).toHaveLength(0);
     expect(ofKind(entries, "mark-wikilink-unresolved")).toHaveLength(0);
     expect(ofKind(entries, "hide")).toHaveLength(0);
     // Brackets + content all muted. We don't assert exact substring
-    // splits here — the cursor-line behaviour is "reveal raw source",
+    // splits here — the touched behaviour is "reveal raw source",
     // exact range boundaries are an implementation detail.
     expect(ofKind(entries, "mark-marker-muted").length).toBeGreaterThan(0);
   });
 
   it("multiple wiki-links in one paragraph each get their own decoration", () => {
     const src = "[[a]] and [[b]]\n";
-    const entries = run(src, 99, resolvedAll);
+    const entries = run(src, at(src, 2), resolvedAll);
     const visible = ofKind(entries, "mark-wikilink").map((e) => slice(src, e));
     expect(visible.sort()).toEqual(["a", "b"]);
   });
@@ -286,7 +293,7 @@ describe("collectDecorations — wiki-links (L3 Session B)", () => {
 describe("collectDecorations — tags (L3 Session D)", () => {
   it("emits mark-tag covering the whole token off the cursor line", () => {
     const src = "see #todo here\n";
-    const entries = run(src, 99);
+    const entries = run(src, at(src, 2));
     const tags = ofKind(entries, "mark-tag");
     expect(tags).toHaveLength(1);
     expect(slice(src, tags[0]!)).toBe("#todo");
@@ -294,7 +301,7 @@ describe("collectDecorations — tags (L3 Session D)", () => {
 
   it("emits a nested tag as one token", () => {
     const src = "#project/cubical/l3\n";
-    const entries = run(src, 99);
+    const entries = run(src, at(src, 2));
     const tags = ofKind(entries, "mark-tag");
     expect(tags).toHaveLength(1);
     expect(slice(src, tags[0]!)).toBe("#project/cubical/l3");
@@ -302,27 +309,81 @@ describe("collectDecorations — tags (L3 Session D)", () => {
 
   it("emits multiple tag marks for multiple tags", () => {
     const src = "#one #two #three\n";
-    const entries = run(src, 99);
+    const entries = run(src, at(src, 2));
     const tags = ofKind(entries, "mark-tag");
     expect(tags.map((t) => slice(src, t))).toEqual(["#one", "#two", "#three"]);
   });
 
-  it("flips to muted on the cursor line (no mark-tag emitted)", () => {
+  it("flips to muted when the cursor touches it (no mark-tag emitted)", () => {
     const src = "#todo\n";
-    const entries = run(src, 1);
+    const entries = run(src, 1); // caret inside the tag
     expect(ofKind(entries, "mark-tag")).toHaveLength(0);
     const muted = ofKind(entries, "mark-marker-muted");
     expect(muted.some((e) => slice(src, e) === "#todo")).toBe(true);
   });
 });
 
-describe("collectDecorations — active line", () => {
-  it("emits a line-active entry anchored at the cursor line start", () => {
-    const src = "alpha\nbeta\ngamma";
-    const entries = run(src, 2);
-    const active = one(ofKind(entries, "line-active"));
-    expect(active.from).toBe(6); // start of line 2
-    expect(active.to).toBe(6);
+describe("collectDecorations — inline reveal is touch-based, not line-based", () => {
+  // The reference bug: an inline token must stay rendered while the
+  // caret merely shares its line; it reveals raw only when the caret
+  // actually touches it (boundary-inclusive).
+
+  it("keeps a wiki-link rendered when the caret is elsewhere on its line", () => {
+    const src = "see [[note]] here\n"; // [[note]] spans offsets 4..12
+    const entries = run(src, 1); // caret inside "see"
+    expect(ofKind(entries, "mark-wikilink")).toHaveLength(1);
+    expect(ofKind(entries, "hide")).toHaveLength(2); // [[ and ]]
+    expect(ofKind(entries, "mark-marker-muted")).toHaveLength(0);
+  });
+
+  it("reveals a wiki-link raw when the caret is inside it", () => {
+    const src = "see [[note]] here\n";
+    const entries = run(src, 7); // caret inside "note"
+    expect(ofKind(entries, "mark-wikilink")).toHaveLength(0);
+    expect(ofKind(entries, "hide")).toHaveLength(0);
+    expect(ofKind(entries, "mark-marker-muted").length).toBeGreaterThan(0);
+  });
+
+  it("treats a caret on either boundary as touching the wiki-link", () => {
+    const src = "see [[note]] here\n";
+    for (const caret of [4, 12]) {
+      // 4 == just before "[[", 12 == just after "]]"
+      const entries = run(src, caret);
+      expect(ofKind(entries, "mark-wikilink")).toHaveLength(0);
+      expect(ofKind(entries, "mark-marker-muted").length).toBeGreaterThan(0);
+    }
+    // One past the closer renders again.
+    expect(ofKind(run(src, 13), "mark-wikilink")).toHaveLength(1);
+  });
+
+  it("reveals a wiki-link when a selection overlaps it", () => {
+    const src = "see [[note]] here\n";
+    const entries = run(src, { head: 7, from: 1, to: 7 });
+    expect(ofKind(entries, "mark-wikilink")).toHaveLength(0);
+    expect(ofKind(entries, "mark-marker-muted").length).toBeGreaterThan(0);
+  });
+
+  it("keeps emphasis markers hidden until the caret touches the token", () => {
+    const src = "text *word* end\n"; // *word* spans 5..11
+    expect(ofKind(run(src, 1), "hide")).toHaveLength(2); // caret in "text"
+    expect(ofKind(run(src, 7), "hide")).toHaveLength(0); // caret in "word"
+    expect(ofKind(run(src, 7), "mark-marker-muted").length).toBeGreaterThan(0);
+  });
+
+  it("keeps a tag rendered until the caret touches it", () => {
+    const src = "see #todo here\n"; // #todo spans 4..9
+    expect(ofKind(run(src, 1), "mark-tag")).toHaveLength(1); // caret in "see"
+    expect(ofKind(run(src, 6), "mark-tag")).toHaveLength(0); // caret in "todo"
+  });
+
+  it("still reveals a heading marker line-based — anywhere on the line", () => {
+    const src = "# Title\n\nbody";
+    // Caret elsewhere on the heading line still reveals the `# `.
+    const onLine = run(src, 5);
+    expect(slice(src, one(ofKind(onLine, "mark-marker-muted")))).toBe("# ");
+    expect(ofKind(onLine, "hide")).toHaveLength(0);
+    // Caret on another line hides it.
+    expect(ofKind(run(src, at(src, 3)), "hide")).toHaveLength(1);
   });
 });
 
@@ -386,7 +447,7 @@ describe("livePreviewDecorations bundle — raw-source toggle contract (L3 Sessi
 
   it("collectDecorations (driven by the bundle) emits mark-wikilink for wiki-links", () => {
     const src = "[[note]]\n";
-    const entries = run(src, 99, () => ({
+    const entries = run(src, at(src, 2), () => ({
       target_path: "note.md",
       anchor: null,
     }));
@@ -394,44 +455,47 @@ describe("livePreviewDecorations bundle — raw-source toggle contract (L3 Sessi
   });
 });
 
-function runBlockIds(src: string, activeLine: number): DecoEntry[] {
+function runBlockIds(src: string, cursor: number | CursorState): DecoEntry[] {
   const tree = parser.parse(src);
   const doc = Text.of(src.split("\n"));
-  return findBlockIds(doc, tree, activeLine);
+  return findBlockIds(doc, tree, toCursor(cursor));
 }
 
 describe("findBlockIds", () => {
-  it("marks a trailing ^id off the cursor line", () => {
-    // activeLine 3 ("other"), so line 1's id is decorated.
-    const got = runBlockIds("a paragraph ^intro\n\nother\n", 3);
+  it("marks a trailing ^id the cursor is not touching", () => {
+    // Caret on line 3 ("other"), so line 1's id is decorated.
+    const src = "a paragraph ^intro\n\nother\n";
+    const got = runBlockIds(src, at(src, 3));
     expect(got).toHaveLength(1);
     expect(got[0]?.kind).toBe("mark-blockid");
-    const src = "a paragraph ^intro";
-    expect(got[0]?.from).toBe(src.indexOf("^"));
-    expect(got[0]?.to).toBe(src.length);
+    const line = "a paragraph ^intro";
+    expect(got[0]?.from).toBe(line.indexOf("^"));
+    expect(got[0]?.to).toBe(line.length);
   });
 
   it("marks an id alone on its own line", () => {
-    const got = runBlockIds("para\n^solo\n", 1);
+    const got = runBlockIds("para\n^solo\n", 0); // caret on line 1
     expect(got).toHaveLength(1);
     // Line 2 starts after "para\n" = offset 5.
     expect(got[0]?.from).toBe(5);
     expect(got[0]?.to).toBe(5 + "^solo".length);
   });
 
-  it("reveals (does not mark) the id on the active line", () => {
-    const got = runBlockIds("a paragraph ^intro\n", 1);
+  it("reveals (does not mark) the id the cursor is touching", () => {
+    // Caret inside ^intro (offset 13).
+    const got = runBlockIds("a paragraph ^intro\n", 13);
     expect(got).toHaveLength(0);
   });
 
   it("ignores ^id inside a fenced code block", () => {
-    const got = runBlockIds("```\nlet x = 1 ^nope\n```\nreal ^yes\n", 99);
+    const src = "```\nlet x = 1 ^nope\n```\nreal ^yes\n";
+    const got = runBlockIds(src, at(src, 5)); // caret on the trailing line
     expect(got).toHaveLength(1);
     expect(got[0]?.to).toBe("```\nlet x = 1 ^nope\n```\nreal ^yes".length);
   });
 
   it("does not match mid-line or non-ws-preceded carets", () => {
-    expect(runBlockIds("text ^mid more\n", 99)).toHaveLength(0);
-    expect(runBlockIds("word^attached\n", 99)).toHaveLength(0);
+    expect(runBlockIds("text ^mid more\n", at("text ^mid more\n", 2))).toHaveLength(0);
+    expect(runBlockIds("word^attached\n", at("word^attached\n", 2))).toHaveLength(0);
   });
 });

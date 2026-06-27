@@ -45,13 +45,13 @@ For non-features explicitly cut from scope, see [`docs/architecture/constraints.
 
 ## Project state
 
-**Uncommitted on `main` (2026-06-23), gates green; not committed** (tree also
-carries pre-existing work in `events.rs`, `cubical-search/index.rs`, `ui/` — keep
-commits scoped): deleted-file pruning fix, rename-coalescing fix, **create files +
-folders** (migration 007 `folders`, `create_file`/`create_folder` IPCs, tree-header
-buttons). Detail: `layer-0-spec.md` §14.1 (2026-06-23) + §14.2 #5; `layer-3-spec.md`
-§9.15. Also awaiting smoke (2026-06-20): property-ref interpolation + configurable
-status bar (`docs/superpowers/specs/2026-06-20-*`). **Parked:** `feat/typed-properties`.
+**Uncommitted on `main`, gates green; not committed** (pre-existing work in tree —
+keep commits scoped): deleted-file pruning + rename-coalescing fixes, **create
+files + folders** (`layer-0-spec.md` §14, `layer-3-spec.md` §9.15), **Live Preview
+touch-reveal** (inline tokens reveal raw on cursor touch, not whole-line; no
+active-line highlight; `layer-2-spec.md` §2.2). Awaiting smoke: property-ref
+interpolation + status bar (`docs/superpowers/specs/2026-06-20-*`). **Parked:**
+`feat/typed-properties`.
 
 **On `main`:** Typed properties (inline `# type:`) merged but **defaulted off**
 — `.md`-storage approach slated for a vault-level type registry
@@ -60,6 +60,6 @@ status bar (`docs/superpowers/specs/2026-06-20-*`). **Parked:** `feat/typed-prop
 close-tag is the only structural open gate** — operator smoke, recipe
 `layer-4-spec.md` §9.5–9.6. Deferred: tabs/multi-document, per-occurrence search.
 
-**Tests:** 604 vitest + 555 Rust (working tree). Gates: `scripts/check.sh`
+**Tests:** 630 vitest + 555 Rust (working tree). Gates: `scripts/check.sh`
 (fmt/clippy/test, tsc, vitest, build, docs) — all green. Layer status/tags/dates:
 `docs/build-order.md`.

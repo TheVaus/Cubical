@@ -80,7 +80,6 @@
   --transition-base: 200ms ease-out;
 
   /* Editor surface (L2 — Live Preview decorations + CM6 theme) */
-  --editor-active-line-bg:  rgba(91, 108, 255, 0.06);
   --editor-mark-fg-muted:   #c4c4cc;
   --editor-caret:           #5b6cff;
   --editor-selection-bg:    rgba(91, 108, 255, 0.18);
@@ -110,7 +109,6 @@
   --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.4);
   --shadow-lg: 0 12px 24px rgba(0, 0, 0, 0.5);
 
-  --editor-active-line-bg:  rgba(129, 140, 255, 0.12);
   --editor-mark-fg-muted:   #6e6e78;
   --editor-caret:           #818cff;
   --editor-selection-bg:    rgba(129, 140, 255, 0.28);

@@ -3,9 +3,13 @@
  *
  * A CodeMirror 6 `ViewPlugin` that makes the markdown buffer read like
  * a document: headings scale, emphasis renders, code blocks get a
- * surface, marker tokens (`#`, `*`, backticks, `>`, list dashes, link
- * brackets + url) are hidden — except on the cursor's line, where the
- * raw source is revealed so it stays directly editable.
+ * surface, marker tokens are hidden — revealed (muted) so the raw
+ * source stays directly editable when the cursor reaches them. Reveal
+ * has two modes (see {@link CursorState}): line-level markers (`#`,
+ * fenced backticks, `>`, list dashes) reveal whenever the cursor shares
+ * their line; inline tokens (`*`, backticks, link brackets + url,
+ * `[[…]]`, `#tag`, `^id`) reveal only while the cursor actually touches
+ * the token — being elsewhere on the same line is not enough.
  *
  * Decoration source is **Lezer exclusively** (`syntaxTree(state)`).
  * This is the L2 §5 deviation #2: decorations need byte-precise marker
@@ -61,7 +65,6 @@ export type DecoKind =
   | "line-h6"
   | "line-code"
   | "line-quote"
-  | "line-active"
   | "mark-em"
   | "mark-strong"
   | "mark-code"
@@ -115,12 +118,45 @@ export interface DecoEntry {
   kind: DecoKind;
 }
 
-/** A marker token — hidden off the cursor line, revealed (muted) on it. */
+/**
+ * The main selection, as the reveal logic needs it.
+ *
+ * `head` anchors the active-line highlight and the line-based reveal of
+ * line-level constructs (headings, fences, blockquotes, bullets). The
+ * `[from, to]` range (collapsed `head..head` when there is no
+ * selection) drives inline-token reveal: an inline token shows its raw
+ * source when this range overlaps it (boundary-inclusive — a caret
+ * sitting immediately before or after the token counts as touching).
+ */
+export interface CursorState {
+  head: number;
+  from: number;
+  to: number;
+}
+
+/** True when the selection overlaps `[from, to]` (boundary-inclusive). */
+function cursorTouches(
+  cursor: CursorState,
+  from: number,
+  to: number,
+): boolean {
+  return cursor.from <= to && cursor.to >= from;
+}
+
+/** A marker token — hidden until the cursor reaches it, then muted. */
 interface Marker {
   from: number;
   to: number;
   /** Bullet-list dashes render as a `•` glyph rather than vanishing. */
   bullet: boolean;
+  /**
+   * Reveal mode. With a token range, the marker reveals only while the
+   * cursor *touches* that range — inline tokens (emphasis, inline code,
+   * inline-link punctuation). When `null`, it reveals line-based: muted
+   * whenever the cursor shares its line — line-level constructs (heading
+   * `#`, fenced backticks, quote `>`, bullet dash).
+   */
+  token: { from: number; to: number } | null;
 }
 
 /**
@@ -175,19 +211,19 @@ function isInsideCode(tree: Tree, pos: number): boolean {
 
 /**
  * Scan every line for a trailing `^block-id` token (spec §2.7 grammar),
- * skipping the cursor line (revealed raw, like every marker) and any id
- * inside fenced/inline code. Returns `mark-blockid` entries. Pure; the
- * markdown grammar has no `^id` node, so this is a direct doc scan in
- * the `findFrontmatter` tradition rather than a Lezer walk.
+ * revealing the id raw while the cursor touches it (like every inline
+ * token) and skipping any id inside fenced/inline code. Returns
+ * `mark-blockid` entries. Pure; the markdown grammar has no `^id` node,
+ * so this is a direct doc scan in the `findFrontmatter` tradition
+ * rather than a Lezer walk.
  */
 export function findBlockIds(
   doc: Text,
   tree: Tree,
-  activeLine: number,
+  cursor: CursorState,
 ): DecoEntry[] {
   const out: DecoEntry[] = [];
   for (let ln = 1; ln <= doc.lines; ln++) {
-    if (ln === activeLine) continue;
     const line = doc.line(ln);
     const m = TRAILING_BLOCK_ID.exec(line.text);
     if (!m) continue;
@@ -198,6 +234,9 @@ export function findBlockIds(
     const caretRel = m.index + lead.length;
     const from = line.from + caretRel;
     const to = from + 1 + id.length;
+    // Revealed raw while the cursor touches the id; sharing the line is
+    // not enough.
+    if (cursorTouches(cursor, from, to)) continue;
     if (isInsideCode(tree, from)) continue;
     out.push({ from, to, kind: "mark-blockid" });
   }
@@ -227,8 +266,10 @@ function resolverKey(
 
 /**
  * Walk the Lezer tree and produce the decoration entry list for the
- * current cursor line. Pure: no `EditorView`, no DOM — directly
- * testable against a parsed tree.
+ * given cursor state. Pure: no `EditorView`, no DOM — directly testable
+ * against a parsed tree. Line-level markers reveal on the cursor's line;
+ * inline tokens reveal only while the cursor touches them (see
+ * {@link CursorState}).
  *
  * `resolverLookup`, when supplied, supplies wiki-link resolution
  * status per target. A return of `undefined` means "not yet checked"
@@ -237,11 +278,12 @@ function resolverKey(
 export function collectDecorations(
   tree: Tree,
   doc: Text,
-  activeLine: number,
+  cursor: CursorState,
   resolverLookup?: (targetRaw: string) => WikiLinkResolution | undefined,
 ): DecoEntry[] {
   const visible: DecoEntry[] = [];
   const markers: Marker[] = [];
+  const activeLine = doc.lineAt(cursor.head).number;
 
   tree.iterate({
     enter: (node) => {
@@ -264,9 +306,15 @@ export function collectDecorations(
               from: hm.from,
               to: extendSpaces(doc, hm.to),
               bullet: false,
+              token: null,
             });
           } else {
-            markers.push({ from: hm.from, to: hm.to, bullet: false });
+            markers.push({
+              from: hm.from,
+              to: hm.to,
+              bullet: false,
+              token: null,
+            });
           }
         });
         return;
@@ -278,16 +326,28 @@ export function collectDecorations(
           to: node.to,
           kind: name === "Emphasis" ? "mark-em" : "mark-strong",
         });
+        const emToken = { from: node.from, to: node.to };
         for (const em of node.node.getChildren("EmphasisMark")) {
-          markers.push({ from: em.from, to: em.to, bullet: false });
+          markers.push({
+            from: em.from,
+            to: em.to,
+            bullet: false,
+            token: emToken,
+          });
         }
         return;
       }
 
       if (name === "InlineCode") {
         visible.push({ from: node.from, to: node.to, kind: "mark-code" });
+        const codeToken = { from: node.from, to: node.to };
         for (const cm of node.node.getChildren("CodeMark")) {
-          markers.push({ from: cm.from, to: cm.to, bullet: false });
+          markers.push({
+            from: cm.from,
+            to: cm.to,
+            bullet: false,
+            token: codeToken,
+          });
         }
         return;
       }
@@ -303,7 +363,12 @@ export function collectDecorations(
           // Hide the whole fence line (backticks + any info string).
           for (const cm of node.node.getChildren("CodeMark")) {
             const line = doc.lineAt(cm.from);
-            markers.push({ from: line.from, to: line.to, bullet: false });
+            markers.push({
+              from: line.from,
+              to: line.to,
+              bullet: false,
+              token: null,
+            });
           }
         }
         return;
@@ -327,6 +392,7 @@ export function collectDecorations(
           from: node.from,
           to: extendSpaces(doc, node.to),
           bullet: false,
+          token: null,
         });
         return;
       }
@@ -337,7 +403,14 @@ export function collectDecorations(
         const parent = node.node.parent;
         if (parent && parent.name === "BulletList") {
           const lm = node.node.getChild("ListMark");
-          if (lm) markers.push({ from: lm.from, to: lm.to, bullet: true });
+          if (lm) {
+            markers.push({
+              from: lm.from,
+              to: lm.to,
+              bullet: true,
+              token: null,
+            });
+          }
         }
         return;
       }
@@ -354,23 +427,39 @@ export function collectDecorations(
         if (open && close && close.from > open.to) {
           visible.push({ from: open.to, to: close.from, kind: "mark-link" });
         }
+        const linkToken = { from: node.from, to: node.to };
         for (const lm of linkMarks) {
-          markers.push({ from: lm.from, to: lm.to, bullet: false });
+          markers.push({
+            from: lm.from,
+            to: lm.to,
+            bullet: false,
+            token: linkToken,
+          });
         }
-        markers.push({ from: url.from, to: url.to, bullet: false });
+        markers.push({
+          from: url.from,
+          to: url.to,
+          bullet: false,
+          token: linkToken,
+        });
         const title = node.node.getChild("LinkTitle");
         if (title) {
-          markers.push({ from: title.from, to: title.to, bullet: false });
+          markers.push({
+            from: title.from,
+            to: title.to,
+            bullet: false,
+            token: linkToken,
+          });
         }
         return;
       }
 
       if (name === "Tag") {
-        const onActiveLine = doc.lineAt(node.from).number === activeLine;
+        const revealed = cursorTouches(cursor, node.from, node.to);
         visible.push({
           from: node.from,
           to: node.to,
-          kind: onActiveLine ? "mark-marker-muted" : "mark-tag",
+          kind: revealed ? "mark-marker-muted" : "mark-tag",
         });
         return;
       }
@@ -380,11 +469,11 @@ export function collectDecorations(
         const tok = scanWikilinks(raw).find((t) => t.kind === "wiki_link");
         if (!tok || tok.kind !== "wiki_link") return;
 
-        const onActiveLine = doc.lineAt(node.from).number === activeLine;
-        if (onActiveLine) {
+        const revealed = cursorTouches(cursor, node.from, node.to);
+        if (revealed) {
           // Reveal the whole token muted — mirrors how Link / Emphasis
-          // behave on the cursor line. Exact sub-range styling is an
-          // implementation detail when editing is in progress.
+          // behave when the cursor touches them. Exact sub-range styling
+          // is an implementation detail when editing is in progress.
           visible.push({
             from: node.from,
             to: node.to,
@@ -445,14 +534,11 @@ export function collectDecorations(
 
   const out: DecoEntry[] = [...visible];
 
-  if (activeLine >= 1 && activeLine <= doc.lines) {
-    const from = doc.line(activeLine).from;
-    out.push({ from, to: from, kind: "line-active" });
-  }
-
   for (const m of markers) {
-    const onActiveLine = doc.lineAt(m.from).number === activeLine;
-    if (onActiveLine) {
+    const reveal = m.token
+      ? cursorTouches(cursor, m.token.from, m.token.to)
+      : doc.lineAt(m.from).number === activeLine;
+    if (reveal) {
       out.push({ from: m.from, to: m.to, kind: "mark-marker-muted" });
     } else {
       out.push({ from: m.from, to: m.to, kind: m.bullet ? "bullet" : "hide" });
@@ -481,7 +567,6 @@ const headingLineDeco: Decoration[] = [1, 2, 3, 4, 5, 6].map((level) =>
 );
 const codeLineDeco = Decoration.line({ class: "cm-md-line-code" });
 const quoteLineDeco = Decoration.line({ class: "cm-md-line-quote" });
-const activeLineDeco = Decoration.line({ class: "cm-md-line-active" });
 const emMarkDeco = Decoration.mark({ class: "cm-md-em" });
 const strongMarkDeco = Decoration.mark({ class: "cm-md-strong" });
 const inlineCodeMarkDeco = Decoration.mark({ class: "cm-md-inline-code" });
@@ -517,9 +602,6 @@ function buildDecorationSet(entries: DecoEntry[]): DecorationSet {
         break;
       case "line-quote":
         ranges.push(quoteLineDeco.range(e.from));
-        break;
-      case "line-active":
-        ranges.push(activeLineDeco.range(e.from));
         break;
       case "mark-em":
         ranges.push(emMarkDeco.range(e.from, e.to));
@@ -561,16 +643,16 @@ function buildDecorationSet(entries: DecoEntry[]): DecorationSet {
 
 function buildFor(view: EditorView): DecorationSet {
   const tree = syntaxTree(view.state);
-  const head = view.state.selection.main.head;
-  const activeLine = view.state.doc.lineAt(head).number;
+  const sel = view.state.selection.main;
+  const cursor: CursorState = { head: sel.head, from: sel.from, to: sel.to };
   const resolver = view.state.facet(wikilinkResolverFacet);
   const entries = collectDecorations(
     tree,
     view.state.doc,
-    activeLine,
+    cursor,
     resolver ? (t) => resolver.get(t) : undefined,
   );
-  const blockIds = findBlockIds(view.state.doc, tree, activeLine);
+  const blockIds = findBlockIds(view.state.doc, tree, cursor);
   return buildDecorationSet([...entries, ...blockIds]);
 }
 
@@ -689,7 +771,6 @@ const decorationBaseTheme = EditorView.baseTheme({
     color: "var(--c-fg-secondary)",
     fontStyle: "italic",
   },
-  ".cm-md-line-active": { background: "var(--editor-active-line-bg)" },
   ".cm-md-em": { fontStyle: "italic" },
   ".cm-md-strong": { fontWeight: "700" },
   ".cm-md-inline-code": {

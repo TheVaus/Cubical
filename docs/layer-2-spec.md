@@ -15,7 +15,7 @@ L2 is the **first demo-able milestone** in the build order (`CLAUDE.md`). v1.0 s
 By end of L2:
 
 1. The editor writes to disk. Typing autosaves the buffer to the underlying `.md` file with the L0 atomic temp-and-rename helper. The file watcher's own-write event is suppressed via content-hash gating so the round-trip doesn't show up as an external edit.
-2. Live Preview decorations are applied via Lezer to the CodeMirror state. The cursor line shows raw markdown; every other line shows decorated headings, emphasis (italic), strong (bold), inline code, fenced code blocks, bullet/ordered lists, blockquotes, and plain `[text](url)` links. Wiki-links, embeds, block refs, tables, and images stay raw — they are L3+ territory.
+2. Live Preview decorations are applied via Lezer to the CodeMirror state. Raw markdown is revealed when the cursor *touches* an inline token (emphasis, strong, inline code, `[text](url)` links) and whenever it shares a line with a line-level construct (headings, fenced code, blockquotes, bullets); everything else shows decorated. Decorated coverage: headings, emphasis (italic), strong (bold), inline code, fenced code blocks, bullet/ordered lists, blockquotes, and plain `[text](url)` links. Wiki-links, embeds, block refs, tables, and images stay raw — they are L3+ territory.
 3. A Raw Source toggle exists. App-level default lives in the L0 `config` table (`editor.raw_source_default`); per-doc state is a transient in-memory override. Keyboard shortcut: `Cmd/Ctrl+E`.
 4. A vault-local settings infrastructure (`get_setting` / `set_setting` IPC over the existing `config` table) is available for L2 and later layers.
 5. Theming is real. The token surface in `ui/src/styles/tokens.css` is consumed by an `<html data-theme="...">` cascade. The dark token values are tuned. The CodeMirror theme is generated programmatically from the same tokens. OS `prefers-color-scheme` drives the default; the user override is read from / written to the settings infrastructure.
@@ -63,7 +63,7 @@ Out of scope for L2 (left raw, no decorations): tables, images, HTML blocks, the
 Implementation pattern:
 
 - A `ViewPlugin` reads `syntaxTree(view.state)` and produces a `DecorationSet` per `update`.
-- Active-line detection uses `view.state.selection.main.head` and `view.state.doc.lineAt(head).number`; decorations on the active line are dropped from the set so the raw source shows through.
+- Reveal uses the main selection (`view.state.selection.main`). Line-level constructs reveal when the cursor's line (`doc.lineAt(head).number`) matches; inline tokens reveal only when the selection range overlaps the token (boundary-inclusive — see `CursorState`/`cursorTouches` in `decorations.ts`), so sharing a line is not enough. Revealed markers show their raw source muted.
 - The plugin is one of several extensions composed into the `EditorState`; it sits after `markdown()` (Lezer parser provider) and before the theme.
 - All visual values come from `var(--…)` CSS variables — never hardcoded.
 
@@ -98,7 +98,7 @@ A new component `ui/src/Properties.tsx` mounted above `Editor.tsx` in `App.tsx` 
 
 ### 2.5 Themes
 
-- **Token surface:** the existing `ui/src/styles/tokens.css` already defines `:root, [data-theme="light"]` and `[data-theme="dark"]` blocks (L0 §10 token-surface scaffold). L2 audits both, adds tokens needed by the decoration scope above (notably `--editor-active-line-bg`, `--editor-mark-fg-muted`), and tunes dark contrast.
+- **Token surface:** the existing `ui/src/styles/tokens.css` already defines `:root, [data-theme="light"]` and `[data-theme="dark"]` blocks (L0 §10 token-surface scaffold). L2 audits both, adds tokens needed by the decoration scope above (notably `--editor-mark-fg-muted`), and tunes dark contrast.
 - **Theme switch:** new helper `ui/src/styles/theme.ts` exposes `applyTheme(mode: "light" | "dark" | "system")`. It writes `document.documentElement.setAttribute("data-theme", resolved)`. The `"system"` resolution reads `window.matchMedia("(prefers-color-scheme: dark)")` and subscribes to changes.
 - **Initial mode:** read `appearance.theme_mode` from settings (string: `light` | `dark` | `system`; default `system`).
 - **CodeMirror theme:** new file `ui/src/editor/cm-theme.ts` builds a CM6 `Extension` programmatically by reading computed `var(--…)` values from `:root`. Re-built when `data-theme` changes (via `EditorView.dispatch` reconfiguring the theme compartment). One source of truth — when a user (later, L5) installs a custom theme that overrides tokens, both the Solid UI and the editor switch in lockstep.
@@ -469,9 +469,10 @@ raw source stays directly editable.
   information loss. Bullet dashes are swapped for a `•` `BulletWidget`;
   ordered lists keep their `1.` / `2.` numerals.
 - **Active-line detection** uses `view.state.selection.main.head` →
-  `doc.lineAt(head).number`; marker entries on that line become
-  `mark-marker-muted` instead of `hide`, and a `line-active` entry
-  carries `--editor-active-line-bg`.
+  `doc.lineAt(head).number`; *line-level* markers on that line become
+  `mark-marker-muted` instead of `hide` (inline tokens reveal on cursor
+  touch instead — see L3 / `cursorTouches`). There is no whole-line
+  background highlight.
 - **Compartment seam.** The extension is composed into
   [`Editor.tsx`](../ui/src/Editor.tsx) inside a CM6 `Compartment`
   (`decorationCompartment`). Session B only *installs* the compartment;
@@ -483,11 +484,11 @@ left raw — L3+ territory.
 
 #### Tokens
 
-Two editor-surface tokens added to
-[`tokens.css`](../ui/src/styles/tokens.css) with light + dark values:
-`--editor-active-line-bg` and `--editor-mark-fg-muted`. (Session D
-later tuned the dark values and added `--editor-caret` /
-`--editor-selection-bg`.)
+Editor-surface token `--editor-mark-fg-muted` added to
+[`tokens.css`](../ui/src/styles/tokens.css) with light + dark values.
+(Session D later tuned the dark values and added `--editor-caret` /
+`--editor-selection-bg`. The original `--editor-active-line-bg` was
+removed in 2026-06 when the active-line highlight was dropped.)
 
 #### Test counts
 
