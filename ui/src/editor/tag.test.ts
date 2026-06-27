@@ -67,4 +67,18 @@ describe("tagExtension", () => {
     // Lezer's `InlineCode` is a leaf — no inline parser descends into it.
     expect(nodesNamed("`#notatag`", "Tag")).toEqual([]);
   });
+
+  it("recognises a tag that starts its own paragraph (offset > 0)", () => {
+    // Regression: a tag alone on a line forms its own inline span whose
+    // offset is past 0. The word-boundary guard must treat the span start
+    // as a boundary even though `cx.char(pos-1)` reads before the span
+    // (which returns NaN, not -1, from @lezer/markdown).
+    const got = nodesNamed("text\n\n#location\n", "Tag");
+    expect(got.map((n) => n.text)).toEqual(["#location"]);
+  });
+
+  it("recognises a tag starting a paragraph after a heading", () => {
+    const got = nodesNamed("# Title\n\n#location\n", "Tag");
+    expect(got.map((n) => n.text)).toEqual(["#location"]);
+  });
 });

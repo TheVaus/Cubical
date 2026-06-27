@@ -182,13 +182,18 @@ describe("collectDecorations — links", () => {
 });
 
 describe("collectDecorations — out of scope nodes stay raw", () => {
-  it("leaves images, thematic breaks and tags undecorated", () => {
+  it("leaves images and thematic breaks raw; decorates a paragraph-start tag", () => {
     // Wiki-links used to live here too (L2). They were promoted to a
     // decorated node in L3 Session B; see the wiki-link describe block
     // below for the new contract.
+    //
+    // The image and thematic break contribute no decorations. `#tag`
+    // *does* — a tag that opens its own paragraph (offset > 0) is a real
+    // Tag node and gets `mark-tag` (regression guard: it used to be
+    // dropped by the inline word-boundary check; see tag.ts).
     const src = "![alt](http://x)\n\n---\n\n#tag is not a heading\n\nend";
     const entries = run(src, at(src, 7));
-    expect(entries).toEqual([]);
+    expect(entries).toEqual([{ from: 23, to: 27, kind: "mark-tag" }]);
   });
 });
 

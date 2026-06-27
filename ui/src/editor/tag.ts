@@ -59,11 +59,18 @@ function isBodyCont(c: number): boolean {
  * starts here.
  */
 function parseTag(cx: InlineContext, pos: number): number {
-  // Word-boundary: `cx.char` returns -1 for out-of-bounds, which is
-  // treated as the start of the inline span.
+  // Word-boundary: the byte before the tag must be ASCII whitespace, or
+  // the tag must sit at the start of the inline span. `cx.char` only
+  // returns -1 past the span's *end*; for a position *before* the span's
+  // offset it computes `charCodeAt(negative)` → `NaN`. Both sentinels
+  // (`-1` and `NaN`) are < 0, so a single `prev >= 0` test treats either
+  // out-of-bounds case as a span-start boundary. (Without this, a tag that
+  // begins a paragraph whose offset > 0 — e.g. a tag alone on its own line
+  // below the first block — saw `NaN`, was read as a non-whitespace char,
+  // and was wrongly rejected.)
   if (pos > 0) {
     const prev = cx.char(pos - 1);
-    if (prev !== -1 && !isAsciiWs(prev)) return -1;
+    if (prev >= 0 && !isAsciiWs(prev)) return -1;
   }
   const first = cx.char(pos + 1);
   if (first === -1 || !isBodyStart(first)) return -1;
