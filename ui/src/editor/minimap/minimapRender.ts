@@ -28,9 +28,9 @@ export function drawMinimap(
 
   ctx.font = font;
   ctx.fillStyle = colors.text;
-  for (let i = 0; i < layout.lines.length; i++) {
-    ctx.fillText(layout.lines[i].text, 0, i * lineHeight);
-  }
+  layout.lines.forEach((line, i) => {
+    ctx.fillText(line.text, 0, i * lineHeight);
+  });
 
   ctx.globalAlpha = 0.25;
   ctx.fillStyle = colors.indicator;
