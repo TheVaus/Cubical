@@ -1,5 +1,14 @@
-import { createEffect, on, onCleanup, onMount, type Component } from "solid-js";
+import {
+  createEffect,
+  createSignal,
+  on,
+  onCleanup,
+  onMount,
+  Show,
+  type Component,
+} from "solid-js";
 import { EditorView, keymap } from "@codemirror/view";
+import Minimap from "./editor/minimap/Minimap";
 import { Compartment, EditorState } from "@codemirror/state";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
@@ -331,6 +340,9 @@ const Editor: Component<EditorProps> = (props) => {
   let host!: HTMLDivElement;
   let view: EditorView | undefined;
   let astPending: ReturnType<typeof setTimeout> | undefined;
+  // Reactively exposes the imperatively-created view to the JSX so the
+  // optional minimap child can read its state/geometry once it exists.
+  const [cmView, setCmView] = createSignal<EditorView>();
 
   const fireAst = (source: string) => {
     if (!props.onAstChange) return;
@@ -713,6 +725,9 @@ const Editor: Component<EditorProps> = (props) => {
         pendingAnchor = anchor;
       },
     });
+
+    // Expose the now-created view to the JSX so the minimap can mount.
+    setCmView(view);
   });
 
   // Scroll to the first heading matching `value`; returns whether one was
@@ -957,18 +972,24 @@ const Editor: Component<EditorProps> = (props) => {
   });
 
   return (
-    <div
-      ref={host}
-      style={{
-        flex: "1",
-        "min-height": "0",
-        display: "flex",
-        "flex-direction": "column",
-        border: "none",
-        background: "transparent",
-        overflow: "hidden",
-      }}
-    />
+    <div style={{ display: "flex", flex: "1", "min-height": "0" }}>
+      <div
+        ref={host}
+        style={{
+          flex: "1",
+          "min-width": "0",
+          "min-height": "0",
+          display: "flex",
+          "flex-direction": "column",
+          border: "none",
+          background: "transparent",
+          overflow: "hidden",
+        }}
+      />
+      <Show when={props.minimapEnabled && cmView()}>
+        {(v) => <Minimap view={v()} resolvedTheme={props.resolvedTheme} />}
+      </Show>
+    </div>
   );
 };
 
