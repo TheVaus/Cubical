@@ -21,16 +21,17 @@
   gone (stale). Idempotent. Integration test simulates the index wipe and asserts
   reconnection + rewrite regeneration.
 
-**Deferred from this pass (follow-ups, not blockers):**
-- The reconnect SQL is duplicated, not extracted: `rename_file`'s inline repair
-  and `replay_rename_journal`'s reconnect use **identical** case-insensitive
-  predicates but live in two places. Extracting a shared
-  `reconnect_broken_links_to` helper (as this doc originally specced) is a clean
-  follow-up to remove the drift risk.
-- No dedicated post-flush prune hook; replay prunes opportunistically on the next
-  open instead. So a journal entry can persist between a rename and the next
-  open's flush+replay — bounded and harmless, but a flush-time prune would keep
-  the file smaller.
+**Follow-ups (both now done, 2026-06-27):**
+- ✅ Shared reconnect helpers: `select_broken_referrers_naming` +
+  `reconnect_broken_links_to` hold the case-insensitive predicate once; both
+  `rename_file`'s repair and `replay_rename_journal` call them — no more
+  duplicated SQL / drift risk.
+- ✅ Post-flush prune: `prune_materialized_journal` runs at the end of replay and
+  after every flush entry point. An entry is dropped once no wiki-link
+  `pending_rewrites.old_token` still names the old file (keyed on the pending
+  table, which flush deletes directly — correct the instant a flush completes,
+  not dependent on the watcher re-extracting `links`) or when the target is gone
+  (stale). So the sidecar stays empty in steady state.
 
 ## Problem
 
