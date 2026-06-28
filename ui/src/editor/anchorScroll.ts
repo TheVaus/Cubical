@@ -10,6 +10,41 @@
  * `_` / `-`.
  */
 
+import { syntaxTree } from "@codemirror/language";
+import type { EditorState } from "@codemirror/state";
+
+/**
+ * Return the document offset of the first heading whose plain-text
+ * content equals `value` (trimmed), or `null` when none matches. ATX
+ * (`## Foo`) markers and trailing `#`s are stripped; Setext headings use
+ * their content line. Pure over an `EditorState` (no DOM) so it tests in
+ * node. Note: matching is exact against the raw heading text, so inline
+ * markup in the heading (`## **Foo**`) is not yet normalized away.
+ */
+export function findHeadingOffset(
+  state: EditorState,
+  value: string,
+): number | null {
+  const target = value.trim();
+  if (target.length === 0) return null;
+  let found: number | null = null;
+  syntaxTree(state).iterate({
+    enter: (node) => {
+      if (found !== null) return false;
+      if (!/^(ATX|Setext)Heading[1-6]$/.test(node.name)) return undefined;
+      const line = state.doc.lineAt(node.from);
+      const atx = line.text.match(/^#{1,6}\s+(.*?)\s*#*\s*$/);
+      const text = (atx?.[1] ?? line.text).trim();
+      if (text === target) {
+        found = line.from;
+        return false;
+      }
+      return undefined;
+    },
+  });
+  return found;
+}
+
 /** Block-id charset: Unicode letters/digits + `_` + `-`. Empty rejected. */
 function isAllowedBlockId(id: string): boolean {
   return id.length > 0 && /^[\p{L}\p{N}_-]+$/u.test(id);

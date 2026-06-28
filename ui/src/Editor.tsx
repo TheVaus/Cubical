@@ -22,7 +22,10 @@ import {
 } from "./editor/tagMousedown";
 import { wikilinkExtension } from "./editor/wikilink";
 import { handleWikiLinkClick } from "./editor/wikilinkClick";
-import { findBlockDefinitionOffset } from "./editor/anchorScroll";
+import {
+  findBlockDefinitionOffset,
+  findHeadingOffset,
+} from "./editor/anchorScroll";
 import {
   closestWikiLinkSpan,
   maybeInterceptWikiLinkMousedown,
@@ -202,18 +205,27 @@ export interface EditorApi {
   replaceRange: (from: number, to: number, text: string) => void;
   /**
    * Scroll the viewport to the first heading whose plain-text content
-   * matches `value` (trimmed). No-op when not found. Used by the
-   * wiki-link click handler after navigating with a `Heading{value}`
-   * anchor (L3 Session B, spec §2.2).
+   * matches `value` (trimmed). Returns `true` if a heading was found and
+   * scrolled to, `false` otherwise. Used when navigating with a
+   * `Heading{value}` anchor to an *already-open* file (L3 Session B,
+   * spec §2.2). For a cross-file jump use `requestAnchorScroll`.
    */
-  scrollToHeading: (value: string) => void;
+  scrollToHeading: (value: string) => boolean;
   /**
    * Scroll the viewport to the line that defines block id `value` (its
-   * trailing token is `^value`). No-op when not found. Used by the
-   * wiki-link click handler after navigating with a `Block{value}`
-   * anchor.
+   * trailing token is `^value`). Returns `true` when found. Used for the
+   * already-open-file case; cross-file uses `requestAnchorScroll`.
    */
-  scrollToBlock: (value: string) => void;
+  scrollToBlock: (value: string) => boolean;
+  /**
+   * Queue an anchor scroll to run the moment the *next* document content
+   * lands (the editor replaces its buffer via a deferred effect, so a
+   * scroll fired synchronously after selecting a different file would
+   * race the load). When the content arrives, the editor scrolls to the
+   * anchor; if it isn't found, `onAnchorNotFound` fires. Supersedes any
+   * previously-queued request.
+   */
+  requestAnchorScroll: (anchor: ResolvedAnchor) => void;
 }
 
 export interface EditorProps {
@@ -275,6 +287,12 @@ export interface EditorProps {
   onNavigateWikilink?: (path: string, anchor: ResolvedAnchor | null) => void;
   /** Called when a click lands on an unresolved wiki-link. */
   onOfferCreateWikilink?: (path: string) => void;
+  /**
+   * Called when a queued `requestAnchorScroll` lands but the anchor
+   * (heading or block id) isn't present in the freshly-loaded document —
+   * so the caller can surface "heading/block not found" feedback.
+   */
+  onAnchorNotFound?: (anchor: ResolvedAnchor) => void;
   /**
    * Called when a click lands on a tag decoration (L3 Session E).
    * `tagPath` is the bare body without the leading `#`. Case is
@@ -680,49 +698,54 @@ const Editor: Component<EditorProps> = (props) => {
         if (!view) return;
         view.dispatch({ changes: { from, to, insert: text } });
       },
-      scrollToHeading: (value) => {
-        if (!view) return;
-        const target = value.trim();
-        if (target.length === 0) return;
-        const tree = syntaxTree(view.state);
-        let found: { from: number } | null = null;
-        tree.iterate({
-          enter: (node) => {
-            if (found) return false;
-            if (!/^(ATX|Setext)Heading[1-6]$/.test(node.name)) return;
-            // Read the heading content. ATX: strip leading `#`s and
-            // trailing optional `#`s; Setext: the first line is the
-            // content, the underline is on the next line.
-            const line = view!.state.doc.lineAt(node.from);
-            const raw = line.text;
-            const atx = raw.match(/^#{1,6}\s+(.*?)\s*#*\s*$/);
-            const text = (atx?.[1] ?? raw).trim();
-            if (text === target) {
-              found = { from: line.from };
-              return false;
-            }
-            return;
-          },
-        });
-        if (!found) return;
-        const hit = found as { from: number };
-        view.dispatch({
-          effects: EditorView.scrollIntoView(hit.from, { y: "start" }),
-        });
-      },
-      scrollToBlock: (value) => {
-        if (!view) return;
-        const offset = findBlockDefinitionOffset(
-          view.state.doc.toString(),
-          value.trim(),
-        );
-        if (offset === null) return;
-        view.dispatch({
-          effects: EditorView.scrollIntoView(offset, { y: "start" }),
-        });
+      scrollToHeading: (value) => scrollToHeadingImpl(value),
+      scrollToBlock: (value) => scrollToBlockImpl(value),
+      requestAnchorScroll: (anchor) => {
+        pendingAnchor = anchor;
       },
     });
   });
+
+  // Scroll to the first heading matching `value`; returns whether one was
+  // found. Pulled out of the EditorApi closure so the deferred content
+  // effect can reuse it.
+  const scrollToHeadingImpl = (value: string): boolean => {
+    if (!view) return false;
+    const offset = findHeadingOffset(view.state, value);
+    if (offset === null) return false;
+    view.dispatch({
+      effects: EditorView.scrollIntoView(offset, { y: "start" }),
+    });
+    return true;
+  };
+
+  const scrollToBlockImpl = (value: string): boolean => {
+    if (!view) return false;
+    const offset = findBlockDefinitionOffset(
+      view.state.doc.toString(),
+      value.trim(),
+    );
+    if (offset === null) return false;
+    view.dispatch({
+      effects: EditorView.scrollIntoView(offset, { y: "start" }),
+    });
+    return true;
+  };
+
+  // A queued cross-file anchor scroll, executed once the next document
+  // content lands (see the value effect below). `null` when none pending.
+  let pendingAnchor: ResolvedAnchor | null = null;
+
+  const runPendingAnchor = () => {
+    const anchor = pendingAnchor;
+    if (!anchor) return;
+    pendingAnchor = null;
+    const found =
+      anchor.kind === "heading"
+        ? scrollToHeadingImpl(anchor.value)
+        : scrollToBlockImpl(anchor.value);
+    if (!found) props.onAnchorNotFound?.(anchor);
+  };
 
   // Replace the document when `value` changes externally. Compare
   // against the current content so we don't fight a buffer the user
@@ -733,11 +756,16 @@ const Editor: Component<EditorProps> = (props) => {
       (next) => {
         if (!view) return;
         const current = view.state.doc.toString();
-        if (current === next) return;
-        view.dispatch({
-          changes: { from: 0, to: current.length, insert: next },
-        });
-        // The updateListener above will schedule the AST + onContentChange.
+        if (current !== next) {
+          view.dispatch({
+            changes: { from: 0, to: current.length, insert: next },
+          });
+          // The updateListener above will schedule the AST + onContentChange.
+        }
+        // The requested file's content is now in the buffer — run any
+        // anchor scroll queued for this load (heading/block jump from a
+        // cross-file wiki-link click).
+        runPendingAnchor();
       },
       { defer: true },
     ),

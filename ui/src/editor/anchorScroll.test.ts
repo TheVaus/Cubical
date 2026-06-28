@@ -1,6 +1,35 @@
 import { describe, expect, it } from "vitest";
+import { EditorState } from "@codemirror/state";
+import { markdown } from "@codemirror/lang-markdown";
 
-import { findBlockDefinitionOffset } from "./anchorScroll";
+import { findBlockDefinitionOffset, findHeadingOffset } from "./anchorScroll";
+
+function mdState(doc: string): EditorState {
+  return EditorState.create({ doc, extensions: [markdown()] });
+}
+
+describe("findHeadingOffset", () => {
+  it("finds an ATX heading by its plain text, stripping markers", () => {
+    const doc = "intro\n\n## Tasks\n\nbody\n";
+    expect(findHeadingOffset(mdState(doc), "Tasks")).toBe(doc.indexOf("## Tasks"));
+  });
+
+  it("trims and matches case-sensitively", () => {
+    const doc = "# Overview\n";
+    expect(findHeadingOffset(mdState(doc), "  Overview  ")).toBe(0);
+    expect(findHeadingOffset(mdState(doc), "overview")).toBeNull();
+  });
+
+  it("returns null for an absent or empty heading", () => {
+    expect(findHeadingOffset(mdState("# Real\n"), "Missing")).toBeNull();
+    expect(findHeadingOffset(mdState("# Real\n"), "  ")).toBeNull();
+  });
+
+  it("matches the first of several headings", () => {
+    const doc = "# A\n\n## B\n\n# A\n";
+    expect(findHeadingOffset(mdState(doc), "A")).toBe(0);
+  });
+});
 
 describe("findBlockDefinitionOffset", () => {
   it("finds the line whose trailing token defines the block id", () => {

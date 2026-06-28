@@ -958,13 +958,28 @@ const App: Component = () => {
       size_bytes: 0,
       mtime_unix: 0,
     };
-    await handleSelectFile(file);
-    if (anchor === null) return;
-    if (anchor.kind === "heading") {
-      editorApi?.scrollToHeading(anchor.value);
-    } else {
-      editorApi?.scrollToBlock(anchor.value);
+    // Same file already in front → its buffer is loaded, so scroll
+    // immediately (and report a missing anchor). A different file loads
+    // its content via a deferred effect, so queue the scroll to run when
+    // that content lands rather than racing it.
+    const alreadyOpen = selectedPath() === path;
+    if (anchor !== null && !alreadyOpen) {
+      editorApi?.requestAnchorScroll(anchor);
     }
+    await handleSelectFile(file);
+    if (anchor !== null && alreadyOpen) {
+      const found =
+        anchor.kind === "heading"
+          ? editorApi?.scrollToHeading(anchor.value)
+          : editorApi?.scrollToBlock(anchor.value);
+      if (found === false) notifyAnchorNotFound(anchor);
+    }
+  };
+
+  /** Surface a transient "anchor not found" toast. */
+  const notifyAnchorNotFound = (anchor: ResolvedAnchor) => {
+    const what = anchor.kind === "heading" ? "Heading" : "Block";
+    showToast(`${what} "${anchor.value}" not found in the linked note`);
   };
 
   const handleOfferCreateWikilink = (path: string) => {
@@ -1929,6 +1944,7 @@ const App: Component = () => {
                   onOfferCreateWikilink={(path) =>
                     handleOfferCreateWikilink(path)
                   }
+                  onAnchorNotFound={notifyAnchorNotFound}
                   onNavigateTag={(tagPath) =>
                     void handleNavigateTag(tagPath)
                   }
