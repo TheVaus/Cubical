@@ -95,9 +95,14 @@ fn rewrite_wiki_link(source: &str, old_token: &str, new_token: &str) -> Option<S
     for run in &runs {
         match run {
             TokenizedRun::WikiLink { target, .. } if target == old_token => hits += 1,
-            // A property ref `[[note.prop]]` whose note part is the renamed
-            // note must follow the rename too, or it would break.
-            TokenizedRun::PropertyRef { note: Some(n), .. } if n == old_token => hits += 1,
+            // A property ref `[[note.prop]]` follows the rename when either
+            // its note part is the renamed note, OR its whole dotted target
+            // names a renamed *file* (`[[Report v1.2]]` → file
+            // `Report v1.2.md`). Both would break otherwise.
+            TokenizedRun::PropertyRef {
+                note: Some(n),
+                property,
+            } if n == old_token || format!("{n}.{property}") == old_token => hits += 1,
             _ => {}
         }
     }
@@ -123,11 +128,23 @@ fn rewrite_wiki_link(source: &str, old_token: &str, new_token: &str) -> Option<S
                 emit_wikilink(&mut out, &effective_target, &display, &anchor, embed);
             }
             TokenizedRun::PropertyRef { note, property } => {
-                let effective_note = match &note {
-                    Some(n) if n == old_token => Some(new_token.to_string()),
-                    other => other.clone(),
-                };
-                emit_property_ref(&mut out, &effective_note, &property);
+                // Whole dotted target names a renamed file → re-emit as a
+                // plain wiki-link with the new name. Otherwise fall back to
+                // the note-part rename (the property-ref feature's
+                // semantics). The two are keyed on different `old_token`
+                // shapes, so they never both fire.
+                let whole_is_file = note
+                    .as_ref()
+                    .is_some_and(|n| format!("{n}.{property}") == old_token);
+                if whole_is_file {
+                    emit_wikilink(&mut out, new_token, &None, &None, false);
+                } else {
+                    let effective_note = match &note {
+                        Some(n) if n == old_token => Some(new_token.to_string()),
+                        other => other.clone(),
+                    };
+                    emit_property_ref(&mut out, &effective_note, &property);
+                }
             }
         }
     }
@@ -787,6 +804,19 @@ mod tests {
             out,
             "Age [[Mithrandir.age]], self [[.level]], other [[Frodo.hp]].\n"
         );
+    }
+
+    #[test]
+    fn wikilink_rewrite_follows_dotted_filename_property_ref() {
+        // `[[Report v1.2]]` tokenizes as a property-ref but names a file;
+        // renaming that file rewrites the whole token to a plain wiki-link
+        // with the new name.
+        let src = "see [[Report v1.2]] here\n";
+        let out = apply_pending(
+            src,
+            &[row(RewriteKind::WikiLink, "Report v1.2", "Report v3")],
+        );
+        assert_eq!(out, "see [[Report v3]] here\n");
     }
 
     #[test]

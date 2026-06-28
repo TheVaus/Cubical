@@ -9,6 +9,21 @@ renders raw scalars, so it takes **no** dependency on type storage and can
 land on its own schedule. Type-aware formatting is a later additive layer
 that *would* lean on the registry.
 
+> **Interaction note (added 2026-06-27) — dotted targets that name a file.**
+> A dotted target like `[[Report v1.2]]` tokenizes as a property-ref (note
+> `Report v1`, property `2`) even though the user means the *file*
+> `Report v1.2.md`. Previously such occurrences were silently dropped from the
+> link index (no backlinks, no rename-follow). As of 2026-06-27 the link
+> extractor applies **file-existence-wins precedence**: a cross-file property-ref
+> whose reconstructed dotted target resolves to a real file is indexed as a
+> wiki-link, and renaming that file rewrites the whole `[[…]]` token
+> (`crates/cubical-core/src/vault/links.rs::keeps_link_row` +
+> `pending.rs::rewrite_wiki_link`). Genuine property-refs (no matching file) are
+> still left for this feature. **When interpolation resolution runs, it must
+> respect this precedence** (or consciously override it): if `note.prop.md`
+> exists, the occurrence is currently a navigational link, not an interpolation.
+> The collision is rare but real and is the one spot where the two features meet.
+
 ---
 
 ## 1. Why

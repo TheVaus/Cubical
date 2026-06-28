@@ -23,7 +23,10 @@ use walkdir::WalkDir;
 use crate::vault::{
     blocks::{refresh_block_refs_for_file, refresh_blocks},
     frontmatter::refresh_frontmatter,
-    links::{extract_links_from_source, read_source_off_executor, LinkExtraction, PathResolver},
+    links::{
+        extract_links_from_source, keeps_link_row, read_source_off_executor, LinkExtraction,
+        PathResolver,
+    },
     pending::materialize_on_read,
     search_refresh::refresh_search_index,
     tags::refresh_tags,
@@ -435,14 +438,17 @@ pub async fn scan(
         }
         let rows: Vec<LinkRow> = extractions
             .into_iter()
-            .map(|e| {
+            .filter_map(|e| {
                 let target_path = resolver.resolve(&e.target_raw);
+                if !keeps_link_row(e.from_property_ref, &target_path) {
+                    return None; // unresolved property-ref → not a link
+                }
                 let (anchor_kind, anchor_value) = match e.anchor {
                     Some(Anchor::Heading { value }) => (Some("heading".to_string()), Some(value)),
                     Some(Anchor::Block { value }) => (Some("block".to_string()), Some(value)),
                     None => (None, None),
                 };
-                LinkRow {
+                Some(LinkRow {
                     target_raw: e.target_raw,
                     target_path,
                     anchor_kind,
@@ -450,7 +456,7 @@ pub async fn scan(
                     display_text: e.display,
                     is_embed: e.is_embed,
                     position: e.position,
-                }
+                })
             })
             .collect();
         if let Err(e) = replace_links_for_file(vault.index(), &source_path, &rows).await {
