@@ -540,6 +540,9 @@ const Editor: Component<EditorProps> = (props) => {
             ...historyKeymap,
           ]),
           markdown({ extensions: [wikilinkExtension, tagExtension] }),
+          // Wrap long lines onto the next visual row instead of scrolling
+          // the file horizontally.
+          EditorView.lineWrapping,
           decorationCompartment.of(
             props.rawSource ? [] : livePreviewBundle,
           ),
