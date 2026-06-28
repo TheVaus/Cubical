@@ -22,6 +22,7 @@ import {
 } from "./editor/tagMousedown";
 import { wikilinkExtension } from "./editor/wikilink";
 import { handleWikiLinkClick } from "./editor/wikilinkClick";
+import { findBlockDefinitionOffset } from "./editor/anchorScroll";
 import {
   closestWikiLinkSpan,
   maybeInterceptWikiLinkMousedown,
@@ -206,6 +207,13 @@ export interface EditorApi {
    * anchor (L3 Session B, spec §2.2).
    */
   scrollToHeading: (value: string) => void;
+  /**
+   * Scroll the viewport to the line that defines block id `value` (its
+   * trailing token is `^value`). No-op when not found. Used by the
+   * wiki-link click handler after navigating with a `Block{value}`
+   * anchor.
+   */
+  scrollToBlock: (value: string) => void;
 }
 
 export interface EditorProps {
@@ -700,6 +708,17 @@ const Editor: Component<EditorProps> = (props) => {
         const hit = found as { from: number };
         view.dispatch({
           effects: EditorView.scrollIntoView(hit.from, { y: "start" }),
+        });
+      },
+      scrollToBlock: (value) => {
+        if (!view) return;
+        const offset = findBlockDefinitionOffset(
+          view.state.doc.toString(),
+          value.trim(),
+        );
+        if (offset === null) return;
+        view.dispatch({
+          effects: EditorView.scrollIntoView(offset, { y: "start" }),
         });
       },
     });

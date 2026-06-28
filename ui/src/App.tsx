@@ -963,12 +963,7 @@ const App: Component = () => {
     if (anchor.kind === "heading") {
       editorApi?.scrollToHeading(anchor.value);
     } else {
-      // Block anchors arrive once Session G ships block-ref resolution
-      // through the index. Log and no-op until then.
-      console.debug(
-        "wiki-link block anchor navigation deferred to L3 Session G",
-        anchor.value,
-      );
+      editorApi?.scrollToBlock(anchor.value);
     }
   };
 

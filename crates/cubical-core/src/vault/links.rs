@@ -332,11 +332,22 @@ impl PathResolver {
                 return None; // ambiguous basename → unresolved
             }
         }
-        // 3) unique path-suffix match, case-insensitive (linear fallback)
-        let mut suffix_matches = self
-            .all
-            .iter()
-            .filter(|f| f.to_lowercase().ends_with(&target_lower));
+        // 3) unique path-suffix match, case-insensitive (linear fallback).
+        // The match must align on a `/` separator (or cover the whole
+        // path) — a raw `ends_with` would let `b.md` resolve to
+        // `grab.md`, a silent mid-segment mis-resolution.
+        let mut suffix_matches = self.all.iter().filter(|f| {
+            let fl = f.to_lowercase();
+            if !fl.ends_with(&target_lower) {
+                return false;
+            }
+            // `target_lower` is a byte-suffix of `fl`; the byte just
+            // before it (if any) must be `/`. `/` is ASCII, so the
+            // trailing byte of any multi-byte char can never be mistaken
+            // for it.
+            let prefix_len = fl.len() - target_lower.len();
+            prefix_len == 0 || fl.as_bytes()[prefix_len - 1] == b'/'
+        });
         let first = suffix_matches.next();
         match (first, suffix_matches.next()) {
             (Some(f), None) => Some(f.clone()),
@@ -473,6 +484,24 @@ mod tests {
         assert_eq!(
             resolve_target("path/foo.md", &files).as_deref(),
             Some("deeply/nested/path/foo.md"),
+        );
+    }
+
+    #[test]
+    fn resolve_suffix_requires_path_boundary() {
+        // The suffix stage must align on a `/` separator (or match the
+        // whole path), not a raw `ends_with`. Otherwise `[[b.md]]` would
+        // wrongly resolve to `grab.md` — a silent mis-resolution.
+        let files = vec!["grab.md".to_string()];
+        assert!(
+            resolve_target("b.md", &files).is_none(),
+            "suffix match must not fire mid-segment (grab.md is not a match for b.md)",
+        );
+        // A genuine path-tail still resolves at the suffix stage.
+        let files2 = vec!["deeply/nested/foo.md".to_string()];
+        assert_eq!(
+            resolve_target("nested/foo.md", &files2).as_deref(),
+            Some("deeply/nested/foo.md"),
         );
     }
 
