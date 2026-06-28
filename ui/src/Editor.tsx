@@ -246,6 +246,12 @@ export interface EditorProps {
    */
   rawSource: boolean;
   /**
+   * When `true`, render the read-only minimap strip beside the editor
+   * (composable on/off block, default off). Off → no Minimap DOM node
+   * mounts and no Pretext code runs.
+   */
+  minimapEnabled?: boolean;
+  /**
    * Per-vault resolver for wiki-link targets (L3 Session B). `null`
    * when no vault is open — every wiki-link renders as resolved-style
    * pending future targets, and clicks no-op.
