@@ -45,11 +45,19 @@ For non-features explicitly cut from scope, see [`docs/architecture/constraints.
 
 ## Project state
 
-**Uncommitted on `main`, gates green; not committed** (pre-existing work in tree —
-keep commits scoped): deleted-file pruning + rename-coalescing fixes, **create
-files + folders** (`layer-0-spec.md` §14, `layer-3-spec.md` §9.15), **Live Preview
-touch-reveal** (inline tokens reveal raw on cursor touch, not whole-line; no
-active-line highlight; `layer-2-spec.md` §2.2). Awaiting smoke: property-ref
+**Current branch `feat/minimap-pretext`:** Document **minimap** — a read-only
+canvas strip beside the editor that lays out the whole note via
+`@chenglou/pretext` (MIT, zero-dep), with a draggable viewport indicator. Pure
+derived state, gated on `editor.minimap_enabled` (default off). Built end-to-end
+(geometry/render/Pretext-wrapper unit-tested; component preview-verified only —
+the Tauri shell is needed for live visual check). Spec + plan:
+`docs/superpowers/{specs,plans}/2026-06-28-pretext-minimap*`. Also on-branch: a
+small `EditorView.lineWrapping` fix (pre-existing tree change, committed first).
+
+**Uncommitted on `main`, not committed** (pre-existing work in tree — keep
+commits scoped): deleted-file pruning + rename-coalescing fixes, **create files
++ folders** (`layer-0-spec.md` §14, `layer-3-spec.md` §9.15), **Live Preview
+touch-reveal** (`layer-2-spec.md` §2.2). Awaiting smoke: property-ref
 interpolation + status bar (`docs/superpowers/specs/2026-06-20-*`). **Parked:**
 `feat/typed-properties`.
 
@@ -60,6 +68,8 @@ interpolation + status bar (`docs/superpowers/specs/2026-06-20-*`). **Parked:**
 close-tag is the only structural open gate** — operator smoke, recipe
 `layer-4-spec.md` §9.5–9.6. Deferred: tabs/multi-document, per-occurrence search.
 
-**Tests:** 630 vitest + 555 Rust (working tree). Gates: `scripts/check.sh`
-(fmt/clippy/test, tsc, vitest, build, docs) — all green. Layer status/tags/dates:
-`docs/build-order.md`.
+**Tests:** 660 vitest + 555 Rust (working tree). Gates: `scripts/check.sh`
+(fmt/clippy/test, tsc, vitest, build, docs) — all green **except** the docs gate,
+which fails on a *pre-existing* broken link (`prd.md:281` →
+`docs/architecture/anti-patterns-2026-06-01.md`, target missing; unrelated to
+current work). Layer status/tags/dates: `docs/build-order.md`.
