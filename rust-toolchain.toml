@@ -1,0 +1,9 @@
+# Pin the Rust toolchain so local builds match CI exactly, and so clippy lint
+# behavior only changes on an intentional bump — not whenever a new stable ships
+# (the gate runs clippy with -D warnings, where a newly-added lint would
+# otherwise turn CI red with no code change). 1.96.0 is the stable that was green
+# in CI when this pin landed. Bump deliberately; the gate re-validates each change.
+[toolchain]
+channel = "1.96.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

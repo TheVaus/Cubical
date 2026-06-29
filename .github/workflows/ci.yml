@@ -21,8 +21,11 @@ jobs:
     name: Gate set (scripts/check.sh)
     runs-on: ubuntu-latest
     steps:
+      # Third-party actions are pinned to commit SHAs (supply-chain hardening);
+      # the trailing comment is the human-readable version. Dependabot's
+      # github-actions ecosystem keeps these SHAs current.
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       # Tauri 2 Linux build dependencies — required to compile cubical-app
       # (and therefore for cargo clippy / test / build across the workspace).
@@ -37,16 +40,17 @@ jobs:
             libsoup-3.0-dev \
             patchelf
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      # The toolchain (version + rustfmt/clippy) is pinned by rust-toolchain.toml,
+      # the single source of truth. Invoking a rustup proxy triggers the
+      # override-file auto-install, so no third-party toolchain action is needed.
+      - name: Install pinned Rust toolchain
+        run: rustc --version && cargo --version
 
       - name: Cache Rust build
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: 22
           cache: npm
@@ -57,7 +61,7 @@ jobs:
         run: npm ci
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.x"
 
