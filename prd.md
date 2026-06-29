@@ -278,7 +278,7 @@ incrementally. > Owner: [`2026-06-25-layer-5-...-design.md`](docs/superpowers/sp
 4. **Perf pass** — fix the four still-open anti-patterns: N+1 in vault scan,
    full-tree decoration walk, row-at-a-time INSERTs, sequential async. *Honest
    bar:* verified by the structural change + green suite, **not** a measured
-   speedup (no benchmark harness in scope). > Owner: [`anti-patterns-2026-06-01.md`](docs/architecture/anti-patterns-2026-06-01.md).
+   speedup (no benchmark harness in scope). > Owner: [`anti-patterns-2026-06-01.md`](docs/anti-patterns-2026-06-01.md).
 
 **Cut bar — L5 done when:** mode×skin switch live with CM6 in sync; registry owns
 app-level shortcuts (scattered handlers consolidated); Copy-as-Markdown works with
