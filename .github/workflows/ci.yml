@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Tauri 2 Linux build dependencies — required to compile cubical-app
       # (and therefore for cargo clippy / test / build across the workspace).
@@ -46,7 +46,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
@@ -57,7 +57,7 @@ jobs:
         run: npm ci
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.x"
 
