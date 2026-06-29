@@ -236,6 +236,9 @@ const App: Component = () => {
   // collapses the two into the boolean the editor acts on.
   const [rawDefault, setRawDefault] = createSignal(false);
   const [rawOverride, setRawOverride] = createSignal<boolean | null>(null);
+  // `editor.minimap_enabled` — read-only Pretext minimap strip; seeded on
+  // vault open, absent → `false` (opt-in companion surface).
+  const [minimapEnabled, setMinimapEnabled] = createSignal(false);
   const effectiveRaw = createMemo(() =>
     resolveRawState(rawOverride(), rawDefault()),
   );
@@ -784,6 +787,12 @@ const App: Component = () => {
     persistSetting(vaultId(), "editor.raw_source_default", val);
   };
 
+  /** Set the minimap-enabled flag (from Settings ▸ Editor). */
+  const setMinimapEnabledValue = (val: boolean) => {
+    setMinimapEnabled(val);
+    persistSetting(vaultId(), "editor.minimap_enabled", val);
+  };
+
   /** Set the typed-properties flag (from Settings ▸ Editor). */
   const setTypedPropsValue = (val: boolean) => {
     setTypedProps(val);
@@ -958,18 +967,28 @@ const App: Component = () => {
       size_bytes: 0,
       mtime_unix: 0,
     };
-    await handleSelectFile(file);
-    if (anchor === null) return;
-    if (anchor.kind === "heading") {
-      editorApi?.scrollToHeading(anchor.value);
-    } else {
-      // Block anchors arrive once Session G ships block-ref resolution
-      // through the index. Log and no-op until then.
-      console.debug(
-        "wiki-link block anchor navigation deferred to L3 Session G",
-        anchor.value,
-      );
+    // Same file already in front → its buffer is loaded, so scroll
+    // immediately (and report a missing anchor). A different file loads
+    // its content via a deferred effect, so queue the scroll to run when
+    // that content lands rather than racing it.
+    const alreadyOpen = selectedPath() === path;
+    if (anchor !== null && !alreadyOpen) {
+      editorApi?.requestAnchorScroll(anchor);
     }
+    await handleSelectFile(file);
+    if (anchor !== null && alreadyOpen) {
+      const found =
+        anchor.kind === "heading"
+          ? editorApi?.scrollToHeading(anchor.value)
+          : editorApi?.scrollToBlock(anchor.value);
+      if (found === false) notifyAnchorNotFound(anchor);
+    }
+  };
+
+  /** Surface a transient "anchor not found" toast. */
+  const notifyAnchorNotFound = (anchor: ResolvedAnchor) => {
+    const what = anchor.kind === "heading" ? "Heading" : "Block";
+    showToast(`${what} "${anchor.value}" not found in the linked note`);
   };
 
   const handleOfferCreateWikilink = (path: string) => {
@@ -1305,6 +1324,14 @@ const App: Component = () => {
         "editor.raw_source_default",
         false,
         setRawDefault,
+      );
+
+      // Seed the minimap flag. Absent → off (opt-in companion surface).
+      await seedSetting(
+        resp.vault_id,
+        "editor.minimap_enabled",
+        false,
+        setMinimapEnabled,
       );
 
       // Seed typed-properties flag + default date format (absent → off / ISO).
@@ -1911,6 +1938,7 @@ const App: Component = () => {
                   value={selectedContent() ?? ""}
                   resolvedTheme={resolvedTheme()}
                   rawSource={effectiveRaw()}
+                  minimapEnabled={minimapEnabled()}
                   wikilinkResolver={wikilinkResolver()}
                   embedResolver={embedResolver()}
                   propertyResolver={propertyResolver()}
@@ -1934,6 +1962,7 @@ const App: Component = () => {
                   onOfferCreateWikilink={(path) =>
                     handleOfferCreateWikilink(path)
                   }
+                  onAnchorNotFound={notifyAnchorNotFound}
                   onNavigateTag={(tagPath) =>
                     void handleNavigateTag(tagPath)
                   }
@@ -2138,6 +2167,36 @@ const App: Component = () => {
                       class="seg-control__btn"
                       classList={{ "seg-control__btn--active": rawDefault() }}
                       onClick={() => setRawDefaultValue(true)}
+                    >
+                      On
+                    </button>
+                  </div>
+                </div>
+                <div class="set-row">
+                  <div>
+                    <div class="set-row__lab">Minimap</div>
+                    <div class="set-row__desc">
+                      Show a document overview strip beside the editor.
+                    </div>
+                  </div>
+                  <div class="seg-control">
+                    <button
+                      type="button"
+                      class="seg-control__btn"
+                      classList={{
+                        "seg-control__btn--active": !minimapEnabled(),
+                      }}
+                      onClick={() => setMinimapEnabledValue(false)}
+                    >
+                      Off
+                    </button>
+                    <button
+                      type="button"
+                      class="seg-control__btn"
+                      classList={{
+                        "seg-control__btn--active": minimapEnabled(),
+                      }}
+                      onClick={() => setMinimapEnabledValue(true)}
                     >
                       On
                     </button>

@@ -32,6 +32,14 @@ pub struct LinkExtraction {
     pub display: Option<String>,
     /// `true` when the link was written `![[…]]`.
     pub is_embed: bool,
+    /// `true` when this occurrence was written as a dotted target
+    /// (`[[Report v1.2]]`), which the tokenizer classifies as a
+    /// property-ref. It is only a real link if its reconstructed dotted
+    /// target resolves to an actual file — otherwise it's a genuine
+    /// property reference and resolution drops it. See
+    /// `docs/superpowers/specs/2026-06-20-property-reference-interpolation-design.md`
+    /// (file-existence-wins precedence).
+    pub from_property_ref: bool,
     /// Byte offset into the original source where the wiki-link occurs.
     /// In Session A this is the start of the enclosing block's span —
     /// per-inline byte spans are post-L1 work. Good enough for the
@@ -83,6 +91,25 @@ fn walk_inlines(inlines: &[Inline], pos: u64, out: &mut Vec<LinkExtraction>) {
                     anchor: anchor.clone(),
                     display: display.clone(),
                     is_embed: *embed,
+                    from_property_ref: false,
+                    position: pos,
+                });
+            }
+            // A cross-file property-ref (`[[note.prop]]`) is a link
+            // *candidate*: only if its reconstructed dotted target names a
+            // real file is it kept as a link (resolution drops it
+            // otherwise). A self-ref (`[[.prop]]`, `note == None`) can
+            // never be a file, so it is not a candidate.
+            Inline::PropertyRef {
+                note: Some(note),
+                property,
+            } => {
+                out.push(LinkExtraction {
+                    target_raw: format!("{note}.{property}"),
+                    anchor: None,
+                    display: None,
+                    is_embed: false,
+                    from_property_ref: true,
                     position: pos,
                 });
             }
@@ -95,9 +122,20 @@ fn walk_inlines(inlines: &[Inline], pos: u64, out: &mut Vec<LinkExtraction>) {
             | Inline::Code { .. }
             | Inline::LineBreak
             | Inline::Tag { .. }
-            | Inline::PropertyRef { .. } => {}
+            | Inline::PropertyRef { note: None, .. } => {}
         }
     }
+}
+
+/// Whether a resolved extraction should be persisted as a link row.
+/// A property-ref-derived candidate (`[[note.prop]]`) is kept **only**
+/// when its dotted target resolved to a real file — otherwise it is a
+/// genuine property reference, not a link, and is dropped. Every other
+/// occurrence lands regardless (broken wiki-links included, so the UI
+/// can surface them and a later rename can re-resolve).
+#[must_use]
+pub fn keeps_link_row(from_property_ref: bool, target_path: &Option<String>) -> bool {
+    !(from_property_ref && target_path.is_none())
 }
 
 /// Resolve a wiki-link target against a snapshot of `files.path`.
@@ -143,14 +181,17 @@ pub async fn refresh_links(
     let files = list_known_paths(vault).await?;
     let rows: Vec<LinkRow> = extractions
         .into_iter()
-        .map(|e| {
+        .filter_map(|e| {
             let target_path = resolve_target(&e.target_raw, &files);
+            if !keeps_link_row(e.from_property_ref, &target_path) {
+                return None; // unresolved property-ref → not a link
+            }
             let (anchor_kind, anchor_value) = match e.anchor {
                 Some(Anchor::Heading { value }) => (Some("heading".to_string()), Some(value)),
                 Some(Anchor::Block { value }) => (Some("block".to_string()), Some(value)),
                 None => (None, None),
             };
-            LinkRow {
+            Some(LinkRow {
                 target_raw: e.target_raw,
                 target_path,
                 anchor_kind,
@@ -158,7 +199,7 @@ pub async fn refresh_links(
                 display_text: e.display,
                 is_embed: e.is_embed,
                 position: e.position,
-            }
+            })
         })
         .collect();
 
@@ -332,11 +373,22 @@ impl PathResolver {
                 return None; // ambiguous basename → unresolved
             }
         }
-        // 3) unique path-suffix match, case-insensitive (linear fallback)
-        let mut suffix_matches = self
-            .all
-            .iter()
-            .filter(|f| f.to_lowercase().ends_with(&target_lower));
+        // 3) unique path-suffix match, case-insensitive (linear fallback).
+        // The match must align on a `/` separator (or cover the whole
+        // path) — a raw `ends_with` would let `b.md` resolve to
+        // `grab.md`, a silent mid-segment mis-resolution.
+        let mut suffix_matches = self.all.iter().filter(|f| {
+            let fl = f.to_lowercase();
+            if !fl.ends_with(&target_lower) {
+                return false;
+            }
+            // `target_lower` is a byte-suffix of `fl`; the byte just
+            // before it (if any) must be `/`. `/` is ASCII, so the
+            // trailing byte of any multi-byte char can never be mistaken
+            // for it.
+            let prefix_len = fl.len() - target_lower.len();
+            prefix_len == 0 || fl.as_bytes()[prefix_len - 1] == b'/'
+        });
         let first = suffix_matches.next();
         match (first, suffix_matches.next()) {
             (Some(f), None) => Some(f.clone()),
@@ -404,6 +456,36 @@ mod tests {
         assert_eq!(links[0].target_raw, "note");
         assert!(links[0].anchor.is_none());
         assert!(!links[0].is_embed);
+        assert!(!links[0].from_property_ref);
+    }
+
+    #[test]
+    fn extracts_cross_file_property_ref_as_link_candidate() {
+        // `[[Report v1.2]]` tokenizes as a property-ref but names a file
+        // form; it is surfaced as a candidate so resolution can keep it
+        // if `Report v1.2.md` exists.
+        let doc = parse("see [[Report v1.2]] here\n");
+        let links = extract_links(&doc);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].target_raw, "Report v1.2");
+        assert!(links[0].from_property_ref);
+    }
+
+    #[test]
+    fn self_property_ref_is_not_a_link_candidate() {
+        // `[[.age]]` can never be a file — not a candidate.
+        let doc = parse("value [[.age]] here\n");
+        assert!(extract_links(&doc).is_empty());
+    }
+
+    #[test]
+    fn keeps_link_row_drops_only_unresolved_property_refs() {
+        // Resolved property-ref → kept; unresolved property-ref → dropped.
+        assert!(keeps_link_row(true, &Some("Report v1.2.md".to_string())));
+        assert!(!keeps_link_row(true, &None));
+        // Ordinary wiki-links always land, broken or not.
+        assert!(keeps_link_row(false, &None));
+        assert!(keeps_link_row(false, &Some("a.md".to_string())));
     }
 
     #[test]
@@ -473,6 +555,24 @@ mod tests {
         assert_eq!(
             resolve_target("path/foo.md", &files).as_deref(),
             Some("deeply/nested/path/foo.md"),
+        );
+    }
+
+    #[test]
+    fn resolve_suffix_requires_path_boundary() {
+        // The suffix stage must align on a `/` separator (or match the
+        // whole path), not a raw `ends_with`. Otherwise `[[b.md]]` would
+        // wrongly resolve to `grab.md` — a silent mis-resolution.
+        let files = vec!["grab.md".to_string()];
+        assert!(
+            resolve_target("b.md", &files).is_none(),
+            "suffix match must not fire mid-segment (grab.md is not a match for b.md)",
+        );
+        // A genuine path-tail still resolves at the suffix stage.
+        let files2 = vec!["deeply/nested/foo.md".to_string()];
+        assert_eq!(
+            resolve_target("nested/foo.md", &files2).as_deref(),
+            Some("deeply/nested/foo.md"),
         );
     }
 

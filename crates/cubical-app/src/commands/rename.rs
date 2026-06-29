@@ -21,6 +21,7 @@
 //!   `list_recent_rename_ops` / `undo_rename` — thin read wrappers
 //!   around the chain-1 `cubical-index::pending` query module.
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 use cubical_core::vault::pending::apply_pending;
@@ -360,21 +361,12 @@ pub async fn rename_file<R: Runtime>(
     // bare basename or its path-minus-`.md` (the two forms a wiki-link
     // could have been written in). They get reconnected + queued for a text
     // rewrite alongside the resolved referrers below.
-    let old_basename = basename_without_md(&req.from_path).to_string();
-    let old_path_no_md = strip_md_suffix(&req.from_path).to_string();
+    let (old_basename, old_path_no_md) = link_name_forms(&req.from_path);
     let rewrite_broken =
         read_bool_setting(state, &req.vault_id, WIKILINKS_REWRITE_BROKEN_KEY, true).await;
     if rewrite_broken {
-        let mut rows = conn
-            .query(
-                "SELECT DISTINCT source_path, target_raw FROM links \
-                 WHERE target_path IS NULL AND (target_raw = ?1 OR target_raw = ?2)",
-                params![old_basename.clone(), old_path_no_md.clone()],
-            )
-            .await?;
-        while let Some(row) = rows.next().await? {
-            referrers.push((row.get(0)?, row.get(1)?));
-        }
+        referrers
+            .extend(select_broken_referrers_naming(conn, &old_basename, &old_path_no_md).await?);
     }
 
     let rename_op_id = mint_rename_op_id(&vault).await?;
@@ -435,16 +427,7 @@ pub async fn rename_file<R: Runtime>(
     // target_path at the new file so they resolve again (their text gets
     // fixed by the queued rewrite). Same gate as the enqueue.
     if rewrite_broken {
-        tx.execute(
-            "UPDATE links SET target_path = ?1 \
-             WHERE target_path IS NULL AND (target_raw = ?2 OR target_raw = ?3)",
-            params![
-                req.to_path.clone(),
-                old_basename.clone(),
-                old_path_no_md.clone()
-            ],
-        )
-        .await?;
+        reconnect_broken_links_to(&tx, &req.to_path, &old_basename, &old_path_no_md).await?;
     }
 
     tx.execute(
@@ -474,6 +457,26 @@ pub async fn rename_file<R: Runtime>(
         } else {
             return Err(CubicalError::Io(e.to_string()));
         }
+    }
+
+    // Durably journal the rename so an index wipe before flush can't
+    // strand referrer links (design 2026-06-27). The file move is on
+    // disk now but the `Old → New` mapping otherwise lives only in the
+    // disposable `pending_rewrites` table. Best-effort: a journal write
+    // failure must not fail the rename — the in-index pending rows still
+    // cover the common (no-wipe) path. Pruned on `replay_rename_journal`
+    // once the referrer text is fully rewritten.
+    if let Err(e) = cubical_core::vault::rename_journal::append_entry(
+        vault.root(),
+        &cubical_core::vault::rename_journal::RenameJournalEntry {
+            op_id: rename_op_id,
+            kind: "file".into(),
+            from: req.from_path.clone(),
+            to: req.to_path.clone(),
+            at: now,
+        },
+    ) {
+        tracing::warn!(error = %e, "rename: failed to write durability journal");
     }
 
     // Re-extract the moved file's outbound rows under the new path.
@@ -868,6 +871,8 @@ pub async fn flush_pending_rewrites<R: Runtime>(
         }
         refs_updated += n as i64;
     }
+    // Tidy journal entries whose rename is now fully materialized.
+    prune_materialized_journal(&vault).await;
 
     let pending_count = pending_count_total(vault.index()).await?;
     emit_flush_complete(
@@ -906,6 +911,8 @@ pub async fn flush_pending_rewrites_for_target<R: Runtime>(
         flush_pending_for_target(&vault, &req.target_file, Some(flush_own_writes)).await?;
     let files_rewritten: i64 = if changed { 1 } else { 0 };
     let refs_updated = refs_updated_usize as i64;
+    // Tidy journal entries whose rename is now fully materialized.
+    prune_materialized_journal(&vault).await;
 
     let pending_count = pending_count_total(vault.index()).await?;
     emit_flush_complete(
@@ -957,6 +964,8 @@ pub(crate) async fn flush_all_for_vault<R: Runtime>(
         }
         refs_updated += n as i64;
     }
+    // Tidy journal entries whose rename is now fully materialized.
+    prune_materialized_journal(vault).await;
 
     let pending_count = pending_count_total(vault.index()).await?;
     emit_flush_complete(
@@ -1139,6 +1148,221 @@ pub async fn undo_rename<R: Runtime>(
         removed,
         pending_count,
     })
+}
+
+// -- Rename-journal replay ----------------------------------------------
+
+/// Whether `path` is tracked in `files`.
+async fn path_tracked(conn: &libsql::Connection, path: &str) -> Result<bool, CubicalError> {
+    let mut rows = conn
+        .query("SELECT 1 FROM files WHERE path = ?1", params![path])
+        .await?;
+    Ok(rows.next().await?.is_some())
+}
+
+/// Is any wiki-link `pending_rewrites` row's `old_token` naming the old
+/// file (case-insensitive basename or path form)? True while a referrer
+/// still has a deferred `[[Old]] → [[New]]` rewrite outstanding; false
+/// once they've all flushed. Keyed on the pending table (which flush
+/// deletes directly) rather than `links` (which only refreshes once the
+/// watcher re-extracts), so it's correct the instant a flush completes.
+async fn any_pending_named(
+    conn: &libsql::Connection,
+    old_basename: &str,
+    old_path_no_md: &str,
+) -> Result<bool, CubicalError> {
+    let mut rows = conn
+        .query(
+            "SELECT 1 FROM pending_rewrites \
+             WHERE rewrite_kind = 'wiki_link' \
+             AND (LOWER(old_token) = LOWER(?1) OR LOWER(old_token) = LOWER(?2)) LIMIT 1",
+            params![old_basename, old_path_no_md],
+        )
+        .await?;
+    Ok(rows.next().await?.is_some())
+}
+
+/// The two wiki-link forms a target could name a file by: its bare
+/// basename (`Daily`) and its path minus `.md` (`notes/Daily`).
+fn link_name_forms(path: &str) -> (String, String) {
+    (
+        basename_without_md(path).to_string(),
+        strip_md_suffix(path).to_string(),
+    )
+}
+
+/// SELECT the distinct `(source_path, target_raw)` of currently-broken
+/// links whose raw text names a file by either wiki-link form
+/// (case-insensitive). Shared by `rename_file`'s repair path and
+/// rename-journal replay so the two can't drift.
+async fn select_broken_referrers_naming(
+    conn: &libsql::Connection,
+    old_basename: &str,
+    old_path_no_md: &str,
+) -> Result<Vec<(String, String)>, CubicalError> {
+    let mut rows = conn
+        .query(
+            "SELECT DISTINCT source_path, target_raw FROM links \
+             WHERE target_path IS NULL \
+             AND (LOWER(target_raw) = LOWER(?1) OR LOWER(target_raw) = LOWER(?2))",
+            params![old_basename, old_path_no_md],
+        )
+        .await?;
+    let mut out = Vec::new();
+    while let Some(row) = rows.next().await? {
+        out.push((row.get(0)?, row.get(1)?));
+    }
+    Ok(out)
+}
+
+/// Reconnect broken links naming the old file to `to_path`
+/// (case-insensitive), inside the caller's transaction. Counterpart to
+/// [`select_broken_referrers_naming`] — same predicate, one source of
+/// truth.
+async fn reconnect_broken_links_to(
+    tx: &libsql::Transaction,
+    to_path: &str,
+    old_basename: &str,
+    old_path_no_md: &str,
+) -> Result<(), CubicalError> {
+    tx.execute(
+        "UPDATE links SET target_path = ?1 \
+         WHERE target_path IS NULL \
+         AND (LOWER(target_raw) = LOWER(?2) OR LOWER(target_raw) = LOWER(?3))",
+        params![to_path, old_basename, old_path_no_md],
+    )
+    .await?;
+    Ok(())
+}
+
+/// Drop journal entries whose rename is fully materialized (no referrer
+/// text still names the old file) or stale (the target is gone). Run at
+/// the end of replay and after flushes so the sidecar stays small in
+/// steady state. Best-effort: a prune failure is logged, not fatal.
+async fn prune_materialized_journal(vault: &cubical_core::Vault) {
+    if let Err(e) = prune_materialized_journal_inner(vault).await {
+        tracing::warn!(error = %e, "rename journal prune failed");
+    }
+}
+
+async fn prune_materialized_journal_inner(vault: &cubical_core::Vault) -> Result<(), CubicalError> {
+    let entries = cubical_core::vault::rename_journal::read_entries(vault.root());
+    if entries.is_empty() {
+        return Ok(());
+    }
+    let conn = vault.index().connection();
+    let mut prune: HashSet<i64> = HashSet::new();
+    for e in &entries {
+        if e.kind != "file" {
+            continue;
+        }
+        if path_tracked(conn, &e.from).await? {
+            continue; // old name is live again — leave the entry
+        }
+        if !path_tracked(conn, &e.to).await? {
+            prune.insert(e.op_id); // stale: target gone too
+            continue;
+        }
+        let (old_basename, old_path_no_md) = link_name_forms(&e.from);
+        if !any_pending_named(conn, &old_basename, &old_path_no_md).await? {
+            prune.insert(e.op_id); // no deferred rewrite left — materialized
+        }
+    }
+    if !prune.is_empty() {
+        let _ = cubical_core::vault::rename_journal::rewrite_without(vault.root(), &prune);
+    }
+    Ok(())
+}
+
+/// Replay the durability journal after a scan completes (design
+/// 2026-06-27). For each surviving `file` entry whose `from` is gone but
+/// `to` is tracked: reconnect referrer links that still name `from`
+/// (case-insensitive, mirroring `rename_file`'s repair) and re-enqueue
+/// their text rewrites under a fresh op. This is what makes "wipe the
+/// disposable index mid-rename" recover to correct links instead of
+/// stranding referrers.
+///
+/// An entry is pruned once no referrer text still names `from` (i.e. the
+/// rewrites have flushed and the rename is fully baked into the `.md`
+/// files) or when `to` itself has vanished (stale). Entries whose `from`
+/// is tracked again are left untouched. Best-effort: errors are logged
+/// and swallowed so a bad journal can't wedge vault open.
+pub async fn replay_rename_journal<R: Runtime>(
+    vault: &cubical_core::Vault,
+    app: &tauri::AppHandle<R>,
+    vault_id: &str,
+) {
+    if let Err(e) = replay_rename_journal_inner(vault, app, vault_id).await {
+        tracing::warn!(vault_id = %vault_id, error = %e, "rename journal replay failed");
+    }
+}
+
+async fn replay_rename_journal_inner<R: Runtime>(
+    vault: &cubical_core::Vault,
+    app: &tauri::AppHandle<R>,
+    vault_id: &str,
+) -> Result<(), CubicalError> {
+    let entries = cubical_core::vault::rename_journal::read_entries(vault.root());
+    if entries.is_empty() {
+        return Ok(());
+    }
+    let conn = vault.index().connection();
+    let mut any_enqueued = false;
+
+    for e in &entries {
+        if e.kind != "file" {
+            continue;
+        }
+        // Only act when the old name is gone and the target exists. The
+        // came-back (`from` live) and stale (`to` gone) cases need no
+        // reconnect — the prune pass below tidies them.
+        if path_tracked(conn, &e.from).await? || !path_tracked(conn, &e.to).await? {
+            continue;
+        }
+
+        let (old_basename, old_path_no_md) = link_name_forms(&e.from);
+        let referrers =
+            select_broken_referrers_naming(conn, &old_basename, &old_path_no_md).await?;
+        if referrers.is_empty() {
+            continue;
+        }
+
+        let op = mint_rename_op_id(vault).await?;
+        let now = unix_now_secs();
+        let tx = conn.transaction().await?;
+        reconnect_broken_links_to(&tx, &e.to, &old_basename, &old_path_no_md).await?;
+        for (source_path, target_raw) in &referrers {
+            let new_token = derive_wikilink_new_token(target_raw, &e.from, &e.to);
+            enqueue_coalesced(
+                &tx,
+                source_path,
+                "wiki_link",
+                target_raw,
+                &new_token,
+                now,
+                op,
+            )
+            .await?;
+        }
+        tx.commit().await?;
+        any_enqueued = true;
+    }
+
+    // Tidy entries that are fully materialized or stale (including ones
+    // we skipped above because they were already flushed).
+    prune_materialized_journal(vault).await;
+
+    if any_enqueued {
+        let count = pending_count_total(vault.index()).await?;
+        emit_pending_rewrites_changed(
+            app,
+            VaultPendingRewritesChanged {
+                vault_id: vault_id.to_string(),
+                count,
+            },
+        );
+    }
+    Ok(())
 }
 
 // -- Tests ---------------------------------------------------------------
@@ -1520,6 +1744,190 @@ mod tests {
         assert_eq!(p.len(), 1, "a rewrite is queued for the reconnected link");
         assert_eq!(p[0].old_token, "a");
         assert_eq!(p[0].new_token, "b");
+    }
+
+    #[tokio::test]
+    async fn rename_reconnects_broken_links_case_insensitively() {
+        // Resolution is case-insensitive, so the repair path must be too:
+        // a broken `[[A]]` referring to `a.md` must reconnect when `a.md`
+        // is renamed, even though its raw text casing differs from the
+        // old basename.
+        use cubical_index::backlinks_for;
+        let (_d, vault, state) = fresh("v1").await;
+        seed_file(&vault, "a.md", "markdown").await;
+        seed_file(&vault, "Broken.md", "markdown").await;
+        replace_links_for_file(
+            vault.index(),
+            "Broken.md",
+            &[LinkRow {
+                target_raw: "A".into(), // upper-case variant, broken
+                target_path: None,
+                anchor_kind: None,
+                anchor_value: None,
+                display_text: None,
+                is_embed: false,
+                position: 4,
+            }],
+        )
+        .await
+        .unwrap();
+        std::fs::write(vault.root().join("a.md"), "body\n").unwrap();
+        std::fs::write(vault.root().join("Broken.md"), "see [[A]]\n").unwrap();
+
+        rename_file(
+            &state,
+            &mock_app(),
+            RenameFileRequest {
+                vault_id: "v1".into(),
+                from_path: "a.md".into(),
+                to_path: "b.md".into(),
+            },
+        )
+        .await
+        .expect("rename");
+
+        let bl = backlinks_for(vault.index(), "b.md").await.unwrap();
+        assert!(
+            bl.iter().any(|r| r.source_path == "Broken.md"),
+            "case-variant broken link reconnected as a backlink of b.md",
+        );
+        let p = pending_for_target(vault.index(), "Broken.md")
+            .await
+            .unwrap();
+        assert_eq!(p.len(), 1, "a rewrite is queued for the reconnected link");
+        assert_eq!(p[0].old_token, "A");
+    }
+
+    #[tokio::test]
+    async fn rename_file_appends_durability_journal() {
+        use cubical_core::vault::rename_journal::read_entries;
+        let (_d, vault, state) = fresh("v1").await;
+        seed_one_referrer_to_daily(&vault).await;
+
+        rename_file(
+            &state,
+            &mock_app(),
+            RenameFileRequest {
+                vault_id: "v1".into(),
+                from_path: "Daily.md".into(),
+                to_path: "Journal.md".into(),
+            },
+        )
+        .await
+        .expect("ok");
+
+        let entries = read_entries(vault.root());
+        assert_eq!(entries.len(), 1, "the rename is journaled");
+        assert_eq!(entries[0].from, "Daily.md");
+        assert_eq!(entries[0].to, "Journal.md");
+        assert_eq!(entries[0].kind, "file");
+    }
+
+    #[tokio::test]
+    async fn replay_rename_journal_reconnects_after_index_wipe() {
+        // The core durability guarantee: the file move committed to disk
+        // (a.md → b.md) but the index was wiped before the referrer text
+        // flushed — so the link is broken and pending_rewrites is empty,
+        // exactly the post-rebuild state. The journal on disk lets replay
+        // reconnect the referrer and re-queue its rewrite.
+        use cubical_core::vault::rename_journal::{append_entry, read_entries, RenameJournalEntry};
+        use cubical_index::backlinks_for;
+        let (_d, vault, state) = fresh("v1").await;
+        let _ = &state;
+        // Post-wipe index state: b.md (the moved file) + the referrer are
+        // tracked; a.md is gone; the referrer's link is broken.
+        seed_file(&vault, "b.md", "markdown").await;
+        seed_file(&vault, "Referrer.md", "markdown").await;
+        replace_links_for_file(
+            vault.index(),
+            "Referrer.md",
+            &[LinkRow {
+                target_raw: "a".into(),
+                target_path: None, // broken — a.md no longer exists
+                anchor_kind: None,
+                anchor_value: None,
+                display_text: None,
+                is_embed: false,
+                position: 4,
+            }],
+        )
+        .await
+        .unwrap();
+        // The journal entry the (now-wiped) rename had written to disk.
+        append_entry(
+            vault.root(),
+            &RenameJournalEntry {
+                op_id: 1,
+                kind: "file".into(),
+                from: "a.md".into(),
+                to: "b.md".into(),
+                at: 0,
+            },
+        )
+        .unwrap();
+
+        replay_rename_journal(&vault, &mock_app(), "v1").await;
+
+        let bl = backlinks_for(vault.index(), "b.md").await.unwrap();
+        assert!(
+            bl.iter().any(|r| r.source_path == "Referrer.md"),
+            "replay reconnects the stranded referrer to the moved file",
+        );
+        let p = pending_for_target(vault.index(), "Referrer.md")
+            .await
+            .unwrap();
+        assert_eq!(p.len(), 1, "replay re-queues the deferred text rewrite");
+        assert_eq!(p[0].old_token, "a");
+        assert_eq!(p[0].new_token, "b");
+        // Not pruned yet: the referrer text still says `[[a]]` until flush.
+        assert_eq!(
+            read_entries(vault.root()).len(),
+            1,
+            "the journal entry survives until the rewrite is flushed",
+        );
+    }
+
+    #[tokio::test]
+    async fn flush_prunes_materialized_journal_entry() {
+        // Once a rename's deferred rewrite flushes, its journal entry is
+        // pruned — the sidecar stays empty in steady state.
+        use cubical_core::vault::rename_journal::read_entries;
+        let (_d, vault, state) = fresh("v1").await;
+        seed_one_referrer_to_daily(&vault).await;
+        // Referrer must exist on disk so the flush can actually rewrite it.
+        std::fs::write(vault.root().join("Project.md"), "see [[Daily]]\n").unwrap();
+
+        rename_file(
+            &state,
+            &mock_app(),
+            RenameFileRequest {
+                vault_id: "v1".into(),
+                from_path: "Daily.md".into(),
+                to_path: "Journal.md".into(),
+            },
+        )
+        .await
+        .expect("rename");
+        assert_eq!(
+            read_entries(vault.root()).len(),
+            1,
+            "rename journals the op"
+        );
+
+        flush_pending_rewrites(
+            &state,
+            &mock_app(),
+            FlushPendingRewritesRequest {
+                vault_id: "v1".into(),
+            },
+        )
+        .await
+        .expect("flush");
+
+        assert!(
+            read_entries(vault.root()).is_empty(),
+            "journal entry pruned once its rewrite flushed",
+        );
     }
 
     #[tokio::test]

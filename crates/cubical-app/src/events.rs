@@ -268,6 +268,12 @@ pub fn spawn_scan_dispatcher(
 
         let (new_status, new_search_state) = match scan_outcome {
             Ok(Ok(file_count)) => {
+                // Replay the rename-durability journal now that the scan
+                // has resolved links: reconnect any referrers stranded by
+                // a rename whose index state was wiped before flush
+                // (design 2026-06-27). Best-effort, before announcing
+                // scan-complete so clients see reconnected links.
+                crate::commands::rename::replay_rename_journal(&vault, &app, &vault_id).await;
                 emit_scan_complete(
                     &app,
                     VaultScanComplete {
