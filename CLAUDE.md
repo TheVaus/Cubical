@@ -45,31 +45,10 @@ For non-features explicitly cut from scope, see [`docs/architecture/constraints.
 
 ## Project state
 
-**Current branch `feat/minimap-pretext`:** Document **minimap** — a read-only
-canvas strip beside the editor that lays out the whole note via
-`@chenglou/pretext` (MIT, zero-dep), with a draggable viewport indicator. Pure
-derived state, gated on `editor.minimap_enabled` (default off). Built end-to-end
-(geometry/render/Pretext-wrapper unit-tested; component preview-verified only —
-the Tauri shell is needed for live visual check). Spec + plan:
-`docs/superpowers/{specs,plans}/2026-06-28-pretext-minimap*`. Also on-branch: a
-small `EditorView.lineWrapping` fix (pre-existing tree change, committed first).
+**Current branch `feat/colorize-raw-source`:** **raw-source coloring** for the editor. Design spec committed (`docs/superpowers/specs/2026-06-28-colorize-raw-source-design.md`); implementation in progress (uncommitted WIP — `ui/src/editor/colorSource.ts` + `.test.ts`, Editor/cm-theme/minimap integration). Nothing else is off `main`.
 
-**Uncommitted on `main`, not committed** (pre-existing work in tree — keep
-commits scoped): deleted-file pruning + rename-coalescing fixes, **create files
-+ folders** (`layer-0-spec.md` §14, `layer-3-spec.md` §9.15), **Live Preview
-touch-reveal** (`layer-2-spec.md` §2.2). Awaiting smoke: property-ref
-interpolation + status bar (`docs/superpowers/specs/2026-06-20-*`). **Parked:**
-`feat/typed-properties`.
+**On `main`:** all recent feature work merged — **minimap** (read-only `@chenglou/pretext` canvas strip, gated `editor.minimap_enabled`, default off), create files + folders, property-ref interpolation (default-on), configurable status bar, Live Preview touch-reveal, rename durability journal + deleted-file pruning + rename-coalescing, Core Plugins + portable `.cubical/config.toml` settings, all Layer 4. Typed properties (inline `# type:`) merged but **defaulted off** — slated for a vault-level type registry (`docs/architecture/planned.md` §14; issue #19). The **`l4` close-tag is the only structural open gate** — operator smoke, recipe `layer-4-spec.md` §9.5–9.6. Deferred (GitHub Issues): tabs/multi-document (#20), per-occurrence search (#21).
 
-**On `main`:** Typed properties (inline `# type:`) merged but **defaulted off**
-— `.md`-storage approach slated for a vault-level type registry
-(`docs/architecture/planned.md` §14). Core Plugins + portable
-`.cubical/config.toml` settings; all Layer 4 merged (`l4a`–`l4d`). The **`l4`
-close-tag is the only structural open gate** — operator smoke, recipe
-`layer-4-spec.md` §9.5–9.6. Deferred: tabs/multi-document, per-occurrence search.
+**Dev infrastructure:** CI runs `scripts/check.sh` on every PR/push to `main` (`.github/workflows/ci.yml`); Rust pinned via `rust-toolchain.toml`; Dependabot watches cargo/npm/actions + security alerts on; actions SHA-pinned. Deferred/parked backlog + perf debt now tracked as GitHub Issues (perf #14–#17, milestone `v1.0`). How it all fits: `docs/conventions.md` → Continuous integration.
 
-**Tests:** 660 vitest + 555 Rust (working tree). Gates: `scripts/check.sh`
-(fmt/clippy/test, tsc, vitest, build, docs) — all green **except** the docs gate,
-which fails on a *pre-existing* broken link (`prd.md:281` →
-`docs/architecture/anti-patterns-2026-06-01.md`, target missing; unrelated to
-current work). Layer status/tags/dates: `docs/build-order.md`.
+**Tests:** 660 vitest + 555 Rust. Gates: `scripts/check.sh` (fmt/clippy/test, tsc, vitest, build, docs) — all green. Layer status/tags/dates: `docs/build-order.md`.
