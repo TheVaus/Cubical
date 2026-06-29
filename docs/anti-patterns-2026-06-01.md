@@ -5,6 +5,9 @@ Known perf debt — out of the auto-loaded primer, but linked from
 discoverable instead of rotting. None of these block any layer's Definition
 of Done; address opportunistically.
 
+Tracked as GitHub issues — §1 → #14, §2 → #15, §3 → #16, §4 → #17 (milestone
+`v1.0`). This survey stays the analysis of record; the issues are the work tracker.
+
 Four anti-patterns found during a post-L3-close review. Each was
 investigated for documented intent; none of the four has a recorded
 "considered alternative X, rejected for reason Y" trail in the L3 plans

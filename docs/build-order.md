@@ -35,4 +35,4 @@ update this table on layer close, nowhere else.
 
 ## Known open perf debt
 
-Non-blocking, doesn't gate any layer: [`anti-patterns-2026-06-01.md`](anti-patterns-2026-06-01.md) — four perf anti-patterns surfaced post-L3 (N+1 in scan, full-tree decoration walk, row-at-a-time INSERTs, sequential async). Re-validated 2026-06-17: all four still open. Pick up opportunistically.
+Non-blocking, doesn't gate any layer: [`anti-patterns-2026-06-01.md`](anti-patterns-2026-06-01.md) — four perf anti-patterns surfaced post-L3 (N+1 in scan, full-tree decoration walk, row-at-a-time INSERTs, sequential async). Re-validated 2026-06-17: all four still open. Pick up opportunistically. Tracked as GitHub issues #14–#17 (milestone `v1.0`); the doc remains the analysis of record.
