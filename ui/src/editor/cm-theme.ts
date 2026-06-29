@@ -58,14 +58,20 @@ export function buildCmTheme(): Extension {
 
   return EditorView.theme(
     {
+      // No fixed height + `overflow: visible` on the scroller (below): the
+      // editor grows to its content height and lets the *page* container
+      // (`.editor-scroll`) own scrolling, so the title/properties scroll
+      // away with the document instead of being pinned above a self-
+      // scrolling editor. `flex: 1 0 auto` fills the host for short docs
+      // (preserving click-below-to-focus) while still growing for long ones.
       "&": {
-        height: "100%",
+        flex: "1 0 auto",
         fontFamily: t["--font-mono"],
         fontSize: t["--text-sm"],
         color: t["--c-fg-primary"],
         background: "transparent",
       },
-      ".cm-scroller": { overflow: "auto" },
+      ".cm-scroller": { overflow: "visible" },
       ".cm-content": {
         padding: t["--space-3"],
         caretColor: t["--editor-caret"],

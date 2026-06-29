@@ -1013,18 +1013,16 @@ const Editor: Component<EditorProps> = (props) => {
   });
 
   return (
-    <div style={{ display: "flex", flex: "1", "min-height": "0" }}>
+    <div style={{ display: "flex", flex: "1 0 auto" }}>
       <div
         ref={host}
         style={{
           flex: "1",
           "min-width": "0",
-          "min-height": "0",
           display: "flex",
           "flex-direction": "column",
           border: "none",
           background: "transparent",
-          overflow: "hidden",
         }}
       />
       <Show when={props.minimapEnabled && cmView()}>
