@@ -4,8 +4,8 @@ Code-style rules enforced by review and (where noted) by tooling. Load this when
 
 ## Rust
 
-- Edition 2021.
-- `cargo fmt` and `cargo clippy -- -D warnings` clean before any commit.
+- Edition 2021; toolchain pinned in `rust-toolchain.toml` (CI uses the same).
+- `cargo fmt` and `cargo clippy -- -D warnings` clean before any commit (CI enforces both).
 - Errors via `thiserror` for libraries, `anyhow` for the app crate.
 - No `unwrap()` or `expect()` outside tests and `main`.
 
@@ -27,6 +27,25 @@ Code-style rules enforced by review and (where noted) by tooling. Load this when
 - The app crate has integration tests against a temp vault.
 - UI has vitest coverage (live since L3). Current gate counts live in
   `CLAUDE.md`'s Tests block.
+
+## Continuous integration & dependencies
+
+- **CI runs the gate set on every PR to `main` and every push to `main`**
+  (`.github/workflows/ci.yml`). It provisions toolchains and runs
+  `scripts/check.sh` — *the* single source of truth for what "green" means
+  (fmt, clippy, Rust tests, tsc, vitest, UI build, docs check). Add or remove a
+  gate in `check.sh` and CI follows automatically; don't duplicate the gate list
+  in the workflow.
+- **Rust toolchain is pinned** (`rust-toolchain.toml`). Local builds match CI
+  byte-for-byte, and the `clippy -D warnings` gate only shifts when the toolchain
+  is bumped deliberately, not whenever a new stable ships. Bump it in its own
+  commit; the gate re-validates.
+- **Third-party Actions are pinned to commit SHAs** (with a version comment), not
+  mutable tags — supply-chain hardening consistent with the plugin-sandbox stance.
+- **Dependabot** (`.github/dependabot.yml`) opens weekly update PRs for `cargo`,
+  `npm`, and `github-actions` (minor/patch grouped, majors individual); security
+  alerts + automated security fixes are on. Each Dependabot PR is CI-gated like
+  any other.
 
 ## Commits
 
@@ -83,6 +102,10 @@ needs no GUI smoke.
   follow-up interactive pass.
 - Layer transitions get a tag (`l0`, `l1`, …); structural-fix sessions use a
   descriptive suffix (`l4a-fix`).
+- **Discrete deferred / parked work goes to GitHub Issues** (labels `perf`,
+  `parked`, `area:*`), not buried in doc prose where it rots — e.g. the perf
+  anti-patterns and the typed-properties registry rework. The *roadmap* still
+  lives in `build-order.md`; Issues hold the loose backlog that hangs off it.
 
 ## Documentation
 

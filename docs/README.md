@@ -35,8 +35,11 @@ cubical/
 │   └── cubical-app/        # Tauri app, depends on the above
 ├── ui/                     # Solid + TypeScript + Vite frontend
 ├── docs/                   # this index
+├── scripts/                # check.sh (the gate set) + check_docs.py
+├── .github/                # CI workflow (runs check.sh) + Dependabot config
 ├── CLAUDE.md               # session primer (auto-loaded)
 ├── Cargo.toml
+├── rust-toolchain.toml     # pinned Rust version (local == CI)
 └── README.md
 ```
 
