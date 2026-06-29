@@ -286,6 +286,7 @@ export interface TagAutocompleteResponse {
 export type Setting =
   | { key: "editor.raw_source_default"; value: boolean }
   | { key: "editor.minimap_enabled"; value: boolean }
+  | { key: "editor.colorize_raw_source"; value: boolean }
   | { key: "appearance.theme_mode"; value: "light" | "dark" | "system" }
   | { key: "ui.right_sidebar_collapsed"; value: boolean }
   | { key: "ui.right_sidebar_panel"; value: "backlinks" | "unlinked_mentions" }

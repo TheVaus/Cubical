@@ -239,6 +239,11 @@ const App: Component = () => {
   // `editor.minimap_enabled` — read-only Pretext minimap strip; seeded on
   // vault open, absent → `false` (opt-in companion surface).
   const [minimapEnabled, setMinimapEnabled] = createSignal(false);
+  // `editor.colorize_raw_source` — when on, Raw Source mode paints
+  // rendered-mode colors (wiki-links / links / tags → accent) onto the raw
+  // markup without hiding or rendering anything. Seeded on vault open,
+  // absent → `false`. Inert under Live Preview.
+  const [colorizeSource, setColorizeSource] = createSignal(false);
   const effectiveRaw = createMemo(() =>
     resolveRawState(rawOverride(), rawDefault()),
   );
@@ -793,6 +798,12 @@ const App: Component = () => {
     persistSetting(vaultId(), "editor.minimap_enabled", val);
   };
 
+  /** Set the colorize-raw-source flag (from Settings ▸ Editor). */
+  const setColorizeSourceValue = (val: boolean) => {
+    setColorizeSource(val);
+    persistSetting(vaultId(), "editor.colorize_raw_source", val);
+  };
+
   /** Set the typed-properties flag (from Settings ▸ Editor). */
   const setTypedPropsValue = (val: boolean) => {
     setTypedProps(val);
@@ -1332,6 +1343,14 @@ const App: Component = () => {
         "editor.minimap_enabled",
         false,
         setMinimapEnabled,
+      );
+
+      // Seed the colorize-raw-source flag. Absent → off (opt-in).
+      await seedSetting(
+        resp.vault_id,
+        "editor.colorize_raw_source",
+        false,
+        setColorizeSource,
       );
 
       // Seed typed-properties flag + default date format (absent → off / ISO).
@@ -1939,6 +1958,7 @@ const App: Component = () => {
                   resolvedTheme={resolvedTheme()}
                   rawSource={effectiveRaw()}
                   minimapEnabled={minimapEnabled()}
+                  colorizeSource={colorizeSource()}
                   wikilinkResolver={wikilinkResolver()}
                   embedResolver={embedResolver()}
                   propertyResolver={propertyResolver()}
@@ -2197,6 +2217,38 @@ const App: Component = () => {
                         "seg-control__btn--active": minimapEnabled(),
                       }}
                       onClick={() => setMinimapEnabledValue(true)}
+                    >
+                      On
+                    </button>
+                  </div>
+                </div>
+                <div class="set-row">
+                  <div>
+                    <div class="set-row__lab">Colorize raw source</div>
+                    <div class="set-row__desc">
+                      In Raw Source mode, tint wiki-links, links and tags with
+                      rendered-mode colors. Nothing is hidden or rendered — only
+                      colors change.
+                    </div>
+                  </div>
+                  <div class="seg-control">
+                    <button
+                      type="button"
+                      class="seg-control__btn"
+                      classList={{
+                        "seg-control__btn--active": !colorizeSource(),
+                      }}
+                      onClick={() => setColorizeSourceValue(false)}
+                    >
+                      Off
+                    </button>
+                    <button
+                      type="button"
+                      class="seg-control__btn"
+                      classList={{
+                        "seg-control__btn--active": colorizeSource(),
+                      }}
+                      onClick={() => setColorizeSourceValue(true)}
                     >
                       On
                     </button>
