@@ -24,7 +24,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::api::types::{SearchRequest, SearchVaultRequest};
 use crate::error::CubicalError;
-use crate::events::{spawn_scan_dispatcher, AppHandle};
+use crate::events::{spawn_scan_dispatcher, EventSink};
 use crate::state::AppState;
 
 /// Run a free-text query against the named vault's index.
@@ -87,7 +87,7 @@ pub async fn search_index_status(
 /// `delete_all_documents` + `commit` is the safe equivalent.
 pub async fn search_rebuild_index(
     state: &AppState,
-    app: &AppHandle,
+    app: std::sync::Arc<dyn EventSink>,
     req: SearchVaultRequest,
 ) -> Result<(), CubicalError> {
     let guard = state.vaults().read().await;

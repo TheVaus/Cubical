@@ -12,7 +12,7 @@ This document is the inventory of Tauri-coupled surfaces. If migration becomes a
 
 2. **`crates/cubical-app/src/main.rs`** — desktop entry point that calls `cubical_app::run()`. Trivial.
 
-3. **`crates/cubical-app/src/events.rs`** — wraps Tauri's `app_handle.emit()` behind small helpers (`emit_scan_progress`, etc.). Pure handlers never call Tauri's emit directly; they call these helpers.
+3. **`crates/cubical-app/src/events.rs`** — defines the transport-agnostic `AppEvent` enum + `EventSink` trait, and the one Tauri adapter `TauriEventSink` (the only place that names `app_handle.emit()`). Pure handlers take `&dyn EventSink` / `Arc<dyn EventSink>` and never name a Tauri type. The lib.rs shims construct a `TauriEventSink` and pass it in; a CLI passes its own sink (`NoopEventSink`, or one that prints).
 
 4. **`crates/cubical-app/Cargo.toml`** — `tauri = "2"`, `tauri-build = "2"`, `tauri-plugin-*` dependencies. Removed/replaced on migration.
 
@@ -65,7 +65,7 @@ For a non-Tauri shell (hypothetical), the bounded surfaces above are the rewrite
 To keep migration-readiness from costing us today:
 
 - **No `Backend` trait abstraction** with hypothetical alternative implementations. YAGNI; the right abstraction is the pure-handler pattern, not an interface against vapor.
-- **No event-emission trait.** A small helper function is enough.
+- ~~**No event-emission trait.** A small helper function is enough.~~ **Superseded 2026-06-30:** an `EventSink` trait now exists (see touchpoint 3). The original call was right *while Tauri was the only frontend* — a helper sufficed. The trait earns its keep now that a **CLI is a concrete second consumer**: the engine emits transport-agnostic `AppEvent`s and each frontend supplies its own sink. This is abstracting against a real second implementation, not vapor — the exact threshold the `Backend`-trait bullet above is guarding.
 - **No Tauri capability/permission system abstraction.** That's Tauri's unique value; any migration would re-pick a permission model on the new shell.
 - **No facade over `tauri-plugin-*` plugins.** The `ipc.ts` chokepoint is the migration boundary; building a second facade adds layers without payoff.
 

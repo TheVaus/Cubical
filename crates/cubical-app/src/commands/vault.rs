@@ -25,7 +25,7 @@ use crate::api::types::{
     ScanStatus, SetSettingRequest, SetSettingResponse, WriteFileTextRequest, WriteFileTextResponse,
 };
 use crate::error::CubicalError;
-use crate::events::{spawn_scan_dispatcher, spawn_watcher_dispatcher, AppHandle};
+use crate::events::{spawn_scan_dispatcher, spawn_watcher_dispatcher, EventSink};
 use crate::state::{AppState, OpenVault, ScanStatusBackend};
 
 /// Bound on the watcher's mpsc buffer. A burst (e.g. `git checkout`
@@ -67,7 +67,7 @@ fn find_open_vault_by_canonical_path(
 /// vault size.
 pub async fn open_vault(
     state: &AppState,
-    app: &AppHandle,
+    app: std::sync::Arc<dyn EventSink>,
     req: OpenVaultRequest,
 ) -> Result<OpenVaultResponse, CubicalError> {
     // Idempotent re-open: if this folder is already open in-process,
@@ -933,9 +933,9 @@ pub async fn reload_settings(
 /// Drops the underlying `IndexConn` (and therefore the libSQL connection)
 /// when the last reference goes away — Vault clones inside the scan task
 /// keep the connection alive until the scan settles.
-pub async fn close_vault<R: crate::events::Runtime>(
+pub async fn close_vault(
     state: &AppState,
-    app: &tauri::AppHandle<R>,
+    app: &dyn EventSink,
     req: CloseVaultRequest,
 ) -> Result<(), CubicalError> {
     let removed = {

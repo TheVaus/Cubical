@@ -38,15 +38,11 @@ use crate::state::{OpenVault, ScanStatusBackend};
 /// external edits and re-trigger reads.
 pub type FlushOwnWrites = Arc<Mutex<HashSet<(PathBuf, String)>>>;
 
-/// Re-export so pure command handlers can refer to `AppHandle` without
-/// importing `tauri` directly. The "no `use tauri` in commands/" rule is
-/// about migration touchpoints, not about avoiding the Tauri type itself
-/// — `events.rs` is the single chokepoint where Tauri types are named.
-pub use tauri::AppHandle;
-/// Re-export the `Runtime` bound used by the L3 Session J emit helpers
-/// and handlers. Runtime-generic signatures let the same code run
-/// against the production `Wry` runtime AND `tauri::test::MockRuntime`
-/// in unit tests.
+/// The `Runtime` bound for the [`TauriEventSink`] adapter, so the same
+/// adapter works against the production `Wry` runtime and
+/// `tauri::test::MockRuntime`. Command handlers no longer name any Tauri
+/// type — they take `&dyn EventSink` — so this is the only Tauri name
+/// the engine-facing side of `events.rs` exposes.
 pub use tauri::Runtime;
 
 // -- Event name constants ---------------------------------------------------
@@ -153,63 +149,129 @@ pub struct VaultFlushComplete {
     pub refs_updated: i64,
 }
 
+// -- Event sink (transport abstraction) -------------------------------------
+//
+// The engine produces transport-agnostic `AppEvent`s and hands them to an
+// `EventSink`. The Tauri frontend supplies a sink that forwards to
+// `AppHandle::emit`; a CLI supplies one that prints or ignores; tests
+// supply one that collects. This is what lets the command handlers +
+// background tasks run with no Tauri dependency — the only Tauri code is
+// the `TauriEventSink` adapter below.
+
+/// A backend → frontend event, transport-agnostic. One variant per
+/// emitted event, carrying its serialisable payload.
+#[derive(Clone)]
+pub enum AppEvent {
+    ScanProgress(VaultScanProgress),
+    ScanComplete(VaultScanComplete),
+    ScanCancelled(VaultScanCancelled),
+    FileChanged(VaultFileChanged),
+    Audit(VaultAudit),
+    PendingRewritesChanged(VaultPendingRewritesChanged),
+    FlushComplete(VaultFlushComplete),
+}
+
+impl AppEvent {
+    /// The frontend event name this maps to.
+    #[must_use]
+    pub fn name(&self) -> &'static str {
+        match self {
+            AppEvent::ScanProgress(_) => VAULT_SCAN_PROGRESS,
+            AppEvent::ScanComplete(_) => VAULT_SCAN_COMPLETE,
+            AppEvent::ScanCancelled(_) => VAULT_SCAN_CANCELLED,
+            AppEvent::FileChanged(_) => VAULT_FILE_CHANGED,
+            AppEvent::Audit(_) => VAULT_AUDIT,
+            AppEvent::PendingRewritesChanged(_) => VAULT_PENDING_REWRITES_CHANGED,
+            AppEvent::FlushComplete(_) => VAULT_FLUSH_COMPLETE,
+        }
+    }
+}
+
+/// Sink the engine emits [`AppEvent`]s into. `Send + Sync` so the
+/// long-lived spawned tasks (scan + watcher dispatchers, flush timer) can
+/// hold an `Arc<dyn EventSink>` across `await` points.
+pub trait EventSink: Send + Sync {
+    fn emit(&self, event: AppEvent);
+}
+
+/// Adapter that forwards [`AppEvent`]s to a Tauri `AppHandle`. The single
+/// place the event transport names Tauri.
+pub struct TauriEventSink<R: Runtime = tauri::Wry> {
+    app: tauri::AppHandle<R>,
+}
+
+impl<R: Runtime> TauriEventSink<R> {
+    #[must_use]
+    pub fn new(app: tauri::AppHandle<R>) -> Self {
+        Self { app }
+    }
+}
+
+impl<R: Runtime> EventSink for TauriEventSink<R> {
+    fn emit(&self, event: AppEvent) {
+        let name = event.name();
+        let res = match event {
+            AppEvent::ScanProgress(p) => self.app.emit(name, p),
+            AppEvent::ScanComplete(p) => self.app.emit(name, p),
+            AppEvent::ScanCancelled(p) => self.app.emit(name, p),
+            AppEvent::FileChanged(p) => self.app.emit(name, p),
+            AppEvent::Audit(p) => self.app.emit(name, p),
+            AppEvent::PendingRewritesChanged(p) => self.app.emit(name, p),
+            AppEvent::FlushComplete(p) => self.app.emit(name, p),
+        };
+        if let Err(e) = res {
+            tracing::warn!(error = %e, event = name, "failed to emit event");
+        }
+    }
+}
+
+/// An [`EventSink`] that drops every event. For fire-and-forget callers
+/// (a CLI that doesn't surface progress) and tests that only assert on
+/// persisted state.
+pub struct NoopEventSink;
+
+impl EventSink for NoopEventSink {
+    fn emit(&self, _event: AppEvent) {}
+}
+
 // -- Emit helpers -----------------------------------------------------------
 //
-// Generic over `AppHandle` so pure handlers can be tested with a mock or
-// no-op emitter in unit tests. Production code passes the real `AppHandle`.
+// Thin wrappers so call sites read `emit_scan_progress(sink, payload)`
+// rather than constructing `AppEvent` variants inline.
 
-/// Emit a [`VAULT_SCAN_PROGRESS`] event. Logs and ignores transport errors.
-pub fn emit_scan_progress(app: &AppHandle, payload: VaultScanProgress) {
-    if let Err(e) = app.emit(VAULT_SCAN_PROGRESS, payload) {
-        tracing::warn!(error = %e, "failed to emit scan-progress");
-    }
+/// Emit a [`VAULT_SCAN_PROGRESS`] event.
+pub fn emit_scan_progress(sink: &dyn EventSink, payload: VaultScanProgress) {
+    sink.emit(AppEvent::ScanProgress(payload));
 }
 
 /// Emit a [`VAULT_SCAN_COMPLETE`] event.
-pub fn emit_scan_complete(app: &AppHandle, payload: VaultScanComplete) {
-    if let Err(e) = app.emit(VAULT_SCAN_COMPLETE, payload) {
-        tracing::warn!(error = %e, "failed to emit scan-complete");
-    }
+pub fn emit_scan_complete(sink: &dyn EventSink, payload: VaultScanComplete) {
+    sink.emit(AppEvent::ScanComplete(payload));
 }
 
 /// Emit a [`VAULT_SCAN_CANCELLED`] event.
-pub fn emit_scan_cancelled(app: &AppHandle, payload: VaultScanCancelled) {
-    if let Err(e) = app.emit(VAULT_SCAN_CANCELLED, payload) {
-        tracing::warn!(error = %e, "failed to emit scan-cancelled");
-    }
+pub fn emit_scan_cancelled(sink: &dyn EventSink, payload: VaultScanCancelled) {
+    sink.emit(AppEvent::ScanCancelled(payload));
 }
 
 /// Emit a [`VAULT_FILE_CHANGED`] event.
-pub fn emit_file_changed(app: &AppHandle, payload: VaultFileChanged) {
-    if let Err(e) = app.emit(VAULT_FILE_CHANGED, payload) {
-        tracing::warn!(error = %e, "failed to emit file-changed");
-    }
+pub fn emit_file_changed(sink: &dyn EventSink, payload: VaultFileChanged) {
+    sink.emit(AppEvent::FileChanged(payload));
 }
 
 /// Emit a [`VAULT_AUDIT`] event.
-pub fn emit_audit(app: &AppHandle, payload: VaultAudit) {
-    if let Err(e) = app.emit(VAULT_AUDIT, payload) {
-        tracing::warn!(error = %e, "failed to emit audit");
-    }
+pub fn emit_audit(sink: &dyn EventSink, payload: VaultAudit) {
+    sink.emit(AppEvent::Audit(payload));
 }
 
-/// Emit a [`VAULT_PENDING_REWRITES_CHANGED`] event. Runtime-generic so
-/// unit tests can pass `tauri::test::MockRuntime` handles.
-pub fn emit_pending_rewrites_changed<R: Runtime>(
-    app: &tauri::AppHandle<R>,
-    payload: VaultPendingRewritesChanged,
-) {
-    if let Err(e) = app.emit(VAULT_PENDING_REWRITES_CHANGED, payload) {
-        tracing::warn!(error = %e, "failed to emit pending-rewrites-changed");
-    }
+/// Emit a [`VAULT_PENDING_REWRITES_CHANGED`] event.
+pub fn emit_pending_rewrites_changed(sink: &dyn EventSink, payload: VaultPendingRewritesChanged) {
+    sink.emit(AppEvent::PendingRewritesChanged(payload));
 }
 
-/// Emit a [`VAULT_FLUSH_COMPLETE`] event. Runtime-generic for the same
-/// reason as [`emit_pending_rewrites_changed`].
-pub fn emit_flush_complete<R: Runtime>(app: &tauri::AppHandle<R>, payload: VaultFlushComplete) {
-    if let Err(e) = app.emit(VAULT_FLUSH_COMPLETE, payload) {
-        tracing::warn!(error = %e, "failed to emit flush-complete");
-    }
+/// Emit a [`VAULT_FLUSH_COMPLETE`] event.
+pub fn emit_flush_complete(sink: &dyn EventSink, payload: VaultFlushComplete) {
+    sink.emit(AppEvent::FlushComplete(payload));
 }
 
 // -- Scan dispatcher --------------------------------------------------------
@@ -232,7 +294,7 @@ pub fn emit_flush_complete<R: Runtime>(app: &tauri::AppHandle<R>, payload: Vault
 ///    `OpenVault.scan_status` field in shared state so subsequent
 ///    `get_vault_info` queries see the new state.
 pub fn spawn_scan_dispatcher(
-    app: AppHandle,
+    sink: Arc<dyn EventSink>,
     state: Arc<RwLock<std::collections::HashMap<String, OpenVault>>>,
     vault_id: String,
     vault: Vault,
@@ -244,11 +306,11 @@ pub fn spawn_scan_dispatcher(
         let scan_handle = tokio::spawn(scan(vault.clone(), cancel.clone(), tx));
 
         let vid_for_progress = vault_id.clone();
-        let app_for_progress = app.clone();
+        let sink_for_progress = Arc::clone(&sink);
         let progress_pump = tokio::spawn(async move {
             while let Some(p) = rx.recv().await {
                 emit_scan_progress(
-                    &app_for_progress,
+                    sink_for_progress.as_ref(),
                     VaultScanProgress {
                         vault_id: vid_for_progress.clone(),
                         files_processed: p.files_processed,
@@ -273,9 +335,10 @@ pub fn spawn_scan_dispatcher(
                 // a rename whose index state was wiped before flush
                 // (design 2026-06-27). Best-effort, before announcing
                 // scan-complete so clients see reconnected links.
-                crate::commands::rename::replay_rename_journal(&vault, &app, &vault_id).await;
+                crate::commands::rename::replay_rename_journal(&vault, sink.as_ref(), &vault_id)
+                    .await;
                 emit_scan_complete(
-                    &app,
+                    sink.as_ref(),
                     VaultScanComplete {
                         vault_id: vault_id.clone(),
                         file_count,
@@ -289,7 +352,7 @@ pub fn spawn_scan_dispatcher(
             }
             Ok(Err(VaultError::ScanCancelled)) => {
                 emit_scan_cancelled(
-                    &app,
+                    sink.as_ref(),
                     VaultScanCancelled {
                         vault_id: vault_id.clone(),
                     },
@@ -306,7 +369,7 @@ pub fn spawn_scan_dispatcher(
             Ok(Err(e)) => {
                 tracing::error!(error = %e, vault_id = %vault_id, "scan failed");
                 emit_scan_cancelled(
-                    &app,
+                    sink.as_ref(),
                     VaultScanCancelled {
                         vault_id: vault_id.clone(),
                     },
@@ -319,7 +382,7 @@ pub fn spawn_scan_dispatcher(
             Err(join_err) => {
                 tracing::error!(error = %join_err, vault_id = %vault_id, "scan task join failed");
                 emit_scan_cancelled(
-                    &app,
+                    sink.as_ref(),
                     VaultScanCancelled {
                         vault_id: vault_id.clone(),
                     },
@@ -362,7 +425,7 @@ pub fn spawn_scan_dispatcher(
 /// Errors are logged and the loop continues — a single failed event
 /// must not take the watcher down.
 pub fn spawn_watcher_dispatcher(
-    app: AppHandle,
+    sink: Arc<dyn EventSink>,
     vault_id: String,
     vault: Vault,
     mut events_rx: tokio::sync::mpsc::Receiver<WatchEvent>,
@@ -378,14 +441,14 @@ pub fn spawn_watcher_dispatcher(
             while let Ok(next) = events_rx.try_recv() {
                 batch.push(next);
             }
-            handle_watch_batch(&app, &vault_id, &vault, batch, &flush_own_writes).await;
+            handle_watch_batch(sink.as_ref(), &vault_id, &vault, batch, &flush_own_writes).await;
         }
         tracing::debug!(vault_id = %vault_id, "watcher dispatcher: channel closed");
     });
 }
 
 async fn handle_watch_batch(
-    app: &AppHandle,
+    sink: &dyn EventSink,
     vault_id: &str,
     vault: &Vault,
     batch: Vec<WatchEvent>,
@@ -417,7 +480,7 @@ async fn handle_watch_batch(
             elapsed_ms = arrived.elapsed().as_millis(),
             "watcher: emitting vault:file-changed",
         );
-        emit_file_changed(app, payload);
+        emit_file_changed(sink, payload);
     }
 }
 

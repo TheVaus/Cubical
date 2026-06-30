@@ -142,7 +142,12 @@ async fn open_vault(
     app: tauri::AppHandle,
     req: OpenVaultRequest,
 ) -> Result<OpenVaultResponse, CubicalError> {
-    commands::vault::open_vault(state.inner(), &app, req).await
+    commands::vault::open_vault(
+        state.inner(),
+        std::sync::Arc::new(crate::events::TauriEventSink::new(app)),
+        req,
+    )
+    .await
 }
 
 /// Tauri shim — see [`commands::vault::cancel_vault_scan`].
@@ -377,7 +382,8 @@ async fn rename_file(
     app: tauri::AppHandle,
     req: RenameFileRequest,
 ) -> Result<RenameFileResponse, CubicalError> {
-    commands::rename::rename_file(state.inner(), &app, req).await
+    commands::rename::rename_file(state.inner(), &crate::events::TauriEventSink::new(app), req)
+        .await
 }
 
 /// Tauri shim — see [`commands::rename::rename_tag`].
@@ -387,7 +393,7 @@ async fn rename_tag(
     app: tauri::AppHandle,
     req: RenameTagRequest,
 ) -> Result<RenameTagResponse, CubicalError> {
-    commands::rename::rename_tag(state.inner(), &app, req).await
+    commands::rename::rename_tag(state.inner(), &crate::events::TauriEventSink::new(app), req).await
 }
 
 /// Tauri shim — see [`commands::rename::rename_block_id`].
@@ -397,7 +403,8 @@ async fn rename_block_id(
     app: tauri::AppHandle,
     req: RenameBlockIdRequest,
 ) -> Result<RenameBlockIdResponse, CubicalError> {
-    commands::rename::rename_block_id(state.inner(), &app, req).await
+    commands::rename::rename_block_id(state.inner(), &crate::events::TauriEventSink::new(app), req)
+        .await
 }
 
 /// Tauri shim — see [`commands::rename::flush_pending_rewrites`].
@@ -407,7 +414,12 @@ async fn flush_pending_rewrites(
     app: tauri::AppHandle,
     req: FlushPendingRewritesRequest,
 ) -> Result<FlushPendingRewritesResponse, CubicalError> {
-    commands::rename::flush_pending_rewrites(state.inner(), &app, req).await
+    commands::rename::flush_pending_rewrites(
+        state.inner(),
+        &crate::events::TauriEventSink::new(app),
+        req,
+    )
+    .await
 }
 
 /// Tauri shim — see [`commands::rename::flush_pending_rewrites_for_target`].
@@ -417,7 +429,12 @@ async fn flush_pending_rewrites_for_target(
     app: tauri::AppHandle,
     req: FlushPendingRewritesForTargetRequest,
 ) -> Result<FlushPendingRewritesResponse, CubicalError> {
-    commands::rename::flush_pending_rewrites_for_target(state.inner(), &app, req).await
+    commands::rename::flush_pending_rewrites_for_target(
+        state.inner(),
+        &crate::events::TauriEventSink::new(app),
+        req,
+    )
+    .await
 }
 
 /// Tauri shim — see [`commands::rename::get_pending_rewrites_count`].
@@ -454,7 +471,8 @@ async fn undo_rename(
     app: tauri::AppHandle,
     req: UndoRenameRequest,
 ) -> Result<UndoRenameResponse, CubicalError> {
-    commands::rename::undo_rename(state.inner(), &app, req).await
+    commands::rename::undo_rename(state.inner(), &crate::events::TauriEventSink::new(app), req)
+        .await
 }
 
 /// Tauri shim — see [`commands::search::search`].
@@ -482,7 +500,12 @@ async fn search_rebuild_index(
     app: tauri::AppHandle,
     req: SearchVaultRequest,
 ) -> Result<(), CubicalError> {
-    commands::search::search_rebuild_index(state.inner(), &app, req).await
+    commands::search::search_rebuild_index(
+        state.inner(),
+        std::sync::Arc::new(crate::events::TauriEventSink::new(app)),
+        req,
+    )
+    .await
 }
 
 /// Tauri shim — see [`commands::search::search_get_health`].
@@ -519,5 +542,5 @@ async fn close_vault(
     app: tauri::AppHandle,
     req: CloseVaultRequest,
 ) -> Result<(), CubicalError> {
-    commands::vault::close_vault(state.inner(), &app, req).await
+    commands::vault::close_vault(state.inner(), &crate::events::TauriEventSink::new(app), req).await
 }
