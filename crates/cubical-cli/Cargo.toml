@@ -1,0 +1,19 @@
+[package]
+name = "cubical-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Terminal frontend over cubical-engine — proof that the engine drives with no Tauri."
+
+[[bin]]
+name = "cubical"
+path = "src/main.rs"
+
+[dependencies]
+cubical-engine = { path = "../cubical-engine" }
+
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+anyhow = { workspace = true }
+clap = { version = "4", features = ["derive"] }
