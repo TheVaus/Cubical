@@ -8,11 +8,16 @@ This document is the inventory of Tauri-coupled surfaces. If migration becomes a
 
 ### Backend (Rust)
 
-1. **`crates/cubical-app/src/lib.rs`** — the Tauri builder, `tauri::generate_context!()` macro call, plugin registration (`tauri-plugin-dialog`, etc.), and `#[tauri::command]`-decorated shim functions. Each shim is a 3-line forwarder to a pure handler in `commands/`.
+> **Structure (2026-06-30):** all the actual logic lives in the Tauri-free
+> **`cubical-engine`** crate (handlers, state, events, IPC types). `cubical-app`
+> is now just the Tauri shell — the four files below plus config. A CLI is a
+> second frontend over `cubical-engine`, no Tauri involved.
+
+1. **`crates/cubical-app/src/lib.rs`** — the Tauri builder, `tauri::generate_context!()` macro call, plugin registration (`tauri-plugin-dialog`, etc.), and `#[tauri::command]`-decorated shim functions. Each shim forwards to a handler in `cubical_engine::commands`, wrapping the `AppHandle` in a `TauriEventSink`.
 
 2. **`crates/cubical-app/src/main.rs`** — desktop entry point that calls `cubical_app::run()`. Trivial.
 
-3. **`crates/cubical-app/src/events.rs`** — defines the transport-agnostic `AppEvent` enum + `EventSink` trait, and the one Tauri adapter `TauriEventSink` (the only place that names `app_handle.emit()`). Pure handlers take `&dyn EventSink` / `Arc<dyn EventSink>` and never name a Tauri type. The lib.rs shims construct a `TauriEventSink` and pass it in; a CLI passes its own sink (`NoopEventSink`, or one that prints).
+3. **`crates/cubical-app/src/tauri_sink.rs`** — the `TauriEventSink` adapter: the **only** place that names `app_handle.emit()`. The transport-agnostic `AppEvent` enum + `EventSink` trait (+ `NoopEventSink`) live in `cubical_engine::events`; handlers take `&dyn EventSink` / `Arc<dyn EventSink>` and never name a Tauri type. A CLI supplies its own sink.
 
 4. **`crates/cubical-app/Cargo.toml`** — `tauri = "2"`, `tauri-build = "2"`, `tauri-plugin-*` dependencies. Removed/replaced on migration.
 
@@ -36,16 +41,14 @@ This document is the inventory of Tauri-coupled surfaces. If migration becomes a
 
 By construction, these crates and modules **do not** import `tauri`:
 
+- `crates/cubical-engine/` — **the whole engine**: command handlers (`commands/`), `AppState` (`state.rs`), the event vocabulary + `EventSink` trait (`events.rs`), IPC request/response types (`api/types.rs`), and the error type (`error.rs`). No `tauri` dependency at all.
 - `crates/cubical-core/` — vault, file watcher, file-type registry, frontmatter I/O
 - `crates/cubical-ast/` — canonical AST
 - `crates/cubical-index/` — libSQL schema and queries
 - `crates/cubical-search/` — Tantivy wrapper (L4)
 - `crates/cubical-sync/` — `CrdtBackend` trait, Loro impl (L7)
-- `crates/cubical-app/src/commands/` — pure async command handlers
-- `crates/cubical-app/src/state.rs` — `AppState` definition (plain Rust types)
-- `crates/cubical-app/src/api/types.rs` — request/response struct definitions
 
-This is enforced by code review at minimum, and ideally by a CI check that greps the relevant directories for `use tauri` and fails. A pure handler that imports `tauri` is a bug.
+This is now enforced structurally: `cubical-engine`'s `Cargo.toml` has no Tauri dependency, so a handler that reaches for `tauri` simply won't compile. (Previously the handlers lived in `cubical-app` alongside Tauri and the rule was review-enforced.)
 
 ## What a migration would actually look like
 

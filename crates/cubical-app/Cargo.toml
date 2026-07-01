@@ -5,45 +5,21 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "The Tauri app. Owns the Lane 1 ↔ Lane 2 IPC boundary; depends on every other workspace crate."
+description = "The Tauri shell — a thin frontend over cubical-engine (the actual logic)."
 default-run = "cubical-app"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-# Workspace crates
-cubical-core   = { path = "../cubical-core" }
-cubical-ast    = { path = "../cubical-ast" }
-cubical-index  = { path = "../cubical-index" }
-cubical-search = { path = "../cubical-search" }
-cubical-sync   = { path = "../cubical-sync" }
-cubical-query  = { path = "../cubical-query" }
+# The frontend-agnostic engine — handlers, state, events, IPC types.
+cubical-engine = { path = "../cubical-engine" }
 
 # Tauri
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 
-# Database — needed for the `From<libsql::Error>` impl on CubicalError and
-# for libsql::params! / Rows in the vault command handlers.
-libsql = { workspace = true }
-
-# Async runtime + utilities
-tokio = { workspace = true }
-tokio-util = { workspace = true }
-
-# Serialization
-serde = { workspace = true }
-serde_json = { workspace = true }
-
-# Hashing — deterministic block-id generation in create_block_ref (L3).
-sha2 = { workspace = true }
-
-# Error handling
-thiserror = { workspace = true }
-anyhow = { workspace = true }
-
-# Logging
+# Logging (init in `run` + the TauriEventSink adapter warns on emit failure).
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
@@ -52,10 +28,3 @@ tracing-subscriber = { workspace = true }
 # `custom-protocol` is enabled by `tauri build` for production bundles.
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
-
-[dev-dependencies]
-tempfile = "3"
-# `tauri::test::mock_app()` is gated behind the `test` feature; the
-# L3 Session J rename handlers emit events through `events::AppHandle`,
-# so unit tests need a real `AppHandle` instance.
-tauri = { version = "2", features = ["test"] }

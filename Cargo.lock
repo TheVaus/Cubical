@@ -706,24 +706,10 @@ checksum = "52560adf09603e58c9a7ee1fe1dcb95a16927b17c127f0ac02d6e768a0e25bc1"
 name = "cubical-app"
 version = "0.1.0"
 dependencies = [
- "anyhow",
- "cubical-ast",
- "cubical-core",
- "cubical-index",
- "cubical-query",
- "cubical-search",
- "cubical-sync",
- "libsql",
- "serde",
- "serde_json",
- "sha2",
+ "cubical-engine",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
- "tempfile",
- "thiserror 1.0.69",
- "tokio",
- "tokio-util",
  "tracing",
  "tracing-subscriber",
 ]
@@ -761,6 +747,28 @@ dependencies = [
  "toml 0.8.2",
  "tracing",
  "walkdir",
+]
+
+[[package]]
+name = "cubical-engine"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cubical-ast",
+ "cubical-core",
+ "cubical-index",
+ "cubical-query",
+ "cubical-search",
+ "cubical-sync",
+ "libsql",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-util",
+ "tracing",
 ]
 
 [[package]]

@@ -13,7 +13,6 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use serde::Serialize;
-use tauri::Emitter;
 use tokio::sync::{mpsc, Mutex, RwLock};
 
 use cubical_core::vault::links::read_source_off_executor;
@@ -37,13 +36,6 @@ use crate::state::{OpenVault, ScanStatusBackend};
 /// match them, so they would otherwise bounce back into the UI as
 /// external edits and re-trigger reads.
 pub type FlushOwnWrites = Arc<Mutex<HashSet<(PathBuf, String)>>>;
-
-/// The `Runtime` bound for the [`TauriEventSink`] adapter, so the same
-/// adapter works against the production `Wry` runtime and
-/// `tauri::test::MockRuntime`. Command handlers no longer name any Tauri
-/// type — they take `&dyn EventSink` — so this is the only Tauri name
-/// the engine-facing side of `events.rs` exposes.
-pub use tauri::Runtime;
 
 // -- Event name constants ---------------------------------------------------
 //
@@ -194,36 +186,9 @@ pub trait EventSink: Send + Sync {
     fn emit(&self, event: AppEvent);
 }
 
-/// Adapter that forwards [`AppEvent`]s to a Tauri `AppHandle`. The single
-/// place the event transport names Tauri.
-pub struct TauriEventSink<R: Runtime = tauri::Wry> {
-    app: tauri::AppHandle<R>,
-}
-
-impl<R: Runtime> TauriEventSink<R> {
-    #[must_use]
-    pub fn new(app: tauri::AppHandle<R>) -> Self {
-        Self { app }
-    }
-}
-
-impl<R: Runtime> EventSink for TauriEventSink<R> {
-    fn emit(&self, event: AppEvent) {
-        let name = event.name();
-        let res = match event {
-            AppEvent::ScanProgress(p) => self.app.emit(name, p),
-            AppEvent::ScanComplete(p) => self.app.emit(name, p),
-            AppEvent::ScanCancelled(p) => self.app.emit(name, p),
-            AppEvent::FileChanged(p) => self.app.emit(name, p),
-            AppEvent::Audit(p) => self.app.emit(name, p),
-            AppEvent::PendingRewritesChanged(p) => self.app.emit(name, p),
-            AppEvent::FlushComplete(p) => self.app.emit(name, p),
-        };
-        if let Err(e) = res {
-            tracing::warn!(error = %e, event = name, "failed to emit event");
-        }
-    }
-}
+// The Tauri adapter (`TauriEventSink`) lives in the `cubical-app` shell
+// (`crates/cubical-app/src/tauri_sink.rs`) — it's the only place the event
+// transport names Tauri, so it stays out of this Tauri-free crate.
 
 /// An [`EventSink`] that drops every event. For fire-and-forget callers
 /// (a CLI that doesn't surface progress) and tests that only assert on
