@@ -45,7 +45,7 @@ For non-features explicitly cut from scope, see [`docs/architecture/constraints.
 
 ## Project state
 
-**Current branch `feat/colorize-raw-source`:** **raw-source coloring** for the editor. Design spec committed (`docs/superpowers/specs/2026-06-28-colorize-raw-source-design.md`); implementation in progress (uncommitted WIP — `ui/src/editor/colorSource.ts` + `.test.ts`, Editor/cm-theme/minimap integration). Nothing else is off `main`.
+**Current branch `feat/colorize-raw-source`:** **raw-source coloring** for the editor. Design spec committed (`docs/superpowers/specs/2026-06-28-colorize-raw-source-design.md`); implementation committed (`colorSource.ts` + `.test.ts`, Editor/cm-theme/minimap integration; plus overscroll + scroll-away editor fixes), branch synced to `main` and CI-green on draft PR #27 — not yet merged. Nothing else is off `main`.
 
 **On `main`:** all recent feature work merged — **minimap** (read-only `@chenglou/pretext` canvas strip, gated `editor.minimap_enabled`, default off), create files + folders, property-ref interpolation (default-on), configurable status bar, Live Preview touch-reveal, rename durability journal + deleted-file pruning + rename-coalescing, Core Plugins + portable `.cubical/config.toml` settings, all Layer 4. Typed properties (inline `# type:`) merged but **defaulted off** — slated for a vault-level type registry (`docs/architecture/planned.md` §14; issue #19). The **`l4` close-tag is the only structural open gate** — operator smoke, recipe `layer-4-spec.md` §9.5–9.6. Deferred (GitHub Issues): tabs/multi-document (#20), per-occurrence search (#21).
 

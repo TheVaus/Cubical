@@ -41,6 +41,21 @@ describe("buildFileTree", () => {
     expect(root.files.map((f) => f.name)).toEqual(["alpha.md", "Zeta.md"]);
   });
 
+  it("sorts numeric name suffixes in natural order, not lexicographic", () => {
+    const root = buildFileTree([
+      md("fname-1.md"),
+      md("fname-10.md"),
+      md("fname-2.md"),
+      md("fname-100.md"),
+    ]);
+    expect(root.files.map((f) => f.name)).toEqual([
+      "fname-1.md",
+      "fname-2.md",
+      "fname-10.md",
+      "fname-100.md",
+    ]);
+  });
+
   it("ignores empty path segments", () => {
     const root = buildFileTree([md("dir//note.md")]);
     expect(root.folders[0]!.path).toBe("dir");
