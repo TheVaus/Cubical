@@ -40,9 +40,13 @@ export type FlatRow =
     }
   | { kind: "file"; path: string; name: string; depth: number; typeId: string };
 
-/** Case-insensitive name order (folders and files sorted independently). */
+/**
+ * Case-insensitive, natural-number name order (folders and files sorted
+ * independently). `numeric: true` makes digit runs compare by value so
+ * `file-2` sorts before `file-10` instead of lexicographically after it.
+ */
 function byName(a: { name: string }, b: { name: string }): number {
-  return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+  return a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true });
 }
 
 function sortFolder(node: FolderNode): void {
