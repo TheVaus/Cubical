@@ -43,20 +43,42 @@ the frontend as a rejected promise.
 
 Extend the existing `contextMenu` signal/render block (currently file-rows
 only) to also fire on:
-- **Folder rows** — menu: New File, New Folder, Rename, Delete
+- **Folder rows** — menu: New File, New Folder, Delete (**no Rename** — see
+  "Folder rename is out of scope" below)
 - **Empty space** below the last row — menu: New File, New Folder (scoped to
   vault root)
 - **File rows** — unchanged Rename, **+ Delete** (new)
+
+### Folder rename is out of scope
+
+`rename_file` (`crates/cubical-engine/src/commands/rename.rs`) only operates
+on rows in the `files` table and rejects with `FileNotFound` for anything
+else — there is no backend support for renaming a folder today. A real
+`rename_folder` would need to cascade the path-prefix change across every
+file nested under the folder (and everywhere those paths are referenced —
+`links`, `tags`, `backlinks`), which is close in size to `rename_file`'s own
+referrer-rewriting machinery, just applied per-file across a subtree. That's
+a separate future spec, not part of this one.
+
+Practical effect: folder rows get New File / New Folder / Delete only.
+"New Folder" (whether triggered from a folder row or empty space) creates
+the folder with its collision-safe `Untitled Folder` name and does **not**
+auto-enter rename mode — it just appears in the tree, matching the existing
+toolbar "new folder" button's behavior. Only "New File" auto-enters rename
+mode, since files already support renaming today.
 
 ### Create flow
 
 New File / New Folder click calls the existing `createFile`/`createFolder` IPC
 wrapper in `ui/src/api/ipc.ts`, scoped to the right-clicked folder's path (or
 `""` for vault root/empty-space). Both commands already return a collision-safe
-name (`Untitled.md`, `Untitled Folder`). Once the new row appears in the tree,
-immediately set `renamingPath` to it — reusing the existing inline F2-style
-rename input (autofocus, Enter commits, Escape cancels) so the user types the
-real name in one motion: right-click → New File → type name → Enter.
+name (`Untitled.md`, `Untitled Folder`). For **New File**, once the new row
+appears in the tree, immediately set `renamingPath` to it — reusing the
+existing inline F2-style rename input (autofocus, Enter commits, Escape
+cancels) so the user types the real name in one motion: right-click → New
+File → type name → Enter. **New Folder** does not enter rename mode (see
+"Folder rename is out of scope" above) — it just refreshes the tree so the
+new `Untitled Folder` appears.
 
 If creation fails, show an error toast (existing `Toast` component) and skip
 entering rename mode.
