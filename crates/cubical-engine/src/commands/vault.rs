@@ -18,12 +18,12 @@ use tokio_util::sync::CancellationToken;
 use crate::api::types::{
     CancelVaultScanRequest, CloseVaultRequest, CreateFileAtPathRequest, CreateFileAtPathResponse,
     CreateFileRequest, CreateFileResponse, CreateFolderRequest, CreateFolderResponse,
-    DeletePathRequest, FileEntry, FrontmatterEntry, GetCanonicalAstRequest, GetCanonicalAstResponse,
-    GetFrontmatterRequest, GetFrontmatterResponse, GetSettingRequest, GetSettingResponse,
-    GetVaultInfoRequest, GetVaultInfoResponse, ListFilesRequest, ListFilesResponse,
-    OpenVaultRequest, OpenVaultResponse, ReadFileTextRequest, ReadFileTextResponse,
-    ReloadSettingsRequest, ReloadSettingsResponse, ScanStatus, SetSettingRequest,
-    SetSettingResponse, WriteFileTextRequest, WriteFileTextResponse,
+    DeletePathRequest, FileEntry, FrontmatterEntry, GetCanonicalAstRequest,
+    GetCanonicalAstResponse, GetFrontmatterRequest, GetFrontmatterResponse, GetSettingRequest,
+    GetSettingResponse, GetVaultInfoRequest, GetVaultInfoResponse, ListFilesRequest,
+    ListFilesResponse, OpenVaultRequest, OpenVaultResponse, ReadFileTextRequest,
+    ReadFileTextResponse, ReloadSettingsRequest, ReloadSettingsResponse, ScanStatus,
+    SetSettingRequest, SetSettingResponse, WriteFileTextRequest, WriteFileTextResponse,
 };
 use crate::error::CubicalError;
 use crate::events::{spawn_scan_dispatcher, spawn_watcher_dispatcher, EventSink};
