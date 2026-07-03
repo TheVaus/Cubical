@@ -24,7 +24,7 @@ use cubical_engine::api::types::{
     BlockIdAutocompleteRequest, BlockIdAutocompleteResponse, CancelVaultScanRequest,
     CloseVaultRequest, CreateBlockRefRequest, CreateBlockRefResponse, CreateFileAtPathRequest,
     CreateFileAtPathResponse, CreateFileRequest, CreateFileResponse, CreateFolderRequest,
-    CreateFolderResponse, DataviewQueryRequest, DataviewResult,
+    CreateFolderResponse, DataviewQueryRequest, DataviewResult, DeletePathRequest,
     FlushPendingRewritesForTargetRequest, FlushPendingRewritesRequest,
     FlushPendingRewritesResponse, GetBacklinksRequest, GetBacklinksResponse,
     GetBrokenBlockRefsRequest, GetBrokenBlockRefsResponse, GetCanonicalAstRequest,
@@ -80,6 +80,7 @@ pub fn run() {
             create_file,
             create_file_at_path,
             create_folder,
+            delete_path,
             get_frontmatter,
             read_file_text,
             write_file_text,
@@ -193,6 +194,15 @@ async fn create_folder(
     req: CreateFolderRequest,
 ) -> Result<CreateFolderResponse, CubicalError> {
     commands::vault::create_folder(state.inner(), req).await
+}
+
+/// Tauri shim — see [`commands::vault::delete_path`].
+#[tauri::command]
+async fn delete_path(
+    state: tauri::State<'_, AppState>,
+    req: DeletePathRequest,
+) -> Result<(), CubicalError> {
+    commands::vault::delete_path(state.inner(), req).await
 }
 
 /// Tauri shim — see [`commands::vault::get_frontmatter`].

@@ -17,12 +17,13 @@ use tokio_util::sync::CancellationToken;
 
 use crate::api::types::{
     CancelVaultScanRequest, CloseVaultRequest, CreateFileAtPathRequest, CreateFileAtPathResponse,
-    CreateFileRequest, CreateFileResponse, CreateFolderRequest, CreateFolderResponse, FileEntry,
-    FrontmatterEntry, GetCanonicalAstRequest, GetCanonicalAstResponse, GetFrontmatterRequest,
-    GetFrontmatterResponse, GetSettingRequest, GetSettingResponse, GetVaultInfoRequest,
-    GetVaultInfoResponse, ListFilesRequest, ListFilesResponse, OpenVaultRequest, OpenVaultResponse,
-    ReadFileTextRequest, ReadFileTextResponse, ReloadSettingsRequest, ReloadSettingsResponse,
-    ScanStatus, SetSettingRequest, SetSettingResponse, WriteFileTextRequest, WriteFileTextResponse,
+    CreateFileRequest, CreateFileResponse, CreateFolderRequest, CreateFolderResponse,
+    DeletePathRequest, FileEntry, FrontmatterEntry, GetCanonicalAstRequest, GetCanonicalAstResponse,
+    GetFrontmatterRequest, GetFrontmatterResponse, GetSettingRequest, GetSettingResponse,
+    GetVaultInfoRequest, GetVaultInfoResponse, ListFilesRequest, ListFilesResponse,
+    OpenVaultRequest, OpenVaultResponse, ReadFileTextRequest, ReadFileTextResponse,
+    ReloadSettingsRequest, ReloadSettingsResponse, ScanStatus, SetSettingRequest,
+    SetSettingResponse, WriteFileTextRequest, WriteFileTextResponse,
 };
 use crate::error::CubicalError;
 use crate::events::{spawn_scan_dispatcher, spawn_watcher_dispatcher, EventSink};
@@ -458,6 +459,29 @@ pub async fn create_folder(
     cubical_index::upsert_folder(vault.index(), &rel_path, unix_now_secs()).await?;
 
     Ok(CreateFolderResponse { path: rel_path })
+}
+
+/// `delete_path` — move a file or folder to the OS trash/recycle bin.
+///
+/// No index/tree update happens here: the vault's file-watcher already
+/// detects the removal (the same path that handles an external delete via
+/// Finder while the app is open) and drives the `files`/`folders` cleanup
+/// and the `vault:file-changed` refresh. `trash::delete` moves a
+/// directory's full contents in one call — no manual recursion needed.
+pub async fn delete_path(state: &AppState, req: DeletePathRequest) -> Result<(), CubicalError> {
+    let vault = clone_vault(state, &req.vault_id).await?;
+    let rel_path = normalize_rel_file_path(&req.path)?;
+    let abs_path = vault.root().join(&rel_path);
+    if !abs_path.exists() {
+        return Err(CubicalError::InvalidRequest(format!(
+            "path does not exist: {rel_path}"
+        )));
+    }
+    tokio::task::spawn_blocking(move || trash::delete(&abs_path))
+        .await
+        .map_err(|e| CubicalError::Io(format!("delete_path task join error: {e}")))?
+        .map_err(|e| CubicalError::Io(e.to_string()))?;
+    Ok(())
 }
 
 /// Read the parsed frontmatter index for one file.
@@ -1194,6 +1218,74 @@ mod tests {
         .await
         .expect("list");
         assert_eq!(listing.folders, vec!["Untitled Folder"]);
+    }
+
+    #[tokio::test]
+    async fn delete_path_removes_a_file() {
+        let (dir, _vault, state) = fresh_state_with_vault("v1").await;
+        std::fs::write(dir.path().join("note.md"), "body\n").unwrap();
+
+        delete_path(
+            &state,
+            DeletePathRequest {
+                vault_id: "v1".into(),
+                path: "note.md".into(),
+            },
+        )
+        .await
+        .expect("delete");
+
+        assert!(!dir.path().join("note.md").exists());
+    }
+
+    #[tokio::test]
+    async fn delete_path_removes_a_folder_with_contents() {
+        let (dir, _vault, state) = fresh_state_with_vault("v1").await;
+        std::fs::create_dir_all(dir.path().join("projects/nested")).unwrap();
+        std::fs::write(dir.path().join("projects/a.md"), "a\n").unwrap();
+        std::fs::write(dir.path().join("projects/nested/b.md"), "b\n").unwrap();
+
+        delete_path(
+            &state,
+            DeletePathRequest {
+                vault_id: "v1".into(),
+                path: "projects".into(),
+            },
+        )
+        .await
+        .expect("delete folder");
+
+        assert!(!dir.path().join("projects").exists());
+    }
+
+    #[tokio::test]
+    async fn delete_path_rejects_missing_path() {
+        let (_dir, _vault, state) = fresh_state_with_vault("v1").await;
+        let err = delete_path(
+            &state,
+            DeletePathRequest {
+                vault_id: "v1".into(),
+                path: "ghost.md".into(),
+            },
+        )
+        .await
+        .expect_err("must reject a path that doesn't exist");
+        assert!(matches!(err, CubicalError::InvalidRequest(_)));
+    }
+
+    #[tokio::test]
+    async fn delete_path_rejects_escape() {
+        let (_dir, _vault, state) = fresh_state_with_vault("v1").await;
+        let err = delete_path(
+            &state,
+            DeletePathRequest {
+                vault_id: "v1".into(),
+                path: "../evil.md".into(),
+            },
+        )
+        .await
+        .expect_err("must reject ..");
+        assert!(matches!(err, CubicalError::InvalidRequest(_)));
     }
 
     /// Insert a `files` row + a couple of `frontmatter` rows for

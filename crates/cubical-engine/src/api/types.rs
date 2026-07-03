@@ -160,6 +160,15 @@ pub struct CreateFolderResponse {
     pub path: String,
 }
 
+/// Request payload for `delete_path`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct DeletePathRequest {
+    /// Vault to delete from.
+    pub vault_id: String,
+    /// Vault-relative path of the file or folder to delete.
+    pub path: String,
+}
+
 /// Per-file row returned by `list_files`.
 #[derive(Debug, Clone, Serialize)]
 pub struct FileEntry {

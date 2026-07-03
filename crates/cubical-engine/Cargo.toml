@@ -30,6 +30,9 @@ serde_json = { workspace = true }
 # Hashing — deterministic block-id generation in create_block_ref (L3).
 sha2 = { workspace = true }
 
+# OS trash/recycle bin — see delete_path in commands/vault.rs.
+trash = { workspace = true }
+
 # Error handling
 thiserror = { workspace = true }
 anyhow = { workspace = true }
