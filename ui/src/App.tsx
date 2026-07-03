@@ -72,7 +72,7 @@ import {
   type AutocompleteProvider,
 } from "./editor/autocompleteProvider";
 import { computeWindow } from "./virtualList";
-import { buildFileTree, flattenTree, type FlatRow } from "./sidebar/fileTree";
+import { buildStableTreeRows, type FlatRow } from "./sidebar/fileTree";
 import { buildBlockRefLink } from "./editor/blockRef";
 import { formatBrokenBlockRefs } from "./statusbar/brokenRefs";
 import { formatPendingRewrites } from "./statusbar/pendingRewritesLabel";
@@ -202,9 +202,20 @@ const App: Component = () => {
       else next.add(path);
       return next;
     });
-  const treeRows = createMemo<FlatRow[]>(() =>
-    flattenTree(buildFileTree(files(), folders()), collapsedFolders()),
-  );
+  // `<For>` reconciles by object reference — `buildStableTreeRows` reuses
+  // the previous row's reference whenever its content is unchanged, so a
+  // vault-file-changed refresh (e.g. the open file's own autosave) doesn't
+  // tear down and remount unrelated sidebar rows.
+  let prevTreeRows: FlatRow[] = [];
+  const treeRows = createMemo<FlatRow[]>(() => {
+    prevTreeRows = buildStableTreeRows(
+      prevTreeRows,
+      files(),
+      folders(),
+      collapsedFolders(),
+    );
+    return prevTreeRows;
+  });
   const fileWindow = createMemo(() =>
     computeWindow(
       scrollTop(),

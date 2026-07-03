@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildFileTree, flattenTree } from "./fileTree";
+import { buildFileTree, buildStableTreeRows, flattenTree } from "./fileTree";
 
 const md = (path: string) => ({ path, type_id: "markdown" });
 
@@ -39,6 +39,21 @@ describe("buildFileTree", () => {
     ]);
     expect(root.folders.map((f) => f.name)).toEqual(["apple", "Beta"]);
     expect(root.files.map((f) => f.name)).toEqual(["alpha.md", "Zeta.md"]);
+  });
+
+  it("sorts numeric name suffixes in natural order, not lexicographic", () => {
+    const root = buildFileTree([
+      md("fname-1.md"),
+      md("fname-10.md"),
+      md("fname-2.md"),
+      md("fname-100.md"),
+    ]);
+    expect(root.files.map((f) => f.name)).toEqual([
+      "fname-1.md",
+      "fname-2.md",
+      "fname-10.md",
+      "fname-100.md",
+    ]);
   });
 
   it("ignores empty path segments", () => {
@@ -111,5 +126,53 @@ describe("flattenTree", () => {
       "projects/roadmap.md",
       "welcome.md",
     ]);
+  });
+});
+
+describe("buildStableTreeRows", () => {
+  it("reuses every row's object reference when nothing changed", () => {
+    const entries = [md("welcome.md"), md("projects/roadmap.md")];
+    const first = buildStableTreeRows([], entries, [], new Set());
+    const second = buildStableTreeRows(first, entries, [], new Set());
+
+    expect(second[0]).toBe(first[0]);
+    expect(second[1]).toBe(first[1]);
+  });
+
+  it("gives a fresh reference only to the row that actually changed", () => {
+    const entries = [md("welcome.md"), md("projects/roadmap.md")];
+    const first = buildStableTreeRows([], entries, [], new Set());
+    const second = buildStableTreeRows(
+      first,
+      entries,
+      [],
+      new Set(["projects"]),
+    );
+
+    const folderBefore = first.find((r) => r.path === "projects")!;
+    const folderAfter = second.find((r) => r.path === "projects")!;
+    const fileBefore = first.find((r) => r.path === "welcome.md")!;
+    const fileAfter = second.find((r) => r.path === "welcome.md")!;
+
+    expect(folderAfter).not.toBe(folderBefore);
+    expect(folderAfter.kind).toBe("folder");
+    expect(folderAfter.kind === "folder" && folderAfter.collapsed).toBe(true);
+    expect(fileAfter).toBe(fileBefore);
+  });
+
+  it("gives a fresh reference to a newly added file without touching others", () => {
+    const entries = [md("welcome.md")];
+    const first = buildStableTreeRows([], entries, [], new Set());
+    const second = buildStableTreeRows(
+      first,
+      [...entries, md("second.md")],
+      [],
+      new Set(),
+    );
+
+    const welcomeBefore = first.find((r) => r.path === "welcome.md")!;
+    const welcomeAfter = second.find((r) => r.path === "welcome.md")!;
+    expect(welcomeAfter).toBe(welcomeBefore);
+    expect(second.find((r) => r.path === "second.md")).toBeTruthy();
   });
 });

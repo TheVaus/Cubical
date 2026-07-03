@@ -1,4 +1,5 @@
 import type { SearchHit } from "../api/ipc";
+import { stabilizeByKey } from "../listStability";
 import { parseHighlights, type HighlightSegment } from "./snippet";
 
 /**
@@ -64,4 +65,41 @@ export function buildFileGroups(hits: SearchHit[]): FileGroup[] {
       cards,
     };
   });
+}
+
+function segmentsEqual(
+  a: readonly HighlightSegment[],
+  b: readonly HighlightSegment[],
+): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((s, i) => s.text === b[i]?.text && s.mark === b[i]?.mark);
+}
+
+function cardsEqual(a: readonly ResultCard[], b: readonly ResultCard[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every(
+    (c, i) => c.field === b[i]?.field && segmentsEqual(c.segments, b[i]!.segments),
+  );
+}
+
+function fileGroupEqual(a: FileGroup, b: FileGroup): boolean {
+  return (
+    a.title === b.title &&
+    a.mtime_secs === b.mtime_secs &&
+    cardsEqual(a.cards, b.cards)
+  );
+}
+
+/**
+ * `<For>` reconciles by object reference — reuse a previous group's
+ * reference when its content is unchanged so a refetch that changed
+ * another file's results (e.g. the debounced `vault:file-changed` tick
+ * firing on the open file's own autosave) doesn't tear down and remount
+ * every visible search result.
+ */
+export function buildStableFileGroups(
+  prevGroups: readonly FileGroup[],
+  hits: SearchHit[],
+): FileGroup[] {
+  return stabilizeByKey(prevGroups, buildFileGroups(hits), (g) => g.path, fileGroupEqual);
 }

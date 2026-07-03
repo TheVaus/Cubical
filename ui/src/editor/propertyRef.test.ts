@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { markdown } from "@codemirror/lang-markdown";
@@ -177,5 +177,41 @@ describe("propertyRefExtension", () => {
       count++;
     });
     expect(count).toBe(1);
+  });
+
+  it("does not materialize the whole document when there's no self-ref to resolve", () => {
+    // Only a cross-note ref — `selfValue` (which needs the full doc text
+    // to find this note's own frontmatter) is never reached.
+    const resolver = stubResolver({
+      "Gandalf age": { kind: "resolved", value: "2019" },
+    });
+    const state = EditorState.create({
+      doc: "intro\n\n[[Gandalf.age]]\n",
+      extensions: [
+        markdown({ extensions: [wikilinkExtension] }),
+        propertyResolverFacet.of(resolver),
+      ],
+      selection: { anchor: 0 },
+    });
+    const spy = vi.spyOn(state.doc, "toString");
+    buildPropertyDecorations(state);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("still resolves a self-ref correctly (materializing the doc lazily)", () => {
+    const state = EditorState.create({
+      doc: "---\nage: 2019\n---\n\n[[.age]]\n",
+      extensions: [
+        markdown({ extensions: [wikilinkExtension] }),
+        propertyResolverFacet.of(null),
+      ],
+      selection: { anchor: 0 },
+    });
+    let renderedValue: string | undefined;
+    buildPropertyDecorations(state).between(0, state.doc.length, (_f, _t, deco) => {
+      renderedValue = (deco.spec.widget as unknown as { render: { value?: string } })
+        .render.value;
+    });
+    expect(renderedValue).toBe("2019");
   });
 });

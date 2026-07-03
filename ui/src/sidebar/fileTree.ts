@@ -12,6 +12,8 @@
  * operator-smoke-only).
  */
 
+import { stabilizeByKey } from "../listStability";
+
 export interface FileLeaf {
   /** Full vault-relative path, e.g. `projects/roadmap.md`. */
   path: string;
@@ -40,9 +42,13 @@ export type FlatRow =
     }
   | { kind: "file"; path: string; name: string; depth: number; typeId: string };
 
-/** Case-insensitive name order (folders and files sorted independently). */
+/**
+ * Case-insensitive, natural-number name order (folders and files sorted
+ * independently). `numeric: true` makes digit runs compare by value so
+ * `file-2` sorts before `file-10` instead of lexicographically after it.
+ */
 function byName(a: { name: string }, b: { name: string }): number {
-  return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+  return a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true });
 }
 
 function sortFolder(node: FolderNode): void {
@@ -140,4 +146,35 @@ export function flattenTree(
   };
   walk(root, 0);
   return out;
+}
+
+function flatRowKey(row: FlatRow): string {
+  return `${row.kind}:${row.path}`;
+}
+
+function flatRowEqual(a: FlatRow, b: FlatRow): boolean {
+  if (a.kind !== b.kind || a.name !== b.name || a.depth !== b.depth) {
+    return false;
+  }
+  return a.kind === "folder" && b.kind === "folder"
+    ? a.collapsed === b.collapsed
+    : a.kind === "file" && b.kind === "file" && a.typeId === b.typeId;
+}
+
+/**
+ * Builds the flattened visible-row list the same way `flattenTree` does,
+ * but reuses `prevRows`' object reference for any row whose content is
+ * unchanged. `<For>` in the sidebar reconciles by object reference, so
+ * without this every vault-file-changed refresh (including the open
+ * file's own autosave) would tear down and remount the whole visible
+ * tree even when the row content is identical.
+ */
+export function buildStableTreeRows(
+  prevRows: readonly FlatRow[],
+  entries: ReadonlyArray<{ path: string; type_id: string }>,
+  folderPaths: ReadonlyArray<string>,
+  collapsed: ReadonlySet<string>,
+): FlatRow[] {
+  const next = flattenTree(buildFileTree(entries, folderPaths), collapsed);
+  return stabilizeByKey(prevRows, next, flatRowKey, flatRowEqual);
 }
