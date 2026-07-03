@@ -230,7 +230,26 @@ fn translate_event(root: &Path, ev: &DebouncedEvent) -> Vec<WatchEvent> {
             .map(WatchEvent::Created)
             .collect(),
 
-        // Any other modify (data, metadata, generic Any) → Modified.
+        // A rename the platform can't attribute to either side — a
+        // single path, no pairing info. This is macOS's signature for
+        // moving a path to the Trash (`trash::delete`): FSEvents
+        // reports it as `Name(Any)`, not `Remove` and not `From`.
+        // Disambiguate the same way the `Both` branch above resolves
+        // an unpaired half: does the path still exist?
+        EventKind::Modify(ModifyKind::Name(RenameMode::Any)) => ev
+            .paths
+            .iter()
+            .filter_map(|p| relativize(root, p))
+            .map(|rel| {
+                if root.join(&rel).exists() {
+                    WatchEvent::Created(rel)
+                } else {
+                    WatchEvent::Removed(rel)
+                }
+            })
+            .collect(),
+
+        // Any other modify (data, metadata) → Modified.
         EventKind::Modify(_) => ev
             .paths
             .iter()
@@ -470,6 +489,42 @@ mod tests {
         );
         let out = translate_event(root, &ev);
         assert_eq!(out, vec![WatchEvent::Created(PathBuf::from("b.md"))]);
+    }
+
+    #[test]
+    fn translate_rename_any_for_gone_path_emits_removed() {
+        // Reproduces the OS trash-delete signature: on macOS, moving a
+        // path to the Trash surfaces to `notify` as
+        // `ModifyKind::Name(RenameMode::Any)` — not `Remove`, not
+        // `RenameMode::From` — confirmed via a live debouncer probe
+        // against `trash::delete`. `Any` carries a single path with no
+        // hint of which side of a rename it is; disambiguate the same
+        // way the crate already disambiguates `Both`'s unresolved
+        // halves (line ~207-213): a path that no longer exists on disk
+        // is the vanished side.
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let gone = root.join("trashed.md"); // never created — stands in for "moved to Trash"
+        let ev = synth_event(
+            EventKind::Modify(ModifyKind::Name(RenameMode::Any)),
+            vec![gone],
+        );
+        let out = translate_event(root, &ev);
+        assert_eq!(out, vec![WatchEvent::Removed(PathBuf::from("trashed.md"))]);
+    }
+
+    #[test]
+    fn translate_rename_any_for_existing_path_emits_created() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let here = root.join("arrived.md");
+        fs::write(&here, b"hi\n").unwrap();
+        let ev = synth_event(
+            EventKind::Modify(ModifyKind::Name(RenameMode::Any)),
+            vec![here],
+        );
+        let out = translate_event(root, &ev);
+        assert_eq!(out, vec![WatchEvent::Created(PathBuf::from("arrived.md"))]);
     }
 
     #[test]
