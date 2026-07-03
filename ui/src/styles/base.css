@@ -9,11 +9,24 @@
   box-sizing: border-box;
 }
 
+/* Sturdy, native-app feel: no macOS rubber-band / elastic overscroll. Applied
+   to every element so each scroll pane (editor, sidebars, search, modals) stops
+   dead at its edge instead of bouncing — and never chains the overscroll up to
+   the webview document. `overscroll-behavior` only affects scroll containers,
+   so the universal selector is free on everything else. */
+* {
+  overscroll-behavior: none;
+}
+
 html,
 body {
   margin: 0;
   padding: 0;
   height: 100%;
+  /* The document itself never scrolls — all scrolling lives in inner panes
+     (.app-shell is 100vh/overflow:hidden). Belt-and-suspenders against the
+     webview rubber-banding the whole page on an overscroll swipe. */
+  overflow: hidden;
 }
 
 body {

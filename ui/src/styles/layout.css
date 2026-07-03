@@ -152,14 +152,21 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  overflow: hidden;
+  /* The single scroll viewport for the editor pane: the title, properties
+     and document text all live inside it and scroll together, so a tall
+     properties block rolls up off the top instead of staying pinned. */
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: var(--space-5) var(--space-4) 0;
 }
 .editor-inner {
   width: 100%;
   max-width: 44rem;
-  flex: 1;
-  min-height: 0;
+  /* Size to content but fill the viewport at minimum, so a short note still
+     paints a full-height editor surface. Growing past the viewport is what
+     drives `.editor-scroll` to scroll. */
+  flex: 0 0 auto;
+  min-height: 100%;
   display: flex;
   flex-direction: column;
   gap: var(--space-3);

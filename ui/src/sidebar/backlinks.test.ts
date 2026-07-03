@@ -84,6 +84,44 @@ describe("reduceBacklinksState", () => {
     );
     expect(next).toEqual({ kind: "idle" });
   });
+
+  it("reuses a backlink's object reference across refetches when unchanged", () => {
+    const first = reduceBacklinksState(
+      { kind: "loading" },
+      { type: "fetch:success", backlinks: [sample] },
+    );
+    // A fresh object with identical fields — as a real refetch would
+    // produce, since every IPC response deserializes new objects.
+    const refetched: Backlink = { ...sample };
+    const second = reduceBacklinksState(first, {
+      type: "fetch:success",
+      backlinks: [refetched],
+    });
+
+    expect(first.kind).toBe("loaded");
+    expect(second.kind).toBe("loaded");
+    if (first.kind === "loaded" && second.kind === "loaded") {
+      expect(second.backlinks[0]).toBe(first.backlinks[0]);
+      expect(second.backlinks[0]).not.toBe(refetched);
+    }
+  });
+
+  it("gives a fresh reference to a backlink whose context actually changed", () => {
+    const first = reduceBacklinksState(
+      { kind: "loading" },
+      { type: "fetch:success", backlinks: [sample] },
+    );
+    const edited: Backlink = { ...sample, context: "new surrounding text" };
+    const second = reduceBacklinksState(first, {
+      type: "fetch:success",
+      backlinks: [edited],
+    });
+
+    expect(second.kind).toBe("loaded");
+    if (second.kind === "loaded") {
+      expect(second.backlinks[0]).toBe(edited);
+    }
+  });
 });
 
 /**

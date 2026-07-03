@@ -5,6 +5,7 @@
  */
 
 import type { Mention } from "../api/ipc";
+import { stabilizeByKey } from "../listStability";
 
 /**
  * Stable key for a mention row. `source_path` alone is ambiguous when
@@ -45,10 +46,22 @@ export function reduceMentionsState(
   switch (action.type) {
     case "fetch:start":
       return { kind: "loading" };
-    case "fetch:success":
-      return action.mentions.length === 0
+    case "fetch:success": {
+      // `<For>` reconciles by object reference — reuse a previous row's
+      // reference when its content is unchanged so an unrelated refetch
+      // (e.g. the open file's own autosave bumping the refresh tick)
+      // doesn't tear down and remount rows that didn't actually change.
+      const prevMentions = state.kind === "loaded" ? state.mentions : [];
+      const mentions = stabilizeByKey(
+        prevMentions,
+        action.mentions,
+        mentionKey,
+        (a, b) => a.context === b.context && a.needle === b.needle,
+      );
+      return mentions.length === 0
         ? { kind: "empty" }
-        : { kind: "loaded", mentions: action.mentions };
+        : { kind: "loaded", mentions };
+    }
     case "fetch:error":
       return { kind: "error", message: action.message };
     case "file:cleared":

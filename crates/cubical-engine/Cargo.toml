@@ -1,0 +1,44 @@
+[package]
+name = "cubical-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Frontend-agnostic engine: command handlers, state, events, and IPC types. No Tauri — consumed by the Tauri shell and (future) CLI."
+
+[dependencies]
+# Workspace crates
+cubical-core   = { path = "../cubical-core" }
+cubical-ast    = { path = "../cubical-ast" }
+cubical-index  = { path = "../cubical-index" }
+cubical-search = { path = "../cubical-search" }
+cubical-sync   = { path = "../cubical-sync" }
+cubical-query  = { path = "../cubical-query" }
+
+# Database — From<libsql::Error> on CubicalError + libsql::params! in handlers.
+libsql = { workspace = true }
+
+# Async runtime + utilities
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Hashing — deterministic block-id generation in create_block_ref (L3).
+sha2 = { workspace = true }
+
+# OS trash/recycle bin — see delete_path in commands/vault.rs.
+trash = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

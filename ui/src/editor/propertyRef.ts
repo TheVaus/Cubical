@@ -123,11 +123,11 @@ class PropertyRefWidget extends WidgetType {
 function renderStateFor(
   tok: { note: string | null; property: string },
   raw: string,
-  docText: string,
+  getDocText: () => string,
   resolver: PropertyResolver | null,
 ): PropertyRefRenderState {
   if (tok.note === null) {
-    const v = selfValue(docText, tok.property);
+    const v = selfValue(getDocText(), tok.property);
     return v === null ? { status: "broken", raw } : { status: "resolved", value: v };
   }
   const hit = resolver?.get(tok.note, tok.property);
@@ -146,7 +146,12 @@ export function buildPropertyDecorations(state: EditorState): DecorationSet {
   const resolver = state.facet(propertyResolverFacet);
   const tree = syntaxTree(state);
   const doc = state.doc;
-  const docText = doc.toString();
+  // Materializing the whole document is only needed to resolve a
+  // self-ref (`[[.prop]]`) — lazy + memoized so the common case (no
+  // self-refs in this note) never pays for it, and a note with one still
+  // only stringifies the doc once regardless of how many self-refs it has.
+  let docText: string | undefined;
+  const getDocText = () => (docText ??= doc.toString());
   const activeLine = doc.lineAt(state.selection.main.head).number;
   const ranges: Range<Decoration>[] = [];
 
@@ -158,7 +163,7 @@ export function buildPropertyDecorations(state: EditorState): DecorationSet {
       if (!tok || tok.kind !== "property_ref") return;
       // Cursor-line suppression: expose the raw token for editing.
       if (doc.lineAt(node.from).number === activeLine) return;
-      const rstate = renderStateFor(tok, raw, docText, resolver);
+      const rstate = renderStateFor(tok, raw, getDocText, resolver);
       ranges.push(
         Decoration.replace({
           widget: new PropertyRefWidget(rstate),

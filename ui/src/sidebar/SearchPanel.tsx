@@ -19,7 +19,7 @@ import {
 } from "../api/ipc";
 import { debounce } from "./debounce";
 import {
-  buildFileGroups,
+  buildStableFileGroups,
   type FileGroup,
   type ResultCard,
 } from "./resultGroups";
@@ -97,7 +97,16 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
   /** Non-default sort/scope → badge the filter button. */
   const filtersActive = () => sort() !== "relevance" || scope() !== "default";
 
-  const groups = createMemo(() => buildFileGroups(hits()));
+  // `<For>` reconciles by object reference — `buildStableFileGroups`
+  // reuses a previous group's reference whenever its content is
+  // unchanged, so a refresh triggered by an unrelated file change (e.g.
+  // the open file's own autosave) doesn't tear down and remount every
+  // visible result.
+  let prevGroups: FileGroup[] = [];
+  const groups = createMemo(() => {
+    prevGroups = buildStableFileGroups(prevGroups, hits());
+    return prevGroups;
+  });
   // Collapsed file paths. Groups default to expanded (like the
   // screenshot); a path is added here only when the user collapses it.
   const [collapsed, setCollapsed] = createSignal<Set<string>>(new Set());

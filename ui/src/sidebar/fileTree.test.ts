@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildFileTree, flattenTree } from "./fileTree";
+import {
+  buildFileTree,
+  buildStableTreeRows,
+  countFilesUnderFolder,
+  flattenTree,
+} from "./fileTree";
 
 const md = (path: string) => ({ path, type_id: "markdown" });
 
@@ -126,5 +131,90 @@ describe("flattenTree", () => {
       "projects/roadmap.md",
       "welcome.md",
     ]);
+  });
+});
+
+describe("buildStableTreeRows", () => {
+  it("reuses every row's object reference when nothing changed", () => {
+    const entries = [md("welcome.md"), md("projects/roadmap.md")];
+    const first = buildStableTreeRows([], entries, [], new Set());
+    const second = buildStableTreeRows(first, entries, [], new Set());
+
+    expect(second[0]).toBe(first[0]);
+    expect(second[1]).toBe(first[1]);
+  });
+
+  it("gives a fresh reference only to the row that actually changed", () => {
+    const entries = [md("welcome.md"), md("projects/roadmap.md")];
+    const first = buildStableTreeRows([], entries, [], new Set());
+    const second = buildStableTreeRows(
+      first,
+      entries,
+      [],
+      new Set(["projects"]),
+    );
+
+    const folderBefore = first.find((r) => r.path === "projects")!;
+    const folderAfter = second.find((r) => r.path === "projects")!;
+    const fileBefore = first.find((r) => r.path === "welcome.md")!;
+    const fileAfter = second.find((r) => r.path === "welcome.md")!;
+
+    expect(folderAfter).not.toBe(folderBefore);
+    expect(folderAfter.kind).toBe("folder");
+    expect(folderAfter.kind === "folder" && folderAfter.collapsed).toBe(true);
+    expect(fileAfter).toBe(fileBefore);
+  });
+
+  it("gives a fresh reference to a newly added file without touching others", () => {
+    const entries = [md("welcome.md")];
+    const first = buildStableTreeRows([], entries, [], new Set());
+    const second = buildStableTreeRows(
+      first,
+      [...entries, md("second.md")],
+      [],
+      new Set(),
+    );
+
+    const welcomeBefore = first.find((r) => r.path === "welcome.md")!;
+    const welcomeAfter = second.find((r) => r.path === "welcome.md")!;
+    expect(welcomeAfter).toBe(welcomeBefore);
+    expect(second.find((r) => r.path === "second.md")).toBeTruthy();
+  });
+});
+
+describe("countFilesUnderFolder", () => {
+  it("counts files directly under the folder", () => {
+    const root = buildFileTree([md("projects/a.md"), md("projects/b.md")]);
+    expect(countFilesUnderFolder(root, "projects")).toBe(2);
+  });
+
+  it("counts files nested in subfolders, regardless of collapse state", () => {
+    // countFilesUnderFolder walks the nested tree, not the flattened
+    // collapse-aware row list — a collapsed subfolder must not undercount.
+    const root = buildFileTree([
+      md("projects/a.md"),
+      md("projects/deep/b.md"),
+      md("projects/deep/deeper/c.md"),
+    ]);
+    expect(countFilesUnderFolder(root, "projects")).toBe(3);
+  });
+
+  it("returns 0 for a folder with no files", () => {
+    const root = buildFileTree([], ["empty"]);
+    expect(countFilesUnderFolder(root, "empty")).toBe(0);
+  });
+
+  it("returns 0 for an unknown folder path", () => {
+    const root = buildFileTree([md("welcome.md")]);
+    expect(countFilesUnderFolder(root, "nope")).toBe(0);
+  });
+
+  it("doesn't count files outside the folder", () => {
+    const root = buildFileTree([
+      md("projects/a.md"),
+      md("other/b.md"),
+      md("root.md"),
+    ]);
+    expect(countFilesUnderFolder(root, "projects")).toBe(1);
   });
 });

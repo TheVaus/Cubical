@@ -60,6 +60,7 @@ import {
   maybeInterceptDataviewMousedown,
 } from "./editor/dataviewMousedown";
 import { livePreviewBundle } from "./editor/livePreview";
+import { colorSourceHighlight } from "./editor/colorSource";
 import { verticalDocLineMotion } from "./editor/embedNav";
 import { autocompletion } from "@codemirror/autocomplete";
 import {
@@ -98,6 +99,17 @@ declare global {
  * build the toggle.
  */
 const decorationCompartment = new Compartment();
+
+/**
+ * Holds the raw-source coloring extension (`colorSourceHighlight`).
+ * Mutually exclusive with `decorationCompartment` by construction:
+ * coloring is gated on `rawSource && colorizeSource`, the live-preview
+ * bundle on `!rawSource`. Empty (`[]`) whenever either gate condition is
+ * false, so Live Preview and disabled-coloring both run zero highlight
+ * code. Independent of `decorationCompartment` — neither references the
+ * other.
+ */
+const colorSourceCompartment = new Compartment();
 
 /**
  * Holds the editor-chrome CM6 theme (L2 Session D). Rebuilt from the
@@ -260,6 +272,14 @@ export interface EditorProps {
    * mounts and no Pretext code runs.
    */
   minimapEnabled?: boolean;
+  /**
+   * When `true` *and* `rawSource` is on, paint rendered-mode colors
+   * (wiki-links / links / tags → `--c-accent`) onto the raw markup
+   * without hiding or rendering anything (`editor.colorize_raw_source`,
+   * composable on/off block, default off). Inert under Live Preview,
+   * which already colors.
+   */
+  colorizeSource?: boolean;
   /**
    * Per-vault resolver for wiki-link targets (L3 Session B). `null`
    * when no vault is open — every wiki-link renders as resolved-style
@@ -564,6 +584,9 @@ const Editor: Component<EditorProps> = (props) => {
           decorationCompartment.of(
             props.rawSource ? [] : livePreviewBundle,
           ),
+          colorSourceCompartment.of(
+            props.rawSource && props.colorizeSource ? colorSourceHighlight : [],
+          ),
           wikilinkResolverCompartment.of(
             wikilinkResolverFacet.of(facetValueFor(props.wikilinkResolver)),
           ),
@@ -813,6 +836,24 @@ const Editor: Component<EditorProps> = (props) => {
     ),
   );
 
+  // Swap the raw-source coloring in/out when either gate input changes.
+  // Coloring is active only when Raw Source is on *and* the
+  // `editor.colorize_raw_source` setting is enabled; otherwise the
+  // compartment empties so no highlight code runs.
+  createEffect(
+    on(
+      () => props.rawSource && (props.colorizeSource ?? false),
+      (active) => {
+        view?.dispatch({
+          effects: colorSourceCompartment.reconfigure(
+            active ? colorSourceHighlight : [],
+          ),
+        });
+      },
+      { defer: true },
+    ),
+  );
+
   // Rebuild the CM6 chrome theme when the resolved theme flips. The
   // parent has already written `<html data-theme>`, so `buildCmTheme`
   // reads the correct token values.
@@ -972,18 +1013,16 @@ const Editor: Component<EditorProps> = (props) => {
   });
 
   return (
-    <div style={{ display: "flex", flex: "1", "min-height": "0" }}>
+    <div style={{ display: "flex", flex: "1 0 auto" }}>
       <div
         ref={host}
         style={{
           flex: "1",
           "min-width": "0",
-          "min-height": "0",
           display: "flex",
           "flex-direction": "column",
           border: "none",
           background: "transparent",
-          overflow: "hidden",
         }}
       />
       <Show when={props.minimapEnabled && cmView()}>

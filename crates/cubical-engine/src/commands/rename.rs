@@ -47,7 +47,7 @@ use crate::api::types::{
 };
 use crate::error::CubicalError;
 use crate::events::{
-    emit_flush_complete, emit_pending_rewrites_changed, FlushOwnWrites, Runtime,
+    emit_flush_complete, emit_pending_rewrites_changed, EventSink, FlushOwnWrites,
     VaultFlushComplete, VaultPendingRewritesChanged,
 };
 use crate::state::AppState;
@@ -298,9 +298,9 @@ async fn read_bool_setting(state: &AppState, vault_id: &str, key: &str, default:
 /// After commit: move the file on disk, re-extract the moved file's
 /// outbound links/tags/blocks/frontmatter, emit
 /// `vault:pending-rewrites-changed`.
-pub async fn rename_file<R: Runtime>(
+pub async fn rename_file(
     state: &AppState,
-    app: &tauri::AppHandle<R>,
+    app: &dyn EventSink,
     req: RenameFileRequest,
 ) -> Result<RenameFileResponse, CubicalError> {
     if req.from_path == req.to_path {
@@ -545,9 +545,9 @@ pub async fn rename_file<R: Runtime>(
 /// Enqueues one `Tag` row per DISTINCT `file_path` from
 /// `tags WHERE tag_path = ?old OR tag_path LIKE ?old || '/%'` so nested
 /// renames are captured. `apply_pending` handles the prefix rewrite.
-pub async fn rename_tag<R: Runtime>(
+pub async fn rename_tag(
     state: &AppState,
-    app: &tauri::AppHandle<R>,
+    app: &dyn EventSink,
     req: RenameTagRequest,
 ) -> Result<RenameTagResponse, CubicalError> {
     if req.old_tag == req.new_tag {
@@ -627,9 +627,9 @@ pub async fn rename_tag<R: Runtime>(
 ///
 /// Rejects when no `blocks` row exists for `(file_path, old_id)` (a
 /// rename of a non-existent block is a typo, not a use case).
-pub async fn rename_block_id<R: Runtime>(
+pub async fn rename_block_id(
     state: &AppState,
-    app: &tauri::AppHandle<R>,
+    app: &dyn EventSink,
     req: RenameBlockIdRequest,
 ) -> Result<RenameBlockIdResponse, CubicalError> {
     if req.old_id == req.new_id {
@@ -851,9 +851,9 @@ pub(crate) async fn flush_target_for_link_mention(
 /// Iterate every `pending_targets`, flush each via the per-target
 /// executor, emit `vault:flush-complete` once at the end and
 /// `vault:pending-rewrites-changed` with the residual count.
-pub async fn flush_pending_rewrites<R: Runtime>(
+pub async fn flush_pending_rewrites(
     state: &AppState,
-    app: &tauri::AppHandle<R>,
+    app: &dyn EventSink,
     req: FlushPendingRewritesRequest,
 ) -> Result<FlushPendingRewritesResponse, CubicalError> {
     let (vault, flush_own_writes, flush_in_progress) =
@@ -898,9 +898,9 @@ pub async fn flush_pending_rewrites<R: Runtime>(
 }
 
 /// `flush_pending_rewrites_for_target` (L3 Session J).
-pub async fn flush_pending_rewrites_for_target<R: Runtime>(
+pub async fn flush_pending_rewrites_for_target(
     state: &AppState,
-    app: &tauri::AppHandle<R>,
+    app: &dyn EventSink,
     req: FlushPendingRewritesForTargetRequest,
 ) -> Result<FlushPendingRewritesResponse, CubicalError> {
     let (vault, flush_own_writes, flush_in_progress) =
@@ -945,11 +945,11 @@ pub async fn flush_pending_rewrites_for_target<R: Runtime>(
 ///
 /// Doesn't touch `AppState`, so the spawned timer task can call it
 /// without borrowing across an `await` point.
-pub(crate) async fn flush_all_for_vault<R: Runtime>(
+pub(crate) async fn flush_all_for_vault(
     vault: &cubical_core::Vault,
     flush_own_writes: &FlushOwnWrites,
     flush_in_progress: &std::sync::Arc<tokio::sync::Mutex<()>>,
-    app: &tauri::AppHandle<R>,
+    app: &dyn EventSink,
     vault_id: &str,
 ) -> Result<FlushPendingRewritesResponse, CubicalError> {
     let _guard = flush_in_progress.lock().await;
@@ -1001,8 +1001,8 @@ const DEFAULT_FLUSH_INTERVAL_SECS: u64 = 300;
 /// `pending_rewrites.flush_interval_secs` on each tick (so a J.2
 /// settings change takes effect on the next tick, not on app restart).
 /// Exits when `cancel` fires.
-pub fn spawn_flush_timer<R: Runtime>(
-    app: tauri::AppHandle<R>,
+pub fn spawn_flush_timer(
+    app: std::sync::Arc<dyn EventSink>,
     vault: cubical_core::Vault,
     flush_own_writes: FlushOwnWrites,
     flush_in_progress: std::sync::Arc<tokio::sync::Mutex<()>>,
@@ -1024,7 +1024,7 @@ pub fn spawn_flush_timer<R: Runtime>(
                 &vault,
                 &flush_own_writes,
                 &flush_in_progress,
-                &app,
+                app.as_ref(),
                 &vault_id,
             )
             .await
@@ -1063,11 +1063,11 @@ async fn read_flush_interval(vault: &cubical_core::Vault) -> u64 {
 /// not block close (better to lose the pending rewrites than to wedge
 /// the user; the rows persist in libSQL and the next open will see
 /// them).
-pub(crate) async fn flush_at_close<R: Runtime>(
+pub(crate) async fn flush_at_close(
     vault: &cubical_core::Vault,
     flush_own_writes: &FlushOwnWrites,
     flush_in_progress: &std::sync::Arc<tokio::sync::Mutex<()>>,
-    app: &tauri::AppHandle<R>,
+    app: &dyn EventSink,
     vault_id: &str,
 ) {
     if let Err(e) =
@@ -1129,9 +1129,9 @@ pub async fn list_recent_rename_ops(
 /// Deletes every pending row belonging to `rename_op_id`. Post-flush
 /// undo (full reverse rewrite) lives in L8 Time Machine — see §5.7 +
 /// `docs/superpowers/specs/2026-05-31-l3-session-j-pending-rewrites-design.md`.
-pub async fn undo_rename<R: Runtime>(
+pub async fn undo_rename(
     state: &AppState,
-    app: &tauri::AppHandle<R>,
+    app: &dyn EventSink,
     req: UndoRenameRequest,
 ) -> Result<UndoRenameResponse, CubicalError> {
     let vault = clone_vault(state, &req.vault_id).await?;
@@ -1287,9 +1287,9 @@ async fn prune_materialized_journal_inner(vault: &cubical_core::Vault) -> Result
 /// files) or when `to` itself has vanished (stale). Entries whose `from`
 /// is tracked again are left untouched. Best-effort: errors are logged
 /// and swallowed so a bad journal can't wedge vault open.
-pub async fn replay_rename_journal<R: Runtime>(
+pub async fn replay_rename_journal(
     vault: &cubical_core::Vault,
-    app: &tauri::AppHandle<R>,
+    app: &dyn EventSink,
     vault_id: &str,
 ) {
     if let Err(e) = replay_rename_journal_inner(vault, app, vault_id).await {
@@ -1297,9 +1297,9 @@ pub async fn replay_rename_journal<R: Runtime>(
     }
 }
 
-async fn replay_rename_journal_inner<R: Runtime>(
+async fn replay_rename_journal_inner(
     vault: &cubical_core::Vault,
-    app: &tauri::AppHandle<R>,
+    app: &dyn EventSink,
     vault_id: &str,
 ) -> Result<(), CubicalError> {
     let entries = cubical_core::vault::rename_journal::read_entries(vault.root());
@@ -1444,14 +1444,10 @@ mod tests {
 
     // -- rename_file --------------------------------------------------------
 
-    /// Build a no-op `AppHandle` for handlers that emit events. Tauri's
-    /// `Emitter::emit` returns `Err` when no listeners exist but the
-    /// emit helper logs and swallows that, so the tests don't need a
-    /// real handle. The handlers take `&AppHandle`; we satisfy the type
-    /// with `tauri::test::mock_app().handle().clone()`.
-    fn mock_app() -> tauri::AppHandle<tauri::test::MockRuntime> {
-        tauri::test::mock_app().handle().clone()
-    }
+    /// Drop-everything event sink for handler tests — they assert on
+    /// persisted state, not emitted events. Replaces the old Tauri
+    /// `mock_app()` handle now that handlers take `&dyn EventSink`.
+    use crate::events::NoopEventSink;
 
     #[tokio::test]
     async fn rename_file_enqueues_one_row_per_distinct_referrer_pair() {
@@ -1509,7 +1505,7 @@ mod tests {
 
         let resp = rename_file(
             &state,
-            &mock_app(),
+            &NoopEventSink,
             RenameFileRequest {
                 vault_id: "v1".into(),
                 from_path: "Daily.md".into(),
@@ -1567,7 +1563,7 @@ mod tests {
 
         let r1 = rename_file(
             &state,
-            &mock_app(),
+            &NoopEventSink,
             RenameFileRequest {
                 vault_id: "v1".into(),
                 from_path: "Daily.md".into(),
@@ -1580,7 +1576,7 @@ mod tests {
 
         let r2 = rename_file(
             &state,
-            &mock_app(),
+            &NoopEventSink,
             RenameFileRequest {
                 vault_id: "v1".into(),
                 from_path: "Journal.md".into(),
@@ -1612,7 +1608,7 @@ mod tests {
 
         rename_file(
             &state,
-            &mock_app(),
+            &NoopEventSink,
             RenameFileRequest {
                 vault_id: "v1".into(),
                 from_path: "Daily.md".into(),
@@ -1623,7 +1619,7 @@ mod tests {
         .expect("ok");
         let r2 = rename_file(
             &state,
-            &mock_app(),
+            &NoopEventSink,
             RenameFileRequest {
                 vault_id: "v1".into(),
                 from_path: "Journal.md".into(),
@@ -1669,7 +1665,7 @@ mod tests {
 
         rename_file(
             &state,
-            &mock_app(),
+            &NoopEventSink,
             RenameFileRequest {
                 vault_id: "v1".into(),
                 from_path: "Daily.md".into(),
@@ -1723,7 +1719,7 @@ mod tests {
 
         rename_file(
             &state,
-            &mock_app(),
+            &NoopEventSink,
             RenameFileRequest {
                 vault_id: "v1".into(),
                 from_path: "a.md".into(),
@@ -1776,7 +1772,7 @@ mod tests {
 
         rename_file(
             &state,
-            &mock_app(),
+            &NoopEventSink,
             RenameFileRequest {
                 vault_id: "v1".into(),
                 from_path: "a.md".into(),
@@ -1806,7 +1802,7 @@ mod tests {
 
         rename_file(
             &state,
-            &mock_app(),
+            &NoopEventSink,
             RenameFileRequest {
                 vault_id: "v1".into(),
                 from_path: "Daily.md".into(),
@@ -1866,7 +1862,7 @@ mod tests {
         )
         .unwrap();
 
-        replay_rename_journal(&vault, &mock_app(), "v1").await;
+        replay_rename_journal(&vault, &NoopEventSink, "v1").await;
 
         let bl = backlinks_for(vault.index(), "b.md").await.unwrap();
         assert!(
@@ -1899,7 +1895,7 @@ mod tests {
 
         rename_file(
             &state,
-            &mock_app(),
+            &NoopEventSink,
             RenameFileRequest {
                 vault_id: "v1".into(),
                 from_path: "Daily.md".into(),
@@ -1916,7 +1912,7 @@ mod tests {
 
         flush_pending_rewrites(
             &state,
-            &mock_app(),
+            &NoopEventSink,
             FlushPendingRewritesRequest {
                 vault_id: "v1".into(),
             },
@@ -1966,7 +1962,7 @@ mod tests {
 
         rename_file(
             &state,
-            &mock_app(),
+            &NoopEventSink,
             RenameFileRequest {
                 vault_id: "v1".into(),
                 from_path: "a.md".into(),
@@ -2019,7 +2015,7 @@ mod tests {
         // a → b
         rename_file(
             &state,
-            &mock_app(),
+            &NoopEventSink,
             RenameFileRequest {
                 vault_id: "v1".into(),
                 from_path: "a.md".into(),
@@ -2040,7 +2036,7 @@ mod tests {
         // b → c, WITHOUT flushing Ref.md (its disk still says [[a]]).
         rename_file(
             &state,
-            &mock_app(),
+            &NoopEventSink,
             RenameFileRequest {
                 vault_id: "v1".into(),
                 from_path: "b.md".into(),
@@ -2096,7 +2092,7 @@ mod tests {
         // a → b
         rename_file(
             &state,
-            &mock_app(),
+            &NoopEventSink,
             RenameFileRequest {
                 vault_id: "v1".into(),
                 from_path: "a.md".into(),
@@ -2126,7 +2122,7 @@ mod tests {
         // b → c
         rename_file(
             &state,
-            &mock_app(),
+            &NoopEventSink,
             RenameFileRequest {
                 vault_id: "v1".into(),
                 from_path: "b.md".into(),
@@ -2196,7 +2192,7 @@ mod tests {
 
         rename_file(
             &state,
-            &mock_app(),
+            &NoopEventSink,
             RenameFileRequest {
                 vault_id: "v1".into(),
                 from_path: "Daily.md".into(),
@@ -2244,7 +2240,7 @@ mod tests {
 
         rename_file(
             &state,
-            &mock_app(),
+            &NoopEventSink,
             RenameFileRequest {
                 vault_id: "v1".into(),
                 from_path: "a.md".into(),
@@ -2271,7 +2267,7 @@ mod tests {
 
         let err = rename_file(
             &state,
-            &mock_app(),
+            &NoopEventSink,
             RenameFileRequest {
                 vault_id: "v1".into(),
                 from_path: "a.md".into(),
@@ -2284,7 +2280,7 @@ mod tests {
 
         let err = rename_file(
             &state,
-            &mock_app(),
+            &NoopEventSink,
             RenameFileRequest {
                 vault_id: "v1".into(),
                 from_path: "a.md".into(),
@@ -2323,7 +2319,7 @@ mod tests {
 
         rename_file(
             &state,
-            &mock_app(),
+            &NoopEventSink,
             RenameFileRequest {
                 vault_id: "v1".into(),
                 from_path: "Daily.md".into(),
@@ -2388,7 +2384,7 @@ mod tests {
 
         let resp = rename_tag(
             &state,
-            &mock_app(),
+            &NoopEventSink,
             RenameTagRequest {
                 vault_id: "v1".into(),
                 old_tag: "planning".into(),
@@ -2425,7 +2421,7 @@ mod tests {
 
         let resp = rename_tag(
             &state,
-            &mock_app(),
+            &NoopEventSink,
             RenameTagRequest {
                 vault_id: "v1".into(),
                 old_tag: "ghost".into(),
@@ -2470,7 +2466,7 @@ mod tests {
 
         let resp = rename_block_id(
             &state,
-            &mock_app(),
+            &NoopEventSink,
             RenameBlockIdRequest {
                 vault_id: "v1".into(),
                 file_path: "Pinned.md".into(),
@@ -2510,7 +2506,7 @@ mod tests {
         // No blocks row for "ghost".
         let err = rename_block_id(
             &state,
-            &mock_app(),
+            &NoopEventSink,
             RenameBlockIdRequest {
                 vault_id: "v1".into(),
                 file_path: "Pinned.md".into(),
@@ -2551,7 +2547,7 @@ mod tests {
 
         let resp = rename_block_id(
             &state,
-            &mock_app(),
+            &NoopEventSink,
             RenameBlockIdRequest {
                 vault_id: "v1".into(),
                 file_path: "Self.md".into(),
@@ -2738,7 +2734,7 @@ mod tests {
 
         let resp = flush_pending_rewrites(
             &state,
-            &mock_app(),
+            &NoopEventSink,
             FlushPendingRewritesRequest {
                 vault_id: "v1".into(),
             },
@@ -2779,7 +2775,7 @@ mod tests {
 
         let resp = undo_rename(
             &state,
-            &mock_app(),
+            &NoopEventSink,
             UndoRenameRequest {
                 vault_id: "v1".into(),
                 rename_op_id: 1,
@@ -2921,7 +2917,7 @@ mod tests {
         let gate: FlushOwnWrites = std::sync::Arc::new(tokio::sync::Mutex::new(HashSet::new()));
         let guard: std::sync::Arc<tokio::sync::Mutex<()>> =
             std::sync::Arc::new(tokio::sync::Mutex::new(()));
-        let resp = flush_all_for_vault(&vault, &gate, &guard, &mock_app(), "v1")
+        let resp = flush_all_for_vault(&vault, &gate, &guard, &NoopEventSink, "v1")
             .await
             .unwrap();
         assert_eq!(resp.files_rewritten, 2);
@@ -2971,7 +2967,7 @@ mod tests {
         let cancel = CancellationToken::new();
 
         spawn_flush_timer(
-            mock_app(),
+            std::sync::Arc::new(NoopEventSink),
             vault.clone(),
             gate.clone(),
             guard.clone(),

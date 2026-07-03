@@ -8,6 +8,7 @@
  */
 
 import type { Backlink } from "../api/ipc";
+import { stabilizeByKey } from "../listStability";
 
 /**
  * Stable key for a backlink row. `source_path` alone is ambiguous
@@ -57,10 +58,22 @@ export function reduceBacklinksState(
   switch (action.type) {
     case "fetch:start":
       return { kind: "loading" };
-    case "fetch:success":
-      return action.backlinks.length === 0
+    case "fetch:success": {
+      // `<For>` reconciles by object reference — reuse a previous row's
+      // reference when its content is unchanged so an unrelated refetch
+      // (e.g. the open file's own autosave bumping the refresh tick)
+      // doesn't tear down and remount rows that didn't actually change.
+      const prevBacklinks = state.kind === "loaded" ? state.backlinks : [];
+      const backlinks = stabilizeByKey(
+        prevBacklinks,
+        action.backlinks,
+        backlinkKey,
+        (a, b) => a.context === b.context,
+      );
+      return backlinks.length === 0
         ? { kind: "empty" }
-        : { kind: "loaded", backlinks: action.backlinks };
+        : { kind: "loaded", backlinks };
+    }
     case "fetch:error":
       return { kind: "error", message: action.message };
     case "file:cleared":

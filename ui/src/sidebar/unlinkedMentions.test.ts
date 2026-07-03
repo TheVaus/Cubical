@@ -79,4 +79,40 @@ describe("reduceMentionsState", () => {
     );
     expect(next).toEqual({ kind: "empty" });
   });
+
+  it("reuses a mention's object reference across refetches when unchanged", () => {
+    const first = reduceMentionsState(
+      { kind: "loading" },
+      { type: "fetch:success", mentions: [sample] },
+    );
+    const refetched: Mention = { ...sample };
+    const second = reduceMentionsState(first, {
+      type: "fetch:success",
+      mentions: [refetched],
+    });
+
+    expect(first.kind).toBe("loaded");
+    expect(second.kind).toBe("loaded");
+    if (first.kind === "loaded" && second.kind === "loaded") {
+      expect(second.mentions[0]).toBe(first.mentions[0]);
+      expect(second.mentions[0]).not.toBe(refetched);
+    }
+  });
+
+  it("gives a fresh reference to a mention whose context actually changed", () => {
+    const first = reduceMentionsState(
+      { kind: "loading" },
+      { type: "fetch:success", mentions: [sample] },
+    );
+    const edited: Mention = { ...sample, context: "new surrounding text" };
+    const second = reduceMentionsState(first, {
+      type: "fetch:success",
+      mentions: [edited],
+    });
+
+    expect(second.kind).toBe("loaded");
+    if (second.kind === "loaded") {
+      expect(second.mentions[0]).toBe(edited);
+    }
+  });
 });

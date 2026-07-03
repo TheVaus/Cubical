@@ -1,40 +1,30 @@
 //! `cubical-app` — the Tauri shell.
 //!
-//! Owns the Lane 1 ↔ Lane 2 IPC boundary. Pulls in every workspace crate and
-//! exposes Tauri commands per `docs/layer-0-spec.md` §8.
+//! A thin frontend over the [`cubical_engine`] crate, which owns all the
+//! actual logic (command handlers, state, events, IPC types) with no Tauri
+//! dependency. This crate contributes only the Tauri-specific surface:
 //!
-//! ## Module layout
+//! - the `#[tauri::command]` shims below — each pulls `AppState` via
+//!   `tauri::State` and forwards to a `cubical_engine::commands` handler,
+//!   constructing a [`tauri_sink::TauriEventSink`] so the handler can emit
+//!   events without naming Tauri;
+//! - [`tauri_sink`] — the one adapter from the engine's `EventSink` to
+//!   `AppHandle::emit`;
+//! - the Tauri builder, plugin registration, and logging setup in [`run`].
 //!
-//! - [`commands`] — pure async command handlers; no Tauri imports.
-//! - [`api`] — IPC request/response types; no Tauri imports.
-//! - [`state`] — `AppState` definition; no Tauri imports.
-//! - [`events`] — Tauri event names, payload types, and emit helpers.
-//!   This is the only Tauri-coupled module outside `lib.rs` itself.
-//!
-//! ## Pattern
-//!
-//! `#[tauri::command]`-decorated functions in this file are **thin shims**
-//! that pull state via `tauri::State<'_, AppState>` and forward to a pure
-//! handler in [`commands`]. Pure handlers are unit-testable without a Tauri
-//! test harness, and migration off Tauri (if ever needed) means rewriting
-//! only the shims. See `docs/migration-touchpoints.md`.
-//!
-//! In L0 the shell is intentionally empty — it opens a window, wires logging,
-//! and proves the dev loop. Commands land in subsequent L0 sessions.
+//! Migration off Tauri (or adding a CLI frontend) means writing a new shell
+//! against `cubical_engine`; this crate is the rewrite boundary. See
+//! `docs/migration-touchpoints.md`.
 
 #![forbid(unsafe_code)]
 
-pub mod api;
-pub mod commands;
-pub mod error;
-pub mod events;
-pub mod state;
+mod tauri_sink;
 
-use api::types::{
+use cubical_engine::api::types::{
     BlockIdAutocompleteRequest, BlockIdAutocompleteResponse, CancelVaultScanRequest,
     CloseVaultRequest, CreateBlockRefRequest, CreateBlockRefResponse, CreateFileAtPathRequest,
     CreateFileAtPathResponse, CreateFileRequest, CreateFileResponse, CreateFolderRequest,
-    CreateFolderResponse, DataviewQueryRequest, DataviewResult,
+    CreateFolderResponse, DataviewQueryRequest, DataviewResult, DeletePathRequest,
     FlushPendingRewritesForTargetRequest, FlushPendingRewritesRequest,
     FlushPendingRewritesResponse, GetBacklinksRequest, GetBacklinksResponse,
     GetBrokenBlockRefsRequest, GetBrokenBlockRefsResponse, GetCanonicalAstRequest,
@@ -53,8 +43,9 @@ use api::types::{
     SetSettingResponse, TagAutocompleteRequest, TagAutocompleteResponse, UndoRenameRequest,
     UndoRenameResponse, WriteFileTextRequest, WriteFileTextResponse,
 };
-use error::CubicalError;
-use state::AppState;
+use cubical_engine::commands;
+use cubical_engine::error::CubicalError;
+use cubical_engine::state::AppState;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 /// Initialize structured logging for the Rust side.
@@ -89,6 +80,7 @@ pub fn run() {
             create_file,
             create_file_at_path,
             create_folder,
+            delete_path,
             get_frontmatter,
             read_file_text,
             write_file_text,
@@ -142,7 +134,12 @@ async fn open_vault(
     app: tauri::AppHandle,
     req: OpenVaultRequest,
 ) -> Result<OpenVaultResponse, CubicalError> {
-    commands::vault::open_vault(state.inner(), &app, req).await
+    commands::vault::open_vault(
+        state.inner(),
+        std::sync::Arc::new(crate::tauri_sink::TauriEventSink::new(app)),
+        req,
+    )
+    .await
 }
 
 /// Tauri shim — see [`commands::vault::cancel_vault_scan`].
@@ -197,6 +194,15 @@ async fn create_folder(
     req: CreateFolderRequest,
 ) -> Result<CreateFolderResponse, CubicalError> {
     commands::vault::create_folder(state.inner(), req).await
+}
+
+/// Tauri shim — see [`commands::vault::delete_path`].
+#[tauri::command]
+async fn delete_path(
+    state: tauri::State<'_, AppState>,
+    req: DeletePathRequest,
+) -> Result<(), CubicalError> {
+    commands::vault::delete_path(state.inner(), req).await
 }
 
 /// Tauri shim — see [`commands::vault::get_frontmatter`].
@@ -284,8 +290,8 @@ async fn get_property(
 #[tauri::command]
 async fn get_unlinked_mentions(
     state: tauri::State<'_, AppState>,
-    req: crate::api::types::GetUnlinkedMentionsRequest,
-) -> Result<crate::api::types::GetUnlinkedMentionsResponse, CubicalError> {
+    req: cubical_engine::api::types::GetUnlinkedMentionsRequest,
+) -> Result<cubical_engine::api::types::GetUnlinkedMentionsResponse, CubicalError> {
     commands::mentions::get_unlinked_mentions(state.inner(), req).await
 }
 
@@ -293,8 +299,8 @@ async fn get_unlinked_mentions(
 #[tauri::command]
 async fn link_mention(
     state: tauri::State<'_, AppState>,
-    req: crate::api::types::LinkMentionRequest,
-) -> Result<crate::api::types::LinkMentionResponse, CubicalError> {
+    req: cubical_engine::api::types::LinkMentionRequest,
+) -> Result<cubical_engine::api::types::LinkMentionResponse, CubicalError> {
     commands::mentions::link_mention(state.inner(), req).await
 }
 
@@ -377,7 +383,12 @@ async fn rename_file(
     app: tauri::AppHandle,
     req: RenameFileRequest,
 ) -> Result<RenameFileResponse, CubicalError> {
-    commands::rename::rename_file(state.inner(), &app, req).await
+    commands::rename::rename_file(
+        state.inner(),
+        &crate::tauri_sink::TauriEventSink::new(app),
+        req,
+    )
+    .await
 }
 
 /// Tauri shim — see [`commands::rename::rename_tag`].
@@ -387,7 +398,12 @@ async fn rename_tag(
     app: tauri::AppHandle,
     req: RenameTagRequest,
 ) -> Result<RenameTagResponse, CubicalError> {
-    commands::rename::rename_tag(state.inner(), &app, req).await
+    commands::rename::rename_tag(
+        state.inner(),
+        &crate::tauri_sink::TauriEventSink::new(app),
+        req,
+    )
+    .await
 }
 
 /// Tauri shim — see [`commands::rename::rename_block_id`].
@@ -397,7 +413,12 @@ async fn rename_block_id(
     app: tauri::AppHandle,
     req: RenameBlockIdRequest,
 ) -> Result<RenameBlockIdResponse, CubicalError> {
-    commands::rename::rename_block_id(state.inner(), &app, req).await
+    commands::rename::rename_block_id(
+        state.inner(),
+        &crate::tauri_sink::TauriEventSink::new(app),
+        req,
+    )
+    .await
 }
 
 /// Tauri shim — see [`commands::rename::flush_pending_rewrites`].
@@ -407,7 +428,12 @@ async fn flush_pending_rewrites(
     app: tauri::AppHandle,
     req: FlushPendingRewritesRequest,
 ) -> Result<FlushPendingRewritesResponse, CubicalError> {
-    commands::rename::flush_pending_rewrites(state.inner(), &app, req).await
+    commands::rename::flush_pending_rewrites(
+        state.inner(),
+        &crate::tauri_sink::TauriEventSink::new(app),
+        req,
+    )
+    .await
 }
 
 /// Tauri shim — see [`commands::rename::flush_pending_rewrites_for_target`].
@@ -417,7 +443,12 @@ async fn flush_pending_rewrites_for_target(
     app: tauri::AppHandle,
     req: FlushPendingRewritesForTargetRequest,
 ) -> Result<FlushPendingRewritesResponse, CubicalError> {
-    commands::rename::flush_pending_rewrites_for_target(state.inner(), &app, req).await
+    commands::rename::flush_pending_rewrites_for_target(
+        state.inner(),
+        &crate::tauri_sink::TauriEventSink::new(app),
+        req,
+    )
+    .await
 }
 
 /// Tauri shim — see [`commands::rename::get_pending_rewrites_count`].
@@ -454,7 +485,12 @@ async fn undo_rename(
     app: tauri::AppHandle,
     req: UndoRenameRequest,
 ) -> Result<UndoRenameResponse, CubicalError> {
-    commands::rename::undo_rename(state.inner(), &app, req).await
+    commands::rename::undo_rename(
+        state.inner(),
+        &crate::tauri_sink::TauriEventSink::new(app),
+        req,
+    )
+    .await
 }
 
 /// Tauri shim — see [`commands::search::search`].
@@ -482,7 +518,12 @@ async fn search_rebuild_index(
     app: tauri::AppHandle,
     req: SearchVaultRequest,
 ) -> Result<(), CubicalError> {
-    commands::search::search_rebuild_index(state.inner(), &app, req).await
+    commands::search::search_rebuild_index(
+        state.inner(),
+        std::sync::Arc::new(crate::tauri_sink::TauriEventSink::new(app)),
+        req,
+    )
+    .await
 }
 
 /// Tauri shim — see [`commands::search::search_get_health`].
@@ -519,5 +560,10 @@ async fn close_vault(
     app: tauri::AppHandle,
     req: CloseVaultRequest,
 ) -> Result<(), CubicalError> {
-    commands::vault::close_vault(state.inner(), &app, req).await
+    commands::vault::close_vault(
+        state.inner(),
+        &crate::tauri_sink::TauriEventSink::new(app),
+        req,
+    )
+    .await
 }

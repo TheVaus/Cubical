@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { MatchedField, SearchHit } from "../api/ipc";
-import { buildFileGroups } from "./resultGroups";
+import { buildFileGroups, buildStableFileGroups } from "./resultGroups";
 
 const hit = (
   over: Partial<SearchHit> & { matched_fields: MatchedField[] },
@@ -87,5 +87,39 @@ describe("buildFileGroups", () => {
 
   it("returns an empty array for no hits", () => {
     expect(buildFileGroups([])).toEqual([]);
+  });
+});
+
+describe("buildStableFileGroups", () => {
+  const hits = [
+    hit({ path: "a.md", title: "Alpha", matched_fields: [mf("body", "x")] }),
+    hit({ path: "b.md", title: "Beta", matched_fields: [mf("body", "y")] }),
+  ];
+
+  it("reuses every group's object reference when a refetch is unchanged", () => {
+    const first = buildStableFileGroups([], hits);
+    // A fresh response with identical content, as a real refetch would
+    // produce (every IPC response deserializes new objects).
+    const second = buildStableFileGroups(first, hits.map((h) => ({ ...h })));
+
+    expect(second[0]).toBe(first[0]);
+    expect(second[1]).toBe(first[1]);
+  });
+
+  it("gives a fresh reference only to the group whose results actually changed", () => {
+    const first = buildStableFileGroups([], hits);
+    const changed = [
+      hits[0]!,
+      hit({
+        path: "b.md",
+        title: "Beta",
+        matched_fields: [mf("body", "new match text")],
+      }),
+    ];
+    const second = buildStableFileGroups(first, changed);
+
+    expect(second[0]).toBe(first[0]);
+    expect(second[1]).not.toBe(first[1]);
+    expect(second[1]?.cards[0]?.segments[0]?.text).toBe("new match text");
   });
 });

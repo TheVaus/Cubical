@@ -48,6 +48,10 @@ tantivy = "0.22"
 # Test-only — used as a dev-dep across crates that need an isolated FS.
 tempfile = "3"
 
+# OS trash/recycle bin — delete_path moves files/folders here instead of
+# unlinking, so a sidebar delete is recoverable.
+trash = "5"
+
 # uuid + filetime are intentionally NOT in L0 — they land at L7 with frontmatter UUIDs.
 
 [profile.release]
