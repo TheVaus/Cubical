@@ -100,6 +100,11 @@ export interface CreateFolderResponse {
   path: string;
 }
 
+export interface DeleteFileRequest {
+  vault_id: string;
+  path: string;
+}
+
 export interface CloseVaultRequest {
   vault_id: string;
 }
@@ -477,6 +482,10 @@ export function createFolder(
   req: CreateFolderRequest,
 ): Promise<CreateFolderResponse> {
   return invoke("create_folder", { req });
+}
+
+export function deleteFile(req: DeleteFileRequest): Promise<void> {
+  return invoke("delete_path", { req });
 }
 
 export function closeVault(req: CloseVaultRequest): Promise<void> {

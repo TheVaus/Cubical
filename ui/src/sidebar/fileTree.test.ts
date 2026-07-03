@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildFileTree, buildStableTreeRows, flattenTree } from "./fileTree";
+import {
+  buildFileTree,
+  buildStableTreeRows,
+  countFilesUnderFolder,
+  flattenTree,
+} from "./fileTree";
 
 const md = (path: string) => ({ path, type_id: "markdown" });
 
@@ -174,5 +179,42 @@ describe("buildStableTreeRows", () => {
     const welcomeAfter = second.find((r) => r.path === "welcome.md")!;
     expect(welcomeAfter).toBe(welcomeBefore);
     expect(second.find((r) => r.path === "second.md")).toBeTruthy();
+  });
+});
+
+describe("countFilesUnderFolder", () => {
+  it("counts files directly under the folder", () => {
+    const root = buildFileTree([md("projects/a.md"), md("projects/b.md")]);
+    expect(countFilesUnderFolder(root, "projects")).toBe(2);
+  });
+
+  it("counts files nested in subfolders, regardless of collapse state", () => {
+    // countFilesUnderFolder walks the nested tree, not the flattened
+    // collapse-aware row list — a collapsed subfolder must not undercount.
+    const root = buildFileTree([
+      md("projects/a.md"),
+      md("projects/deep/b.md"),
+      md("projects/deep/deeper/c.md"),
+    ]);
+    expect(countFilesUnderFolder(root, "projects")).toBe(3);
+  });
+
+  it("returns 0 for a folder with no files", () => {
+    const root = buildFileTree([], ["empty"]);
+    expect(countFilesUnderFolder(root, "empty")).toBe(0);
+  });
+
+  it("returns 0 for an unknown folder path", () => {
+    const root = buildFileTree([md("welcome.md")]);
+    expect(countFilesUnderFolder(root, "nope")).toBe(0);
+  });
+
+  it("doesn't count files outside the folder", () => {
+    const root = buildFileTree([
+      md("projects/a.md"),
+      md("other/b.md"),
+      md("root.md"),
+    ]);
+    expect(countFilesUnderFolder(root, "projects")).toBe(1);
   });
 });

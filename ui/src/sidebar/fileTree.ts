@@ -178,3 +178,30 @@ export function buildStableTreeRows(
   const next = flattenTree(buildFileTree(entries, folderPaths), collapsed);
   return stabilizeByKey(prevRows, next, flatRowKey, flatRowEqual);
 }
+
+function findFolder(node: FolderNode, path: string): FolderNode | null {
+  if (node.path === path) return node;
+  for (const child of node.folders) {
+    const found = findFolder(child, path);
+    if (found) return found;
+  }
+  return null;
+}
+
+function countFiles(node: FolderNode): number {
+  return (
+    node.files.length +
+    node.folders.reduce((sum, child) => sum + countFiles(child), 0)
+  );
+}
+
+/**
+ * Number of files nested anywhere under `folderPath` — used for the
+ * delete-confirmation message ("Delete 'projects' and its N files?").
+ * Walks the nested tree (not the flattened, collapse-aware row list) so a
+ * collapsed subfolder doesn't undercount.
+ */
+export function countFilesUnderFolder(root: FolderNode, folderPath: string): number {
+  const folder = findFolder(root, folderPath);
+  return folder ? countFiles(folder) : 0;
+}
