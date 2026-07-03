@@ -23,6 +23,7 @@ import {
   createFile,
   createFileAtPath,
   createFolder,
+  deleteFile,
   getBrokenBlockRefs,
   getSetting,
   listFiles,
@@ -72,7 +73,12 @@ import {
   type AutocompleteProvider,
 } from "./editor/autocompleteProvider";
 import { computeWindow } from "./virtualList";
-import { buildStableTreeRows, type FlatRow } from "./sidebar/fileTree";
+import {
+  buildFileTree,
+  buildStableTreeRows,
+  countFilesUnderFolder,
+  type FlatRow,
+} from "./sidebar/fileTree";
 import { buildBlockRefLink } from "./editor/blockRef";
 import { formatBrokenBlockRefs } from "./statusbar/brokenRefs";
 import { formatPendingRewrites } from "./statusbar/pendingRewritesLabel";
@@ -131,6 +137,19 @@ import { toggleInfo, type InfoId } from "./settings/settingsInfo";
  * file selection change, app quit.
  */
 const AUTOSAVE_DEBOUNCE_MS = 300;
+
+const contextMenuItemStyle: JSX.CSSProperties = {
+  display: "block",
+  width: "100%",
+  "text-align": "left",
+  padding: "var(--space-2) var(--space-3)",
+  background: "transparent",
+  border: "none",
+  color: "var(--c-fg-primary)",
+  "font-family": "var(--font-body)",
+  "font-size": "var(--text-sm)",
+  cursor: "pointer",
+};
 
 /**
  * File-list virtualization. A vault can hold tens of thousands of
@@ -475,10 +494,18 @@ const App: Component = () => {
   // `renamingPath` is the row currently swapped for an inline input.
   const [pendingRewritesCount, setPendingRewritesCount] = createSignal(0);
   const [contextMenu, setContextMenu] = createSignal<{
+    kind: "file" | "folder" | "empty";
+    /** Right-clicked row's path; `""` for `kind === "empty"`. */
     path: string;
     x: number;
     y: number;
   } | null>(null);
+  const [deleteTarget, setDeleteTarget] = createSignal<{
+    path: string;
+    kind: "file" | "folder";
+    fileCount: number;
+  } | null>(null);
+  const [deleteInFlight, setDeleteInFlight] = createSignal(false);
   const [renamingPath, setRenamingPath] = createSignal<string | null>(null);
 
   // Per-file hash bookkeeping. Non-reactive (signals are overkill here
@@ -1084,6 +1111,66 @@ const App: Component = () => {
     }
   };
 
+  /**
+   * Context-menu "New File" — scoped to `parentDir` (a right-clicked
+   * folder's path, or `""` for empty-space/root). Unlike the toolbar's
+   * `handleNewFile`, this doesn't navigate to the new file — it enters
+   * inline rename mode so the user names it in one motion.
+   */
+  const handleContextMenuNewFile = async (parentDir: string) => {
+    const id = vaultId();
+    if (!id) return;
+    try {
+      const resp = await createFile({ vault_id: id, parent_dir: parentDir });
+      await refreshFileList();
+      setRenamingPath(resp.path);
+    } catch (e) {
+      showToast(errorMessage(e));
+    }
+  };
+
+  /**
+   * Context-menu "New Folder" — scoped to `parentDir`. Folders can't be
+   * renamed yet (no backend support — spec's "Folder rename is out of
+   * scope"), so this just creates it and lets the tree refresh show it,
+   * matching the toolbar button's existing behavior.
+   */
+  const handleContextMenuNewFolder = async (parentDir: string) => {
+    const id = vaultId();
+    if (!id) return;
+    try {
+      await createFolder({ vault_id: id, parent_dir: parentDir });
+      await refreshFileList();
+    } catch (e) {
+      showToast(errorMessage(e));
+    }
+  };
+
+  /** Open the delete-confirm dialog for a right-clicked row. */
+  const handleRequestDelete = (path: string, kind: "file" | "folder") => {
+    const fileCount =
+      kind === "folder"
+        ? countFilesUnderFolder(buildFileTree(files(), folders()), path)
+        : 0;
+    setDeleteTarget({ path, kind, fileCount });
+  };
+
+  /** Confirm-dialog "Delete" — moves the target to the OS trash. */
+  const handleConfirmDelete = async () => {
+    const id = vaultId();
+    const target = deleteTarget();
+    if (!id || !target) return;
+    setDeleteInFlight(true);
+    try {
+      await deleteFile({ vault_id: id, path: target.path });
+      setDeleteTarget(null);
+    } catch (e) {
+      showToast(errorMessage(e));
+    } finally {
+      setDeleteInFlight(false);
+    }
+  };
+
   onMount(async () => {
     unlistenProgress = await onVaultScanProgress((p) => {
       if (p.vault_id !== vaultId()) return;
@@ -1299,6 +1386,7 @@ const App: Component = () => {
       setBrokenBlockRefs([]);
       setPendingRewritesCount(0);
       setContextMenu(null);
+      setDeleteTarget(null);
       setRenamingPath(null);
       setTagRefreshTick(0);
       setView({ kind: "file" });
@@ -1650,6 +1738,10 @@ const App: Component = () => {
                 setScrollTop(e.currentTarget.scrollTop);
                 setViewportHeight(e.currentTarget.clientHeight);
               }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setContextMenu({ kind: "empty", path: "", x: e.clientX, y: e.clientY });
+              }}
               style={{
                 "overflow-y": "auto",
                 position: "relative",
@@ -1699,6 +1791,16 @@ const App: Component = () => {
                                 "padding-left": folderPad,
                               }}
                               onClick={() => toggleFolder(row.path)}
+                              onContextMenu={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setContextMenu({
+                                  kind: "folder",
+                                  path: row.path,
+                                  x: e.clientX,
+                                  y: e.clientY,
+                                });
+                              }}
                             >
                               <span class="tree-row__twisty">
                                 {row.collapsed ? "▸" : "▾"}
@@ -1737,7 +1839,9 @@ const App: Component = () => {
                             onContextMenu={(e) => {
                               if (!isMarkdown) return;
                               e.preventDefault();
+                              e.stopPropagation();
                               setContextMenu({
+                                kind: "file",
                                 path: row.path,
                                 x: e.clientX,
                                 y: e.clientY,
@@ -2917,31 +3021,147 @@ topics:         # type:list
                 "z-index": 13,
               }}
             >
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  const path = menu().path;
-                  setContextMenu(null);
-                  setRenamingPath(path);
-                }}
-                style={{
-                  display: "block",
-                  width: "100%",
-                  "text-align": "left",
-                  padding: "var(--space-2) var(--space-3)",
-                  background: "transparent",
-                  border: "none",
-                  color: "var(--c-fg-primary)",
-                  "font-family": "var(--font-body)",
-                  "font-size": "var(--text-sm)",
-                  cursor: "pointer",
-                }}
-              >
-                Rename…
-              </button>
+              <Show when={menu().kind !== "file"}>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    const parentDir = menu().path;
+                    setContextMenu(null);
+                    void handleContextMenuNewFile(parentDir);
+                  }}
+                  style={contextMenuItemStyle}
+                >
+                  New File
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    const parentDir = menu().path;
+                    setContextMenu(null);
+                    void handleContextMenuNewFolder(parentDir);
+                  }}
+                  style={contextMenuItemStyle}
+                >
+                  New Folder
+                </button>
+              </Show>
+              <Show when={menu().kind === "file"}>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    const path = menu().path;
+                    setContextMenu(null);
+                    setRenamingPath(path);
+                  }}
+                  style={contextMenuItemStyle}
+                >
+                  Rename…
+                </button>
+              </Show>
+              <Show when={menu().kind !== "empty"}>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    const path = menu().path;
+                    const kind = menu().kind === "folder" ? "folder" : "file";
+                    setContextMenu(null);
+                    handleRequestDelete(path, kind);
+                  }}
+                  style={{ ...contextMenuItemStyle, color: "var(--c-error)" }}
+                >
+                  Delete…
+                </button>
+              </Show>
             </div>
           </>
+        )}
+      </Show>
+
+      <Show when={deleteTarget()}>
+        {(target) => (
+          <div
+            class="modal-backdrop"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Confirm delete"
+            style={{ "z-index": 30 }}
+            onClick={() => !deleteInFlight() && setDeleteTarget(null)}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                width: "min(24rem, 90vw)",
+                background: "var(--c-bg-primary)",
+                border: "1px solid var(--c-border-subtle)",
+                "border-radius": "var(--radius-lg, var(--radius-md))",
+                "box-shadow": "var(--shadow-lg, var(--shadow-md))",
+                padding: "var(--space-4)",
+                display: "flex",
+                "flex-direction": "column",
+                gap: "var(--space-3)",
+              }}
+            >
+              <p
+                style={{
+                  margin: 0,
+                  "font-size": "var(--text-sm)",
+                  color: "var(--c-fg-primary)",
+                }}
+              >
+                {target().kind === "folder"
+                  ? `Delete "${target().path}" and its ${target().fileCount} file${
+                      target().fileCount === 1 ? "" : "s"
+                    }?`
+                  : `Delete "${target().path}"?`}
+              </p>
+              <div
+                style={{
+                  display: "flex",
+                  "justify-content": "flex-end",
+                  gap: "var(--space-2)",
+                }}
+              >
+                <button
+                  type="button"
+                  disabled={deleteInFlight()}
+                  onClick={() => setDeleteTarget(null)}
+                  style={{
+                    padding: "var(--space-2) var(--space-3)",
+                    background: "transparent",
+                    border: "1px solid var(--c-border-subtle)",
+                    "border-radius": "var(--radius-md)",
+                    color: "var(--c-fg-primary)",
+                    "font-family": "var(--font-body)",
+                    "font-size": "var(--text-sm)",
+                    cursor: deleteInFlight() ? "default" : "pointer",
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={deleteInFlight()}
+                  onClick={() => void handleConfirmDelete()}
+                  style={{
+                    padding: "var(--space-2) var(--space-3)",
+                    background: "var(--c-error)",
+                    border: "none",
+                    "border-radius": "var(--radius-md)",
+                    color: "white",
+                    "font-family": "var(--font-body)",
+                    "font-size": "var(--text-sm)",
+                    cursor: deleteInFlight() ? "default" : "pointer",
+                  }}
+                >
+                  {deleteInFlight() ? "Deleting…" : "Delete"}
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </Show>
 
