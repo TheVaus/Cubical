@@ -37,6 +37,7 @@ import {
   openVault,
   readFileText,
   renameFile,
+  renameFolder,
   writeFileText,
   type BrokenBlockRef,
   type FileEntry,
@@ -96,7 +97,7 @@ import {
 } from "./statusbar/segments";
 import { leadingSeparators } from "./statusbar/separators";
 import { ToastHost, showToast } from "./Toast";
-import { validateRenameTarget } from "./fileRename";
+import { reprefixNestedPath, validateRenameTarget } from "./fileRename";
 import { resolveRawState } from "./editor/rawSource";
 import {
   applyTheme,
@@ -704,13 +705,14 @@ const App: Component = () => {
   const handleRenameCommit = async (
     fromPath: string,
     rawTarget: string,
+    isFolder = false,
   ): Promise<void> => {
     const id = vaultId();
     if (!id) {
       setRenamingPath(null);
       return;
     }
-    const validation = validateRenameTarget(fromPath, rawTarget);
+    const validation = validateRenameTarget(fromPath, rawTarget, isFolder);
     if (validation !== null) {
       if (validation.code !== "same") {
         showToast(validation.message);
@@ -721,25 +723,31 @@ const App: Component = () => {
     const target = rawTarget.trim();
     setRenamingPath(null);
     try {
-      await renameFile({
-        vault_id: id,
-        from_path: fromPath,
-        to_path: target,
-      });
-      // Follow the rename for the open buffer: the content is unchanged
-      // (so seenHash/lastWrittenHash stay valid) but the path moved. Without
-      // this, a second title edit would rename from a now-stale path and
-      // autosave would write back to the old location.
-      if (selectedPath() === fromPath) {
+      if (isFolder) {
+        await renameFolder({ vault_id: id, from_path: fromPath, to_path: target });
+      } else {
+        await renameFile({ vault_id: id, from_path: fromPath, to_path: target });
+      }
+      // Follow the open buffer if it was the renamed file itself, or
+      // was nested under the renamed folder — without this, autosave
+      // would write back to a path that no longer exists.
+      if (isFolder) {
+        const sel = selectedPath();
+        if (sel !== null) {
+          const reprefixed = reprefixNestedPath(sel, fromPath, target);
+          if (reprefixed !== null) {
+            setSelectedPath(reprefixed);
+          }
+        }
+      } else if (selectedPath() === fromPath) {
         setSelectedPath(target);
       }
-      // `rename_file` rekeys the index (`links.target_path`, etc.)
-      // synchronously, but emits no `vault:file-changed` — that only
-      // arrives later (and debounced) from the watcher's disk-move echo.
-      // Proactively do the same invalidation a file-change does so every
-      // open view reflects the rename immediately instead of resolving
-      // stale wiki-link targets / showing the old name in the tree and
-      // backlinks panel.
+      // Neither rename_file nor rename_folder emits `vault:file-changed`
+      // — that only arrives later (and debounced) from the watcher's
+      // disk-move echo. Proactively do the same invalidation a
+      // file-change does so every open view reflects the rename
+      // immediately instead of resolving stale wiki-link targets /
+      // showing the old name in the tree and backlinks panel.
       wikilinkResolver()?.invalidate();
       embedResolver()?.invalidate();
       propertyResolver()?.invalidate();
@@ -1781,6 +1789,7 @@ const App: Component = () => {
                       {(row) => {
                         const folderPad = `calc(var(--space-2) + ${row.depth} * var(--space-4))`;
                         if (row.kind === "folder") {
+                          const isRenamingFolder = () => renamingPath() === row.path;
                           return (
                             <div
                               class="tree-row tree-row--folder"
@@ -1790,7 +1799,10 @@ const App: Component = () => {
                                 height: `${FILE_ROW_HEIGHT}px`,
                                 "padding-left": folderPad,
                               }}
-                              onClick={() => toggleFolder(row.path)}
+                              onClick={() => {
+                                if (isRenamingFolder()) return;
+                                toggleFolder(row.path);
+                              }}
                               onContextMenu={(e) => {
                                 e.preventDefault();
                                 e.stopPropagation();
@@ -1805,7 +1817,40 @@ const App: Component = () => {
                               <span class="tree-row__twisty">
                                 {row.collapsed ? "▸" : "▾"}
                               </span>
-                              <span class="tree-row__name">{row.name}</span>
+                              <Show
+                                when={isRenamingFolder()}
+                                fallback={
+                                  <span class="tree-row__name">{row.name}</span>
+                                }
+                              >
+                                <input
+                                  type="text"
+                                  class="tree-row__input"
+                                  value={row.name}
+                                  autofocus
+                                  onClick={(e) => e.stopPropagation()}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      e.preventDefault();
+                                      void handleRenameCommit(
+                                        row.path,
+                                        renameTarget(row.path, e.currentTarget.value),
+                                        true,
+                                      );
+                                    } else if (e.key === "Escape") {
+                                      e.preventDefault();
+                                      setRenamingPath(null);
+                                    }
+                                  }}
+                                  onBlur={(e) =>
+                                    void handleRenameCommit(
+                                      row.path,
+                                      renameTarget(row.path, e.currentTarget.value),
+                                      true,
+                                    )
+                                  }
+                                />
+                              </Show>
                             </div>
                           );
                         }
@@ -3047,7 +3092,7 @@ topics:         # type:list
                   New Folder
                 </button>
               </Show>
-              <Show when={menu().kind === "file"}>
+              <Show when={menu().kind !== "empty"}>
                 <button
                   type="button"
                   role="menuitem"
