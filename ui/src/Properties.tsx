@@ -81,9 +81,18 @@ function buildTypeMenu(dateDefault: string): TypeFamily[] {
       label: "Float",
       leaves: [
         { type: { kind: "float" }, label: "Decimal" },
-        { type: { kind: "currency", currency: "usd" }, label: "Currency (USD)" },
-        { type: { kind: "currency", currency: "nis" }, label: "Currency (NIS)" },
-        { type: { kind: "currency", currency: "eur" }, label: "Currency (EUR)" },
+        {
+          type: { kind: "currency", currency: "usd" },
+          label: "Currency (USD)",
+        },
+        {
+          type: { kind: "currency", currency: "nis" },
+          label: "Currency (NIS)",
+        },
+        {
+          type: { kind: "currency", currency: "eur" },
+          label: "Currency (EUR)",
+        },
       ],
     },
     {
@@ -103,12 +112,10 @@ function buildTypeMenu(dateDefault: string): TypeFamily[] {
           type: { kind: "date", format: dateDefault },
           label: `Default (${dateDefault})`,
         },
-        ...DATE_FORMAT_TOKENS.map(
-          (format): TypeLeaf => ({
-            type: { kind: "date", format },
-            label: `Date · ${format}`,
-          }),
-        ),
+        ...DATE_FORMAT_TOKENS.map((format): TypeLeaf => ({
+          type: { kind: "date", format },
+          label: `Date · ${format}`,
+        })),
       ],
     },
     {
@@ -568,8 +575,8 @@ const Properties: Component<PropertiesProps> = (props) => {
   const commitValue = (key: string, value: unknown) => {
     updateMap(setLossy, lossy(), key, undefined);
     commit(
-      entries().map(
-        ([k, v]): FrontmatterEntry => (k === key ? [k, value] : [k, v]),
+      entries().map(([k, v]): FrontmatterEntry =>
+        k === key ? [k, value] : [k, v],
       ),
     );
   };
@@ -579,8 +586,8 @@ const Properties: Component<PropertiesProps> = (props) => {
     if (trimmed === "" || trimmed === oldKey) return false;
     if (keys().includes(trimmed)) return false;
     commit(
-      entries().map(
-        ([k, v]): FrontmatterEntry => (k === oldKey ? [trimmed, v] : [k, v]),
+      entries().map(([k, v]): FrontmatterEntry =>
+        k === oldKey ? [trimmed, v] : [k, v],
       ),
     );
     return true;
@@ -605,8 +612,8 @@ const Properties: Component<PropertiesProps> = (props) => {
     setMenuKey(null);
     setOpenFamily(null);
     commit(
-      entries().map(
-        ([k, v]): FrontmatterEntry => (k === key ? [k, result.value] : [k, v]),
+      entries().map(([k, v]): FrontmatterEntry =>
+        k === key ? [k, result.value] : [k, v],
       ),
       buildAnnotations(typeMap(), key, type),
     );
@@ -623,11 +630,13 @@ const Properties: Component<PropertiesProps> = (props) => {
     const nextValue = inSet
       ? current
       : values.length > 0
-        ? (Number.isFinite(Number(values[0])) ? Number(values[0]) : values[0])
+        ? Number.isFinite(Number(values[0]))
+          ? Number(values[0])
+          : values[0]
         : current;
     commit(
-      entries().map(
-        ([k, v]): FrontmatterEntry => (k === key ? [k, nextValue] : [k, v]),
+      entries().map(([k, v]): FrontmatterEntry =>
+        k === key ? [k, nextValue] : [k, v],
       ),
       buildAnnotations(typeMap(), key, { kind: "enum", values }),
     );
@@ -638,8 +647,8 @@ const Properties: Component<PropertiesProps> = (props) => {
     if (!entry) return;
     updateMap(setLossy, lossy(), key, undefined);
     commit(
-      entries().map(
-        ([k, v]): FrontmatterEntry => (k === key ? [k, entry.value] : [k, v]),
+      entries().map(([k, v]): FrontmatterEntry =>
+        k === key ? [k, entry.value] : [k, v],
       ),
       buildAnnotations(typeMap(), key, null),
     );
@@ -656,127 +665,137 @@ const Properties: Component<PropertiesProps> = (props) => {
   const resolvedType = (key: string): PropertyType =>
     resolveType(props.typedEnabled, typeMap(), key, entryMap().get(key));
 
+  // Nothing to show for a file with no frontmatter at all: the modelable
+  // empty state has no properties and no unparseable YAML to warn about,
+  // so the box would just be dead chrome (border + "+ Add property").
+  const hasContent = createMemo(() => !modelable() || keys().length > 0);
+
   return (
-    <section
-      aria-label="Frontmatter properties"
-      style={{
-        display: "flex",
-        "flex-direction": "column",
-        padding: "var(--space-3)",
-        background: "var(--c-bg-secondary)",
-        border: "1px solid var(--c-border-subtle)",
-        "border-radius": "var(--radius-md)",
-      }}
-    >
-      <Show
-        when={modelable()}
-        fallback={
-          <div
+    <Show when={hasContent()}>
+      <section
+        aria-label="Frontmatter properties"
+        style={{
+          display: "flex",
+          "flex-direction": "column",
+          padding: "var(--space-3)",
+          background: "var(--c-bg-secondary)",
+          border: "1px solid var(--c-border-subtle)",
+          "border-radius": "var(--radius-md)",
+        }}
+      >
+        <Show
+          when={modelable()}
+          fallback={
+            <div
+              style={{
+                display: "flex",
+                "flex-direction": "column",
+                gap: "var(--space-2)",
+              }}
+            >
+              <p
+                role="alert"
+                style={{
+                  margin: 0,
+                  "font-size": "var(--text-xs)",
+                  color: "var(--c-warning)",
+                }}
+              >
+                Cubical can't safely edit this frontmatter (it uses anchors or
+                aliases).
+              </p>
+              <pre
+                style={{
+                  margin: 0,
+                  padding: "var(--space-2)",
+                  "font-family": "var(--font-mono)",
+                  "font-size": "var(--text-xs)",
+                  color: "var(--c-fg-secondary)",
+                  background: "var(--c-bg-primary)",
+                  border: "1px solid var(--c-border-subtle)",
+                  "border-radius": "var(--radius-sm)",
+                  "white-space": "pre-wrap",
+                  "overflow-x": "auto",
+                }}
+              >
+                {splitFrontmatter(props.getSource()).yaml ?? ""}
+              </pre>
+              <button
+                type="button"
+                onClick={() => props.onOpenRaw()}
+                style={{
+                  "align-self": "flex-start",
+                  padding: "0",
+                  "font-family": "var(--font-body)",
+                  "font-size": "var(--text-xs)",
+                  color: "var(--c-accent)",
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  "text-decoration": "underline",
+                }}
+              >
+                Open as raw
+              </button>
+            </div>
+          }
+        >
+          <For each={keys()}>
+            {(key) => (
+              <PropertyRow
+                keyName={key}
+                value={entryMap().get(key)}
+                type={resolvedType(key)}
+                format={effectiveFormat(resolvedType(key))}
+                currency={effectiveCurrency(
+                  resolvedType(key),
+                  props.currencyDefault,
+                )}
+                menu={menu()}
+                tagsKey={props.tagsKeyAsTags && key === "tags"}
+                lossyOriginal={lossy().get(key)}
+                menuOpen={menuKey() === key}
+                autoFocus={pendingFocusKey() === key}
+                typedEnabled={props.typedEnabled}
+                openFamily={openFamily()}
+                onOpenFamily={(label) => setOpenFamily(label)}
+                onToggleMenu={() => setMenuKey(menuKey() === key ? null : key)}
+                onCloseMenu={() => {
+                  if (menuKey() === key) setMenuKey(null);
+                }}
+                onChangeType={(type) => changeType(key, type)}
+                onCommitValue={(v) => commitValue(key, v)}
+                onSetEnumValues={(vals) => setEnumValues(key, vals)}
+                onRename={(next) => renameKey(key, next)}
+                onRevertLossy={() => revertLossy(key)}
+                onOpenRaw={() => props.onOpenRaw()}
+                {...(props.onNavigateTag
+                  ? { onNavigateTag: props.onNavigateTag }
+                  : {})}
+              />
+            )}
+          </For>
+          <button
+            type="button"
+            onClick={addProperty}
             style={{
-              display: "flex",
-              "flex-direction": "column",
-              gap: "var(--space-2)",
+              "align-self": "flex-start",
+              "margin-top": "var(--space-2)",
+              padding: "var(--space-1) var(--space-2)",
+              "font-family": "var(--font-body)",
+              "font-size": "var(--text-xs)",
+              color: "var(--c-fg-muted)",
+              background: "transparent",
+              border: "1px dashed var(--c-border-subtle)",
+              "border-radius": "var(--radius-sm)",
+              cursor: "pointer",
             }}
           >
-            <p
-              role="alert"
-              style={{
-                margin: 0,
-                "font-size": "var(--text-xs)",
-                color: "var(--c-warning)",
-              }}
-            >
-              Cubical can't safely edit this frontmatter (it uses anchors or
-              aliases).
-            </p>
-            <pre
-              style={{
-                margin: 0,
-                padding: "var(--space-2)",
-                "font-family": "var(--font-mono)",
-                "font-size": "var(--text-xs)",
-                color: "var(--c-fg-secondary)",
-                background: "var(--c-bg-primary)",
-                border: "1px solid var(--c-border-subtle)",
-                "border-radius": "var(--radius-sm)",
-                "white-space": "pre-wrap",
-                "overflow-x": "auto",
-              }}
-            >
-              {splitFrontmatter(props.getSource()).yaml ?? ""}
-            </pre>
-            <button
-              type="button"
-              onClick={() => props.onOpenRaw()}
-              style={{
-                "align-self": "flex-start",
-                padding: "0",
-                "font-family": "var(--font-body)",
-                "font-size": "var(--text-xs)",
-                color: "var(--c-accent)",
-                background: "transparent",
-                border: "none",
-                cursor: "pointer",
-                "text-decoration": "underline",
-              }}
-            >
-              Open as raw
-            </button>
-          </div>
-        }
-      >
-        <For each={keys()}>
-          {(key) => (
-            <PropertyRow
-              keyName={key}
-              value={entryMap().get(key)}
-              type={resolvedType(key)}
-              format={effectiveFormat(resolvedType(key))}
-              currency={effectiveCurrency(resolvedType(key), props.currencyDefault)}
-              menu={menu()}
-              tagsKey={props.tagsKeyAsTags && key === "tags"}
-              lossyOriginal={lossy().get(key)}
-              menuOpen={menuKey() === key}
-              autoFocus={pendingFocusKey() === key}
-              typedEnabled={props.typedEnabled}
-              openFamily={openFamily()}
-              onOpenFamily={(label) => setOpenFamily(label)}
-              onToggleMenu={() => setMenuKey(menuKey() === key ? null : key)}
-              onCloseMenu={() => {
-                if (menuKey() === key) setMenuKey(null);
-              }}
-              onChangeType={(type) => changeType(key, type)}
-              onCommitValue={(v) => commitValue(key, v)}
-              onSetEnumValues={(vals) => setEnumValues(key, vals)}
-              onRename={(next) => renameKey(key, next)}
-              onRevertLossy={() => revertLossy(key)}
-              onOpenRaw={() => props.onOpenRaw()}
-              {...(props.onNavigateTag
-                ? { onNavigateTag: props.onNavigateTag }
-                : {})}
-            />
-          )}
-        </For>
-        <button
-          type="button"
-          onClick={addProperty}
-          style={{
-            "align-self": "flex-start",
-            "margin-top": "var(--space-2)",
-            padding: "var(--space-1) var(--space-2)",
-            "font-family": "var(--font-body)",
-            "font-size": "var(--text-xs)",
-            color: "var(--c-fg-muted)",
-            background: "transparent",
-            border: "1px dashed var(--c-border-subtle)",
-            "border-radius": "var(--radius-sm)",
-            cursor: "pointer",
-          }}
-        >
-          + Add property
-        </button>
-      </Show>
-    </section>
+            + Add property
+          </button>
+        </Show>
+      </section>
+    </Show>
   );
 };
 
