@@ -94,8 +94,12 @@ The Shortcuts tab's read-only `kb-row` list becomes one editable row per
   hand-duplicating as commands are added).
 - **Change**: click → row enters a per-row "listening" signal state showing
   "Press keys…"; the next `keydown` is captured, normalized via
-  `eventToChord`, and converted to a spec string. Esc cancels back to the
-  current chord without committing.
+  `eventToChord`, and converted to a spec string. A bare `Escape` (no
+  modifiers) cancels back to the current chord without committing, rather
+  than being captured as the new binding. Any other bare key (no `Mod`,
+  `Shift`, or `Alt`) is rejected with an inline error ("Shortcuts need a
+  modifier key") and capture stays open — this keeps ordinary typing from
+  ever being shadowed by a rebind, in both scopes.
 - **Conflict check**: before committing a captured chord, check it against
   every *other* command's effective binding **within the same scope**
   (`global` and `editor` are independent key spaces — they never compete for
@@ -128,7 +132,8 @@ The Shortcuts tab's read-only `kb-row` list becomes one editable row per
   unit tests: same-scope collision detected; cross-scope (global vs. editor)
   not flagged; re-capturing the same key already assigned to the row being
   edited doesn't false-positive as a conflict.
-- Settings UI component test: Change → keydown → row updates; Esc cancels;
+- Settings UI component test: Change → keydown → row updates; bare Esc
+  cancels; a bare non-modifier key is rejected and capture stays open;
   conflict shows inline error and stays in listening state; Reset removes the
   override and reverts display to the default chord.
 - No Rust-side tests needed — this never touches the engine;
