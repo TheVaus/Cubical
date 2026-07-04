@@ -358,6 +358,17 @@ export interface RenameFileResponse {
   pending_count: number;
 }
 
+export interface RenameFolderRequest {
+  vault_id: string;
+  from_path: string;
+  to_path: string;
+}
+
+export interface RenameFolderResponse {
+  rename_op_id: number;
+  pending_count: number;
+}
+
 export interface RenameTagRequest {
   vault_id: string;
   old_tag: string;
@@ -896,6 +907,12 @@ export function onVaultFileChanged(
 
 export function renameFile(req: RenameFileRequest): Promise<RenameFileResponse> {
   return invoke("rename_file", { req });
+}
+
+export function renameFolder(
+  req: RenameFolderRequest,
+): Promise<RenameFolderResponse> {
+  return invoke("rename_folder", { req });
 }
 
 export function renameTag(req: RenameTagRequest): Promise<RenameTagResponse> {
