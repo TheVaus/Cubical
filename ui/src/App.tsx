@@ -923,7 +923,7 @@ const App: Component = () => {
     persistSetting(vaultId(), "ui.right_sidebar_panel", id);
   };
 
-  const handleSelectFile = async (file: FileEntry) => {
+  const handleSelectFile = async (file: FileEntry, knownHash?: string) => {
     if (file.type_id !== "markdown") return;
     const id = vaultId();
     if (!id) return;
@@ -949,9 +949,13 @@ const App: Component = () => {
     setRawOverride(null);
     setPropertiesFrontmatter(null);
     // Reset per-file hash bookkeeping. seenHash will be repopulated
-    // below once the read response gets us a hash to anchor on.
-    seenHash = null;
-    lastWrittenHash = null;
+    // below once the read response gets us a hash to anchor on. When the
+    // caller already knows the on-disk hash (e.g. a file it just created),
+    // seed both here instead — otherwise the watcher's `Created` echo for
+    // that write races in as an unrecognized "external edit" (bug: false
+    // "changed outside Cubical" banner right after create).
+    seenHash = knownHash ?? null;
+    lastWrittenHash = knownHash ?? null;
     dirty = false;
     try {
       const resp = await readFileText({ vault_id: id, path: file.path });
@@ -1010,6 +1014,7 @@ const App: Component = () => {
   const handleNavigateWikilink = async (
     path: string,
     anchor: ResolvedAnchor | null,
+    knownHash?: string,
   ) => {
     const id = vaultId();
     if (!id) return;
@@ -1032,7 +1037,7 @@ const App: Component = () => {
     if (anchor !== null && !alreadyOpen) {
       editorApi?.requestAnchorScroll(anchor);
     }
-    await handleSelectFile(file);
+    await handleSelectFile(file, knownHash);
     if (anchor !== null && alreadyOpen) {
       const found =
         anchor.kind === "heading"
@@ -1081,10 +1086,10 @@ const App: Component = () => {
       // `write_file_text` only writes files that already exist; a
       // not-yet-created wiki-link target needs the dedicated create
       // path (which inserts the files row + writes empty bytes).
-      await createFileAtPath({ vault_id: id, path: offer.path });
+      const resp = await createFileAtPath({ vault_id: id, path: offer.path });
       // The newly-created file also lands via `vault:file-changed`,
       // which invalidates the resolver. Navigate immediately.
-      await handleNavigateWikilink(offer.path, null);
+      await handleNavigateWikilink(offer.path, null, resp.content_hash);
     } catch (e) {
       const message = errorMessage(e);
       setError(message);
@@ -1100,7 +1105,7 @@ const App: Component = () => {
     try {
       const resp = await createFile({ vault_id: id, parent_dir: "" });
       await refreshFileList();
-      await handleNavigateWikilink(resp.path, null);
+      await handleNavigateWikilink(resp.path, null, resp.content_hash);
     } catch (e) {
       setError(errorMessage(e));
     }

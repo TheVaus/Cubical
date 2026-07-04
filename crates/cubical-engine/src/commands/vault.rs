@@ -364,8 +364,9 @@ fn normalize_rel_file_path(path: &str) -> Result<String, CubicalError> {
 /// Create an empty markdown note at `rel_path`: mkdir its parents, atomic
 /// -write empty bytes, and eagerly insert the `files` row so the caller
 /// can navigate to it before the watcher's `Created` echo lands. Shared
-/// by [`create_file`] and [`create_file_at_path`].
-async fn create_empty_markdown(vault: &Vault, rel_path: &str) -> Result<(), CubicalError> {
+/// by [`create_file`] and [`create_file_at_path`]. Returns the content
+/// hash so callers can seed `last_written_hash` and suppress that echo.
+async fn create_empty_markdown(vault: &Vault, rel_path: &str) -> Result<String, CubicalError> {
     let abs_path = vault.root().join(rel_path);
 
     let abs_for_write = abs_path.clone();
@@ -390,10 +391,10 @@ async fn create_empty_markdown(vault: &Vault, rel_path: &str) -> Result<(), Cubi
                 inode, last_seen, created_at, updated_at
             ) VALUES (?1, 'markdown', 0, ?2, ?3, NULL, ?2, ?2, ?2)
             ON CONFLICT(path) DO NOTHING",
-            libsql::params![rel_path.to_string(), now, hash],
+            libsql::params![rel_path.to_string(), now, hash.clone()],
         )
         .await?;
-    Ok(())
+    Ok(hash)
 }
 
 /// `create_file` — create a fresh empty markdown note with a
@@ -411,8 +412,11 @@ pub async fn create_file(
     let parent_abs = vault.root().join(&parent_rel);
 
     let rel_path = first_free_path(&parent_rel, &parent_abs, "Untitled", Some("md"))?;
-    create_empty_markdown(&vault, &rel_path).await?;
-    Ok(CreateFileResponse { path: rel_path })
+    let content_hash = create_empty_markdown(&vault, &rel_path).await?;
+    Ok(CreateFileResponse {
+        path: rel_path,
+        content_hash,
+    })
 }
 
 /// `create_file_at_path` — create a fresh empty markdown note at an
@@ -431,8 +435,11 @@ pub async fn create_file_at_path(
             "path already exists: {rel_path}"
         )));
     }
-    create_empty_markdown(&vault, &rel_path).await?;
-    Ok(CreateFileAtPathResponse { path: rel_path })
+    let content_hash = create_empty_markdown(&vault, &rel_path).await?;
+    Ok(CreateFileAtPathResponse {
+        path: rel_path,
+        content_hash,
+    })
 }
 
 /// `create_folder` — create a fresh empty directory with a
@@ -1071,16 +1078,23 @@ mod tests {
         .await
         .expect("first create");
         assert_eq!(r1.path, "Untitled.md");
+        assert_eq!(r1.content_hash, sha256_bytes_hex(b""));
         assert!(dir.path().join("Untitled.md").exists(), "file on disk");
         // Eager files row exists so navigation works immediately.
         let mut rows = vault
             .index()
             .connection()
-            .query("SELECT type_id FROM files WHERE path = 'Untitled.md'", ())
+            .query(
+                "SELECT type_id, content_hash FROM files WHERE path = 'Untitled.md'",
+                (),
+            )
             .await
             .unwrap();
-        let ty: String = rows.next().await.unwrap().expect("row").get(0).unwrap();
+        let row = rows.next().await.unwrap().expect("row");
+        let ty: String = row.get(0).unwrap();
         assert_eq!(ty, "markdown");
+        let stored_hash: String = row.get(1).unwrap();
+        assert_eq!(stored_hash, r1.content_hash);
 
         // Second create must not clobber the first — it suffixes.
         let r2 = create_file(
@@ -1142,6 +1156,7 @@ mod tests {
         .await
         .expect("create at path");
         assert_eq!(r.path, "notes/Missing.md");
+        assert_eq!(r.content_hash, sha256_bytes_hex(b""));
         assert!(dir.path().join("notes/Missing.md").exists());
 
         let mut rows = vault

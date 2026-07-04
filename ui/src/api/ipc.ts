@@ -78,6 +78,8 @@ export interface CreateFileRequest {
 
 export interface CreateFileResponse {
   path: string;
+  /** SHA-256 of the file's initial (empty) content. */
+  content_hash: string;
 }
 
 export interface CreateFileAtPathRequest {
@@ -88,6 +90,8 @@ export interface CreateFileAtPathRequest {
 
 export interface CreateFileAtPathResponse {
   path: string;
+  /** SHA-256 of the file's initial (empty) content. */
+  content_hash: string;
 }
 
 export interface CreateFolderRequest {

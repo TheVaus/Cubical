@@ -122,6 +122,10 @@ pub struct CreateFileRequest {
 pub struct CreateFileResponse {
     /// Vault-relative path of the newly created file.
     pub path: String,
+    /// SHA-256 of the file's initial (empty) content, so the caller can
+    /// seed `last_written_hash` before the watcher's `Created` echo for
+    /// this path lands — otherwise that echo reads as an external edit.
+    pub content_hash: String,
 }
 
 /// Request payload for `create_file_at_path`.
@@ -139,6 +143,9 @@ pub struct CreateFileAtPathRequest {
 pub struct CreateFileAtPathResponse {
     /// Vault-relative path of the newly created file (normalized).
     pub path: String,
+    /// SHA-256 of the file's initial (empty) content — see
+    /// [`CreateFileResponse::content_hash`].
+    pub content_hash: String,
 }
 
 /// Request payload for `create_folder`.
