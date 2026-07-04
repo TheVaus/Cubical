@@ -283,6 +283,127 @@ async fn read_bool_setting(state: &AppState, vault_id: &str, key: &str, default:
         .unwrap_or(default)
 }
 
+/// Phase A of a rename: collect a file's referrers (files whose wiki-links
+/// resolve to it, plus — when `rewrite_broken` — files whose broken links
+/// name it by basename or path form) without writing anything. Read-only,
+/// so it's safe to call for every file in a batch before any of them are
+/// rewritten — every call sees the same pre-rename snapshot.
+///
+/// Mirrors `rename_file`'s original pre-transaction referrer resolution
+/// exactly, so a single-file call produces referrer data byte-identical
+/// to what `rename_file` computed before this extraction.
+async fn collect_referrers(
+    conn: &libsql::Connection,
+    from_path: &str,
+    rewrite_broken: bool,
+) -> Result<Vec<(String, String)>, CubicalError> {
+    let mut referrers: Vec<(String, String)> = {
+        let mut rows = conn
+            .query(
+                "SELECT DISTINCT source_path, target_raw FROM links WHERE target_path = ?1",
+                params![from_path.to_string()],
+            )
+            .await?;
+        let mut out: Vec<(String, String)> = Vec::new();
+        while let Some(row) = rows.next().await? {
+            out.push((row.get(0)?, row.get(1)?));
+        }
+        out
+    };
+    if rewrite_broken {
+        let (old_basename, old_path_no_md) = link_name_forms(from_path);
+        referrers
+            .extend(select_broken_referrers_naming(conn, &old_basename, &old_path_no_md).await?);
+    }
+    Ok(referrers)
+}
+
+/// Phase B of a rename: explicit FK rekey + `files.path` update for one
+/// file, inside the caller's transaction. No FK on these tables has `ON
+/// UPDATE CASCADE`, so children must be rekeyed before the parent
+/// `files.path` update (the transaction must already have
+/// `PRAGMA defer_foreign_keys = 1` set, so the intermediate
+/// children-point-at-new-path-while-files.path-still-old state doesn't
+/// trip `ON UPDATE NO ACTION`).
+///
+/// Mirrors `rename_file`'s original in-transaction rekey block exactly.
+async fn rekey_file_in_tx(
+    tx: &libsql::Transaction,
+    from_path: &str,
+    to_path: &str,
+    rewrite_broken: bool,
+) -> Result<(), CubicalError> {
+    for (table, column) in [
+        ("links", "source_path"),
+        ("tags", "file_path"),
+        ("blocks", "file_path"),
+        ("block_refs", "source_file_path"),
+        ("frontmatter", "file_path"),
+    ] {
+        let sql = format!("UPDATE {table} SET {column} = ?1 WHERE {column} = ?2");
+        tx.execute(&sql, params![to_path.to_string(), from_path.to_string()])
+            .await?;
+    }
+    tx.execute(
+        "UPDATE block_refs SET target_file_path = ?1 WHERE target_file_path = ?2",
+        params![to_path.to_string(), from_path.to_string()],
+    )
+    .await?;
+    tx.execute(
+        "UPDATE links SET target_path = ?1 WHERE target_path = ?2",
+        params![to_path.to_string(), from_path.to_string()],
+    )
+    .await?;
+    if rewrite_broken {
+        let (old_basename, old_path_no_md) = link_name_forms(from_path);
+        reconnect_broken_links_to(tx, to_path, &old_basename, &old_path_no_md).await?;
+    }
+    tx.execute(
+        "UPDATE files SET path = ?1 WHERE path = ?2",
+        params![to_path.to_string(), from_path.to_string()],
+    )
+    .await?;
+    Ok(())
+}
+
+/// Phase C of a rename: enqueue one pending rewrite per referrer, inside
+/// the caller's transaction. Returns the (possibly-remapped) target_file
+/// of each row touched, for the caller's 50-per-file fuse check.
+///
+/// `referrers` is used exactly as given — the caller is responsible for
+/// resolving any referrer that is itself being renamed in the same
+/// operation to its final path before calling this (see `rename_folder`
+/// in Task 2). For `rename_file`'s single-file call, `referrers` is
+/// passed through unresolved, matching its original behavior exactly
+/// (including the pre-existing edge case where a file linking to itself
+/// enqueues against its own old path — not something this refactor
+/// changes).
+async fn enqueue_referrers_in_tx(
+    tx: &libsql::Transaction,
+    from_path: &str,
+    to_path: &str,
+    referrers: &[(String, String)],
+    now: i64,
+    rename_op_id: i64,
+) -> Result<Vec<String>, CubicalError> {
+    let mut touched = Vec::with_capacity(referrers.len());
+    for (source_path, target_raw) in referrers {
+        let new_token = derive_wikilink_new_token(target_raw, from_path, to_path);
+        enqueue_coalesced(
+            tx,
+            source_path,
+            "wiki_link",
+            target_raw,
+            &new_token,
+            now,
+            rename_op_id,
+        )
+        .await?;
+        touched.push(source_path.clone());
+    }
+    Ok(touched)
+}
+
 // -- Rename IPC handlers -------------------------------------------------
 
 /// `rename_file` (L3 Session J, spec §2.10).
@@ -310,12 +431,6 @@ pub async fn rename_file(
         clone_vault_with_flush_state(state, &req.vault_id).await?;
     let conn = vault.index().connection();
 
-    // Disk-side pre-checks. The file move happens AFTER the transaction
-    // commits; a stale `from_path` in the index that's already gone
-    // from disk is itself a recoverable inconsistency, so we don't
-    // gate on disk existence here. We DO gate on the destination not
-    // already existing — clobbering would silently lose the user's
-    // existing file.
     let from_abs = vault.root().join(&req.from_path);
     let to_abs = vault.root().join(&req.to_path);
     if to_abs.exists() {
@@ -324,117 +439,29 @@ pub async fn rename_file(
             req.to_path
         )));
     }
-    // Reject if from_path isn't tracked.
-    let tracked: bool = {
-        let mut rows = conn
-            .query(
-                "SELECT 1 FROM files WHERE path = ?1",
-                params![req.from_path.clone()],
-            )
-            .await?;
-        rows.next().await?.is_some()
-    };
-    if !tracked {
+    if !path_tracked(conn, &req.from_path).await? {
         return Err(CubicalError::FileNotFound(req.from_path.clone()));
     }
 
-    // Resolve referrers BEFORE the transaction so the SELECT and the
-    // INSERTs share a single round-trip view.
-    let mut referrers: Vec<(String, String)> = {
-        let mut rows = conn
-            .query(
-                "SELECT DISTINCT source_path, target_raw FROM links WHERE target_path = ?1",
-                params![req.from_path.clone()],
-            )
-            .await?;
-        let mut out: Vec<(String, String)> = Vec::new();
-        while let Some(row) = rows.next().await? {
-            out.push((row.get(0)?, row.get(1)?));
-        }
-        out
-    };
-
-    // Repair path (`wikilinks.rewrite_broken_links_on_rename`, default on):
-    // also pick up links that are already BROKEN (`target_path IS NULL`)
-    // but whose raw text names the file being renamed — orphans left by an
-    // earlier rename the index couldn't follow. Matched by the old file's
-    // bare basename or its path-minus-`.md` (the two forms a wiki-link
-    // could have been written in). They get reconnected + queued for a text
-    // rewrite alongside the resolved referrers below.
-    let (old_basename, old_path_no_md) = link_name_forms(&req.from_path);
     let rewrite_broken =
         read_bool_setting(state, &req.vault_id, WIKILINKS_REWRITE_BROKEN_KEY, true).await;
-    if rewrite_broken {
-        referrers
-            .extend(select_broken_referrers_naming(conn, &old_basename, &old_path_no_md).await?);
-    }
+    let referrers = collect_referrers(conn, &req.from_path, rewrite_broken).await?;
 
     let rename_op_id = mint_rename_op_id(&vault).await?;
     let now = unix_now_secs();
 
     let tx = conn.transaction().await?;
-    // Defer FK checks to COMMIT time so the intermediate states during
-    // explicit rekeys (children pointing at the new path while
-    // `files.path` still holds the old one — and vice versa) don't
-    // trip SQLite's default ON UPDATE NO ACTION. The setting is
-    // transaction-scoped and resets on COMMIT.
     tx.execute("PRAGMA defer_foreign_keys = 1", ()).await?;
-    for (source_path, target_raw) in &referrers {
-        let new_token = derive_wikilink_new_token(target_raw, &req.from_path, &req.to_path);
-        enqueue_coalesced(
-            &tx,
-            source_path,
-            "wiki_link",
-            target_raw,
-            &new_token,
-            now,
-            rename_op_id,
-        )
-        .await?;
-    }
-
-    // Explicit FK rekey — no FK on these tables has ON UPDATE CASCADE,
-    // and SQLite's default ON UPDATE NO ACTION would block the
-    // `UPDATE files SET path = ?to` if any child row pointed at the
-    // old path. Update children first.
-    for (table, column) in [
-        ("links", "source_path"),
-        ("tags", "file_path"),
-        ("blocks", "file_path"),
-        ("block_refs", "source_file_path"),
-        ("frontmatter", "file_path"),
-    ] {
-        let sql = format!("UPDATE {table} SET {column} = ?1 WHERE {column} = ?2");
-        tx.execute(&sql, params![req.to_path.clone(), req.from_path.clone()])
-            .await?;
-    }
-    // `block_refs.target_file_path` is path-keyed too — keep stale refs
-    // pointing at the new path so referrer files don't suddenly become
-    // broken.
-    tx.execute(
-        "UPDATE block_refs SET target_file_path = ?1 WHERE target_file_path = ?2",
-        params![req.to_path.clone(), req.from_path.clone()],
+    let fuse_targets = enqueue_referrers_in_tx(
+        &tx,
+        &req.from_path,
+        &req.to_path,
+        &referrers,
+        now,
+        rename_op_id,
     )
     .await?;
-    // And `links.target_path` so backlinks-for-the-new-path return
-    // these rows immediately (pre-flush).
-    tx.execute(
-        "UPDATE links SET target_path = ?1 WHERE target_path = ?2",
-        params![req.to_path.clone(), req.from_path.clone()],
-    )
-    .await?;
-    // Reconnect the broken links picked up above: point their NULL
-    // target_path at the new file so they resolve again (their text gets
-    // fixed by the queued rewrite). Same gate as the enqueue.
-    if rewrite_broken {
-        reconnect_broken_links_to(&tx, &req.to_path, &old_basename, &old_path_no_md).await?;
-    }
-
-    tx.execute(
-        "UPDATE files SET path = ?1 WHERE path = ?2",
-        params![req.to_path.clone(), req.from_path.clone()],
-    )
-    .await?;
+    rekey_file_in_tx(&tx, &req.from_path, &req.to_path, rewrite_broken).await?;
     tx.commit().await?;
 
     // Move the file on disk. `fs::rename` is the same-FS fast path; the
@@ -447,9 +474,6 @@ pub async fn rename_file(
         std::fs::create_dir_all(parent).map_err(|e| CubicalError::Io(e.to_string()))?;
     }
     if let Err(e) = std::fs::rename(&from_abs, &to_abs) {
-        // EXDEV = 18 on Linux + macOS; rename across filesystems is not
-        // supported and needs a copy-then-remove fallback. Other errors
-        // (missing source, permissions, dest path malformed) propagate.
         if e.raw_os_error() == Some(18) {
             let bytes = std::fs::read(&from_abs).map_err(|e| CubicalError::Io(e.to_string()))?;
             atomic_write(&to_abs, &bytes).map_err(|e| CubicalError::Io(e.to_string()))?;
@@ -460,12 +484,7 @@ pub async fn rename_file(
     }
 
     // Durably journal the rename so an index wipe before flush can't
-    // strand referrer links (design 2026-06-27). The file move is on
-    // disk now but the `Old → New` mapping otherwise lives only in the
-    // disposable `pending_rewrites` table. Best-effort: a journal write
-    // failure must not fail the rename — the in-index pending rows still
-    // cover the common (no-wipe) path. Pruned on `replay_rename_journal`
-    // once the referrer text is fully rewritten.
+    // strand referrer links (design 2026-06-27).
     if let Err(e) = cubical_core::vault::rename_journal::append_entry(
         vault.root(),
         &cubical_core::vault::rename_journal::RenameJournalEntry {
@@ -480,12 +499,6 @@ pub async fn rename_file(
     }
 
     // Re-extract the moved file's outbound rows under the new path.
-    // The earlier `UPDATE links / tags / blocks / frontmatter` rekeyed
-    // existing rows, but the source MAY contain self-references whose
-    // resolution needs to be re-derived now that the file lives at
-    // `to_path` (e.g. wiki-links to the now-renamed file by basename
-    // resolve differently). Best-effort: a refresh failure here is
-    // surfaced as Db but the rename is already committed.
     let on_disk = tokio::task::spawn_blocking({
         let to_abs = to_abs.clone();
         move || std::fs::read_to_string(&to_abs)
@@ -499,12 +512,9 @@ pub async fn rename_file(
     let _ = refresh_blocks(&vault, &req.to_path, &on_disk).await;
     let _ = refresh_block_refs_for_file(&vault, &req.to_path).await;
 
-    // L4-B: the Tantivy search index is a separate store and the rename
-    // command is its own mutation path — keep it in sync here rather than
+    // L4-B: keep the Tantivy search index in sync here rather than
     // relying on the watcher (which lags / may coalesce app-initiated
-    // renames, leaving the old path's doc searchable). Drop the old
-    // path's doc, index the new path, commit. Idempotent vs. any later
-    // watcher event.
+    // renames, leaving the old path's doc searchable).
     let _ = delete_search_index(&vault, &req.from_path).await;
     let (mtime_secs, size_bytes) = std::fs::metadata(&to_abs)
         .map(|m| {
@@ -520,9 +530,7 @@ pub async fn rename_file(
     let _ = refresh_search_index(&vault, &req.to_path, &on_disk, mtime_secs, size_bytes).await;
     let _ = vault.search().commit();
 
-    // >50-per-file fuse — spec §5.7. Per-referrer-file synchronous
-    // flush when the post-enqueue count for that file exceeds 50.
-    let fuse_targets: Vec<String> = referrers.iter().map(|(s, _)| s.clone()).collect();
+    // >50-per-file fuse — spec §5.7.
     enforce_fifty_per_file_fuse(&vault, &flush_own_writes, &fuse_targets).await?;
 
     let pending_count = pending_count_total(vault.index()).await?;
