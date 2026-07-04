@@ -42,8 +42,8 @@ use crate::api::types::{
     GetPendingRewritesBreakdownResponse, GetPendingRewritesCountRequest,
     GetPendingRewritesCountResponse, ListRecentRenameOpsRequest, ListRecentRenameOpsResponse,
     PendingRewriteBreakdownRow, RecentRenameOp, RenameBlockIdRequest, RenameBlockIdResponse,
-    RenameFileRequest, RenameFileResponse, RenameTagRequest, RenameTagResponse, UndoRenameRequest,
-    UndoRenameResponse,
+    RenameFileRequest, RenameFileResponse, RenameFolderRequest, RenameFolderResponse,
+    RenameTagRequest, RenameTagResponse, UndoRenameRequest, UndoRenameResponse,
 };
 use crate::error::CubicalError;
 use crate::events::{
@@ -543,6 +543,229 @@ pub async fn rename_file(
     );
 
     Ok(RenameFileResponse {
+        rename_op_id,
+        pending_count,
+    })
+}
+
+/// One file's rename plan within a `rename_folder` batch: its old path,
+/// its new path, and its pre-rename-snapshot referrers (`(source_path,
+/// target_raw)` pairs) collected in Phase A.
+type FolderRenamePlan = (String, String, Vec<(String, String)>);
+
+/// `rename_folder` — rename a folder in place, moving every file and
+/// subfolder nested under it. Reuses `rename_file`'s per-file primitives
+/// (Task 1) across the whole subtree, inside one transaction, then moves
+/// the directory on disk as a single atomic operation. One shared
+/// `rename_op_id` covers every file moved.
+///
+/// Cross-filesystem moves (EXDEV) are not supported — same class of risk
+/// `rename_file` already accepts for a single file, but a recursive
+/// copy-then-remove fallback for a whole subtree is out of scope.
+pub async fn rename_folder(
+    state: &AppState,
+    app: &dyn EventSink,
+    req: RenameFolderRequest,
+) -> Result<RenameFolderResponse, CubicalError> {
+    if req.from_path == req.to_path {
+        return Err(CubicalError::InvalidRequest("from_path == to_path".into()));
+    }
+    let (vault, flush_own_writes, _flush_in_progress) =
+        clone_vault_with_flush_state(state, &req.vault_id).await?;
+    let conn = vault.index().connection();
+
+    let from_abs = vault.root().join(&req.from_path);
+    let to_abs = vault.root().join(&req.to_path);
+    if to_abs.exists() {
+        return Err(CubicalError::InvalidRequest(format!(
+            "destination path already exists: {}",
+            req.to_path
+        )));
+    }
+    let tracked: bool = {
+        let mut rows = conn
+            .query(
+                "SELECT 1 FROM folders WHERE path = ?1",
+                params![req.from_path.clone()],
+            )
+            .await?;
+        rows.next().await?.is_some()
+    };
+    if !tracked {
+        return Err(CubicalError::InvalidRequest(format!(
+            "folder not tracked: {}",
+            req.from_path
+        )));
+    }
+
+    let prefix = format!("{}/", req.from_path);
+    let file_paths: Vec<String> = {
+        let mut rows = conn
+            .query(
+                "SELECT path FROM files WHERE path = ?1 OR path LIKE ?2",
+                params![req.from_path.clone(), format!("{prefix}%")],
+            )
+            .await?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next().await? {
+            out.push(row.get::<String>(0)?);
+        }
+        out
+    };
+    let folder_paths: Vec<String> = {
+        let mut rows = conn
+            .query(
+                "SELECT path FROM folders WHERE path = ?1 OR path LIKE ?2",
+                params![req.from_path.clone(), format!("{prefix}%")],
+            )
+            .await?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next().await? {
+            out.push(row.get::<String>(0)?);
+        }
+        out
+    };
+
+    let rewrite_broken =
+        read_bool_setting(state, &req.vault_id, WIKILINKS_REWRITE_BROKEN_KEY, true).await;
+
+    let new_path_for = |old: &str| -> String {
+        if old == req.from_path {
+            req.to_path.clone()
+        } else {
+            format!("{}{}", req.to_path, &old[req.from_path.len()..])
+        }
+    };
+    let path_map: std::collections::HashMap<String, String> = file_paths
+        .iter()
+        .map(|p| (p.clone(), new_path_for(p)))
+        .collect();
+
+    // Phase A: collect every file's referrers BEFORE anything is
+    // rewritten, so every lookup sees a consistent pre-rename snapshot —
+    // otherwise a file processed later in the loop below could look up
+    // referrers using a target_path an earlier file already rewrote.
+    let mut plans: Vec<FolderRenamePlan> = Vec::with_capacity(file_paths.len());
+    for from in &file_paths {
+        let referrers = collect_referrers(conn, from, rewrite_broken).await?;
+        plans.push((from.clone(), path_map[from].clone(), referrers));
+    }
+
+    let rename_op_id = mint_rename_op_id(&vault).await?;
+    let now = unix_now_secs();
+
+    let tx = conn.transaction().await?;
+    tx.execute("PRAGMA defer_foreign_keys = 1", ()).await?;
+
+    // Phase B: rekey every file. Order-independent — each UPDATE is
+    // keyed by that file's own exact old path, so no file's rekey can
+    // step on another's.
+    for (from, to, _) in &plans {
+        rekey_file_in_tx(&tx, from, to, rewrite_broken).await?;
+    }
+    for old_folder in &folder_paths {
+        let new_folder = new_path_for(old_folder);
+        tx.execute(
+            "UPDATE folders SET path = ?1 WHERE path = ?2",
+            params![new_folder, old_folder.clone()],
+        )
+        .await?;
+    }
+
+    // Phase C: enqueue referrer rewrites, resolving any referrer that is
+    // itself one of the renamed files to ITS final new path — otherwise
+    // two notes in the same folder that link to each other would enqueue
+    // a rewrite targeting a path that's about to disappear.
+    let mut fuse_targets: Vec<String> = Vec::new();
+    for (from, to, referrers) in &plans {
+        let resolved: Vec<(String, String)> = referrers
+            .iter()
+            .map(|(source, raw)| {
+                let resolved_source = path_map
+                    .get(source)
+                    .cloned()
+                    .unwrap_or_else(|| source.clone());
+                (resolved_source, raw.clone())
+            })
+            .collect();
+        let touched = enqueue_referrers_in_tx(&tx, from, to, &resolved, now, rename_op_id).await?;
+        fuse_targets.extend(touched);
+    }
+
+    tx.commit().await?;
+
+    // Move the whole directory on disk in one atomic operation.
+    if let Some(parent) = to_abs.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| CubicalError::Io(e.to_string()))?;
+    }
+    if let Err(e) = std::fs::rename(&from_abs, &to_abs) {
+        if e.raw_os_error() == Some(18) {
+            return Err(CubicalError::Io(
+                "cross-filesystem folder rename is not supported".into(),
+            ));
+        }
+        return Err(CubicalError::Io(e.to_string()));
+    }
+
+    // Per-file: journal, re-extract outbound rows, sync search index.
+    for (from, to, _) in &plans {
+        if let Err(e) = cubical_core::vault::rename_journal::append_entry(
+            vault.root(),
+            &cubical_core::vault::rename_journal::RenameJournalEntry {
+                op_id: rename_op_id,
+                kind: "file".into(),
+                from: from.clone(),
+                to: to.clone(),
+                at: now,
+            },
+        ) {
+            tracing::warn!(error = %e, "rename_folder: failed to write durability journal");
+        }
+
+        let to_abs_file = vault.root().join(to);
+        let on_disk = match tokio::task::spawn_blocking({
+            let p = to_abs_file.clone();
+            move || std::fs::read_to_string(&p)
+        })
+        .await
+        {
+            Ok(Ok(content)) => content,
+            _ => continue,
+        };
+        let _ = refresh_frontmatter(&vault, to, &on_disk).await;
+        let _ = refresh_links(&vault, to, &on_disk).await;
+        let _ = refresh_tags(&vault, to, &on_disk).await;
+        let _ = refresh_blocks(&vault, to, &on_disk).await;
+        let _ = refresh_block_refs_for_file(&vault, to).await;
+
+        let _ = delete_search_index(&vault, from).await;
+        let (mtime_secs, size_bytes) = std::fs::metadata(&to_abs_file)
+            .map(|m| {
+                let mtime = m
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
+                    .unwrap_or(0);
+                (mtime, m.len())
+            })
+            .unwrap_or((0, on_disk.len() as u64));
+        let _ = refresh_search_index(&vault, to, &on_disk, mtime_secs, size_bytes).await;
+    }
+    let _ = vault.search().commit();
+
+    enforce_fifty_per_file_fuse(&vault, &flush_own_writes, &fuse_targets).await?;
+
+    let pending_count = pending_count_total(vault.index()).await?;
+    emit_pending_rewrites_changed(
+        app,
+        VaultPendingRewritesChanged {
+            vault_id: req.vault_id.clone(),
+            count: pending_count,
+        },
+    );
+
+    Ok(RenameFolderResponse {
         rename_op_id,
         pending_count,
     })
@@ -2341,6 +2564,178 @@ mod tests {
         let rows = backlinks_for(vault.index(), "Journal.md").await.unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].source_path, "Project.md");
+    }
+
+    // -- rename_folder --------------------------------------------------------
+
+    async fn seed_folder(vault: &Vault, rel: &str) {
+        cubical_index::upsert_folder(vault.index(), rel, 0)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn rename_folder_moves_nested_files_and_subfolder() {
+        let (dir, vault, state) = fresh("v1").await;
+        seed_folder(&vault, "projects").await;
+        seed_folder(&vault, "projects/deep").await;
+        seed_file(&vault, "projects/a.md", "markdown").await;
+        seed_file(&vault, "projects/deep/b.md", "markdown").await;
+        std::fs::create_dir_all(dir.path().join("projects/deep")).unwrap();
+        std::fs::write(dir.path().join("projects/a.md"), "a body\n").unwrap();
+        std::fs::write(dir.path().join("projects/deep/b.md"), "b body\n").unwrap();
+
+        rename_folder(
+            &state,
+            &NoopEventSink,
+            RenameFolderRequest {
+                vault_id: "v1".into(),
+                from_path: "projects".into(),
+                to_path: "work".into(),
+            },
+        )
+        .await
+        .expect("rename folder");
+
+        assert!(!dir.path().join("projects").exists());
+        assert!(dir.path().join("work/a.md").exists());
+        assert!(dir.path().join("work/deep/b.md").exists());
+
+        let folders = cubical_index::list_folders(vault.index()).await.unwrap();
+        assert!(folders.contains(&"work".to_string()));
+        assert!(folders.contains(&"work/deep".to_string()));
+        assert!(!folders.contains(&"projects".to_string()));
+        assert!(!folders.contains(&"projects/deep".to_string()));
+
+        let mut rows = vault
+            .index()
+            .connection()
+            .query("SELECT path FROM files ORDER BY path", ())
+            .await
+            .unwrap();
+        let mut paths = Vec::new();
+        while let Some(row) = rows.next().await.unwrap() {
+            paths.push(row.get::<String>(0).unwrap());
+        }
+        assert_eq!(
+            paths,
+            vec!["work/a.md".to_string(), "work/deep/b.md".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn rename_folder_resolves_intra_folder_referrer_to_its_new_path() {
+        // a.md links to b.md in PATH form ([[projects/b]], not the bare
+        // basename [[b]] — a same-basename link needs no text rewrite at
+        // all when only the containing folder moves, so it wouldn't
+        // exercise this path). After the rename, the pending rewrite
+        // queued against a's link must target a's NEW path ("work/a.md"),
+        // not "projects/a.md" — which is about to disappear — and its
+        // new_token must reflect b's new full path.
+        let (dir, vault, state) = fresh("v1").await;
+        seed_folder(&vault, "projects").await;
+        seed_file(&vault, "projects/a.md", "markdown").await;
+        seed_file(&vault, "projects/b.md", "markdown").await;
+        replace_links_for_file(
+            vault.index(),
+            "projects/a.md",
+            &[LinkRow {
+                target_raw: "projects/b".into(),
+                target_path: Some("projects/b.md".into()),
+                anchor_kind: None,
+                anchor_value: None,
+                display_text: None,
+                is_embed: false,
+                position: 0,
+            }],
+        )
+        .await
+        .unwrap();
+        std::fs::create_dir_all(dir.path().join("projects")).unwrap();
+        std::fs::write(dir.path().join("projects/a.md"), "see [[projects/b]]\n").unwrap();
+        std::fs::write(dir.path().join("projects/b.md"), "body\n").unwrap();
+
+        rename_folder(
+            &state,
+            &NoopEventSink,
+            RenameFolderRequest {
+                vault_id: "v1".into(),
+                from_path: "projects".into(),
+                to_path: "work".into(),
+            },
+        )
+        .await
+        .expect("rename folder");
+
+        let rows = pending_for_target(vault.index(), "work/a.md")
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1, "the rewrite must target a's NEW path");
+        assert_eq!(rows[0].old_token, "projects/b");
+        assert_eq!(rows[0].new_token, "work/b");
+
+        // And NOT queued against the old, about-to-vanish path.
+        let stale = pending_for_target(vault.index(), "projects/a.md")
+            .await
+            .unwrap();
+        assert!(stale.is_empty());
+    }
+
+    #[tokio::test]
+    async fn rename_folder_rejects_destination_collision() {
+        let (dir, vault, state) = fresh("v1").await;
+        seed_folder(&vault, "projects").await;
+        std::fs::create_dir_all(dir.path().join("projects")).unwrap();
+        std::fs::create_dir_all(dir.path().join("taken")).unwrap();
+
+        let err = rename_folder(
+            &state,
+            &NoopEventSink,
+            RenameFolderRequest {
+                vault_id: "v1".into(),
+                from_path: "projects".into(),
+                to_path: "taken".into(),
+            },
+        )
+        .await
+        .expect_err("must reject an existing destination");
+        assert!(matches!(err, CubicalError::InvalidRequest(_)));
+    }
+
+    #[tokio::test]
+    async fn rename_folder_rejects_untracked_folder() {
+        let (_dir, _vault, state) = fresh("v1").await;
+        let err = rename_folder(
+            &state,
+            &NoopEventSink,
+            RenameFolderRequest {
+                vault_id: "v1".into(),
+                from_path: "ghost".into(),
+                to_path: "renamed".into(),
+            },
+        )
+        .await
+        .expect_err("must reject an untracked folder");
+        assert!(matches!(err, CubicalError::InvalidRequest(_)));
+    }
+
+    #[tokio::test]
+    async fn rename_folder_rejects_same_path() {
+        let (dir, vault, state) = fresh("v1").await;
+        seed_folder(&vault, "projects").await;
+        std::fs::create_dir_all(dir.path().join("projects")).unwrap();
+        let err = rename_folder(
+            &state,
+            &NoopEventSink,
+            RenameFolderRequest {
+                vault_id: "v1".into(),
+                from_path: "projects".into(),
+                to_path: "projects".into(),
+            },
+        )
+        .await
+        .expect_err("must reject from == to");
+        assert!(matches!(err, CubicalError::InvalidRequest(_)));
     }
 
     // -- rename_tag ---------------------------------------------------------

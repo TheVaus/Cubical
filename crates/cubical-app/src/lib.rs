@@ -37,11 +37,12 @@ use cubical_engine::api::types::{
     ListRecentRenameOpsResponse, ListTagsRequest, ListTagsResponse, OpenVaultRequest,
     OpenVaultResponse, QueryTagPageRequest, QueryTagPageResponse, ReadFileTextRequest,
     ReadFileTextResponse, ReloadSettingsRequest, ReloadSettingsResponse, RenameBlockIdRequest,
-    RenameBlockIdResponse, RenameFileRequest, RenameFileResponse, RenameTagRequest,
-    RenameTagResponse, ResolveLinkRequest, ResolveLinkResponse, SearchHealthDto,
-    SearchIndexStatusDto, SearchRequest, SearchResponse, SearchVaultRequest, SetSettingRequest,
-    SetSettingResponse, TagAutocompleteRequest, TagAutocompleteResponse, UndoRenameRequest,
-    UndoRenameResponse, WriteFileTextRequest, WriteFileTextResponse,
+    RenameBlockIdResponse, RenameFileRequest, RenameFileResponse, RenameFolderRequest,
+    RenameFolderResponse, RenameTagRequest, RenameTagResponse, ResolveLinkRequest,
+    ResolveLinkResponse, SearchHealthDto, SearchIndexStatusDto, SearchRequest, SearchResponse,
+    SearchVaultRequest, SetSettingRequest, SetSettingResponse, TagAutocompleteRequest,
+    TagAutocompleteResponse, UndoRenameRequest, UndoRenameResponse, WriteFileTextRequest,
+    WriteFileTextResponse,
 };
 use cubical_engine::commands;
 use cubical_engine::error::CubicalError;
@@ -101,6 +102,7 @@ pub fn run() {
             create_block_ref,
             get_broken_block_refs,
             rename_file,
+            rename_folder,
             rename_tag,
             rename_block_id,
             flush_pending_rewrites,
@@ -384,6 +386,21 @@ async fn rename_file(
     req: RenameFileRequest,
 ) -> Result<RenameFileResponse, CubicalError> {
     commands::rename::rename_file(
+        state.inner(),
+        &crate::tauri_sink::TauriEventSink::new(app),
+        req,
+    )
+    .await
+}
+
+/// Tauri shim — see [`commands::rename::rename_folder`].
+#[tauri::command]
+async fn rename_folder(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    req: RenameFolderRequest,
+) -> Result<RenameFolderResponse, CubicalError> {
+    commands::rename::rename_folder(
         state.inner(),
         &crate::tauri_sink::TauriEventSink::new(app),
         req,

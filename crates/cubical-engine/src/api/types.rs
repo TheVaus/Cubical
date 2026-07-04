@@ -738,6 +738,26 @@ pub struct RenameFileResponse {
     pub pending_count: i64,
 }
 
+/// Request payload for `rename_folder`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RenameFolderRequest {
+    /// Vault hosting the folder being renamed.
+    pub vault_id: String,
+    /// Current vault-relative folder path (must be tracked in `folders`).
+    pub from_path: String,
+    /// Target vault-relative folder path (must not already exist).
+    pub to_path: String,
+}
+
+/// Response payload for `rename_folder`.
+#[derive(Debug, Clone, Serialize)]
+pub struct RenameFolderResponse {
+    /// The rename_op_id shared by every file moved in this operation.
+    pub rename_op_id: i64,
+    /// New total pending-rewrites count for the vault, post-enqueue.
+    pub pending_count: i64,
+}
+
 /// Request payload for `rename_tag`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct RenameTagRequest {
