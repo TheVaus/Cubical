@@ -180,6 +180,32 @@ export function findConflict(
   return undefined;
 }
 
+/** Build a key spec string (CodeMirror notation) from a captured chord. */
+export function specFromChord(chord: KeyChord): string {
+  const mods: string[] = [];
+  if (chord.mod) mods.push("Mod");
+  if (chord.shift) mods.push("Shift");
+  if (chord.alt) mods.push("Alt");
+  return [...mods, chord.key].join("-");
+}
+
+/**
+ * Render a key spec as the ordered `<kbd>` labels the Settings UI
+ * displays (e.g. `"Mod-Shift-b"` → `["⌘/Ctrl", "⇧", "B"]`). `parseKeySpec`
+ * always lower-cases the key; this uppercases single-character keys for
+ * display since that's how the previous hand-written Settings JSX showed
+ * them.
+ */
+export function formatChordForDisplay(spec: string): string[] {
+  const chord = parseKeySpec(spec);
+  const labels: string[] = [];
+  if (chord.mod) labels.push("⌘/Ctrl");
+  if (chord.shift) labels.push("⇧");
+  if (chord.alt) labels.push("⌥/Alt");
+  labels.push(chord.key.length === 1 ? chord.key.toUpperCase() : chord.key);
+  return labels;
+}
+
 /**
  * Resolve a keyboard event to the global command it should run, or
  * `undefined`. Honors `when?.()` guards and ignores non-`global` bindings.
