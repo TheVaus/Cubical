@@ -418,6 +418,35 @@ In `ui/src/Editor.tsx`, this block currently sits inside `onMount`, right before
 
 Delete it from inside `onMount`, and add the identical block at the top level of the `Editor` component instead — immediately before the `onMount(() => {` call (i.e. right after the `handleTagClickAtPos` function definition). Nothing in the block changes: it only references the outer `let view` and `props`, both already reachable from that scope, so moving it doesn't change behavior — it's now just reusable by a later `createEffect` as well as by `onMount`.
 
+Immediately after the hoisted `editorCommands` block (same top-level spot, still before `onMount`), add a helper that builds the keymap extension from a binding list — this is the one place the keymap's contents are assembled, so the initial construction and the later reconfigure effect both call it instead of duplicating the array:
+
+```ts
+  // Builds the CM6 keymap extension from the effective bindings. Called
+  // both at initial construction and whenever `editorBindings` changes,
+  // so the keymap's contents are defined in exactly one place.
+  const buildEditorKeymap = (bindings: KeyBinding[] | undefined) =>
+    keymap.of([
+      ...toCmBindings(bindings ?? DEFAULT_BINDINGS, editorCommands),
+      // Correct vertical cursor motion around tall block embeds. CM6's
+      // geometric Up/Down overshoots a multi-row embed card (one document
+      // line, many screen rows); these handlers detect the overshoot and
+      // step exactly one document line so the cursor can land on the
+      // embed line. No-op for normal lines (returns false → default
+      // motion runs). Must precede defaultKeymap so it wins for Arrow
+      // keys.
+      {
+        key: "ArrowUp",
+        run: (view) => verticalDocLineMotion(view, false),
+      },
+      {
+        key: "ArrowDown",
+        run: (view) => verticalDocLineMotion(view, true),
+      },
+      ...defaultKeymap,
+      ...historyKeymap,
+    ]);
+```
+
 - [ ] **Step 4: Route the initial keymap through the compartment**
 
 In `ui/src/Editor.tsx`, inside the `extensions: [...]` array built in `onMount`, replace:
@@ -448,28 +477,7 @@ In `ui/src/Editor.tsx`, inside the `extensions: [...]` array built in `onMount`,
 with:
 
 ```ts
-          keymapCompartment.of(
-            keymap.of([
-              ...toCmBindings(props.editorBindings ?? DEFAULT_BINDINGS, editorCommands),
-              // Correct vertical cursor motion around tall block embeds.
-              // CM6's geometric Up/Down overshoots a multi-row embed card
-              // (one document line, many screen rows); these handlers
-              // detect the overshoot and step exactly one document line so
-              // the cursor can land on the embed line. No-op for normal
-              // lines (returns false → default motion runs). Must precede
-              // defaultKeymap so it wins for Arrow keys.
-              {
-                key: "ArrowUp",
-                run: (view) => verticalDocLineMotion(view, false),
-              },
-              {
-                key: "ArrowDown",
-                run: (view) => verticalDocLineMotion(view, true),
-              },
-              ...defaultKeymap,
-              ...historyKeymap,
-            ]),
-          ),
+          keymapCompartment.of(buildEditorKeymap(props.editorBindings)),
 ```
 
 - [ ] **Step 5: Reconfigure the compartment when `editorBindings` changes**
@@ -478,28 +486,13 @@ In `ui/src/Editor.tsx`, after the existing autocomplete `createEffect` (the one 
 
 ```ts
   // Rebuild the CM6 keymap when the effective bindings change (the user
-  // remapped a shortcut in Settings). Reuses the same `editorCommands`
-  // map `onMount` built the initial keymap from.
+  // remapped a shortcut in Settings).
   createEffect(
     on(
       () => props.editorBindings,
       (bindings) => {
         view?.dispatch({
-          effects: keymapCompartment.reconfigure(
-            keymap.of([
-              ...toCmBindings(bindings ?? DEFAULT_BINDINGS, editorCommands),
-              {
-                key: "ArrowUp",
-                run: (view) => verticalDocLineMotion(view, false),
-              },
-              {
-                key: "ArrowDown",
-                run: (view) => verticalDocLineMotion(view, true),
-              },
-              ...defaultKeymap,
-              ...historyKeymap,
-            ]),
-          ),
+          effects: keymapCompartment.reconfigure(buildEditorKeymap(bindings)),
         });
       },
       { defer: true },
