@@ -151,6 +151,36 @@ export function chordMatches(spec: string, e: KeyEventLike): boolean {
 }
 
 /**
+ * Returns the command id already bound to `spec` within `scope` (ignoring
+ * `excludeCommandId`, so re-capturing a row's own current key never
+ * conflicts with itself), or `undefined` if `spec` is free. `global` and
+ * `editor` are independent key spaces — a match in the other scope is not
+ * a conflict.
+ */
+export function findConflict(
+  spec: string,
+  scope: CommandScope,
+  bindings: readonly KeyBinding[],
+  excludeCommandId: string,
+): string | undefined {
+  const chord = parseKeySpec(spec);
+  for (const b of bindings) {
+    if (b.scope !== scope) continue;
+    if (b.command === excludeCommandId) continue;
+    const other = parseKeySpec(b.key);
+    if (
+      other.mod === chord.mod &&
+      other.shift === chord.shift &&
+      other.alt === chord.alt &&
+      other.key === chord.key
+    ) {
+      return b.command;
+    }
+  }
+  return undefined;
+}
+
+/**
  * Resolve a keyboard event to the global command it should run, or
  * `undefined`. Honors `when?.()` guards and ignores non-`global` bindings.
  */
