@@ -28,14 +28,65 @@ export interface KeyBinding {
 }
 
 /**
+ * Metadata for every rebindable command: its default key, human-readable
+ * title (for the Settings → Shortcuts UI), and scope. `DEFAULT_BINDINGS`
+ * and the Settings panel are both derived from this one table, so adding
+ * a command later only means adding one entry here.
+ */
+export interface BindingDefault {
+  id: string;
+  title: string;
+  scope: CommandScope;
+  defaultKey: string;
+}
+
+export const COMMAND_DEFAULTS: readonly BindingDefault[] = [
+  {
+    id: "omnibar.toggle",
+    title: "Open Omni-Bar",
+    scope: "global",
+    defaultKey: "Mod-k",
+  },
+  {
+    id: "editor.toggleRawSource",
+    title: "Toggle raw source / Live Preview",
+    scope: "editor",
+    defaultKey: "Mod-e",
+  },
+  {
+    id: "editor.copyBlockRef",
+    title: "Copy block reference",
+    scope: "editor",
+    defaultKey: "Mod-Shift-b",
+  },
+];
+
+/**
  * The v1 binding table. Editor-scope entries are handed to CodeMirror;
  * global-scope entries are matched by the App-level keydown adapter.
  */
-export const DEFAULT_BINDINGS: readonly KeyBinding[] = [
-  { key: "Mod-k", command: "omnibar.toggle", scope: "global" },
-  { key: "Mod-e", command: "editor.toggleRawSource", scope: "editor" },
-  { key: "Mod-Shift-b", command: "editor.copyBlockRef", scope: "editor" },
-];
+export const DEFAULT_BINDINGS: readonly KeyBinding[] = COMMAND_DEFAULTS.map(
+  (c) => ({ key: c.defaultKey, command: c.id, scope: c.scope }),
+);
+
+/**
+ * Merge `overrides` (command id → key spec, from the `shortcuts.overrides`
+ * setting) with {@link COMMAND_DEFAULTS} into the effective binding table.
+ * A diff, not a snapshot: a command with no entry in `overrides` falls
+ * through to its default, so a future default-table change is picked up
+ * automatically. An override whose key no longer matches any
+ * `COMMAND_DEFAULTS` entry is silently ignored — this only ever iterates
+ * the default table, never the override object's own keys.
+ */
+export function resolveBindings(
+  overrides: Record<string, string>,
+): KeyBinding[] {
+  return COMMAND_DEFAULTS.map((c) => ({
+    key: overrides[c.id] ?? c.defaultKey,
+    command: c.id,
+    scope: c.scope,
+  }));
+}
 
 /** Returns `"scope:key"` for every (scope, key) claimed more than once. */
 export function findDuplicateBindings(

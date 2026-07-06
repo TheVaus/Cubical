@@ -1,11 +1,16 @@
 import { describe, it, expect } from "vitest";
 import {
   DEFAULT_BINDINGS,
+  COMMAND_DEFAULTS,
   findDuplicateBindings,
   parseKeySpec,
   chordMatches,
   resolveGlobal,
   toCmBindings,
+  resolveBindings,
+  findConflict,
+  specFromChord,
+  formatChordForDisplay,
   type Command,
 } from "./commands";
 
@@ -184,5 +189,93 @@ describe("toCmBindings", () => {
 
   it("omits bindings whose command is missing", () => {
     expect(toCmBindings(binds, {})).toEqual([]);
+  });
+});
+
+describe("resolveBindings", () => {
+  it("returns the default binding table when there are no overrides", () => {
+    expect(resolveBindings({})).toEqual(DEFAULT_BINDINGS);
+  });
+
+  it("overrides one command's key and leaves the rest at default", () => {
+    const out = resolveBindings({ "omnibar.toggle": "Mod-Shift-p" });
+    expect(out.find((b) => b.command === "omnibar.toggle")?.key).toBe(
+      "Mod-Shift-p",
+    );
+    expect(
+      out.find((b) => b.command === "editor.toggleRawSource")?.key,
+    ).toBe("Mod-e");
+  });
+
+  it("ignores an override for a command id that doesn't exist", () => {
+    expect(resolveBindings({ "no.such.command": "Mod-z" })).toEqual(
+      DEFAULT_BINDINGS,
+    );
+  });
+});
+
+describe("findConflict", () => {
+  const bindings = [
+    { key: "Mod-k", command: "omnibar.toggle", scope: "global" as const },
+    {
+      key: "Mod-e",
+      command: "editor.toggleRawSource",
+      scope: "editor" as const,
+    },
+  ];
+
+  it("returns the colliding command id within the same scope", () => {
+    expect(
+      findConflict("Mod-e", "editor", bindings, "editor.copyBlockRef"),
+    ).toBe("editor.toggleRawSource");
+  });
+
+  it("does not flag a match in a different scope", () => {
+    expect(
+      findConflict("Mod-k", "editor", bindings, "editor.toggleRawSource"),
+    ).toBeUndefined();
+  });
+
+  it("excludes the command being edited from its own conflict check", () => {
+    expect(
+      findConflict("Mod-e", "editor", bindings, "editor.toggleRawSource"),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined for a key nothing is bound to", () => {
+    expect(
+      findConflict("Mod-Shift-z", "editor", bindings, "editor.copyBlockRef"),
+    ).toBeUndefined();
+  });
+});
+
+describe("specFromChord", () => {
+  it("builds a Mod-only spec", () => {
+    expect(specFromChord({ mod: true, shift: false, alt: false, key: "k" })).toBe(
+      "Mod-k",
+    );
+  });
+  it("builds a Mod-Shift spec", () => {
+    expect(
+      specFromChord({ mod: true, shift: true, alt: false, key: "b" }),
+    ).toBe("Mod-Shift-b");
+  });
+  it("builds an Alt-only spec", () => {
+    expect(specFromChord({ mod: false, shift: false, alt: true, key: "j" })).toBe(
+      "Alt-j",
+    );
+  });
+});
+
+describe("formatChordForDisplay", () => {
+  it("renders a Mod-only chord", () => {
+    expect(formatChordForDisplay("Mod-k")).toEqual(["⌘/Ctrl", "K"]);
+  });
+  it("renders a Mod-Shift chord and uppercases the key", () => {
+    expect(formatChordForDisplay("Mod-Shift-b")).toEqual([
+      "⌘/Ctrl",
+      "⇧",
+      "B",
+    ]);
   });
 });
