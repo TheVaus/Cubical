@@ -132,9 +132,13 @@ The Shortcuts tab's read-only `kb-row` list becomes one editable row per
   unit tests: same-scope collision detected; cross-scope (global vs. editor)
   not flagged; re-capturing the same key already assigned to the row being
   edited doesn't false-positive as a conflict.
-- Settings UI component test: Change → keydown → row updates; bare Esc
-  cancels; a bare non-modifier key is rejected and capture stays open;
-  conflict shows inline error and stays in listening state; Reset removes the
-  override and reverts display to the default chord.
+- This repo has no component-rendering test setup (no `@solidjs/testing-library`,
+  no existing `*.test.tsx` files) — every other interactive component
+  (`Properties.tsx`, `PendingRewrites.tsx`, `SearchPanel.tsx`) is manual-smoke-tested
+  only, not unit-tested. The Shortcuts panel follows that precedent: typecheck +
+  a manual smoke pass (Change → keydown → row updates; bare Esc cancels; a bare
+  non-modifier key is rejected and capture stays open; conflict shows inline
+  error and stays in listening state; Reset removes the override and reverts
+  display to the default chord) rather than a new automated component test.
 - No Rust-side tests needed — this never touches the engine;
   `get_setting`/`set_setting` are already covered.
