@@ -36,6 +36,20 @@ const ev = (
   ...o,
 });
 
+describe("COMMAND_DEFAULTS", () => {
+  it("has a unique id for every command", () => {
+    const ids = COMMAND_DEFAULTS.map((c) => c.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("includes the three v1 commands with their expected default keys", () => {
+    const byId = new Map(COMMAND_DEFAULTS.map((c) => [c.id, c]));
+    expect(byId.get("omnibar.toggle")?.defaultKey).toBe("Mod-k");
+    expect(byId.get("editor.toggleRawSource")?.defaultKey).toBe("Mod-e");
+    expect(byId.get("editor.copyBlockRef")?.defaultKey).toBe("Mod-Shift-b");
+  });
+});
+
 describe("findDuplicateBindings", () => {
   it("returns [] when every (scope,key) is unique", () => {
     expect(
@@ -210,6 +224,13 @@ describe("resolveBindings", () => {
   it("ignores an override for a command id that doesn't exist", () => {
     expect(resolveBindings({ "no.such.command": "Mod-z" })).toEqual(
       DEFAULT_BINDINGS,
+    );
+  });
+
+  it("falls back to the default key when an override is an empty string", () => {
+    const out = resolveBindings({ "omnibar.toggle": "" });
+    expect(out.find((b) => b.command === "omnibar.toggle")?.key).toBe(
+      "Mod-k",
     );
   });
 });

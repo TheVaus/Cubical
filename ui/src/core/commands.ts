@@ -82,7 +82,7 @@ export function resolveBindings(
   overrides: Record<string, string>,
 ): KeyBinding[] {
   return COMMAND_DEFAULTS.map((c) => ({
-    key: overrides[c.id] ?? c.defaultKey,
+    key: overrides[c.id] || c.defaultKey,
     command: c.id,
     scope: c.scope,
   }));
