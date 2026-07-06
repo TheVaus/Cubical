@@ -12,7 +12,12 @@ import Minimap from "./editor/minimap/Minimap";
 import { Compartment, EditorState } from "@codemirror/state";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
-import { DEFAULT_BINDINGS, toCmBindings, type Command } from "./core/commands";
+import {
+  DEFAULT_BINDINGS,
+  toCmBindings,
+  type Command,
+  type KeyBinding,
+} from "./core/commands";
 import { syntaxTree } from "@codemirror/language";
 
 import { normalize } from "./ast/normalize";
@@ -169,6 +174,14 @@ const dataviewRunnerCompartment = new Compartment();
  */
 const autocompleteCompartment = new Compartment();
 
+/**
+ * Holds the CM6 keymap built from the effective key bindings.
+ * Reconfigured whenever the parent's `editorBindings` prop changes (a
+ * shortcut was remapped in Settings), so a rebind takes effect on the
+ * already-open editor without reopening the file.
+ */
+const keymapCompartment = new Compartment();
+
 /** Translate the `WikiLinkResolver` object into the slimmer facet shape. */
 const facetValueFor = (
   resolver: WikiLinkResolver | null | undefined,
@@ -318,6 +331,13 @@ export interface EditorProps {
    * vault is open — `[[` / `#` complete nothing.
    */
   autocompleteProvider?: AutocompleteProvider | null;
+  /**
+   * Effective key bindings — `DEFAULT_BINDINGS` merged with the user's
+   * Settings → Shortcuts overrides. Only `editor`-scope entries apply
+   * here (`toCmBindings` ignores the rest). `undefined` (parent hasn't
+   * loaded overrides yet) falls back to `DEFAULT_BINDINGS`.
+   */
+  editorBindings?: KeyBinding[];
   /** Called when a click lands on a resolved wiki-link. */
   onNavigateWikilink?: (path: string, anchor: ResolvedAnchor | null) => void;
   /** Called when a click lands on an unresolved wiki-link. */
@@ -515,6 +535,52 @@ const Editor: Component<EditorProps> = (props) => {
     return true;
   };
 
+  // Editor shortcuts run through the core command registry. `run` closes
+  // over the outer `view` (assigned just below); commands fire only on
+  // keystroke, by which point `view` is set.
+  const editorCommands: Record<string, Command> = {
+    "editor.toggleRawSource": {
+      id: "editor.toggleRawSource",
+      title: "Toggle raw source",
+      run: () => props.onToggleRawSource?.(),
+    },
+    "editor.copyBlockRef": {
+      id: "editor.copyBlockRef",
+      title: "Copy block reference",
+      run: () => {
+        if (!view) return;
+        const head = view.state.selection.main.head;
+        const text = view.state.doc.toString();
+        props.onCopyBlockRef?.(byteOffsetOf(text, head));
+      },
+    },
+  };
+
+  // Builds the CM6 keymap extension from the effective bindings. Called
+  // both at initial construction and whenever `editorBindings` changes,
+  // so the keymap's contents are defined in exactly one place.
+  const buildEditorKeymap = (bindings: KeyBinding[] | undefined) =>
+    keymap.of([
+      ...toCmBindings(bindings ?? DEFAULT_BINDINGS, editorCommands),
+      // Correct vertical cursor motion around tall block embeds. CM6's
+      // geometric Up/Down overshoots a multi-row embed card (one document
+      // line, many screen rows); these handlers detect the overshoot and
+      // step exactly one document line so the cursor can land on the
+      // embed line. No-op for normal lines (returns false → default
+      // motion runs). Must precede defaultKeymap so it wins for Arrow
+      // keys.
+      {
+        key: "ArrowUp",
+        run: (view) => verticalDocLineMotion(view, false),
+      },
+      {
+        key: "ArrowDown",
+        run: (view) => verticalDocLineMotion(view, true),
+      },
+      ...defaultKeymap,
+      ...historyKeymap,
+    ]);
+
   onMount(() => {
     const updateListener = EditorView.updateListener.of((update) => {
       if (!update.docChanged) return;
@@ -530,53 +596,13 @@ const Editor: Component<EditorProps> = (props) => {
       },
     );
 
-    // Editor shortcuts run through the core command registry. `run` closes
-    // over the outer `view` (assigned just below); commands fire only on
-    // keystroke, by which point `view` is set.
-    const editorCommands: Record<string, Command> = {
-      "editor.toggleRawSource": {
-        id: "editor.toggleRawSource",
-        title: "Toggle raw source",
-        run: () => props.onToggleRawSource?.(),
-      },
-      "editor.copyBlockRef": {
-        id: "editor.copyBlockRef",
-        title: "Copy block reference",
-        run: () => {
-          if (!view) return;
-          const head = view.state.selection.main.head;
-          const text = view.state.doc.toString();
-          props.onCopyBlockRef?.(byteOffsetOf(text, head));
-        },
-      },
-    };
-
     view = new EditorView({
       parent: host,
       state: EditorState.create({
         doc: props.value,
         extensions: [
           history(),
-          keymap.of([
-            ...toCmBindings(DEFAULT_BINDINGS, editorCommands),
-            // Correct vertical cursor motion around tall block embeds.
-            // CM6's geometric Up/Down overshoots a multi-row embed card
-            // (one document line, many screen rows); these handlers
-            // detect the overshoot and step exactly one document line so
-            // the cursor can land on the embed line. No-op for normal
-            // lines (returns false → default motion runs). Must precede
-            // defaultKeymap so it wins for Arrow keys.
-            {
-              key: "ArrowUp",
-              run: (view) => verticalDocLineMotion(view, false),
-            },
-            {
-              key: "ArrowDown",
-              run: (view) => verticalDocLineMotion(view, true),
-            },
-            ...defaultKeymap,
-            ...historyKeymap,
-          ]),
+          keymapCompartment.of(buildEditorKeymap(props.editorBindings)),
           markdown({ extensions: [wikilinkExtension, tagExtension] }),
           // Wrap long lines onto the next visual row instead of scrolling
           // the file horizontally.
@@ -994,6 +1020,20 @@ const Editor: Component<EditorProps> = (props) => {
           effects: autocompleteCompartment.reconfigure(
             autocompleteExtensionFor(provider),
           ),
+        });
+      },
+      { defer: true },
+    ),
+  );
+
+  // Rebuild the CM6 keymap when the effective bindings change (the user
+  // remapped a shortcut in Settings).
+  createEffect(
+    on(
+      () => props.editorBindings,
+      (bindings) => {
+        view?.dispatch({
+          effects: keymapCompartment.reconfigure(buildEditorKeymap(bindings)),
         });
       },
       { defer: true },
