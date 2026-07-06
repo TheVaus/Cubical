@@ -314,7 +314,8 @@ export type Setting =
   | { key: "statusbar.show_block_count"; value: boolean }
   // Rename repair — also rewrite broken links that name the renamed
   // file. Default on.
-  | { key: "wikilinks.rewrite_broken_links_on_rename"; value: boolean };
+  | { key: "wikilinks.rewrite_broken_links_on_rename"; value: boolean }
+  | { key: "shortcuts.overrides"; value: Record<string, string> };
 
 /** Narrows a `Setting` key to its corresponding value type. */
 export type SettingValue<K extends Setting["key"]> = Extract<

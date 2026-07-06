@@ -15,6 +15,7 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 
 import Editor, { type EditorApi } from "./Editor";
 import Properties from "./Properties";
+import ShortcutsPanel from "./settings/ShortcutsPanel";
 import { DATE_FORMAT_TOKENS } from "./properties/dateFormats";
 import { CURRENCY_CODES } from "./properties/format";
 import type { CanonicalDocument, Frontmatter } from "./ast/types";
@@ -46,7 +47,7 @@ import {
 import { createVaultSession } from "./core/vaultSession";
 import { persistSetting, seedSetting } from "./core/settings";
 import {
-  DEFAULT_BINDINGS,
+  resolveBindings,
   resolveGlobal,
   type Command,
 } from "./core/commands";
@@ -370,6 +371,21 @@ const App: Component = () => {
   const toggleLeftSidebar = () => setLeftCollapsed((v) => !v);
   // UI rework: Settings modal (theme + editor/vault prefs live here now).
   const [settingsOpen, setSettingsOpen] = createSignal(false);
+  // `shortcuts.overrides` — command id → key spec, only for commands the
+  // user has rebound from default. Seeded on vault open, absent → `{}`
+  // (every command at its factory default). `effectiveBindings` is what
+  // both the global keydown handler and the editor's CM6 keymap actually
+  // resolve against.
+  const [shortcutOverrides, setShortcutOverrides] = createSignal<
+    Record<string, string>
+  >({});
+  const setShortcutOverridesValue = (next: Record<string, string>) => {
+    setShortcutOverrides(next);
+    persistSetting(vaultId(), "shortcuts.overrides", next);
+  };
+  const effectiveBindings = createMemo(() =>
+    resolveBindings(shortcutOverrides()),
+  );
   type SettingsTab =
     | "appearance"
     | "editor"
@@ -1341,7 +1357,7 @@ const App: Component = () => {
       },
     };
     const onGlobalKey = (e: KeyboardEvent) => {
-      const c = resolveGlobal(DEFAULT_BINDINGS, globalCommands, e);
+      const c = resolveGlobal(effectiveBindings(), globalCommands, e);
       if (!c) return;
       e.preventDefault();
       c.run();
@@ -1405,6 +1421,7 @@ const App: Component = () => {
       setView({ kind: "file" });
       setRightSidebarCollapsed(false);
       setRightSidebarPanel("backlinks");
+      setShortcutOverrides({});
       setWikilinkResolver(null);
       setEmbedResolver(null);
       setPropertyResolver(null);
@@ -1552,6 +1569,13 @@ const App: Component = () => {
         "ui.right_sidebar_panel",
         "backlinks",
         setRightSidebarPanel,
+      );
+
+      await seedSetting(
+        resp.vault_id,
+        "shortcuts.overrides",
+        {},
+        setShortcutOverrides,
       );
     } catch (e) {
       const message = errorMessage(e);
@@ -2141,6 +2165,7 @@ const App: Component = () => {
                   }
                   openNotePath={selectedPath()}
                   autocompleteProvider={autocompleteProvider()}
+                  editorBindings={effectiveBindings()}
                   onNavigateWikilink={(path, anchor) =>
                     void handleNavigateWikilink(path, anchor)
                   }
@@ -2828,23 +2853,10 @@ topics:         # type:list
                 </div>
               </Show>
               <Show when={settingsTab() === "shortcuts"}>
-                <h2 class="modal__h2">Shortcuts</h2>
-                <div class="kb-row">
-                  <span>Open Omni-Bar</span>
-                  <kbd>⌘/Ctrl</kbd>
-                  <kbd>K</kbd>
-                </div>
-                <div class="kb-row">
-                  <span>Toggle raw source / Live Preview</span>
-                  <kbd>⌘/Ctrl</kbd>
-                  <kbd>E</kbd>
-                </div>
-                <div class="kb-row">
-                  <span>Copy block reference</span>
-                  <kbd>⌘/Ctrl</kbd>
-                  <kbd>⇧</kbd>
-                  <kbd>B</kbd>
-                </div>
+                <ShortcutsPanel
+                  overrides={shortcutOverrides()}
+                  onChange={setShortcutOverridesValue}
+                />
               </Show>
             </div>
           </div>
