@@ -32,8 +32,12 @@ notify = "6"
 notify-debouncer-full = "0.3"
 walkdir = "2"
 
-# Database
-libsql = "0.6"
+# Database — local-only. `default-features = false` + `core` drops libsql's
+# remote/replication/tls stack (hyper, tonic, rustls-webpki, libsql-sqlite3-parser):
+# a strictly local-first, no-cloud vault never opens a remote DB (only
+# `Builder::new_local`), so compiling that machinery in is pure attack surface,
+# binary bloat, and a stream of CVEs in code we never execute.
+libsql = { version = "0.6", default-features = false, features = ["core"] }
 
 # Hashing
 sha2 = "0.10"
