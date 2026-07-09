@@ -4,6 +4,7 @@ import {
   buildStableTreeRows,
   countFilesUnderFolder,
   flattenTree,
+  splitFileName,
 } from "./fileTree";
 
 const md = (path: string) => ({ path, type_id: "markdown" });
@@ -216,5 +217,23 @@ describe("countFilesUnderFolder", () => {
       md("root.md"),
     ]);
     expect(countFilesUnderFolder(root, "projects")).toBe(1);
+  });
+});
+
+describe("splitFileName", () => {
+  it("splits a normal extension", () => {
+    expect(splitFileName("roadmap.md")).toEqual({ stem: "roadmap", ext: "md" });
+  });
+  it("returns empty ext when there is no dot", () => {
+    expect(splitFileName("README")).toEqual({ stem: "README", ext: "" });
+  });
+  it("treats a leading-dot dotfile as all stem", () => {
+    expect(splitFileName(".gitignore")).toEqual({ stem: ".gitignore", ext: "" });
+  });
+  it("splits on the last dot for multi-dot names", () => {
+    expect(splitFileName("a.b.md")).toEqual({ stem: "a.b", ext: "md" });
+  });
+  it("preserves case", () => {
+    expect(splitFileName("A.MD")).toEqual({ stem: "A", ext: "MD" });
   });
 });

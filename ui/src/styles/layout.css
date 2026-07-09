@@ -381,6 +381,10 @@
   font-size: 0.85em;
   opacity: 0.8;
 }
+.tree-row__ext {
+  color: var(--c-fg-muted);
+  opacity: 0.7;
+}
 .tree-row__input {
   flex: 1;
   min-width: 0;

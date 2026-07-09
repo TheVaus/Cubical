@@ -79,6 +79,7 @@ import {
   buildFileTree,
   buildStableTreeRows,
   countFilesUnderFolder,
+  splitFileName,
   type FlatRow,
 } from "./sidebar/fileTree";
 import { buildBlockRefLink } from "./editor/blockRef";
@@ -1886,16 +1887,12 @@ const App: Component = () => {
                         const isMarkdown = row.typeId === "markdown";
                         const isSelected = () => selectedPath() === row.path;
                         const isRenaming = () => renamingPath() === row.path;
-                        const display = () =>
-                          isMarkdown && row.name.endsWith(".md")
-                            ? row.name.slice(0, -3)
-                            : row.name;
+                        const parts = () => splitFileName(row.name);
                         return (
                           <div
                             class="tree-row tree-row--file"
                             classList={{
                               "tree-row--selected": isSelected(),
-                              "tree-row--muted": !isMarkdown,
                             }}
                             role="option"
                             aria-selected={isSelected()}
@@ -1937,7 +1934,12 @@ const App: Component = () => {
                                       : undefined
                                   }
                                 >
-                                  {display()}
+                                  {parts().stem}
+                                  <Show when={parts().ext !== ""}>
+                                    <span class="tree-row__ext">
+                                      .{parts().ext}
+                                    </span>
+                                  </Show>
                                   <Show
                                     when={isMarkdown && !isValidNoteName(row.name)}
                                   >

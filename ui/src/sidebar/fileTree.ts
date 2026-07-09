@@ -23,6 +23,18 @@ export interface FileLeaf {
   typeId: string;
 }
 
+/**
+ * Split a basename into its display stem and extension (extension
+ * *without* the leading dot). A name with no dot, or a leading-dot
+ * dotfile like `.gitignore`, yields `ext === ""` and the whole name as
+ * the stem. Splits on the last dot for multi-dot names (`a.b.md`).
+ */
+export function splitFileName(name: string): { stem: string; ext: string } {
+  const dot = name.lastIndexOf(".");
+  if (dot <= 0) return { stem: name, ext: "" };
+  return { stem: name.slice(0, dot), ext: name.slice(dot + 1) };
+}
+
 export interface FolderNode {
   /** Folder basename (`""` for the synthetic root). */
   name: string;
