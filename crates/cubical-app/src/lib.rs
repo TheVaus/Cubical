@@ -48,6 +48,7 @@ use cubical_engine::api::types::{
 use cubical_engine::commands;
 use cubical_engine::error::CubicalError;
 use cubical_engine::state::AppState;
+use tauri::Manager;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 /// Initialize structured logging for the Rust side.
@@ -76,6 +77,8 @@ pub fn run() {
         .manage(AppState::new())
         .invoke_handler(tauri::generate_handler![
             open_vault,
+            list_recent_vaults,
+            remove_recent_vault,
             cancel_vault_scan,
             get_vault_info,
             list_files,
@@ -137,12 +140,50 @@ async fn open_vault(
     app: tauri::AppHandle,
     req: OpenVaultRequest,
 ) -> Result<OpenVaultResponse, CubicalError> {
-    commands::vault::open_vault(
+    let vault_path = req.path.to_string_lossy().to_string();
+    let resp = commands::vault::open_vault(
         state.inner(),
-        std::sync::Arc::new(crate::tauri_sink::TauriEventSink::new(app)),
+        std::sync::Arc::new(crate::tauri_sink::TauriEventSink::new(app.clone())),
         req,
     )
-    .await
+    .await?;
+    // Record the successful open in the machine-local recents (best-effort;
+    // never fails the open).
+    if let Some(store) = recent_vaults_store(&app) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        recent_vaults::record(&store, &vault_path, now);
+    }
+    Ok(resp)
+}
+
+/// Resolve the recent-vaults store file in the OS app-config dir, or
+/// `None` if the platform can't give us one (recents then no-op).
+fn recent_vaults_store(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    app.path()
+        .app_config_dir()
+        .ok()
+        .map(|dir| dir.join("recent_vaults.json"))
+}
+
+/// Tauri command — list recent vaults, most-recent first, each stamped
+/// with a live existence check. Absent store or config dir → empty list.
+#[tauri::command]
+fn list_recent_vaults(app: tauri::AppHandle) -> recent_vaults::ListRecentVaultsResponse {
+    let vaults = recent_vaults_store(&app)
+        .map(|p| recent_vaults::list_with_existence(&p))
+        .unwrap_or_default();
+    recent_vaults::ListRecentVaultsResponse { vaults }
+}
+
+/// Tauri command — remove one entry from the recent-vaults list.
+#[tauri::command]
+fn remove_recent_vault(app: tauri::AppHandle, req: recent_vaults::RemoveRecentVaultRequest) {
+    if let Some(p) = recent_vaults_store(&app) {
+        recent_vaults::remove(&p, &req.path);
+    }
 }
 
 /// Tauri shim — see [`commands::vault::cancel_vault_scan`].

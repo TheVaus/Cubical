@@ -7,13 +7,6 @@
 //! best-effort — recents must never block opening a vault, so write
 //! failures are swallowed and a missing/corrupt file reads as empty.
 //!
-//! This module lands ahead of its callers: the Tauri command wiring
-//! (`open_vault` recording + `list_recent_vaults`/`remove_recent_vault`)
-//! is a separate follow-up task. Until then every public item here is
-//! only reachable from `#[cfg(test)]`, so `dead_code` is suppressed —
-//! remove this allow once the commands are wired in.
-#![allow(dead_code)]
-
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};

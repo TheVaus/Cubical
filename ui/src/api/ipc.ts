@@ -32,6 +32,20 @@ export interface OpenVaultResponse {
   scan_status: ScanStatus;
 }
 
+export interface RecentVault {
+  path: string;
+  last_opened_unix: number;
+  exists: boolean;
+}
+
+export interface ListRecentVaultsResponse {
+  vaults: RecentVault[];
+}
+
+export interface RemoveRecentVaultRequest {
+  path: string;
+}
+
 export interface CancelVaultScanRequest {
   vault_id: string;
 }
@@ -466,6 +480,14 @@ export interface UndoRenameResponse {
 
 export function openVault(req: OpenVaultRequest): Promise<OpenVaultResponse> {
   return invoke("open_vault", { req });
+}
+
+export function listRecentVaults(): Promise<ListRecentVaultsResponse> {
+  return invoke("list_recent_vaults");
+}
+
+export function removeRecentVault(req: RemoveRecentVaultRequest): Promise<void> {
+  return invoke("remove_recent_vault", { req });
 }
 
 export function cancelVaultScan(req: CancelVaultScanRequest): Promise<void> {
