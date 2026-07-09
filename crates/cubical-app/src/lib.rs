@@ -18,6 +18,7 @@
 
 #![forbid(unsafe_code)]
 
+mod recent_vaults;
 mod tauri_sink;
 
 use cubical_engine::api::types::{

@@ -666,9 +666,12 @@ name = "cubical-app"
 version = "0.1.0"
 dependencies = [
  "cubical-engine",
+ "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
+ "tempfile",
  "tracing",
  "tracing-subscriber",
 ]
