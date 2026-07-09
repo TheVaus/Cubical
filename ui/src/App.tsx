@@ -130,6 +130,7 @@ import {
   type BooleanSettingKey,
 } from "./settings/corePlugins";
 import { toggleInfo, type InfoId } from "./settings/settingsInfo";
+import { VaultSwitcher } from "./VaultSwitcher";
 
 /**
  * L2 Session A surface.
@@ -387,6 +388,8 @@ const App: Component = () => {
   const navCanForward = createMemo(() => canForward(navState()));
   // UI rework: Settings modal (theme + editor/vault prefs live here now).
   const [settingsOpen, setSettingsOpen] = createSignal(false);
+  // Minimal in-app vault-switcher popover (#3) — no persistence yet.
+  const [vaultSwitcherOpen, setVaultSwitcherOpen] = createSignal(false);
   // `shortcuts.overrides` — command id → key spec, only for commands the
   // user has rebound from default. Seeded on vault open, absent → `{}`
   // (every command at its factory default). `effectiveBindings` is what
@@ -2086,18 +2089,29 @@ const App: Component = () => {
             </div>
               </SearchPanel>
               <div class="side__footer">
-                <button
-                  type="button"
-                  class="vault-btn"
-                  onClick={handleOpen}
-                  disabled={busy()}
-                  title="Switch vault"
-                >
-                  <span class="vault-btn__name">
-                    {vaultPath()?.split("/").filter(Boolean).pop() ?? "vault"}
-                  </span>
-                  <span class="vault-btn__caret">⌄</span>
-                </button>
+                <div class="vault-switcher-anchor">
+                  <button
+                    type="button"
+                    class="vault-btn"
+                    onClick={() => setVaultSwitcherOpen((v) => !v)}
+                    disabled={busy()}
+                    aria-haspopup="dialog"
+                    aria-expanded={vaultSwitcherOpen()}
+                    title="Switch vault"
+                  >
+                    <span class="vault-btn__name">
+                      {vaultPath()?.split("/").filter(Boolean).pop() ?? "vault"}
+                    </span>
+                    <span class="vault-btn__caret">⌄</span>
+                  </button>
+                  <Show when={vaultSwitcherOpen()}>
+                    <VaultSwitcher
+                      currentPath={vaultPath()}
+                      onOpenFolder={() => void handleOpen()}
+                      onDismiss={() => setVaultSwitcherOpen(false)}
+                    />
+                  </Show>
+                </div>
                 <button
                   type="button"
                   class="chrome-btn"

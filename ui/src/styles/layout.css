@@ -620,6 +620,48 @@
   z-index: 19;
   background: transparent;
 }
+.vault-switcher-anchor {
+  position: relative;
+}
+.vault-switcher-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 19;
+  background: transparent;
+}
+.vault-switcher {
+  position: absolute;
+  bottom: calc(100% + var(--space-1));
+  left: 0;
+  min-width: 12rem;
+  padding: var(--space-2);
+  background: var(--c-bg-primary);
+  border: 1px solid var(--c-border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.vault-switcher__label {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--c-fg-muted);
+}
+.vault-switcher__path {
+  font-weight: 600;
+}
+.vault-switcher__recents {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-xs);
+  color: var(--c-fg-secondary);
+}
+.vault-switcher__open {
+  width: 100%;
+}
 .seg-control {
   flex: 0 0 auto;
   display: flex;
