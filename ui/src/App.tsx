@@ -1467,22 +1467,23 @@ const App: Component = () => {
     if (searchRefreshTimer !== undefined) clearTimeout(searchRefreshTimer);
   });
 
-  const handleOpen = async () => {
+  /**
+   * Open the vault at `path`: reset prior UI state, open it via IPC, and
+   * seed this vault's settings. Owns busy + error handling. Shared by the
+   * folder-picker (`handleOpen`), the recent-vaults list, and launch
+   * auto-open.
+   */
+  const openVaultByPath = async (path: string) => {
     setError(null);
     setBusy(true);
     try {
-      const picked = await openDialog({ directory: true, multiple: false });
-      if (typeof picked !== "string") {
-        setBusy(false);
-        return;
-      }
       // Reset any prior vault's UI state before the new one fires events.
       setFiles([]);
       setFolders([]);
       setFilesProcessed(0);
       setFilesTotalEstimate(0);
       setScanStatus("in_progress");
-      setVaultPath(picked);
+      setVaultPath(path);
       setSelectedPath(null);
       setSelectedContent(null);
       setPropertiesFrontmatter(null);
@@ -1511,15 +1512,15 @@ const App: Component = () => {
       lastWrittenHash = null;
       dirty = false;
 
-      const resp = await openVault({ path: picked });
+      const resp = await openVault({ path });
       setVaultId(resp.vault_id);
       setScanStatus(resp.scan_status);
       setWikilinkResolver(createWikiLinkResolver(resp.vault_id));
       setEmbedResolver(createEmbedResolver(resp.vault_id));
       setPropertyResolver(createPropertyResolver(resp.vault_id));
       setDataviewRunner(
-        createDataviewRunner(resp.vault_id, (path) =>
-          void handleNavigateWikilink(path, null),
+        createDataviewRunner(resp.vault_id, (p) =>
+          void handleNavigateWikilink(p, null),
         ),
       );
       setAutocompleteProvider(createAutocompleteProvider(resp.vault_id));
@@ -1663,6 +1664,12 @@ const App: Component = () => {
     } finally {
       setBusy(false);
     }
+  };
+
+  const handleOpen = async () => {
+    const picked = await openDialog({ directory: true, multiple: false });
+    if (typeof picked !== "string") return;
+    await openVaultByPath(picked);
   };
 
   /** `ⓘ` button + its popover, anchored inside a `.set-row__control`. */
