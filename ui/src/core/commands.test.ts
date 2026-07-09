@@ -300,3 +300,24 @@ describe("formatChordForDisplay", () => {
     ]);
   });
 });
+
+describe("new bindable commands (#7)", () => {
+  const ids = COMMAND_DEFAULTS.map((c) => c.id);
+  it("registers the three new commands with Obsidian-matched defaults", () => {
+    expect(COMMAND_DEFAULTS).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "editor.followWikilink", scope: "editor", defaultKey: "Alt-Enter" }),
+        expect.objectContaining({ id: "view.toggleSidebar", scope: "global", defaultKey: "Mod-Shift-l" }),
+        expect.objectContaining({ id: "file.new", scope: "global", defaultKey: "Mod-n" }),
+      ]),
+    );
+  });
+  it("introduces no default-binding conflicts", () => {
+    expect(findDuplicateBindings(resolveBindings({}))).toEqual([]);
+  });
+  it("registers each new command id exactly once", () => {
+    for (const id of ["editor.followWikilink", "view.toggleSidebar", "file.new"]) {
+      expect(ids.filter((x) => x === id)).toHaveLength(1);
+    }
+  });
+});

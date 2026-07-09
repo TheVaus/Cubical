@@ -554,6 +554,20 @@ const Editor: Component<EditorProps> = (props) => {
         props.onCopyBlockRef?.(byteOffsetOf(text, head));
       },
     },
+    "editor.followWikilink": {
+      id: "editor.followWikilink",
+      title: "Follow link under cursor",
+      run: () => {
+        if (!view) return;
+        // Reuse the click router: same WikiLink-node lookup + resolve +
+        // navigate/offer-create path, but seeded from the cursor head
+        // instead of a click position. handleClickAtPos returns false
+        // when the cursor isn't inside a wiki-link; toCmBindings ignores
+        // that and consumes Alt-Enter regardless, which is fine since
+        // Alt-Enter has no other binding.
+        handleClickAtPos(view, view.state.selection.main.head);
+      },
+    },
   };
 
   // Builds the CM6 keymap extension from the effective bindings. Called

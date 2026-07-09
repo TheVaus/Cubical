@@ -59,6 +59,24 @@ export const COMMAND_DEFAULTS: readonly BindingDefault[] = [
     scope: "editor",
     defaultKey: "Mod-Shift-b",
   },
+  {
+    id: "editor.followWikilink",
+    title: "Follow link under cursor",
+    scope: "editor",
+    defaultKey: "Alt-Enter",
+  },
+  {
+    id: "view.toggleSidebar",
+    title: "Toggle left sidebar",
+    scope: "global",
+    defaultKey: "Mod-Shift-l",
+  },
+  {
+    id: "file.new",
+    title: "New note",
+    scope: "global",
+    defaultKey: "Mod-n",
+  },
 ];
 
 /**

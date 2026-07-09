@@ -1356,6 +1356,18 @@ const App: Component = () => {
           setOmniOpen((v) => !v);
         },
       },
+      "view.toggleSidebar": {
+        id: "view.toggleSidebar",
+        title: "Toggle left sidebar",
+        when: () => vaultId() !== null,
+        run: () => toggleLeftSidebar(),
+      },
+      "file.new": {
+        id: "file.new",
+        title: "New note",
+        when: () => vaultId() !== null,
+        run: () => void handleNewFile(),
+      },
     };
     const onGlobalKey = (e: KeyboardEvent) => {
       const c = resolveGlobal(effectiveBindings(), globalCommands, e);
