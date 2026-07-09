@@ -320,4 +320,13 @@ describe("new bindable commands (#7)", () => {
       expect(ids.filter((x) => x === id)).toHaveLength(1);
     }
   });
+  it("registers nav back/forward with Obsidian-matched defaults and no conflict", () => {
+    expect(COMMAND_DEFAULTS).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "nav.back", scope: "global", defaultKey: "Mod-Alt-ArrowLeft" }),
+        expect.objectContaining({ id: "nav.forward", scope: "global", defaultKey: "Mod-Alt-ArrowRight" }),
+      ]),
+    );
+    expect(findDuplicateBindings(resolveBindings({}))).toEqual([]);
+  });
 });

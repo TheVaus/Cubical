@@ -77,6 +77,18 @@ export const COMMAND_DEFAULTS: readonly BindingDefault[] = [
     scope: "global",
     defaultKey: "Mod-n",
   },
+  {
+    id: "nav.back",
+    title: "Navigate back",
+    scope: "global",
+    defaultKey: "Mod-Alt-ArrowLeft",
+  },
+  {
+    id: "nav.forward",
+    title: "Navigate forward",
+    scope: "global",
+    defaultKey: "Mod-Alt-ArrowRight",
+  },
 ];
 
 /**

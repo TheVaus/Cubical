@@ -51,6 +51,16 @@ import {
   resolveGlobal,
   type Command,
 } from "./core/commands";
+import {
+  emptyNav,
+  navPush,
+  navBack,
+  navForward,
+  navCurrent,
+  canBack,
+  canForward,
+  type NavState,
+} from "./navHistory";
 import { errorMessage } from "./errorMessage";
 import {
   createWikiLinkResolver,
@@ -370,6 +380,11 @@ const App: Component = () => {
   // that slides off-screen on collapse without reflowing the editor.
   const [leftCollapsed, setLeftCollapsed] = createSignal(false);
   const toggleLeftSidebar = () => setLeftCollapsed((v) => !v);
+  // Session-scoped editor navigation history (#4). Reactive wrapper over
+  // the pure navHistory reducer so the topbar ‹ › buttons re-evaluate.
+  const [navState, setNavState] = createSignal<NavState>(emptyNav);
+  const navCanBack = createMemo(() => canBack(navState()));
+  const navCanForward = createMemo(() => canForward(navState()));
   // UI rework: Settings modal (theme + editor/vault prefs live here now).
   const [settingsOpen, setSettingsOpen] = createSignal(false);
   // `shortcuts.overrides` — command id → key spec, only for commands the
@@ -940,7 +955,11 @@ const App: Component = () => {
     persistSetting(vaultId(), "ui.right_sidebar_panel", id);
   };
 
-  const handleSelectFile = async (file: FileEntry, knownHash?: string) => {
+  const handleSelectFile = async (
+    file: FileEntry,
+    knownHash?: string,
+    opts?: { fromHistory?: boolean },
+  ) => {
     if (file.type_id !== "markdown") return;
     const id = vaultId();
     if (!id) return;
@@ -961,6 +980,7 @@ const App: Component = () => {
     setError(null);
     setConflictExternalHash(null);
     setSelectedPath(file.path);
+    if (!opts?.fromHistory) setNavState((s) => navPush(s, file.path));
     // Per §2.3: the per-doc raw override is transient — a freshly
     // opened file starts from the current app default.
     setRawOverride(null);
@@ -990,6 +1010,38 @@ const App: Component = () => {
       setError(message);
       setSelectedContent(null);
     }
+  };
+
+  /**
+   * Editor back/forward navigation (#4). Moves the history cursor first,
+   * then opens whatever it now points at via `handleSelectFile`'s
+   * `fromHistory` opt-out so the move doesn't re-push itself. Falls back
+   * to a synthetic `FileEntry` when the path isn't in the currently
+   * loaded `files()` list (e.g. it scrolled out of a filtered view).
+   */
+  const navigateToHistoryPath = (path: string) => {
+    const existing = files().find((f) => f.path === path);
+    const file: FileEntry = existing ?? {
+      path,
+      type_id: "markdown",
+      size_bytes: 0,
+      mtime_unix: 0,
+    };
+    void handleSelectFile(file, undefined, { fromHistory: true });
+  };
+  const goBack = () => {
+    const next = navBack(navState());
+    if (next.index === navState().index) return;
+    setNavState(next);
+    const path = navCurrent(next);
+    if (path) navigateToHistoryPath(path);
+  };
+  const goForward = () => {
+    const next = navForward(navState());
+    if (next.index === navState().index) return;
+    setNavState(next);
+    const path = navCurrent(next);
+    if (path) navigateToHistoryPath(path);
   };
 
   const reloadFromDisk = async () => {
@@ -1368,6 +1420,18 @@ const App: Component = () => {
         when: () => vaultId() !== null,
         run: () => void handleNewFile(),
       },
+      "nav.back": {
+        id: "nav.back",
+        title: "Navigate back",
+        when: () => navCanBack(),
+        run: () => goBack(),
+      },
+      "nav.forward": {
+        id: "nav.forward",
+        title: "Navigate forward",
+        when: () => navCanForward(),
+        run: () => goForward(),
+      },
     };
     const onGlobalKey = (e: KeyboardEvent) => {
       const c = resolveGlobal(effectiveBindings(), globalCommands, e);
@@ -1631,6 +1695,26 @@ const App: Component = () => {
             title="Toggle file panel"
           >
             {leftCollapsed() ? "⟩" : "⟨"}
+          </button>
+          <button
+            type="button"
+            class="chrome-btn"
+            onClick={goBack}
+            disabled={!navCanBack()}
+            aria-label="Navigate back"
+            title="Navigate back (Cmd/Ctrl+Alt+←)"
+          >
+            ‹
+          </button>
+          <button
+            type="button"
+            class="chrome-btn"
+            onClick={goForward}
+            disabled={!navCanForward()}
+            aria-label="Navigate forward"
+            title="Navigate forward (Cmd/Ctrl+Alt+→)"
+          >
+            ›
           </button>
         </div>
         <div class="topbar__center">
