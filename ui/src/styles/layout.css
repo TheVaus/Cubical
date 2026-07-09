@@ -348,13 +348,6 @@
   color: var(--c-fg-primary);
   font-weight: 600;
 }
-.tree-row--muted {
-  color: var(--c-fg-muted);
-  cursor: default;
-}
-.tree-row--muted:hover {
-  background: transparent;
-}
 .tree-row--selected,
 .tree-row--selected:hover {
   background: var(--c-bg-tertiary);

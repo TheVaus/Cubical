@@ -220,11 +220,28 @@ export function specFromChord(chord: KeyChord): string {
 }
 
 /**
+ * Friendly display labels for known multi-character DOM key names.
+ * `parseKeySpec` always lower-cases the key, so lookups here are lowercase.
+ * Anything not in this map falls back to the raw key (degrades gracefully).
+ */
+const SPECIAL_KEY_LABELS: Record<string, string> = {
+  enter: "Enter",
+  arrowleft: "←",
+  arrowright: "→",
+  arrowup: "↑",
+  arrowdown: "↓",
+  escape: "Esc",
+  " ": "Space",
+};
+
+/**
  * Render a key spec as the ordered `<kbd>` labels the Settings UI
  * displays (e.g. `"Mod-Shift-b"` → `["⌘/Ctrl", "⇧", "B"]`). `parseKeySpec`
  * always lower-cases the key; this uppercases single-character keys for
  * display since that's how the previous hand-written Settings JSX showed
- * them.
+ * them, and maps known multi-character DOM key names (e.g. "arrowleft",
+ * "enter") to friendly labels via {@link SPECIAL_KEY_LABELS} so the
+ * Shortcuts panel never shows a raw DOM key name.
  */
 export function formatChordForDisplay(spec: string): string[] {
   const chord = parseKeySpec(spec);
@@ -232,7 +249,11 @@ export function formatChordForDisplay(spec: string): string[] {
   if (chord.mod) labels.push("⌘/Ctrl");
   if (chord.shift) labels.push("⇧");
   if (chord.alt) labels.push("⌥/Alt");
-  labels.push(chord.key.length === 1 ? chord.key.toUpperCase() : chord.key);
+  labels.push(
+    chord.key.length === 1
+      ? chord.key.toUpperCase()
+      : SPECIAL_KEY_LABELS[chord.key] ?? chord.key,
+  );
   return labels;
 }
 

@@ -299,6 +299,23 @@ describe("formatChordForDisplay", () => {
       "B",
     ]);
   });
+  it("maps Alt-Enter to a friendly label instead of raw DOM key name", () => {
+    expect(formatChordForDisplay("Alt-Enter")).toEqual(["⌥/Alt", "Enter"]);
+  });
+  it("maps Mod-Alt-ArrowLeft to an arrow glyph", () => {
+    expect(formatChordForDisplay("Mod-Alt-ArrowLeft")).toEqual([
+      "⌘/Ctrl",
+      "⌥/Alt",
+      "←",
+    ]);
+  });
+  it("maps Mod-Alt-ArrowRight to an arrow glyph", () => {
+    expect(formatChordForDisplay("Mod-Alt-ArrowRight")).toEqual([
+      "⌘/Ctrl",
+      "⌥/Alt",
+      "→",
+    ]);
+  });
 });
 
 describe("new bindable commands (#7)", () => {

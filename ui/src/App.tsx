@@ -1705,7 +1705,7 @@ const App: Component = () => {
             onClick={goBack}
             disabled={!navCanBack()}
             aria-label="Navigate back"
-            title="Navigate back (Cmd/Ctrl+Alt+←)"
+            title="Navigate back"
           >
             ‹
           </button>
@@ -1715,7 +1715,7 @@ const App: Component = () => {
             onClick={goForward}
             disabled={!navCanForward()}
             aria-label="Navigate forward"
-            title="Navigate forward (Cmd/Ctrl+Alt+→)"
+            title="Navigate forward"
           >
             ›
           </button>
