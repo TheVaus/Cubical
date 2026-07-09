@@ -4,9 +4,15 @@ import { RecentVaultList } from "./RecentVaultList";
 import type { RecentVault } from "./api/ipc";
 
 /**
- * Minimal in-app vault switcher popover (#3). Shows the current vault,
- * the recent-vaults list (switch or prune), and an "Open folder…" action
- * that wraps the existing open-vault flow.
+ * In-app vault switcher popover. Shows the current vault, a "Switch to"
+ * list of the other recent vaults (one click to switch, × to prune a
+ * missing one), and an "Open another vault…" action that wraps the
+ * open-vault flow for a vault the app hasn't seen before.
+ *
+ * The switch list excludes the current vault, so it is empty until a
+ * second vault has been opened once. In that state we say so explicitly
+ * rather than rendering nothing — otherwise the popover collapses to a
+ * lone OS-picker button and reads as broken.
  */
 export interface VaultSwitcherProps {
   currentPath: string | null;
@@ -52,16 +58,27 @@ export function VaultSwitcher(props: VaultSwitcherProps) {
             {props.currentPath ? vaultName(props.currentPath) : "—"}
           </span>
         </div>
-        <Show when={recents().length > 0}>
-          <RecentVaultList
-            vaults={recents()}
-            onSwitch={(path) => {
-              props.onDismiss();
-              props.onSwitch(path);
-            }}
-            onRemove={(path) => props.onRemove(path)}
-          />
-        </Show>
+        <div class="vault-switcher__section">
+          <span class="vault-switcher__label">Switch to</span>
+          <Show
+            when={recents().length > 0}
+            fallback={
+              <p class="vault-switcher__empty">
+                No other vaults yet. Add one below — after that, switching is a
+                single click.
+              </p>
+            }
+          >
+            <RecentVaultList
+              vaults={recents()}
+              onSwitch={(path) => {
+                props.onDismiss();
+                props.onSwitch(path);
+              }}
+              onRemove={(path) => props.onRemove(path)}
+            />
+          </Show>
+        </div>
         <button
           type="button"
           class="vault-switcher__open"
@@ -70,7 +87,7 @@ export function VaultSwitcher(props: VaultSwitcherProps) {
             props.onOpenFolder();
           }}
         >
-          Open folder…
+          Open another vault…
         </button>
       </div>
     </>

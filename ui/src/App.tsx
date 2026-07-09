@@ -204,6 +204,10 @@ const App: Component = () => {
   const [folders, setFolders] = createSignal<string[]>([]);
   const [error, setError] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal(false);
+  // True from first paint until launch has decided whether to auto-open the
+  // last vault. Suppresses the empty-vault landing during that window so it
+  // doesn't flash on screen before the auto-opened vault appears.
+  const [booting, setBooting] = createSignal(true);
   // Machine-local recent-vaults list (populated from the app-config store).
   const [recentVaults, setRecentVaults] = createSignal<RecentVault[]>([]);
   const refreshRecentVaults = async () => {
@@ -1473,8 +1477,11 @@ const App: Component = () => {
     await refreshRecentVaults();
     const top = recentVaults()[0];
     if (top && top.exists) {
-      void openVaultByPath(top.path);
+      // Awaited (not fire-and-forget) so `booting` stays true until the vault
+      // is open — otherwise the landing paints for a frame before it appears.
+      await openVaultByPath(top.path);
     }
+    setBooting(false);
   });
 
   onCleanup(() => {
@@ -1814,29 +1821,34 @@ const App: Component = () => {
       <Show
         when={vaultId()}
         fallback={
-          <div class="empty-vault">
-            <p>Pick a folder to open it as a vault.</p>
-            <button
-              type="button"
-              class="chrome-btn chrome-btn--primary"
-              onClick={handleOpen}
-              disabled={busy()}
-            >
-              Open Vault
-            </button>
-            <Show when={recentVaults().length > 0}>
-              <div class="empty-vault__recents">
-                <p class="empty-vault__recents-label">Recent vaults</p>
-                <RecentVaultList
-                  vaults={recentVaults()}
-                  onSwitch={(path) => void openVaultByPath(path)}
-                  onRemove={(path) =>
-                    void removeRecentVault({ path }).then(refreshRecentVaults)
-                  }
-                />
-              </div>
-            </Show>
-          </div>
+          // While `booting`, render nothing rather than the landing — on a
+          // launch that auto-opens the last vault, the landing would
+          // otherwise flash for a frame before the vault appears.
+          <Show when={!booting()}>
+            <div class="empty-vault">
+              <p>Pick a folder to open it as a vault.</p>
+              <button
+                type="button"
+                class="chrome-btn chrome-btn--primary"
+                onClick={handleOpen}
+                disabled={busy()}
+              >
+                Open Vault
+              </button>
+              <Show when={recentVaults().length > 0}>
+                <div class="empty-vault__recents">
+                  <p class="empty-vault__recents-label">Recent vaults</p>
+                  <RecentVaultList
+                    vaults={recentVaults()}
+                    onSwitch={(path) => void openVaultByPath(path)}
+                    onRemove={(path) =>
+                      void removeRecentVault({ path }).then(refreshRecentVaults)
+                    }
+                  />
+                </div>
+              </Show>
+            </div>
+          </Show>
         }
       >
         <div class="stage">
