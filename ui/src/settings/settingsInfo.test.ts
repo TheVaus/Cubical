@@ -16,3 +16,11 @@ describe("toggleInfo", () => {
     expect(next).toBe("typed-props");
   });
 });
+
+describe("settingsInfo shortcuts id", () => {
+  it("toggles the shortcuts info id open and closed", () => {
+    const id: InfoId = "shortcuts";
+    expect(toggleInfo(null, id)).toBe("shortcuts");
+    expect(toggleInfo("shortcuts", id)).toBeNull();
+  });
+});

@@ -1,5 +1,10 @@
-/** Settings whose toggle carries an info popover (spec: four complex settings). */
-export type InfoId = "typed-props" | "wiki-repair" | "dataview" | "property-refs";
+/** Settings whose toggle carries an info popover (spec: five complex settings). */
+export type InfoId =
+  | "typed-props"
+  | "wiki-repair"
+  | "dataview"
+  | "property-refs"
+  | "shortcuts";
 
 /**
  * Reducer for the single `openInfo` signal. Clicking the `ⓘ` of the

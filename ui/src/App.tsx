@@ -2965,6 +2965,22 @@ topics:         # type:list
                 </div>
               </Show>
               <Show when={settingsTab() === "shortcuts"}>
+                <div
+                  class="set-row__control"
+                  style={{ "justify-content": "flex-end", "margin-bottom": "var(--space-2)" }}
+                >
+                  <InfoButton id="shortcuts">
+                    <p>
+                      Click <strong>Change</strong> on any row, then press the
+                      key combination you want. Escape cancels; a combo
+                      already used in the same scope is rejected. New in this
+                      release: follow the link under the cursor (Alt+Enter),
+                      toggle the left sidebar (⌘/Ctrl+Shift+L), new note
+                      (⌘/Ctrl+N), and navigate back/forward
+                      (⌘/Ctrl+Alt+←/→).
+                    </p>
+                  </InfoButton>
+                </div>
                 <ShortcutsPanel
                   overrides={shortcutOverrides()}
                   onChange={setShortcutOverridesValue}
