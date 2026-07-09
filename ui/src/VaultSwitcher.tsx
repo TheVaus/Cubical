@@ -1,15 +1,18 @@
-import { For, Show, onCleanup, onMount } from "solid-js";
+import { Show, onCleanup, onMount } from "solid-js";
+
+import { RecentVaultList } from "./RecentVaultList";
+import type { RecentVault } from "./api/ipc";
 
 /**
- * Minimal in-app vault switcher popover (#3). Shows the current vault
- * and an "Open folder…" action that wraps the existing open-vault flow.
- * `recentVaults` is a forward-compatible seam: today it is always empty
- * (no global recent-vaults store yet — deferred to its own session);
- * a future store populates the prop without changing this component.
+ * Minimal in-app vault switcher popover (#3). Shows the current vault,
+ * the recent-vaults list (switch or prune), and an "Open folder…" action
+ * that wraps the existing open-vault flow.
  */
 export interface VaultSwitcherProps {
   currentPath: string | null;
-  recentVaults?: { path: string }[];
+  recentVaults?: RecentVault[];
+  onSwitch: (path: string) => void;
+  onRemove: (path: string) => void;
   onOpenFolder: () => void;
   onDismiss: () => void;
 }
@@ -50,11 +53,14 @@ export function VaultSwitcher(props: VaultSwitcherProps) {
           </span>
         </div>
         <Show when={recents().length > 0}>
-          <ul class="vault-switcher__recents">
-            <For each={recents()}>
-              {(v) => <li title={v.path}>{vaultName(v.path)}</li>}
-            </For>
-          </ul>
+          <RecentVaultList
+            vaults={recents()}
+            onSwitch={(path) => {
+              props.onDismiss();
+              props.onSwitch(path);
+            }}
+            onRemove={(path) => props.onRemove(path)}
+          />
         </Show>
         <button
           type="button"

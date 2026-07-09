@@ -15,6 +15,7 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 
 import Editor, { type EditorApi } from "./Editor";
 import Properties from "./Properties";
+import { RecentVaultList } from "./RecentVaultList";
 import ShortcutsPanel from "./settings/ShortcutsPanel";
 import { DATE_FORMAT_TOKENS } from "./properties/dateFormats";
 import { CURRENCY_CODES } from "./properties/format";
@@ -28,6 +29,7 @@ import {
   getBrokenBlockRefs,
   getSetting,
   listFiles,
+  listRecentVaults,
   listTags,
   onVaultFileChanged,
   onVaultFlushComplete,
@@ -37,11 +39,13 @@ import {
   onVaultScanProgress,
   openVault,
   readFileText,
+  removeRecentVault,
   renameFile,
   renameFolder,
   writeFileText,
   type BrokenBlockRef,
   type FileEntry,
+  type RecentVault,
   type ResolvedAnchor,
 } from "./api/ipc";
 import { createVaultSession } from "./core/vaultSession";
@@ -200,6 +204,17 @@ const App: Component = () => {
   const [folders, setFolders] = createSignal<string[]>([]);
   const [error, setError] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal(false);
+  // Machine-local recent-vaults list (populated from the app-config store).
+  const [recentVaults, setRecentVaults] = createSignal<RecentVault[]>([]);
+  const refreshRecentVaults = async () => {
+    try {
+      const resp = await listRecentVaults();
+      setRecentVaults(resp.vaults);
+    } catch (e) {
+      console.error("listRecentVaults failed", e);
+      setRecentVaults([]);
+    }
+  };
   const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
   const [selectedContent, setSelectedContent] = createSignal<string | null>(
     null,
@@ -1452,6 +1467,14 @@ const App: Component = () => {
       if (themeMode() === "system") setResolvedTheme(applyTheme("system"));
     });
     onCleanup(unwatchTheme);
+
+    // Recent vaults + auto-open the last one. Do this after the scan
+    // listeners are wired so the auto-opened vault's progress events land.
+    await refreshRecentVaults();
+    const top = recentVaults()[0];
+    if (top && top.exists) {
+      void openVaultByPath(top.path);
+    }
   });
 
   onCleanup(() => {
@@ -1658,6 +1681,8 @@ const App: Component = () => {
         {},
         setShortcutOverrides,
       );
+
+      void refreshRecentVaults();
     } catch (e) {
       const message = errorMessage(e);
       setError(message);
@@ -1799,6 +1824,18 @@ const App: Component = () => {
             >
               Open Vault
             </button>
+            <Show when={recentVaults().length > 0}>
+              <div class="empty-vault__recents">
+                <p class="empty-vault__recents-label">Recent vaults</p>
+                <RecentVaultList
+                  vaults={recentVaults()}
+                  onSwitch={(path) => void openVaultByPath(path)}
+                  onRemove={(path) =>
+                    void removeRecentVault({ path }).then(refreshRecentVaults)
+                  }
+                />
+              </div>
+            </Show>
           </div>
         }
       >
@@ -2114,6 +2151,13 @@ const App: Component = () => {
                   <Show when={vaultSwitcherOpen()}>
                     <VaultSwitcher
                       currentPath={vaultPath()}
+                      recentVaults={recentVaults().filter(
+                        (v) => v.path !== vaultPath(),
+                      )}
+                      onSwitch={(path) => void openVaultByPath(path)}
+                      onRemove={(path) =>
+                        void removeRecentVault({ path }).then(refreshRecentVaults)
+                      }
                       onOpenFolder={() => void handleOpen()}
                       onDismiss={() => setVaultSwitcherOpen(false)}
                     />

@@ -402,6 +402,16 @@
   color: var(--c-fg-muted);
   font-size: var(--text-sm);
 }
+.empty-vault__recents {
+  width: 100%;
+  max-width: 20rem;
+}
+.empty-vault__recents-label {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--c-fg-muted);
+  text-align: left;
+}
 
 /* ---- left-sidebar footer: vault switcher + settings ---- */
 .side__footer {
@@ -645,15 +655,36 @@
 .vault-switcher__path {
   font-weight: 600;
 }
-.vault-switcher__recents {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  font-size: var(--text-xs);
-  color: var(--c-fg-secondary);
-}
 .vault-switcher__open {
   width: 100%;
+}
+.recent-vaults {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.recent-vaults__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.recent-vaults__switch {
+  flex: 1;
+  text-align: left;
+}
+.recent-vaults__row--missing .recent-vaults__name {
+  color: var(--c-fg-muted);
+}
+.recent-vaults__hint {
+  font-size: var(--text-xs);
+  color: var(--c-fg-muted);
+}
+.recent-vaults__remove {
+  color: var(--c-fg-muted);
 }
 .seg-control {
   flex: 0 0 auto;
