@@ -12,6 +12,7 @@ import Toast from '../../components/feedback/Toast/Toast';
 import Tooltip from '../../components/feedback/Tooltip/Tooltip';
 import Tag from '../../components/data/Tag/Tag';
 import FileTreeRow from '../../components/data/FileTreeRow/FileTreeRow';
+import BacklinkRow from '../../components/data/BacklinkRow/BacklinkRow';
 
 const Gallery = () => {
   const [textInputValue, setTextInputValue] = createSignal('');
@@ -120,6 +121,13 @@ const Gallery = () => {
           <FileTreeRow name="Design notes.md" depth={1} kind="md" selected />
           <FileTreeRow name="Old spec.md" depth={1} kind="broken" invalid />
           <FileTreeRow name="moodboard.png" depth={0} kind="png" renaming onRenameCommit={() => {}} />
+        </div>
+      </section>
+      <section class="gallery-section stack">
+        <div class="eyebrow">Data — BacklinkRow</div>
+        <div class="stack divided-list" style={{ width: '320px', border: '1px solid var(--c-border-subtle)' }}>
+          <BacklinkRow noteTitle="Cubical roadmap" snippet="Design notes cover the accent-as-state rule in depth." matchQuery="accent" />
+          <BacklinkRow noteTitle="2026-07-12" snippet="Reviewed design notes before standup." />
         </div>
       </section>
     </div>

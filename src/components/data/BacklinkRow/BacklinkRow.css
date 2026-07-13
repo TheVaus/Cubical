@@ -1,0 +1,29 @@
+.backlink-row {
+  width: 100%;
+  text-align: left;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  transition: background var(--duration-state) var(--ease-standard);
+}
+
+.backlink-row:hover {
+  background: var(--c-bg-tertiary);
+}
+
+.backlink-title {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-heading);
+  color: var(--c-fg-primary);
+}
+
+.backlink-snippet {
+  font-size: var(--text-xs);
+  color: var(--c-fg-secondary);
+}
+
+.backlink-snippet mark {
+  background: var(--c-accent);
+  color: var(--c-accent-contrast);
+  border-radius: 2px;
+  padding: 0 1px;
+}
