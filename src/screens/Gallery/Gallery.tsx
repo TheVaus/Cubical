@@ -13,6 +13,7 @@ import Tooltip from '../../components/feedback/Tooltip/Tooltip';
 import Tag from '../../components/data/Tag/Tag';
 import FileTreeRow from '../../components/data/FileTreeRow/FileTreeRow';
 import BacklinkRow from '../../components/data/BacklinkRow/BacklinkRow';
+import Menu from '../../components/overlay/Menu/Menu';
 
 const Gallery = () => {
   const [textInputValue, setTextInputValue] = createSignal('');
@@ -129,6 +130,16 @@ const Gallery = () => {
           <BacklinkRow noteTitle="Cubical roadmap" snippet="Design notes cover the accent-as-state rule in depth." matchQuery="accent" />
           <BacklinkRow noteTitle="2026-07-12" snippet="Reviewed design notes before standup." />
         </div>
+      </section>
+      <section class="gallery-section stack">
+        <div class="eyebrow">Overlay — Menu</div>
+        <Menu
+          items={[
+            { id: 'rename', label: 'Rename…', shortcut: '⌘R', onSelect: () => {} },
+            { id: 'delete', label: 'Delete', onSelect: () => {} },
+            { id: 'reveal', label: 'Reveal in file tree', disabled: true, onSelect: () => {} },
+          ]}
+        />
       </section>
     </div>
   );
