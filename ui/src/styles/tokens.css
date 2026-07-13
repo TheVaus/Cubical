@@ -4,43 +4,48 @@
  * SINGLE SOURCE OF TRUTH for colors, typography, spacing, radii, shadows.
  * All UI components consume these tokens; no other file hardcodes design values.
  *
- * L0 ships placeholder values. L2 lands real Light + Dark + High-Contrast themes
- * derived from this surface. The CodeMirror theme will be generated programmatically
- * from these same tokens at L2.
+ * Identity: "Machinist / Graphite" — warm-neutral cream/graphite surfaces, a
+ * single desaturated graphite-teal accent reserved for STATE (selection, active,
+ * focus, caret, resolved links/tags), saturated color rationed to STATUS only.
+ * Palette adopted from the standalone design system (design-system/src/styles/
+ * tokens.css); the app keeps its own token NAMES so components migrate by value,
+ * not by rename. The CodeMirror theme derives from the --editor-* tokens below.
  *
  * Architecture: docs/architecture/ui.md §11.4
  */
 
 :root,
 [data-theme="light"] {
-  /* Colors — backgrounds */
-  --c-bg-primary:   #ffffff;
-  --c-bg-secondary: #f7f7f8;
-  --c-bg-tertiary:  #ececef;
+  /* Colors — backgrounds (warm cream paper, three steps; tertiary = hover + selection fill) */
+  --c-bg-primary:   #faf8f3;
+  --c-bg-secondary: #f3f0e8;
+  --c-bg-tertiary:  #ebe7db;
   --c-bg-overlay:   rgba(0, 0, 0, 0.05);
 
-  /* Colors — foregrounds */
-  --c-fg-primary:   #18181b;
-  --c-fg-secondary: #52525b;
-  --c-fg-muted:     #71717a; /* zinc-500 ≈ 4.9:1 on white (AA); was #a1a1aa ≈ 2.6:1 (fail) */
-  --c-fg-inverse:   #ffffff;
+  /* Colors — foregrounds (warm-toned, AA on cream) */
+  --c-fg-primary:   #1f1c15;
+  --c-fg-secondary: #5c574a;
+  --c-fg-muted:     #8a8374;
+  --c-fg-inverse:   #faf8f3;
 
-  /* Colors — accent + status */
-  --c-accent:       #5b6cff;
-  --c-accent-hover: #4a59e0;
-  --c-success:      #16a34a;
-  --c-warning:      #d97706;
-  --c-error:        #dc2626;
+  /* Colors — accent (STATE only) + status (STATUS only) */
+  --c-accent:          #4f6d68;
+  --c-accent-hover:    #42605b;
+  --c-accent-contrast: #faf8f3;
+  --c-focus-ring:      #4f6d68;
+  --c-success:         #4f7d4a;
+  --c-warning:         #b8862f;
+  --c-error:           #b3452f;
 
-  /* Colors — borders */
-  --c-border-subtle: #e4e4e7;
-  --c-border-strong: #a1a1aa;
+  /* Colors — borders (subtle = hairline dividers; strong = real boundaries ≥3:1) */
+  --c-border-subtle: #e3ded0;
+  --c-border-strong: #b9b29d;
 
   /* Typography — families */
   --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", system-ui, sans-serif;
   --font-mono: "SF Mono", "Menlo", "Monaco", "JetBrains Mono", "Fira Code", monospace;
 
-  /* Typography — sizes */
+  /* Typography — sizes (7-step ramp 12→30px) */
   --text-xs:   0.75rem;
   --text-sm:   0.875rem;
   --text-base: 1rem;
@@ -64,52 +69,88 @@
   --space-7: 3rem;
   --space-8: 4rem;
 
-  /* Border radii */
-  --radius-sm: 0.25rem;
-  --radius-md: 0.5rem;
-  --radius-lg: 0.75rem;
+  /* Border radii (machined/small) */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
   --radius-full: 9999px;
 
-  /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.08);
-  --shadow-lg: 0 12px 24px rgba(0, 0, 0, 0.12);
+  /* Shadows — transient overlays only */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.12);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.16);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.2);
 
   /* Transitions */
   --transition-fast: 120ms ease-out;
   --transition-base: 200ms ease-out;
 
-  /* Editor surface (L2 — Live Preview decorations + CM6 theme) */
-  --editor-mark-fg-muted:   #c4c4cc;
-  --editor-caret:           #5b6cff;
-  --editor-selection-bg:    rgba(91, 108, 255, 0.18);
+  /* Editor surface (Live Preview decorations + CM6 theme) */
+  --editor-mark-fg-muted:   #b9b29d;
+  --editor-caret:           #4f6d68;
+  --editor-selection-bg:    rgba(79, 109, 104, 0.18);
 }
 
 [data-theme="dark"] {
-  --c-bg-primary:   #0f0f10;
-  --c-bg-secondary: #18181b;
-  --c-bg-tertiary:  #27272a;
+  --c-bg-primary:   #181610;
+  --c-bg-secondary: #201d16;
+  --c-bg-tertiary:  #2a2620;
   --c-bg-overlay:   rgba(255, 255, 255, 0.05);
 
-  --c-fg-primary:   #f4f4f5;
-  --c-fg-secondary: #b4b4bd;
-  --c-fg-muted:     #8a8a94;
-  --c-fg-inverse:   #18181b;
+  --c-fg-primary:   #f2ede2;
+  --c-fg-secondary: #b4ac9b;
+  --c-fg-muted:     #7d7666;
+  --c-fg-inverse:   #181610;
 
-  --c-accent:       #818cff;
-  --c-accent-hover: #9aa3ff;
-  --c-success:      #22c55e;
-  --c-warning:      #f59e0b;
-  --c-error:        #ef4444;
+  --c-accent:          #7fa39c;
+  --c-accent-hover:    #93b3ac;
+  --c-accent-contrast: #14201d;
+  --c-focus-ring:      #7fa39c;
+  --c-success:         #7fb473;
+  --c-warning:         #d9a54c;
+  --c-error:           #d97a5c;
 
-  --c-border-subtle: #27272a;
-  --c-border-strong: #52525b;
+  --c-border-subtle: #302c23;
+  --c-border-strong: #4a4436;
 
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 12px 24px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55);
 
-  --editor-mark-fg-muted:   #6e6e78;
-  --editor-caret:           #818cff;
-  --editor-selection-bg:    rgba(129, 140, 255, 0.28);
+  --editor-mark-fg-muted:   #6b6456;
+  --editor-caret:           #7fa39c;
+  --editor-selection-bg:    rgba(127, 163, 156, 0.28);
+}
+
+[data-theme="high-contrast"] {
+  --c-bg-primary:   #ffffff;
+  --c-bg-secondary: #ffffff;
+  --c-bg-tertiary:  #d8d8d8;
+  --c-bg-overlay:   rgba(0, 0, 0, 0.08);
+
+  --c-fg-primary:   #000000;
+  --c-fg-secondary: #000000;
+  --c-fg-muted:     #3d3d3d;
+  --c-fg-inverse:   #ffffff;
+
+  --c-accent:          #005f56;
+  --c-accent-hover:    #004a43;
+  --c-accent-contrast: #ffffff;
+  --c-focus-ring:      #005f56;
+  --c-success:         #006400;
+  --c-warning:         #8a5a00;
+  --c-error:           #b00000;
+
+  --c-border-subtle: #000000;
+  --c-border-strong: #000000;
+
+  --editor-mark-fg-muted:   #3d3d3d;
+  --editor-caret:           #005f56;
+  --editor-selection-bg:    rgba(0, 95, 86, 0.22);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --transition-fast: 0ms;
+    --transition-base: 0ms;
+  }
 }
