@@ -19,6 +19,8 @@
     "isolatedModules": true,
     "resolveJsonModule": true,
     "allowSyntheticDefaultImports": true,
+    "baseUrl": ".",
+    "paths": { "@ds/*": ["../design-system/src/*"] },
     "useDefineForClassFields": true,
     "verbatimModuleSyntax": true,
     "noEmit": true,

@@ -1,6 +1,7 @@
 /// <reference types="vitest" />
 import { defineConfig } from "vite";
 import solid from "vite-plugin-solid";
+import { fileURLToPath, URL } from "node:url";
 
 // Vite is configured for Tauri 2:
 // - Fixed port 5173 with strictPort so Tauri's devUrl is reliable.
@@ -9,13 +10,27 @@ import solid from "vite-plugin-solid";
 
 const host = process.env.TAURI_DEV_HOST;
 
+// The design system (../design-system/src) is the app's component library.
+// `@ds/*` resolves there; `dedupe: ["solid-js"]` guarantees a SINGLE Solid
+// instance across the alias boundary (two copies would break reactivity).
+const repoRoot = fileURLToPath(new URL("..", import.meta.url));
+const designSystemSrc = fileURLToPath(
+  new URL("../design-system/src", import.meta.url),
+);
+
 export default defineConfig({
   plugins: [solid()],
   clearScreen: false,
+  resolve: {
+    alias: { "@ds": designSystemSrc },
+    dedupe: ["solid-js"],
+  },
   server: {
     port: 5173,
     strictPort: true,
     host: host || false,
+    // Allow serving the sibling design-system/ source across the ui root.
+    fs: { allow: [repoRoot] },
     hmr: host
       ? {
           protocol: "ws",
