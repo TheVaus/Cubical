@@ -21,7 +21,15 @@ const FileTreeRow = (props: FileTreeRowProps) => {
       class="file-tree-row row"
       classList={{ selected: props.selected, invalid: props.invalid }}
       style={{ 'padding-left': `calc(var(--space-3) + ${props.depth} * var(--space-5))` }}
+      role="treeitem"
+      tabindex={props.renaming ? undefined : 0}
       onClick={() => props.onClick?.()}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          if (e.key === ' ') e.preventDefault();
+          props.onClick?.();
+        }
+      }}
     >
       <FileIcon kind={props.kind} />
       <Show

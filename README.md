@@ -51,6 +51,9 @@ be checked in place.
 
 - Solid idioms only (`createSignal`, `createMemo`, `<Show>`, `<For>`, props
   accessed as `props.x`).
-- No hardcoded hex or px values in component CSS — everything is a token.
+- No hardcoded hex values in component CSS — every color is a token. Fixed
+  control-size dimensions (button/input heights, icon sizes) are currently
+  literal px values — a `--control-height-*` token scale is a known gap,
+  not yet added.
 - Motion is `transform`/`opacity` only: 120ms for state, 200ms for surfaces.
   `prefers-reduced-motion` collapses both to 0ms.
