@@ -6,6 +6,7 @@ import IconButton from '../../components/forms/IconButton/IconButton';
 import TextInput from '../../components/forms/TextInput/TextInput';
 import Toggle from '../../components/forms/Toggle/Toggle';
 import SegmentedControl from '../../components/forms/SegmentedControl/SegmentedControl';
+import Badge from '../../components/feedback/Badge/Badge';
 
 const Gallery = () => {
   const [textInputValue, setTextInputValue] = createSignal('');
@@ -63,6 +64,15 @@ const Gallery = () => {
             { label: 'Mentions', value: 'mentions' },
           ]}
         />
+      </section>
+      <section class="gallery-section stack">
+        <div class="eyebrow">Feedback — Badge</div>
+        <div class="gallery-row row">
+          <Badge>Neutral</Badge>
+          <Badge tone="success">Success</Badge>
+          <Badge tone="warning">Warning</Badge>
+          <Badge tone="error">Error</Badge>
+        </div>
       </section>
     </div>
   );
