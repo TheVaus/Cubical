@@ -1,0 +1,25 @@
+.text-input {
+  height: 32px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--c-border-subtle);
+  background: var(--c-bg-primary);
+  color: var(--c-fg-primary);
+  font-size: var(--text-sm);
+  width: 100%;
+  transition: border-color var(--duration-state) var(--ease-standard);
+}
+
+.text-input::placeholder {
+  color: var(--c-fg-muted);
+}
+
+.text-input:focus-visible {
+  border-color: var(--c-accent);
+  outline: 2px solid var(--c-focus-ring);
+  outline-offset: 2px;
+}
+
+.text-input:disabled {
+  opacity: 0.5;
+}

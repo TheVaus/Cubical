@@ -1,9 +1,13 @@
+import { createSignal } from 'solid-js';
 import './Gallery.css';
 import CubeMark from '../../components/brand/CubeMark/CubeMark';
 import Button from '../../components/forms/Button/Button';
 import IconButton from '../../components/forms/IconButton/IconButton';
+import TextInput from '../../components/forms/TextInput/TextInput';
 
 const Gallery = () => {
+  const [textInputValue, setTextInputValue] = createSignal('');
+
   return (
     <div class="gallery stack scroll-y">
       <h1>Component gallery</h1>
@@ -29,6 +33,13 @@ const Gallery = () => {
           <IconButton label="Resting">⚙</IconButton>
           <IconButton label="Active" active>⚙</IconButton>
           <IconButton label="Disabled" disabled>⚙</IconButton>
+        </div>
+      </section>
+      <section class="gallery-section stack">
+        <div class="eyebrow">Forms — TextInput</div>
+        <div class="gallery-row row">
+          <TextInput value={textInputValue()} onInput={setTextInputValue} placeholder="Search notes…" />
+          <TextInput value="" onInput={() => {}} placeholder="Disabled" disabled />
         </div>
       </section>
     </div>
