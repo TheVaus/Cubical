@@ -1,4 +1,4 @@
-import { createSignal } from 'solid-js';
+import { createSignal, Show } from 'solid-js';
 import './Gallery.css';
 import CubeMark from '../../components/brand/CubeMark/CubeMark';
 import Button from '../../components/forms/Button/Button';
@@ -8,11 +8,13 @@ import Toggle from '../../components/forms/Toggle/Toggle';
 import SegmentedControl from '../../components/forms/SegmentedControl/SegmentedControl';
 import Badge from '../../components/feedback/Badge/Badge';
 import Callout from '../../components/feedback/Callout/Callout';
+import Toast from '../../components/feedback/Toast/Toast';
 
 const Gallery = () => {
   const [textInputValue, setTextInputValue] = createSignal('');
   const [toggleValue, setToggleValue] = createSignal(true);
   const [segmentValue, setSegmentValue] = createSignal('backlinks');
+  const [showToast, setShowToast] = createSignal(false);
 
   return (
     <div class="gallery stack scroll-y">
@@ -83,6 +85,15 @@ const Gallery = () => {
           <Callout tone="warning" title="Unresolved link">This note has 2 broken wiki-links.</Callout>
           <Callout tone="error" title="Write failed">Could not save — disk full.</Callout>
         </div>
+      </section>
+      <section class="gallery-section stack">
+        <div class="eyebrow">Feedback — Toast</div>
+        <div class="gallery-row row">
+          <Button variant="secondary" onClick={() => setShowToast(true)}>Trigger toast</Button>
+        </div>
+        <Show when={showToast()}>
+          <Toast message="Vault indexed — 1,204 notes." tone="success" onDismiss={() => setShowToast(false)} />
+        </Show>
       </section>
     </div>
   );
