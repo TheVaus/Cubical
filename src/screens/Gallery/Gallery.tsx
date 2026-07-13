@@ -7,6 +7,7 @@ import TextInput from '../../components/forms/TextInput/TextInput';
 import Toggle from '../../components/forms/Toggle/Toggle';
 import SegmentedControl from '../../components/forms/SegmentedControl/SegmentedControl';
 import Badge from '../../components/feedback/Badge/Badge';
+import Callout from '../../components/feedback/Callout/Callout';
 
 const Gallery = () => {
   const [textInputValue, setTextInputValue] = createSignal('');
@@ -72,6 +73,15 @@ const Gallery = () => {
           <Badge tone="success">Success</Badge>
           <Badge tone="warning">Warning</Badge>
           <Badge tone="error">Error</Badge>
+        </div>
+      </section>
+      <section class="gallery-section stack">
+        <div class="eyebrow">Feedback — Callout</div>
+        <div class="stack" style={{ gap: 'var(--space-3)' }}>
+          <Callout title="Note">Neutral callout copy.</Callout>
+          <Callout tone="success" title="Indexed">Vault indexed — 1,204 notes.</Callout>
+          <Callout tone="warning" title="Unresolved link">This note has 2 broken wiki-links.</Callout>
+          <Callout tone="error" title="Write failed">Could not save — disk full.</Callout>
         </div>
       </section>
     </div>
