@@ -9,6 +9,7 @@ import SegmentedControl from '../../components/forms/SegmentedControl/SegmentedC
 import Badge from '../../components/feedback/Badge/Badge';
 import Callout from '../../components/feedback/Callout/Callout';
 import Toast from '../../components/feedback/Toast/Toast';
+import Tooltip from '../../components/feedback/Tooltip/Tooltip';
 
 const Gallery = () => {
   const [textInputValue, setTextInputValue] = createSignal('');
@@ -94,6 +95,14 @@ const Gallery = () => {
         <Show when={showToast()}>
           <Toast message="Vault indexed — 1,204 notes." tone="success" onDismiss={() => setShowToast(false)} />
         </Show>
+      </section>
+      <section class="gallery-section stack">
+        <div class="eyebrow">Feedback — Tooltip</div>
+        <div class="gallery-row row">
+          <Tooltip label="Reveal in file tree">
+            <IconButton label="Reveal">⌄</IconButton>
+          </Tooltip>
+        </div>
       </section>
     </div>
   );
