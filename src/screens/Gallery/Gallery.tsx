@@ -11,6 +11,7 @@ import Callout from '../../components/feedback/Callout/Callout';
 import Toast from '../../components/feedback/Toast/Toast';
 import Tooltip from '../../components/feedback/Tooltip/Tooltip';
 import Tag from '../../components/data/Tag/Tag';
+import FileTreeRow from '../../components/data/FileTreeRow/FileTreeRow';
 
 const Gallery = () => {
   const [textInputValue, setTextInputValue] = createSignal('');
@@ -110,6 +111,15 @@ const Gallery = () => {
         <div class="gallery-row row">
           <Tag label="design" />
           <Tag label="cubical" resolved />
+        </div>
+      </section>
+      <section class="gallery-section stack">
+        <div class="eyebrow">Data — FileTreeRow</div>
+        <div class="stack" style={{ width: '240px', border: '1px solid var(--c-border-subtle)' }}>
+          <FileTreeRow name="Projects" depth={0} kind="folder" />
+          <FileTreeRow name="Design notes.md" depth={1} kind="md" selected />
+          <FileTreeRow name="Old spec.md" depth={1} kind="broken" invalid />
+          <FileTreeRow name="moodboard.png" depth={0} kind="png" renaming onRenameCommit={() => {}} />
         </div>
       </section>
     </div>

@@ -1,0 +1,47 @@
+.file-tree-row {
+  height: var(--row-height);
+  gap: var(--space-2);
+  padding-right: var(--space-3);
+  cursor: pointer;
+  color: var(--c-fg-secondary);
+  transition: background var(--duration-state) var(--ease-standard);
+}
+
+.file-tree-row:hover {
+  background: var(--c-bg-tertiary);
+}
+
+.file-tree-row.selected {
+  background: var(--c-bg-tertiary);
+  color: var(--c-fg-primary);
+  box-shadow: inset 2px 0 0 var(--c-accent);
+}
+
+.file-tree-name {
+  font-size: var(--text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-tree-row.invalid .file-tree-name {
+  color: var(--c-warning);
+  text-decoration: underline dotted;
+}
+
+.file-tree-warning {
+  margin-left: auto;
+  color: var(--c-warning);
+  font-size: var(--text-xs);
+}
+
+.file-tree-rename-input {
+  flex: 1;
+  height: 22px;
+  padding: 0 var(--space-1);
+  border: 1px solid var(--c-accent);
+  border-radius: var(--radius-sm);
+  background: var(--c-bg-primary);
+  color: var(--c-fg-primary);
+  font-size: var(--text-sm);
+}
