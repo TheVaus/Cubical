@@ -15,6 +15,7 @@ import FileTreeRow from '../../components/data/FileTreeRow/FileTreeRow';
 import BacklinkRow from '../../components/data/BacklinkRow/BacklinkRow';
 import Menu from '../../components/overlay/Menu/Menu';
 import Modal from '../../components/overlay/Modal/Modal';
+import CommandPalette from '../../components/overlay/CommandPalette/CommandPalette';
 
 const Gallery = () => {
   const [textInputValue, setTextInputValue] = createSignal('');
@@ -22,6 +23,7 @@ const Gallery = () => {
   const [segmentValue, setSegmentValue] = createSignal('backlinks');
   const [showToast, setShowToast] = createSignal(false);
   const [modalOpen, setModalOpen] = createSignal(false);
+  const [paletteOpen, setPaletteOpen] = createSignal(false);
 
   return (
     <div class="gallery stack scroll-y">
@@ -149,6 +151,18 @@ const Gallery = () => {
         <Modal open={modalOpen()} onClose={() => setModalOpen(false)} title="Rename note">
           <div style={{ padding: 'var(--space-4)' }}>Modal body content.</div>
         </Modal>
+      </section>
+      <section class="gallery-section stack">
+        <div class="eyebrow">Overlay — CommandPalette</div>
+        <Button variant="secondary" onClick={() => setPaletteOpen(true)}>Open command palette</Button>
+        <CommandPalette
+          open={paletteOpen()}
+          onClose={() => setPaletteOpen(false)}
+          commands={[
+            { id: 'a', label: 'Open Vault…', onRun: () => {} },
+            { id: 'b', label: 'Toggle theme', onRun: () => {} },
+          ]}
+        />
       </section>
     </div>
   );
