@@ -1,0 +1,14 @@
+.empty-vault {
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  text-align: center;
+  color: var(--c-fg-secondary);
+}
+
+.empty-vault-copy {
+  font-size: var(--text-sm);
+  max-width: 320px;
+  margin: 0;
+}
