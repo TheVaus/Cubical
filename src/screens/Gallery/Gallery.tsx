@@ -14,12 +14,14 @@ import Tag from '../../components/data/Tag/Tag';
 import FileTreeRow from '../../components/data/FileTreeRow/FileTreeRow';
 import BacklinkRow from '../../components/data/BacklinkRow/BacklinkRow';
 import Menu from '../../components/overlay/Menu/Menu';
+import Modal from '../../components/overlay/Modal/Modal';
 
 const Gallery = () => {
   const [textInputValue, setTextInputValue] = createSignal('');
   const [toggleValue, setToggleValue] = createSignal(true);
   const [segmentValue, setSegmentValue] = createSignal('backlinks');
   const [showToast, setShowToast] = createSignal(false);
+  const [modalOpen, setModalOpen] = createSignal(false);
 
   return (
     <div class="gallery stack scroll-y">
@@ -140,6 +142,13 @@ const Gallery = () => {
             { id: 'reveal', label: 'Reveal in file tree', disabled: true, onSelect: () => {} },
           ]}
         />
+      </section>
+      <section class="gallery-section stack">
+        <div class="eyebrow">Overlay — Modal</div>
+        <Button variant="secondary" onClick={() => setModalOpen(true)}>Open modal</Button>
+        <Modal open={modalOpen()} onClose={() => setModalOpen(false)} title="Rename note">
+          <div style={{ padding: 'var(--space-4)' }}>Modal body content.</div>
+        </Modal>
       </section>
     </div>
   );
