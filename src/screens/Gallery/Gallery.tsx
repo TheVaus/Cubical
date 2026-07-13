@@ -4,9 +4,11 @@ import CubeMark from '../../components/brand/CubeMark/CubeMark';
 import Button from '../../components/forms/Button/Button';
 import IconButton from '../../components/forms/IconButton/IconButton';
 import TextInput from '../../components/forms/TextInput/TextInput';
+import Toggle from '../../components/forms/Toggle/Toggle';
 
 const Gallery = () => {
   const [textInputValue, setTextInputValue] = createSignal('');
+  const [toggleValue, setToggleValue] = createSignal(true);
 
   return (
     <div class="gallery stack scroll-y">
@@ -40,6 +42,13 @@ const Gallery = () => {
         <div class="gallery-row row">
           <TextInput value={textInputValue()} onInput={setTextInputValue} placeholder="Search notes…" />
           <TextInput value="" onInput={() => {}} placeholder="Disabled" disabled />
+        </div>
+      </section>
+      <section class="gallery-section stack">
+        <div class="eyebrow">Forms — Toggle</div>
+        <div class="gallery-row row">
+          <Toggle checked={toggleValue()} onChange={setToggleValue} label="Enable feature" />
+          <Toggle checked={false} onChange={() => {}} disabled label="Disabled" />
         </div>
       </section>
     </div>
