@@ -1,0 +1,19 @@
+.minimap {
+  width: 48px;
+  flex-shrink: 0;
+  padding: var(--space-2);
+  gap: 2px;
+  background: var(--c-bg-secondary);
+  border-left: 1px solid var(--c-border-subtle);
+  overflow: hidden;
+}
+
+.minimap-line {
+  height: 2px;
+  background: var(--c-border-strong);
+  cursor: pointer;
+}
+
+.minimap-line:hover {
+  background: var(--c-accent);
+}
