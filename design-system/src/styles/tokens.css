@@ -47,6 +47,15 @@
 
   /* File-tree row */
   --row-height: 32px;
+
+  /* App-compat aliases: the app (ui/) consumes this file as its single source
+     of truth and references these NAMES; keep them wired to the canonical
+     tokens above so editing one value propagates to the app too. */
+  --font-body: var(--font-sans);
+  --leading-base: var(--leading-body);
+  --leading-loose: 1.75;
+  --transition-fast: var(--duration-state) var(--ease-standard);
+  --transition-base: var(--duration-surface) var(--ease-standard);
 }
 
 /* Light theme (default) */
@@ -66,6 +75,13 @@
   --c-success: #4f7d4a;
   --c-warning: #b8862f;
   --c-error: #b3452f;
+  /* App-compat (light) */
+  --c-accent-hover: #42605b;
+  --c-bg-overlay: rgba(0, 0, 0, 0.05);
+  --c-fg-inverse: #faf8f3;
+  --editor-mark-fg-muted: #b9b29d;
+  --editor-caret: #4f6d68;
+  --editor-selection-bg: rgba(79, 109, 104, 0.18);
 }
 
 [data-theme="dark"] {
@@ -83,6 +99,13 @@
   --c-success: #7fb473;
   --c-warning: #d9a54c;
   --c-error: #d97a5c;
+  /* App-compat (dark) */
+  --c-accent-hover: #93b3ac;
+  --c-bg-overlay: rgba(255, 255, 255, 0.05);
+  --c-fg-inverse: #181610;
+  --editor-mark-fg-muted: #6b6456;
+  --editor-caret: #7fa39c;
+  --editor-selection-bg: rgba(127, 163, 156, 0.28);
 }
 
 [data-theme="high-contrast"] {
@@ -100,6 +123,13 @@
   --c-success: #006400;
   --c-warning: #8a5a00;
   --c-error: #b00000;
+  /* App-compat (high-contrast) */
+  --c-accent-hover: #004a43;
+  --c-bg-overlay: rgba(0, 0, 0, 0.08);
+  --c-fg-inverse: #ffffff;
+  --editor-mark-fg-muted: #3d3d3d;
+  --editor-caret: #005f56;
+  --editor-selection-bg: rgba(0, 95, 86, 0.22);
 }
 
 @media (prefers-reduced-motion: reduce) {
