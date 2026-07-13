@@ -1,0 +1,28 @@
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: var(--radius-sm);
+  color: var(--c-fg-secondary);
+  background: transparent;
+  line-height: 1;
+  transition: background var(--duration-state) var(--ease-standard),
+    color var(--duration-state) var(--ease-standard);
+}
+
+.icon-btn:hover:not(:disabled) {
+  background: var(--c-bg-tertiary);
+  color: var(--c-fg-primary);
+}
+
+.icon-btn.active {
+  background: var(--c-accent);
+  color: var(--c-accent-contrast);
+}
+
+.icon-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

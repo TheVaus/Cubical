@@ -1,0 +1,9 @@
+.settings {
+  padding: var(--space-6);
+  gap: var(--space-6);
+  max-width: 480px;
+}
+
+.settings-section {
+  gap: var(--space-3);
+}

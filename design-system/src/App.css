@@ -1,0 +1,23 @@
+.dev-switcher {
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  background: var(--c-bg-secondary);
+  border-bottom: 1px solid var(--c-border-subtle);
+}
+
+.dev-switcher-btn {
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm);
+  color: var(--c-fg-secondary);
+  transition: background var(--duration-state) var(--ease-standard), color var(--duration-state) var(--ease-standard);
+}
+
+.dev-switcher-btn:hover {
+  background: var(--c-bg-tertiary);
+  color: var(--c-fg-primary);
+}
+
+.dev-switcher-btn.active {
+  background: var(--c-accent);
+  color: var(--c-accent-contrast);
+}

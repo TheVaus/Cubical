@@ -1,0 +1,12 @@
+.right-sidebar {
+  width: 260px;
+  flex-shrink: 0;
+  padding: var(--space-4);
+  gap: var(--space-2);
+  background: var(--c-bg-secondary);
+  border-left: 1px solid var(--c-border-subtle);
+}
+
+.right-sidebar-list {
+  margin: 0 calc(var(--space-4) * -1);
+}

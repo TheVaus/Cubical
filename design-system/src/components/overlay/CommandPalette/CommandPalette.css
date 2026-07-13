@@ -1,0 +1,27 @@
+.command-palette {
+  padding: var(--space-4);
+  gap: var(--space-3);
+}
+
+.command-list {
+  max-height: 40vh;
+}
+
+.command-item {
+  width: 100%;
+  text-align: left;
+  padding: var(--space-3) var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--c-fg-primary);
+  transition: background var(--duration-state) var(--ease-standard);
+}
+
+.command-item:hover {
+  background: var(--c-bg-tertiary);
+}
+
+.command-empty {
+  padding: var(--space-3) var(--space-2);
+  color: var(--c-fg-muted);
+  font-size: var(--text-sm);
+}

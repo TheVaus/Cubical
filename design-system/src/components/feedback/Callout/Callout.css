@@ -1,0 +1,17 @@
+.callout {
+  padding: var(--space-4);
+  background: var(--c-bg-secondary);
+  border-left: 2px solid var(--c-border-strong);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+}
+
+.callout-title {
+  font-weight: var(--weight-heading);
+  margin-bottom: var(--space-1);
+}
+
+.callout.neutral { border-left-color: var(--c-border-strong); }
+.callout.success { border-left-color: var(--c-success); }
+.callout.warning { border-left-color: var(--c-warning); }
+.callout.error { border-left-color: var(--c-error); }

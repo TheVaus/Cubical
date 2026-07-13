@@ -1,0 +1,6 @@
+.file-tree {
+  width: 240px;
+  flex-shrink: 0;
+  background: var(--c-bg-secondary);
+  border-right: 1px solid var(--c-border-subtle);
+}
