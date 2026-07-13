@@ -10,6 +10,7 @@ import Badge from '../../components/feedback/Badge/Badge';
 import Callout from '../../components/feedback/Callout/Callout';
 import Toast from '../../components/feedback/Toast/Toast';
 import Tooltip from '../../components/feedback/Tooltip/Tooltip';
+import Tag from '../../components/data/Tag/Tag';
 
 const Gallery = () => {
   const [textInputValue, setTextInputValue] = createSignal('');
@@ -102,6 +103,13 @@ const Gallery = () => {
           <Tooltip label="Reveal in file tree">
             <IconButton label="Reveal">⌄</IconButton>
           </Tooltip>
+        </div>
+      </section>
+      <section class="gallery-section stack">
+        <div class="eyebrow">Data — Tag</div>
+        <div class="gallery-row row">
+          <Tag label="design" />
+          <Tag label="cubical" resolved />
         </div>
       </section>
     </div>
