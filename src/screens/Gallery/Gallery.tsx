@@ -5,10 +5,12 @@ import Button from '../../components/forms/Button/Button';
 import IconButton from '../../components/forms/IconButton/IconButton';
 import TextInput from '../../components/forms/TextInput/TextInput';
 import Toggle from '../../components/forms/Toggle/Toggle';
+import SegmentedControl from '../../components/forms/SegmentedControl/SegmentedControl';
 
 const Gallery = () => {
   const [textInputValue, setTextInputValue] = createSignal('');
   const [toggleValue, setToggleValue] = createSignal(true);
+  const [segmentValue, setSegmentValue] = createSignal('backlinks');
 
   return (
     <div class="gallery stack scroll-y">
@@ -50,6 +52,17 @@ const Gallery = () => {
           <Toggle checked={toggleValue()} onChange={setToggleValue} label="Enable feature" />
           <Toggle checked={false} onChange={() => {}} disabled label="Disabled" />
         </div>
+      </section>
+      <section class="gallery-section stack">
+        <div class="eyebrow">Forms — SegmentedControl</div>
+        <SegmentedControl
+          value={segmentValue()}
+          onChange={setSegmentValue}
+          options={[
+            { label: 'Backlinks', value: 'backlinks' },
+            { label: 'Mentions', value: 'mentions' },
+          ]}
+        />
       </section>
     </div>
   );

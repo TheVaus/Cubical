@@ -1,0 +1,21 @@
+.segmented-control {
+  gap: var(--space-5);
+  border-bottom: 1px solid var(--c-border-subtle);
+}
+
+.segmented-option {
+  padding: var(--space-2) 0;
+  color: var(--c-fg-secondary);
+  font-size: var(--text-sm);
+  border-bottom: 2px solid transparent;
+  transition: color var(--duration-state) var(--ease-standard), border-color var(--duration-state) var(--ease-standard);
+}
+
+.segmented-option:hover {
+  color: var(--c-fg-primary);
+}
+
+.segmented-option.selected {
+  color: var(--c-fg-primary);
+  border-bottom-color: var(--c-accent);
+}
