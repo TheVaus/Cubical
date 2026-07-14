@@ -46,6 +46,13 @@
   width: 100%;
 }
 
+.btn.sm {
+  height: auto;
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
+  border-radius: var(--radius-sm);
+}
+
 .btn:disabled {
   opacity: 0.5;
   cursor: default;

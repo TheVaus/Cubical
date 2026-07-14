@@ -10,6 +10,11 @@ import {
   type Component,
   type JSX,
 } from "solid-js";
+
+import Button from "@ds/components/forms/Button/Button";
+import IconButton from "@ds/components/forms/IconButton/IconButton";
+import TextInput from "@ds/components/forms/TextInput/TextInput";
+
 import {
   search,
   searchIndexStatus,
@@ -281,90 +286,53 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
         >
           {/* Input + inline clear (X) button on its right edge. */}
           <div style={{ position: "relative", flex: 1, "min-width": 0 }}>
-            <input
-              ref={inputEl}
-              type="text"
+            <TextInput
+              ref={(el) => (inputEl = el)}
               value={queryText()}
               placeholder="Search notes…"
-              aria-label="Search notes"
-              onInput={(e) => onInput(e.currentTarget.value)}
+              ariaLabel="Search notes"
+              onInput={onInput}
               style={{
                 width: "100%",
                 "min-width": 0,
                 "box-sizing": "border-box",
                 // Extra right padding leaves room for the clear button.
-                padding: "var(--space-2) calc(var(--space-3) + 1.5rem) var(--space-2) var(--space-3)",
-                "font-family": "var(--font-body)",
-                "font-size": "var(--text-sm)",
-                color: "var(--c-fg-primary)",
-                background: "var(--c-bg-primary)",
-                border: "1px solid var(--c-border-subtle)",
-                "border-radius": "var(--radius-sm, var(--radius-md))",
+                padding:
+                  "0 calc(var(--space-3) + 2.25rem) 0 var(--space-3)",
               }}
             />
             <Show when={queryText().length > 0}>
-              <button
-                type="button"
-                aria-label="Clear search"
-                title="Clear search"
-                onClick={onClear}
+              <span
                 style={{
                   position: "absolute",
                   top: "50%",
-                  right: "var(--space-2)",
+                  right: "var(--space-1)",
                   transform: "translateY(-50%)",
-                  display: "flex",
-                  "align-items": "center",
-                  "justify-content": "center",
-                  width: "1.25rem",
-                  height: "1.25rem",
-                  padding: 0,
-                  color: "var(--c-fg-muted)",
-                  background: "transparent",
-                  border: "none",
-                  cursor: "pointer",
                 }}
               >
-                <svg
-                  width="12"
-                  height="12"
-                  viewBox="0 0 16 16"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                  stroke-linecap="round"
-                  aria-hidden="true"
-                >
-                  <path d="M4 4l8 8M12 4l-8 8" />
-                </svg>
-              </button>
+                <IconButton label="Clear search" onClick={onClear}>
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M4 4l8 8M12 4l-8 8" />
+                  </svg>
+                </IconButton>
+              </span>
             </Show>
           </div>
-          <button
-            type="button"
-            aria-label="Search filters"
-            aria-expanded={showFilters()}
+          <IconButton
+            label="Search filters"
             title="Filters (sort & scope)"
+            ariaExpanded={showFilters()}
+            active={filtersActive() || showFilters()}
             onClick={() => setShowFilters((v) => !v)}
-            style={{
-              display: "flex",
-              "align-items": "center",
-              "justify-content": "center",
-              "flex-shrink": 0,
-              width: "2rem",
-              height: "2rem",
-              color:
-                filtersActive() || showFilters()
-                  ? "var(--c-fg-inverse)"
-                  : "var(--c-fg-secondary)",
-              background:
-                filtersActive() || showFilters()
-                  ? "var(--c-accent)"
-                  : "var(--c-bg-secondary)",
-              border: "1px solid var(--c-border-subtle)",
-              "border-radius": "var(--radius-sm, var(--radius-md))",
-              cursor: "pointer",
-            }}
           >
             <svg
               width="14"
@@ -378,7 +346,7 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
             >
               <path d="M1.5 2.5h13l-5 6v4.5l-3 1.5V8.5z" />
             </svg>
-          </button>
+          </IconButton>
         </div>
 
         <Show when={showFilters()}>
@@ -414,22 +382,28 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
             <FilterGroup label="Sort">
               <For each={SORTS}>
                 {(s) => (
-                  <Chip
-                    label={s.label}
-                    selected={sort() === s.id}
+                  <Button
+                    size="sm"
+                    variant={sort() === s.id ? "primary" : "secondary"}
+                    ariaPressed={sort() === s.id}
                     onClick={() => onSort(s.id)}
-                  />
+                  >
+                    {s.label}
+                  </Button>
                 )}
               </For>
             </FilterGroup>
             <FilterGroup label="Scope">
               <For each={SCOPES}>
                 {(s) => (
-                  <Chip
-                    label={s.label}
-                    selected={scope() === s.id}
+                  <Button
+                    size="sm"
+                    variant={scope() === s.id ? "primary" : "secondary"}
+                    ariaPressed={scope() === s.id}
                     onClick={() => onScope(s.id)}
-                  />
+                  >
+                    {s.label}
+                  </Button>
                 )}
               </For>
             </FilterGroup>
@@ -577,30 +551,6 @@ const FilterGroup: Component<{ label: string; children: JSX.Element }> = (
   </div>
 );
 
-const Chip: Component<{
-  label: string;
-  selected: boolean;
-  onClick: () => void;
-}> = (props) => (
-  <button
-    type="button"
-    aria-pressed={props.selected}
-    onClick={props.onClick}
-    style={{
-      padding: "var(--space-1) var(--space-2)",
-      "font-family": "var(--font-body)",
-      "font-size": "var(--text-xs)",
-      color: props.selected ? "var(--c-fg-inverse)" : "var(--c-fg-secondary)",
-      background: props.selected ? "var(--c-accent)" : "transparent",
-      border: "1px solid var(--c-border-subtle)",
-      "border-radius": "var(--radius-sm, var(--radius-md))",
-      cursor: "pointer",
-    }}
-  >
-    {props.label}
-  </button>
-);
-
 /**
  * One file's result group: a collapsible header (title + recency + a
  * match-count badge) over its snippet cards. The chevron toggles
@@ -628,24 +578,10 @@ const FileGroupView: Component<{
         padding: "var(--space-2) var(--space-3)",
       }}
     >
-      <button
-        type="button"
-        aria-label={props.collapsed ? "Expand file" : "Collapse file"}
-        aria-expanded={!props.collapsed}
+      <IconButton
+        label={props.collapsed ? "Expand file" : "Collapse file"}
+        ariaExpanded={!props.collapsed}
         onClick={props.onToggle}
-        style={{
-          display: "flex",
-          "align-items": "center",
-          "justify-content": "center",
-          "flex-shrink": 0,
-          width: "1rem",
-          height: "1rem",
-          padding: 0,
-          color: "var(--c-fg-muted)",
-          background: "transparent",
-          border: "none",
-          cursor: "pointer",
-        }}
       >
         <svg
           width="10"
@@ -660,7 +596,14 @@ const FileGroupView: Component<{
         >
           <path d="M1 3l4 4 4-4z" />
         </svg>
-      </button>
+      </IconButton>
+      {/* Left as a raw <button>, not @ds Button: this is a roving-tabindex
+          list-row title (registerRef/tabStop/onFocus wire it into the
+          result list's keyboard nav) that must flex/truncate flush with its
+          siblings. Button's fixed height + centered/padded box model would
+          have to be neutralized almost entirely to fit that row, which
+          defeats the point of using the DS primitive — so the bespoke
+          element stays, unchanged. */}
       <button
         type="button"
         ref={props.registerRef}

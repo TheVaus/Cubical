@@ -7,6 +7,8 @@ import {
   type Component,
 } from "solid-js";
 
+import Button from "@ds/components/forms/Button/Button";
+
 import {
   getUnlinkedMentions,
   linkMention,
@@ -247,28 +249,18 @@ const UnlinkedMentions: Component<UnlinkedMentionsProps> = (props) => {
                         <div
                           style={{ display: "flex", "justify-content": "flex-end" }}
                         >
-                          <button
-                            type="button"
-                            onClick={() => void handleLink(m)}
+                          <Button
+                            variant="primary"
+                            size="sm"
                             disabled={isPending()}
-                            aria-label={`Link this mention to ${
+                            ariaLabel={`Link this mention to ${
                               basenameWithoutExtension(props.path ?? "") ||
                               "the open note"
                             }`}
-                            style={{
-                              padding: "var(--space-1) var(--space-3)",
-                              "font-size": "var(--text-xs)",
-                              "font-family": "var(--font-body)",
-                              color: "var(--c-fg-inverse)",
-                              background: "var(--c-accent)",
-                              border: "none",
-                              "border-radius":
-                                "var(--radius-sm, var(--radius-md))",
-                              cursor: isPending() ? "wait" : "pointer",
-                            }}
+                            onClick={() => void handleLink(m)}
                           >
                             {isPending() ? "Linking…" : "Link it"}
-                          </button>
+                          </Button>
                         </div>
                       </li>
                     );

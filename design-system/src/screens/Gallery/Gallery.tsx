@@ -44,6 +44,10 @@ const Gallery = () => {
           <Button variant="ghost">Ghost</Button>
           <Button variant="secondary" disabled>Disabled</Button>
         </div>
+        <div class="gallery-row row">
+          <Button variant="secondary" size="sm">Small secondary</Button>
+          <Button variant="primary" size="sm">Small primary</Button>
+        </div>
       </section>
       <section class="gallery-section stack">
         <div class="eyebrow">Forms — IconButton</div>
