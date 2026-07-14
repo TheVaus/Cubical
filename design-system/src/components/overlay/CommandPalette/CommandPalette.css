@@ -1,13 +1,28 @@
 .command-palette {
+  display: flex;
+  flex-direction: column;
   padding: var(--space-4);
   gap: var(--space-3);
 }
 
 .command-list {
+  display: flex;
+  flex-direction: column;
   max-height: 40vh;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
+.command-list > * + * {
+  border-top: 1px solid var(--c-border-subtle);
+}
+
+/* Carries its own control reset — see Button.css. */
 .command-item {
+  font: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
   width: 100%;
   text-align: left;
   padding: var(--space-3) var(--space-2);

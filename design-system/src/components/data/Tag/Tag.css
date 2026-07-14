@@ -1,4 +1,7 @@
+/* Carries its own control reset — see Button.css. */
 .tag {
+  border: none;
+  cursor: pointer;
   display: inline-flex;
   align-items: center;
   height: 20px;

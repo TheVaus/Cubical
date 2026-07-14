@@ -16,7 +16,13 @@
 .toast.warning { border-left: 2px solid var(--c-warning); }
 .toast.error { border-left: 2px solid var(--c-error); }
 
+/* Carries its own control reset — see Button.css. */
 .toast-dismiss {
+  font: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
   margin-left: auto;
   color: var(--c-fg-secondary);
   line-height: 1;

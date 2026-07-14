@@ -21,7 +21,7 @@ const Modal = (props: ModalProps) => {
     <Show when={props.open}>
       <Portal>
         <div class="modal-scrim" onClick={() => props.onClose()}>
-          <div class="modal-panel stack" onClick={(e) => e.stopPropagation()}>
+          <div class="modal-panel" onClick={(e) => e.stopPropagation()}>
             <Show when={props.title}>
               <div class="modal-title">{props.title}</div>
             </Show>

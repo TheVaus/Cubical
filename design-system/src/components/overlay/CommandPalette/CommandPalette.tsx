@@ -30,9 +30,9 @@ const CommandPalette = (props: CommandPaletteProps) => {
 
   return (
     <Modal open={props.open} onClose={props.onClose}>
-      <div class="command-palette stack">
+      <div class="command-palette">
         <TextInput value={query()} onInput={setQuery} placeholder="Type a command…" />
-        <div class="command-list stack divided-list scroll-y">
+        <div class="command-list">
           <Show when={filtered().length > 0} fallback={<div class="command-empty">No matching commands.</div>}>
             <For each={filtered()}>
               {(command) => (

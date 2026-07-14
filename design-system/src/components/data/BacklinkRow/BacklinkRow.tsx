@@ -26,7 +26,7 @@ const highlight = (snippet: string, query?: string): SnippetPart[] => {
 
 const BacklinkRow = (props: BacklinkRowProps) => {
   return (
-    <button type="button" class="backlink-row stack" onClick={() => props.onClick?.()}>
+    <button type="button" class="backlink-row" onClick={() => props.onClick?.()}>
       <span class="backlink-title">{props.noteTitle}</span>
       <span class="backlink-snippet">
         {highlight(props.snippet, props.matchQuery).map((part) => (

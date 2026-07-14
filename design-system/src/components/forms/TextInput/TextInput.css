@@ -1,4 +1,6 @@
+/* Carries its own control reset — see Button.css. */
 .text-input {
+  font: inherit;
   height: 32px;
   padding: 0 var(--space-3);
   border-radius: var(--radius-sm);

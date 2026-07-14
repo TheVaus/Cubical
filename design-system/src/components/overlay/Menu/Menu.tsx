@@ -15,13 +15,13 @@ export interface MenuProps {
 
 const Menu = (props: MenuProps) => {
   return (
-    <div class="menu stack" role="menu">
+    <div class="menu" role="menu">
       <For each={props.items}>
         {(item) => (
           <button
             type="button"
             role="menuitem"
-            class="menu-item row"
+            class="menu-item"
             disabled={item.disabled}
             onClick={() => item.onSelect()}
           >

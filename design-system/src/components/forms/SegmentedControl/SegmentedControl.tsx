@@ -14,7 +14,7 @@ export interface SegmentedControlProps {
 
 const SegmentedControl = (props: SegmentedControlProps) => {
   return (
-    <div class="segmented-control row" role="tablist">
+    <div class="segmented-control" role="tablist">
       <For each={props.options}>
         {(option) => (
           <button

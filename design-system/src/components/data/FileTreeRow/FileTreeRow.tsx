@@ -18,7 +18,7 @@ const FileTreeRow = (props: FileTreeRowProps) => {
 
   return (
     <div
-      class="file-tree-row row"
+      class="file-tree-row"
       classList={{ selected: props.selected, invalid: props.invalid }}
       style={{ 'padding-left': `calc(var(--space-3) + ${props.depth} * var(--space-5))` }}
       role="treeitem"

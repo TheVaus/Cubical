@@ -1,4 +1,9 @@
+/* Carries its own control reset — see Button.css. */
 .icon-btn {
+  font: inherit;
+  border: none;
+  padding: 0;
+  cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
