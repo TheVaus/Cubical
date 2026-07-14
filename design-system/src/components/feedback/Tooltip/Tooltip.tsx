@@ -1,4 +1,4 @@
-import { JSX, createSignal, Show } from 'solid-js';
+import { type JSX, createSignal, Show } from 'solid-js';
 import './Tooltip.css';
 
 export interface TooltipProps {

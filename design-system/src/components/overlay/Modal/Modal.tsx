@@ -1,4 +1,4 @@
-import { JSX, Show, onCleanup, onMount } from 'solid-js';
+import { type JSX, Show, onCleanup, onMount } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import './Modal.css';
 
