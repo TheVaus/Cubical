@@ -10,6 +10,13 @@ export interface ButtonProps {
   /** Stretches the button to 100% of its containing block. */
   fullWidth?: boolean;
   /**
+   * Lays the button out as a full-width, left-aligned column instead of
+   * the default centered single-line row. For list-style action rows
+   * that need multi-line content (e.g. a clickable search/file result
+   * with a title plus a secondary line) rather than a short label.
+   */
+  block?: boolean;
+  /**
    * Overrides the accessible name. Only needed when the visible children
    * don't fully describe the action (e.g. a disclosure trigger that wants
    * "<label> — open details" while showing just "<label>").
@@ -34,6 +41,7 @@ const Button = (props: ButtonProps) => {
         ghost: (props.variant ?? 'secondary') === 'ghost',
         'full-width': props.fullWidth,
         sm: (props.size ?? 'md') === 'sm',
+        block: props.block,
       }}
       disabled={props.disabled}
       aria-label={props.ariaLabel}

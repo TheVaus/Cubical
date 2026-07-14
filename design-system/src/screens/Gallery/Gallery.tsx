@@ -48,6 +48,14 @@ const Gallery = () => {
           <Button variant="secondary" size="sm">Small secondary</Button>
           <Button variant="primary" size="sm">Small primary</Button>
         </div>
+        <div class="stack" style={{ width: '240px' }}>
+          <Button variant="ghost" block>
+            <span style={{ 'font-weight': '500' }}>Block ghost row</span>
+            <span style={{ color: 'var(--c-fg-muted)', 'font-size': 'var(--text-xs)' }}>
+              Left-aligned, multi-line content
+            </span>
+          </Button>
+        </div>
       </section>
       <section class="gallery-section stack">
         <div class="eyebrow">Forms — IconButton</div>

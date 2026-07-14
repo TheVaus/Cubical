@@ -1,4 +1,7 @@
 import { type Component, createEffect, createSignal, For, onCleanup, Show } from "solid-js";
+
+import Button from "@ds/components/forms/Button/Button";
+
 import {
   COMMAND_DEFAULTS,
   eventToChord,
@@ -103,13 +106,13 @@ const ShortcutsPanel: Component<ShortcutsPanelProps> = (props) => {
             >
               <kbd>Press keys…</kbd>
             </Show>
-            <button type="button" class="chrome-btn" onClick={() => startListening(c.id)}>
+            <Button variant="secondary" size="sm" onClick={() => startListening(c.id)}>
               Change
-            </button>
+            </Button>
             <Show when={props.overrides[c.id] !== undefined}>
-              <button type="button" class="chrome-btn" onClick={() => resetRow(c.id)}>
+              <Button variant="secondary" size="sm" onClick={() => resetRow(c.id)}>
                 Reset
-              </button>
+              </Button>
             </Show>
             <Show when={errorFor()?.id === c.id}>
               <p

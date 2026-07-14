@@ -7,6 +7,8 @@ import {
   type Component,
 } from "solid-js";
 
+import Button from "@ds/components/forms/Button/Button";
+
 import { queryTagPage, type TagPageFile } from "./api/ipc";
 import { errorMessage } from "./errorMessage";
 
@@ -125,22 +127,9 @@ const TagPage: Component<TagPageProps> = (props) => {
         >
           #{props.tagPath}
         </h2>
-        <button
-          type="button"
-          onClick={props.onBack}
-          style={{
-            padding: "var(--space-1) var(--space-3)",
-            "font-size": "var(--text-xs)",
-            "font-family": "var(--font-body)",
-            color: "var(--c-fg-primary)",
-            background: "var(--c-bg-tertiary)",
-            border: "1px solid var(--c-border-subtle)",
-            "border-radius": "var(--radius-sm, var(--radius-md))",
-            cursor: "pointer",
-          }}
-        >
+        <Button variant="secondary" size="sm" onClick={props.onBack}>
           ← Back
-        </button>
+        </Button>
       </header>
 
       <Show when={state().phase === "loading"}>
@@ -198,32 +187,10 @@ const TagPage: Component<TagPageProps> = (props) => {
                 <For each={files()}>
                   {(file) => (
                     <li>
-                      <button
-                        type="button"
+                      <Button
+                        variant="ghost"
+                        block
                         onClick={() => props.onSelectFile(file.path)}
-                        style={{
-                          display: "flex",
-                          "flex-direction": "column",
-                          "align-items": "flex-start",
-                          gap: "var(--space-1)",
-                          width: "100%",
-                          padding: "var(--space-2) var(--space-3)",
-                          "font-family": "var(--font-body)",
-                          "font-size": "var(--text-sm)",
-                          color: "var(--c-fg-primary)",
-                          background: "transparent",
-                          border: "1px solid transparent",
-                          "border-radius": "var(--radius-sm, var(--radius-md))",
-                          cursor: "pointer",
-                          "text-align": "left",
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.background =
-                            "var(--c-bg-tertiary)";
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = "transparent";
-                        }}
                       >
                         <span style={{ "font-weight": "500" }}>
                           {file.title}
@@ -237,7 +204,7 @@ const TagPage: Component<TagPageProps> = (props) => {
                         >
                           {file.path}
                         </span>
-                      </button>
+                      </Button>
                     </li>
                   )}
                 </For>

@@ -46,6 +46,18 @@
   width: 100%;
 }
 
+.btn.block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  height: auto;
+  width: 100%;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+}
+
 .btn.sm {
   height: auto;
   padding: var(--space-1) var(--space-2);
