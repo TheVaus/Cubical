@@ -7,6 +7,8 @@ import {
   type Component,
 } from "solid-js";
 
+import Button from "@ds/components/forms/Button/Button";
+
 import {
   flushPendingRewrites,
   getPendingRewritesBreakdown,
@@ -149,23 +151,16 @@ const PendingRewrites: Component<PendingRewritesProps> = (props) => {
     <Show when={props.vaultId !== null && formatPendingRewrites(props.count)}>
       {(display) => (
         <span style={{ position: "relative" }} ref={(el) => (popoverRoot = el)}>
-          <button
-            type="button"
-            aria-label={`${display().label} — open details`}
-            aria-expanded={state().kind !== "closed"}
-            onClick={() => (state().kind === "closed" ? open() : close())}
-            style={{
-              background: "transparent",
-              border: "none",
-              color: "var(--c-accent)",
-              cursor: "pointer",
-              "font-family": "var(--font-mono)",
-              "font-size": "var(--text-xs)",
-              padding: 0,
-            }}
-          >
-            {display().label}
-          </button>
+          <span style={{ color: "var(--c-accent)" }}>
+            <Button
+              variant="ghost"
+              ariaLabel={`${display().label} — open details`}
+              ariaExpanded={state().kind !== "closed"}
+              onClick={() => (state().kind === "closed" ? open() : close())}
+            >
+              {display().label}
+            </Button>
+          </span>
           <Show when={state().kind !== "closed"}>
             <div
               role="dialog"
@@ -298,27 +293,14 @@ const PendingRewrites: Component<PendingRewritesProps> = (props) => {
                           </ul>
                         </Show>
                       </section>
-                      <button
-                        type="button"
+                      <Button
+                        variant="primary"
+                        fullWidth
                         onClick={() => void handleFlushAll()}
                         disabled={flushing() || s.breakdown.length === 0}
-                        style={{
-                          padding: "var(--space-1) var(--space-3)",
-                          "font-size": "var(--text-xs)",
-                          color: "var(--c-fg-inverse)",
-                          background: "var(--c-accent)",
-                          border: "none",
-                          "border-radius": "var(--radius-sm)",
-                          cursor:
-                            flushing() || s.breakdown.length === 0
-                              ? "default"
-                              : "pointer",
-                          opacity:
-                            flushing() || s.breakdown.length === 0 ? 0.6 : 1,
-                        }}
                       >
                         {flushing() ? "Saving…" : "Save all pending changes"}
-                      </button>
+                      </Button>
                       <section
                         aria-label="Recent renames"
                         style={{
@@ -387,23 +369,13 @@ const PendingRewrites: Component<PendingRewritesProps> = (props) => {
                                       {op.row_count} row
                                       {op.row_count === 1 ? "" : "s"}
                                     </span>
-                                    <button
-                                      type="button"
+                                    <Button
+                                      variant="secondary"
                                       onClick={() => void handleUndo(op.rename_op_id)}
                                       disabled={isPending()}
-                                      style={{
-                                        padding: "var(--space-1) var(--space-3)",
-                                        "font-size": "var(--text-xs)",
-                                        color: "var(--c-fg-primary)",
-                                        background: "var(--c-bg-tertiary)",
-                                        border:
-                                          "1px solid var(--c-border-subtle)",
-                                        "border-radius": "var(--radius-sm)",
-                                        cursor: isPending() ? "wait" : "pointer",
-                                      }}
                                     >
                                       {isPending() ? "Undoing…" : "Undo"}
-                                    </button>
+                                    </Button>
                                   </li>
                                 );
                               }}

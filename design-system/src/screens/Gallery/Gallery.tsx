@@ -41,6 +41,7 @@ const Gallery = () => {
         <div class="gallery-row row">
           <Button variant="secondary">Secondary</Button>
           <Button variant="primary">Primary</Button>
+          <Button variant="ghost">Ghost</Button>
           <Button variant="secondary" disabled>Disabled</Button>
         </div>
       </section>

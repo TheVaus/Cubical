@@ -1,5 +1,7 @@
 import { Show, onCleanup, onMount } from "solid-js";
 
+import Button from "@ds/components/forms/Button/Button";
+
 import { RecentVaultList } from "./RecentVaultList";
 import type { RecentVault } from "./api/ipc";
 
@@ -79,16 +81,16 @@ export function VaultSwitcher(props: VaultSwitcherProps) {
             />
           </Show>
         </div>
-        <button
-          type="button"
-          class="vault-switcher__open"
+        <Button
+          variant="secondary"
+          fullWidth
           onClick={() => {
             props.onDismiss();
             props.onOpenFolder();
           }}
         >
           Open another vault…
-        </button>
+        </Button>
       </div>
     </>
   );

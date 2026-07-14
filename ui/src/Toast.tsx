@@ -1,5 +1,7 @@
 import { Show, type Component } from "solid-js";
 
+import IconButton from "@ds/components/forms/IconButton/IconButton";
+
 import { currentToast, dismissToast } from "./toastState";
 
 /**
@@ -33,22 +35,9 @@ export const ToastHost: Component = () => {
         }}
       >
         <span>{currentToast()}</span>
-        <button
-          type="button"
-          aria-label="Dismiss"
-          onClick={dismissToast}
-          style={{
-            background: "transparent",
-            border: "none",
-            color: "var(--c-fg-secondary)",
-            cursor: "pointer",
-            "font-size": "var(--text-base)",
-            "line-height": "1",
-            padding: "0 var(--space-1)",
-          }}
-        >
+        <IconButton label="Dismiss" onClick={dismissToast}>
           ×
-        </button>
+        </IconButton>
       </div>
     </Show>
   );

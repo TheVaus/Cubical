@@ -1,5 +1,8 @@
 import { For, Show } from "solid-js";
 
+import Button from "@ds/components/forms/Button/Button";
+import IconButton from "@ds/components/forms/IconButton/IconButton";
+
 import type { RecentVault } from "./api/ipc";
 
 /**
@@ -35,25 +38,24 @@ export function RecentVaultList(props: RecentVaultListProps) {
                     {vaultName(v.path)}{" "}
                     <span class="recent-vaults__hint">(missing)</span>
                   </span>
-                  <button
-                    type="button"
-                    class="recent-vaults__remove"
-                    aria-label={`Remove ${vaultName(v.path)} from recent vaults`}
+                  <IconButton
+                    label={`Remove ${vaultName(v.path)} from recent vaults`}
                     onClick={() => props.onRemove(v.path)}
                   >
                     ×
-                  </button>
+                  </IconButton>
                 </>
               }
             >
-              <button
-                type="button"
-                class="recent-vaults__switch"
-                title={v.path}
-                onClick={() => props.onSwitch(v.path)}
-              >
-                {vaultName(v.path)}
-              </button>
+              <span class="recent-vaults__switch" title={v.path}>
+                <Button
+                  variant="secondary"
+                  fullWidth
+                  onClick={() => props.onSwitch(v.path)}
+                >
+                  {vaultName(v.path)}
+                </Button>
+              </span>
             </Show>
           </li>
         )}

@@ -32,6 +32,20 @@
   background: var(--c-bg-tertiary);
 }
 
+.btn.ghost {
+  background: transparent;
+  border-color: transparent;
+  padding: 0 var(--space-2);
+}
+
+.btn.ghost:hover:not(:disabled) {
+  background: var(--c-bg-tertiary);
+}
+
+.btn.full-width {
+  width: 100%;
+}
+
 .btn:disabled {
   opacity: 0.5;
   cursor: default;
