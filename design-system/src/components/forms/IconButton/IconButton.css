@@ -22,6 +22,10 @@
   color: var(--c-fg-primary);
 }
 
+.icon-btn.mono {
+  font-family: var(--font-mono);
+}
+
 .icon-btn.active {
   background: var(--c-accent);
   color: var(--c-accent-contrast);

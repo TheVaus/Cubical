@@ -62,7 +62,9 @@
   gap: var(--space-1);
   overflow: hidden;
 }
+/* Wrapper that positions the DS IconButton; the button's own look is the DS's. */
 .topbar__source {
+  display: flex;
   flex: 0 0 auto;
   align-self: center;
   margin: 0 var(--space-2);
@@ -90,15 +92,6 @@
 .chrome-btn:hover {
   color: var(--c-fg-primary);
   border-color: var(--c-border-strong);
-}
-.chrome-btn--mono {
-  font-family: var(--font-mono);
-}
-/* active mode (raw source): accent */
-.chrome-btn--accent {
-  color: var(--c-fg-inverse);
-  background: var(--c-accent);
-  border-color: var(--c-accent);
 }
 .chrome-btn--primary {
   color: var(--c-fg-inverse);

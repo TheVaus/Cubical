@@ -13,6 +13,8 @@ import {
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
+import IconButton from "@ds/components/forms/IconButton/IconButton";
+
 import Editor, { type EditorApi } from "./Editor";
 import Properties from "./Properties";
 import { RecentVaultList } from "./RecentVaultList";
@@ -1728,36 +1730,27 @@ const App: Component = () => {
     <div class="app-shell">
       <header class="topbar">
         <div class="topbar__flank topbar__flank--left">
-          <button
-            type="button"
-            class="chrome-btn"
+          <IconButton
+            label="Toggle file panel"
             onClick={toggleLeftSidebar}
-            aria-label="Toggle file panel"
-            aria-pressed={!leftCollapsed()}
-            title="Toggle file panel"
+            ariaPressed={!leftCollapsed()}
           >
             {leftCollapsed() ? "⟩" : "⟨"}
-          </button>
-          <button
-            type="button"
-            class="chrome-btn"
+          </IconButton>
+          <IconButton
+            label="Navigate back"
             onClick={goBack}
             disabled={!navCanBack()}
-            aria-label="Navigate back"
-            title="Navigate back"
           >
             ‹
-          </button>
-          <button
-            type="button"
-            class="chrome-btn"
+          </IconButton>
+          <IconButton
+            label="Navigate forward"
             onClick={goForward}
             disabled={!navCanForward()}
-            aria-label="Navigate forward"
-            title="Navigate forward"
           >
             ›
-          </button>
+          </IconButton>
         </div>
         <div class="topbar__center">
           <div class="topbar__tabs">
@@ -1772,35 +1765,33 @@ const App: Component = () => {
               </div>
             </Show>
           </div>
-          <button
-            type="button"
-            class="chrome-btn chrome-btn--mono topbar__source"
-            classList={{ "chrome-btn--accent": effectiveRaw() }}
-            onClick={(e) =>
-              e.shiftKey ? setRawAsDefault() : toggleRawSource()
-            }
-            aria-label="Toggle raw source"
-            aria-pressed={effectiveRaw()}
-            title={
-              effectiveRaw()
-                ? "Raw source (Cmd/Ctrl+E · Shift-click sets default)"
-                : "Live preview (Cmd/Ctrl+E · Shift-click sets default)"
-            }
-          >
-            &lt;/&gt;
-          </button>
+          <div class="topbar__source">
+            <IconButton
+              label="Toggle raw source"
+              mono
+              active={effectiveRaw()}
+              ariaPressed={effectiveRaw()}
+              onClick={(e) =>
+                e.shiftKey ? setRawAsDefault() : toggleRawSource()
+              }
+              title={
+                effectiveRaw()
+                  ? "Raw source (Cmd/Ctrl+E · Shift-click sets default)"
+                  : "Live preview (Cmd/Ctrl+E · Shift-click sets default)"
+              }
+            >
+              &lt;/&gt;
+            </IconButton>
+          </div>
         </div>
         <div class="topbar__flank topbar__flank--right">
-          <button
-            type="button"
-            class="chrome-btn"
+          <IconButton
+            label="Toggle backlinks panel"
             onClick={toggleRightSidebar}
-            aria-label="Toggle backlinks panel"
-            aria-pressed={!rightSidebarCollapsed()}
-            title="Toggle backlinks panel"
+            ariaPressed={!rightSidebarCollapsed()}
           >
             {rightSidebarCollapsed() ? "⟨" : "⟩"}
-          </button>
+          </IconButton>
         </div>
       </header>
 
