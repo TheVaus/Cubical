@@ -13,6 +13,7 @@ import {
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
+import Button from "@ds/components/forms/Button/Button";
 import IconButton from "@ds/components/forms/IconButton/IconButton";
 
 import Editor, { type EditorApi } from "./Editor";
@@ -1818,14 +1819,9 @@ const App: Component = () => {
           <Show when={!booting()}>
             <div class="empty-vault">
               <p>Pick a folder to open it as a vault.</p>
-              <button
-                type="button"
-                class="chrome-btn chrome-btn--primary"
-                onClick={handleOpen}
-                disabled={busy()}
-              >
+              <Button variant="primary" onClick={handleOpen} disabled={busy()}>
                 Open Vault
-              </button>
+              </Button>
               <Show when={recentVaults().length > 0}>
                 <div class="empty-vault__recents">
                   <p class="empty-vault__recents-label">Recent vaults</p>
@@ -2166,15 +2162,12 @@ const App: Component = () => {
                     />
                   </Show>
                 </div>
-                <button
-                  type="button"
-                  class="chrome-btn"
+                <IconButton
+                  label="Settings"
                   onClick={() => setSettingsOpen(true)}
-                  aria-label="Settings"
-                  title="Settings"
                 >
                   ⚙
-                </button>
+                </IconButton>
               </div>
             </div>
           </aside>
@@ -2447,17 +2440,17 @@ const App: Component = () => {
                 onClick={() => setOpenInfo(null)}
               />
             </Show>
-            <button
-              type="button"
-              class="chrome-btn modal__close"
-              aria-label="Close settings"
-              onClick={() => {
-                setSettingsOpen(false);
-                setOpenInfo(null);
-              }}
-            >
-              ✕
-            </button>
+            <span class="modal__close">
+              <IconButton
+                label="Close settings"
+                onClick={() => {
+                  setSettingsOpen(false);
+                  setOpenInfo(null);
+                }}
+              >
+                ✕
+              </IconButton>
+            </span>
             <nav class="modal__nav">
               <h3 class="modal__navtitle">Settings</h3>
               <For
@@ -3008,14 +3001,13 @@ topics:         # type:list
                     <div class="set-row__lab">Current vault</div>
                     <div class="set-row__desc">{vaultPath() ?? "—"}</div>
                   </div>
-                  <button
-                    type="button"
-                    class="chrome-btn chrome-btn--primary"
+                  <Button
+                    variant="primary"
                     onClick={handleOpen}
                     disabled={busy()}
                   >
                     Open another…
-                  </button>
+                  </Button>
                 </div>
               </Show>
               <Show when={settingsTab() === "shortcuts"}>
@@ -3100,38 +3092,16 @@ topics:         # type:list
                 "justify-content": "flex-end",
               }}
             >
-              <button
-                type="button"
-                onClick={dismissCreateOffer}
-                style={{
-                  padding: "var(--space-1) var(--space-3)",
-                  "font-size": "var(--text-xs)",
-                  "font-family": "var(--font-body)",
-                  color: "var(--c-fg-primary)",
-                  background: "var(--c-bg-tertiary)",
-                  border: "1px solid var(--c-border-subtle)",
-                  "border-radius": "var(--radius-sm, var(--radius-md))",
-                  cursor: "pointer",
-                }}
-              >
+              <Button variant="secondary" size="sm" onClick={dismissCreateOffer}>
                 Cancel
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
                 onClick={() => void acceptCreateOffer()}
-                style={{
-                  padding: "var(--space-1) var(--space-3)",
-                  "font-size": "var(--text-xs)",
-                  "font-family": "var(--font-body)",
-                  color: "var(--c-fg-inverse)",
-                  background: "var(--c-accent)",
-                  border: "none",
-                  "border-radius": "var(--radius-sm, var(--radius-md))",
-                  cursor: "pointer",
-                }}
               >
                 Create note
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -3369,40 +3339,20 @@ topics:         # type:list
                   gap: "var(--space-2)",
                 }}
               >
-                <button
-                  type="button"
+                <Button
+                  variant="secondary"
                   disabled={deleteInFlight()}
                   onClick={() => setDeleteTarget(null)}
-                  style={{
-                    padding: "var(--space-2) var(--space-3)",
-                    background: "transparent",
-                    border: "1px solid var(--c-border-subtle)",
-                    "border-radius": "var(--radius-md)",
-                    color: "var(--c-fg-primary)",
-                    "font-family": "var(--font-body)",
-                    "font-size": "var(--text-sm)",
-                    cursor: deleteInFlight() ? "default" : "pointer",
-                  }}
                 >
                   Cancel
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
+                  variant="danger"
                   disabled={deleteInFlight()}
                   onClick={() => void handleConfirmDelete()}
-                  style={{
-                    padding: "var(--space-2) var(--space-3)",
-                    background: "var(--c-error)",
-                    border: "none",
-                    "border-radius": "var(--radius-md)",
-                    color: "white",
-                    "font-family": "var(--font-body)",
-                    "font-size": "var(--text-sm)",
-                    cursor: deleteInFlight() ? "default" : "pointer",
-                  }}
                 >
                   {deleteInFlight() ? "Deleting…" : "Delete"}
-                </button>
+                </Button>
               </div>
             </div>
           </div>

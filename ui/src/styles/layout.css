@@ -70,35 +70,6 @@
   margin: 0 var(--space-2);
 }
 
-/* chrome buttons (collapse toggles, theme, source, open-vault) */
-.chrome-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 1.9rem;
-  min-width: 1.9rem;
-  padding: 0 var(--space-2);
-  border: 1px solid var(--c-border-subtle);
-  background: var(--c-bg-tertiary);
-  color: var(--c-fg-secondary);
-  border-radius: var(--radius-md);
-  font-family: var(--font-body);
-  font-size: var(--text-sm);
-  line-height: 1;
-  cursor: pointer;
-  transition: color var(--transition-fast), background var(--transition-fast),
-    border-color var(--transition-fast);
-}
-.chrome-btn:hover {
-  color: var(--c-fg-primary);
-  border-color: var(--c-border-strong);
-}
-.chrome-btn--primary {
-  color: var(--c-fg-inverse);
-  background: var(--c-accent);
-  border-color: var(--c-accent);
-}
-
 /* tabs */
 .tab {
   display: flex;
