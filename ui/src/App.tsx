@@ -15,6 +15,7 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 
 import Button from "@ds/components/forms/Button/Button";
 import IconButton from "@ds/components/forms/IconButton/IconButton";
+import SegmentedControl from "@ds/components/forms/SegmentedControl/SegmentedControl";
 
 import Editor, { type EditorApi } from "./Editor";
 import Properties from "./Properties";
@@ -1707,6 +1708,22 @@ const App: Component = () => {
     await openVaultByPath(picked);
   };
 
+  /** Off/On settings toggle as a two-option @ds pill SegmentedControl. */
+  const OnOffControl = (props: {
+    value: boolean;
+    onChange: (v: boolean) => void;
+  }) => (
+    <SegmentedControl
+      variant="pill"
+      options={[
+        { label: "Off", value: "off" },
+        { label: "On", value: "on" },
+      ]}
+      value={props.value ? "on" : "off"}
+      onChange={(v) => props.onChange(v === "on")}
+    />
+  );
+
   /** `ⓘ` button + its popover, anchored inside a `.set-row__control`. */
   const InfoButton = (props: { id: InfoId; children: JSX.Element }) => (
     <>
@@ -2493,22 +2510,14 @@ const App: Component = () => {
                       Follow the system, or force light / dark.
                     </div>
                   </div>
-                  <div class="seg-control">
-                    <For each={["system", "light", "dark"] as ThemeMode[]}>
-                      {(m) => (
-                        <button
-                          type="button"
-                          class="seg-control__btn"
-                          classList={{
-                            "seg-control__btn--active": themeMode() === m,
-                          }}
-                          onClick={() => setTheme(m)}
-                        >
-                          {THEME_ICON[m]} {m}
-                        </button>
-                      )}
-                    </For>
-                  </div>
+                  <SegmentedControl
+                    variant="pill"
+                    options={(["system", "light", "dark"] as ThemeMode[]).map(
+                      (m) => ({ label: `${THEME_ICON[m]} ${m}`, value: m }),
+                    )}
+                    value={themeMode()}
+                    onChange={(v) => setTheme(v as ThemeMode)}
+                  />
                 </div>
               </Show>
               <Show when={settingsTab() === "editor"}>
@@ -2522,24 +2531,10 @@ const App: Component = () => {
                       Otherwise notes open in Live Preview.
                     </div>
                   </div>
-                  <div class="seg-control">
-                    <button
-                      type="button"
-                      class="seg-control__btn"
-                      classList={{ "seg-control__btn--active": !rawDefault() }}
-                      onClick={() => setRawDefaultValue(false)}
-                    >
-                      Off
-                    </button>
-                    <button
-                      type="button"
-                      class="seg-control__btn"
-                      classList={{ "seg-control__btn--active": rawDefault() }}
-                      onClick={() => setRawDefaultValue(true)}
-                    >
-                      On
-                    </button>
-                  </div>
+                  <OnOffControl
+                    value={rawDefault()}
+                    onChange={setRawDefaultValue}
+                  />
                 </div>
                 <div class="set-row">
                   <div>
@@ -2548,28 +2543,10 @@ const App: Component = () => {
                       Show a document overview strip beside the editor.
                     </div>
                   </div>
-                  <div class="seg-control">
-                    <button
-                      type="button"
-                      class="seg-control__btn"
-                      classList={{
-                        "seg-control__btn--active": !minimapEnabled(),
-                      }}
-                      onClick={() => setMinimapEnabledValue(false)}
-                    >
-                      Off
-                    </button>
-                    <button
-                      type="button"
-                      class="seg-control__btn"
-                      classList={{
-                        "seg-control__btn--active": minimapEnabled(),
-                      }}
-                      onClick={() => setMinimapEnabledValue(true)}
-                    >
-                      On
-                    </button>
-                  </div>
+                  <OnOffControl
+                    value={minimapEnabled()}
+                    onChange={setMinimapEnabledValue}
+                  />
                 </div>
                 <div class="set-row">
                   <div>
@@ -2580,28 +2557,10 @@ const App: Component = () => {
                       colors change.
                     </div>
                   </div>
-                  <div class="seg-control">
-                    <button
-                      type="button"
-                      class="seg-control__btn"
-                      classList={{
-                        "seg-control__btn--active": !colorizeSource(),
-                      }}
-                      onClick={() => setColorizeSourceValue(false)}
-                    >
-                      Off
-                    </button>
-                    <button
-                      type="button"
-                      class="seg-control__btn"
-                      classList={{
-                        "seg-control__btn--active": colorizeSource(),
-                      }}
-                      onClick={() => setColorizeSourceValue(true)}
-                    >
-                      On
-                    </button>
-                  </div>
+                  <OnOffControl
+                    value={colorizeSource()}
+                    onChange={setColorizeSourceValue}
+                  />
                 </div>
                 <div class="set-row">
                   <div>
@@ -2710,24 +2669,10 @@ topics:         # type:list
                         untouched.
                       </p>
                     </InfoButton>
-                    <div class="seg-control">
-                      <button
-                        type="button"
-                        class="seg-control__btn"
-                        classList={{ "seg-control__btn--active": !typedProps() }}
-                        onClick={() => setTypedPropsValue(false)}
-                      >
-                        Off
-                      </button>
-                      <button
-                        type="button"
-                        class="seg-control__btn"
-                        classList={{ "seg-control__btn--active": typedProps() }}
-                        onClick={() => setTypedPropsValue(true)}
-                      >
-                        On
-                      </button>
-                    </div>
+                    <OnOffControl
+                      value={typedProps()}
+                      onChange={setTypedPropsValue}
+                    />
                   </div>
                 </div>
                 <Show when={typedProps()}>
@@ -2779,28 +2724,10 @@ topics:         # type:list
                         even when items don't start with <code>#</code>.
                       </div>
                     </div>
-                    <div class="seg-control">
-                      <button
-                        type="button"
-                        class="seg-control__btn"
-                        classList={{
-                          "seg-control__btn--active": !tagsKeyAsTags(),
-                        }}
-                        onClick={() => setTagsKeyAsTagsValue(false)}
-                      >
-                        Off
-                      </button>
-                      <button
-                        type="button"
-                        class="seg-control__btn"
-                        classList={{
-                          "seg-control__btn--active": tagsKeyAsTags(),
-                        }}
-                        onClick={() => setTagsKeyAsTagsValue(true)}
-                      >
-                        On
-                      </button>
-                    </div>
+                    <OnOffControl
+                      value={tagsKeyAsTags()}
+                      onChange={setTagsKeyAsTagsValue}
+                    />
                   </div>
                 </Show>
               </Show>
@@ -2830,28 +2757,10 @@ topics:         # type:list
                         still resolve to the file.
                       </p>
                     </InfoButton>
-                    <div class="seg-control">
-                      <button
-                        type="button"
-                        class="seg-control__btn"
-                        classList={{
-                          "seg-control__btn--active": !rewriteBrokenLinks(),
-                        }}
-                        onClick={() => setRewriteBrokenLinksValue(false)}
-                      >
-                        Off
-                      </button>
-                      <button
-                        type="button"
-                        class="seg-control__btn"
-                        classList={{
-                          "seg-control__btn--active": rewriteBrokenLinks(),
-                        }}
-                        onClick={() => setRewriteBrokenLinksValue(true)}
-                      >
-                        On
-                      </button>
-                    </div>
+                    <OnOffControl
+                      value={rewriteBrokenLinks()}
+                      onChange={setRewriteBrokenLinksValue}
+                    />
                   </div>
                 </div>
               </Show>
@@ -2888,28 +2797,12 @@ topics:         # type:list
                               <pre>{"# In Ann.md\n---\nrole: Engineer\n---\n\n# In any note\nAnn is a [[Ann.role]]."}</pre>
                             </InfoButton>
                           </Show>
-                          <div class="seg-control">
-                            <button
-                              type="button"
-                              class="seg-control__btn"
-                              classList={{ "seg-control__btn--active": !on() }}
-                              onClick={() =>
-                                setCorePlugin(p.id, p.settingKey, false)
-                              }
-                            >
-                              Off
-                            </button>
-                            <button
-                              type="button"
-                              class="seg-control__btn"
-                              classList={{ "seg-control__btn--active": on() }}
-                              onClick={() =>
-                                setCorePlugin(p.id, p.settingKey, true)
-                              }
-                            >
-                              On
-                            </button>
-                          </div>
+                          <OnOffControl
+                            value={on()}
+                            onChange={(v) =>
+                              setCorePlugin(p.id, p.settingKey, v)
+                            }
+                          />
                         </div>
                       </div>
                     );
@@ -2925,32 +2818,12 @@ topics:         # type:list
                       The bar along the bottom. When off, it disappears entirely.
                     </div>
                   </div>
-                  <div class="seg-control">
-                    <button
-                      type="button"
-                      class="seg-control__btn"
-                      classList={{
-                        "seg-control__btn--active": !statusbarEnabled(),
-                      }}
-                      onClick={() =>
-                        setStatusbarSetting(STATUSBAR_ENABLED_KEY, false)
-                      }
-                    >
-                      Off
-                    </button>
-                    <button
-                      type="button"
-                      class="seg-control__btn"
-                      classList={{
-                        "seg-control__btn--active": statusbarEnabled(),
-                      }}
-                      onClick={() =>
-                        setStatusbarSetting(STATUSBAR_ENABLED_KEY, true)
-                      }
-                    >
-                      On
-                    </button>
-                  </div>
+                  <OnOffControl
+                    value={statusbarEnabled()}
+                    onChange={(v) =>
+                      setStatusbarSetting(STATUSBAR_ENABLED_KEY, v)
+                    }
+                  />
                 </div>
                 <For each={STATUSBAR_SEGMENTS}>
                   {(seg) => {
@@ -2967,28 +2840,12 @@ topics:         # type:list
                           <div class="set-row__lab">{seg.name}</div>
                           <div class="set-row__desc">{seg.description}</div>
                         </div>
-                        <div class="seg-control">
-                          <button
-                            type="button"
-                            class="seg-control__btn"
-                            classList={{ "seg-control__btn--active": !on() }}
-                            onClick={() =>
-                              setStatusbarSetting(seg.settingKey, false)
-                            }
-                          >
-                            Off
-                          </button>
-                          <button
-                            type="button"
-                            class="seg-control__btn"
-                            classList={{ "seg-control__btn--active": on() }}
-                            onClick={() =>
-                              setStatusbarSetting(seg.settingKey, true)
-                            }
-                          >
-                            On
-                          </button>
-                        </div>
+                        <OnOffControl
+                          value={on()}
+                          onChange={(v) =>
+                            setStatusbarSetting(seg.settingKey, v)
+                          }
+                        />
                       </div>
                     );
                   }}

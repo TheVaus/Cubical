@@ -654,32 +654,6 @@
   font-size: var(--text-xs);
   color: var(--c-fg-muted);
 }
-.seg-control {
-  flex: 0 0 auto;
-  display: flex;
-  gap: var(--space-1);
-  padding: var(--space-1);
-  background: var(--c-bg-secondary);
-  border: 1px solid var(--c-border-subtle);
-  border-radius: var(--radius-md);
-}
-.seg-control__btn {
-  padding: var(--space-1) var(--space-3);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm, var(--radius-md));
-  color: var(--c-fg-secondary);
-  font-family: var(--font-body);
-  font-size: var(--text-sm);
-  text-transform: capitalize;
-  cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
-}
-.seg-control__btn--active {
-  color: var(--c-fg-primary);
-  background: var(--c-bg-tertiary);
-  border-color: var(--c-border-subtle);
-}
 .kb-row {
   display: flex;
   align-items: center;
