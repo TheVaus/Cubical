@@ -9,12 +9,21 @@ export interface SegmentedOption {
 export interface SegmentedControlProps {
   options: SegmentedOption[];
   value: string;
+  /**
+   * Visual style. 'tabs' (default) is the underline-tab look for switching
+   * views; 'pill' is a bordered chip group for compact inline settings.
+   */
+  variant?: 'tabs' | 'pill';
   onChange: (value: string) => void;
 }
 
 const SegmentedControl = (props: SegmentedControlProps) => {
   return (
-    <div class="segmented-control" role="tablist">
+    <div
+      class="segmented-control"
+      classList={{ pill: (props.variant ?? 'tabs') === 'pill' }}
+      role="tablist"
+    >
       <For each={props.options}>
         {(option) => (
           <button
