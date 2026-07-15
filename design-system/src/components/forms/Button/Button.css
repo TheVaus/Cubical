@@ -38,6 +38,15 @@
   background: var(--c-bg-tertiary);
 }
 
+.btn.danger {
+  background: var(--c-error);
+  color: var(--c-error-contrast);
+}
+
+.btn.danger:hover:not(:disabled) {
+  box-shadow: var(--shadow-sm);
+}
+
 .btn.ghost {
   background: transparent;
   border-color: transparent;

@@ -75,6 +75,7 @@
   --c-success: #4f7d4a;
   --c-warning: #b8862f;
   --c-error: #b3452f;
+  --c-error-contrast: #faf8f3;
   /* App-compat (light) */
   --c-accent-hover: #42605b;
   --c-bg-overlay: rgba(0, 0, 0, 0.05);
@@ -99,6 +100,7 @@
   --c-success: #7fb473;
   --c-warning: #d9a54c;
   --c-error: #d97a5c;
+  --c-error-contrast: #faf8f3;
   /* App-compat (dark) */
   --c-accent-hover: #93b3ac;
   --c-bg-overlay: rgba(255, 255, 255, 0.05);
@@ -123,6 +125,7 @@
   --c-success: #006400;
   --c-warning: #8a5a00;
   --c-error: #b00000;
+  --c-error-contrast: #ffffff;
   /* App-compat (high-contrast) */
   --c-accent-hover: #004a43;
   --c-bg-overlay: rgba(0, 0, 0, 0.08);

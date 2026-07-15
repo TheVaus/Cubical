@@ -2,7 +2,7 @@ import type { JSX } from 'solid-js';
 import './Button.css';
 
 export interface ButtonProps {
-  variant?: 'primary' | 'secondary' | 'ghost';
+  variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
   /** Compact sizing for dense clusters (e.g. filter chips). Defaults to 'md'. */
   size?: 'sm' | 'md';
   disabled?: boolean;
@@ -39,6 +39,7 @@ const Button = (props: ButtonProps) => {
         primary: (props.variant ?? 'secondary') === 'primary',
         secondary: (props.variant ?? 'secondary') === 'secondary',
         ghost: (props.variant ?? 'secondary') === 'ghost',
+        danger: (props.variant ?? 'secondary') === 'danger',
         'full-width': props.fullWidth,
         sm: (props.size ?? 'md') === 'sm',
         block: props.block,
