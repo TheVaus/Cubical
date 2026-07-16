@@ -1,6 +1,9 @@
 import { createSignal, For, Show, type Component } from "solid-js";
 
-import { inputStyle, miniButtonStyle } from "./styles";
+import IconButton from "@ds/components/forms/IconButton/IconButton";
+import TextInput from "@ds/components/forms/TextInput/TextInput";
+
+import { inputStyle } from "./styles";
 
 /**
  * Enum-valued frontmatter cell (spec §4.2). Two modes:
@@ -28,6 +31,8 @@ const EnumCell: Component<EnumCellProps> = (props) => {
   const [editing, setEditing] = createSignal(props.values.length === 0);
   const [draft, setDraft] = createSignal(props.values.join(", "));
 
+  let input!: HTMLInputElement;
+
   const commitValues = () => {
     const next = draft()
       .split(",")
@@ -41,17 +46,19 @@ const EnumCell: Component<EnumCellProps> = (props) => {
     <Show
       when={!editing()}
       fallback={
-        <input
-          type="text"
+        <TextInput
+          ref={(el) => {
+            input = el;
+            queueMicrotask(() => el.focus());
+          }}
+          size="sm"
           placeholder="value1, value2, …"
           value={draft()}
-          onInput={(e) => setDraft(e.currentTarget.value)}
-          ref={(el) => queueMicrotask(() => el.focus())}
+          onInput={setDraft}
           onBlur={commitValues}
           onKeyDown={(e) => {
-            if (e.key === "Enter") e.currentTarget.blur();
+            if (e.key === "Enter") input.blur();
           }}
-          style={inputStyle(true)}
         />
       }
     >
@@ -65,18 +72,16 @@ const EnumCell: Component<EnumCellProps> = (props) => {
             {(v) => <option value={v}>{v}</option>}
           </For>
         </select>
-        <button
-          type="button"
+        <IconButton
+          label="Edit allowed values"
+          size="sm"
           onClick={() => {
             setDraft(props.values.join(", "));
             setEditing(true);
           }}
-          aria-label="Edit allowed values"
-          title="Edit allowed values"
-          style={miniButtonStyle()}
         >
           ✎
-        </button>
+        </IconButton>
       </div>
     </Show>
   );

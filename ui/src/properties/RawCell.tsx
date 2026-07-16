@@ -8,6 +8,18 @@ import { type Component } from "solid-js";
  * nested mappings, anchors, and YAML tags is post-L2 polish. The
  * "Open as raw" link flips the editor into raw mode so the user can
  * hand-edit the value.
+ *
+ * Judgement call (design-system migration Task 3): kept bespoke rather
+ * than `@ds Button variant="ghost" size="sm"`. Measured against the
+ * app's loaded `Button.css`, `.btn.ghost.sm` computes to
+ * `padding: 4px 8px`, `border-radius: 4px`, `height: 28px`, and a
+ * hover background — plus it inherits the default foreground color
+ * with no underline. That's a padded, rounded chrome button. The
+ * outgoing link is zero-padding, `color: var(--c-accent)`,
+ * `text-decoration: underline`, no border/background. Adopting ghost
+ * Button would make this read as a button, not an inline text link —
+ * the exact regression the brief flags to avoid — so it stays a
+ * bespoke `<button>` styled as a link.
  */
 export interface RawCellProps {
   value: unknown;
