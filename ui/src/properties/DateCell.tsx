@@ -1,5 +1,7 @@
 import { createEffect, createSignal, on, Show, type Component } from "solid-js";
 
+import TextInput from "@ds/components/forms/TextInput/TextInput";
+
 import { getDateFormat, validateDate } from "./dateFormats";
 import { inputStyle } from "./styles";
 
@@ -33,6 +35,8 @@ const DateCell: Component<DateCellProps> = (props) => {
     ),
   );
 
+  let inputEl!: HTMLInputElement;
+
   const def = () => getDateFormat(props.format);
   const widget = () => def()?.widget ?? "text";
 
@@ -58,21 +62,21 @@ const DateCell: Component<DateCellProps> = (props) => {
         <Show
           when={widget() === "date"}
           fallback={
-            <input
-              type="text"
-              inputmode={widget() === "number" ? "numeric" : "text"}
+            <TextInput
+              ref={(el) => (inputEl = el)}
+              size="sm"
+              inputMode={widget() === "number" ? "numeric" : "text"}
               placeholder={def()?.placeholder ?? props.format}
               value={draft()}
-              onInput={(e) => setDraft(e.currentTarget.value)}
+              onInput={setDraft}
               onFocus={() => setFocused(true)}
               onBlur={() => {
                 setFocused(false);
                 commit(draft());
               }}
               onKeyDown={(e) => {
-                if (e.key === "Enter") e.currentTarget.blur();
+                if (e.key === "Enter") inputEl.blur();
               }}
-              style={inputStyle(focused())}
             />
           }
         >

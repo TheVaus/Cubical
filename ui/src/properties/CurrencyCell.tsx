@@ -1,7 +1,8 @@
 import { createEffect, createSignal, on, type Component } from "solid-js";
 
+import TextInput from "@ds/components/forms/TextInput/TextInput";
+
 import { formatCurrency, parseCurrencyInput } from "./format";
-import { inputStyle } from "./styles";
 
 /**
  * Currency-valued frontmatter cell (spec §4.1). Stores a BARE number in
@@ -41,21 +42,23 @@ const CurrencyCell: Component<CurrencyCellProps> = (props) => {
   const display = () =>
     focused() ? draft() : formatCurrency(props.value, props.currency);
 
+  let input!: HTMLInputElement;
+
   return (
-    <input
-      type="text"
-      inputmode="decimal"
+    <TextInput
+      ref={(el) => (input = el)}
+      size="sm"
+      inputMode="decimal"
       value={display()}
-      onInput={(e) => setDraft(e.currentTarget.value)}
+      onInput={setDraft}
       onFocus={() => setFocused(true)}
       onBlur={() => {
         setFocused(false);
         commit();
       }}
       onKeyDown={(e) => {
-        if (e.key === "Enter") e.currentTarget.blur();
+        if (e.key === "Enter") input.blur();
       }}
-      style={inputStyle(focused())}
     />
   );
 };

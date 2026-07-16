@@ -6,7 +6,7 @@ import {
   type Component,
 } from "solid-js";
 
-import { inputStyle } from "./styles";
+import TextInput from "@ds/components/forms/TextInput/TextInput";
 
 /**
  * String-valued frontmatter cell (L2 Session F, spec §2.4).
@@ -48,20 +48,19 @@ const StringCell: Component<StringCellProps> = (props) => {
   };
 
   return (
-    <input
-      ref={input}
-      type="text"
+    <TextInput
+      ref={(el) => (input = el)}
+      size="sm"
       value={draft()}
-      onInput={(e) => setDraft(e.currentTarget.value)}
+      onInput={setDraft}
       onFocus={() => setFocused(true)}
       onBlur={() => {
         setFocused(false);
         commit();
       }}
       onKeyDown={(e) => {
-        if (e.key === "Enter") e.currentTarget.blur();
+        if (e.key === "Enter") input.blur();
       }}
-      style={inputStyle(focused())}
     />
   );
 };
