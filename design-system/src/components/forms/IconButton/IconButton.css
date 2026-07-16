@@ -35,3 +35,11 @@
   opacity: 0.5;
   cursor: default;
 }
+
+.icon-btn.sm {
+  width: auto;
+  height: auto;
+  padding: 0 var(--space-1);
+  font-size: var(--text-xs);
+  line-height: 1;
+}

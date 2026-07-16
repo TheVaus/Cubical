@@ -25,3 +25,8 @@
 .text-input:disabled {
   opacity: 0.5;
 }
+
+.text-input.sm {
+  height: auto;
+  padding: var(--space-1) var(--space-2);
+}

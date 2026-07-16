@@ -16,6 +16,8 @@ export interface IconButtonProps {
    * (`</>`, `{}`) that only read as symbols in a mono font.
    */
   mono?: boolean;
+  /** Compact glyph sizing for inline-use affordances (e.g. a table cell action). Defaults to 'md'. */
+  size?: 'sm' | 'md';
   onClick?: (e: MouseEvent) => void;
   children: JSX.Element;
 }
@@ -25,7 +27,11 @@ const IconButton = (props: IconButtonProps) => {
     <button
       type="button"
       class="icon-btn"
-      classList={{ active: props.active, mono: props.mono }}
+      classList={{
+        active: props.active,
+        mono: props.mono,
+        sm: (props.size ?? 'md') === 'sm',
+      }}
       aria-label={props.label}
       aria-expanded={props.ariaExpanded}
       aria-pressed={props.ariaPressed}
