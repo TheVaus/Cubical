@@ -67,7 +67,12 @@ sweep**: 19 bespoke `<button>` + 8 bespoke `<input>/<textarea>` in `ui/src`. Cla
 
 **Migratable (adopt a DS primitive; each is vault-gated → verify live):**
 - ~~`App.tsx` `tree-header__action` ＋ / 🗀 (2) → `IconButton size="sm"`~~ — **DONE (C3, 2026-07-17)**.
-- `App.tsx` external-edit banner `reloadFromDisk` / `keepMyEdits` (2) → `Button` (hard to trigger live).
+- `App.tsx` external-edit banner `reloadFromDisk` / `keepMyEdits` (2) → `Button`
+  (`secondary`/`primary`, `size="sm"`) — a clean swap, but **deferred: not live-verifiable via
+  automation.** The banner only shows when the buffer is dirty *at the moment* of an external
+  change; the 300ms autosave (`AUTOSAVE_DEBOUNCE_MS`) clears `dirty` before the higher-latency
+  fs-watcher delivers the change, so the race can't be forced by a script (attempted 2026-07-17).
+  Do this swap while working in that flow, where the banner can be triggered by hand.
 - `App.tsx` `vault-btn` (switcher toggle) → `Button`/`IconButton` (labeled dropdown; check fit).
 - `OmniBar.tsx` search `<input>` → `TextInput` — **needs a TextInput `aria-activedescendant`
   passthrough** (the listbox pattern sets it dynamically); additive DS extension first.
