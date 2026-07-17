@@ -5,10 +5,10 @@ app's **tokens AND components**: `ui/` borrows every component from there, so
 editing a component (or a token) changes it everywhere in the app.
 
 **Status: Phase B complete + all three Phase-D deltas settled (BooleanCell FIXED & live-verified)
-+ Phase-C slices C1 (context menu → DS Menu) and C2 (delete-confirm → DS Modal) DONE &
-live-verified. A Phase-C fit audit found the remaining overlays are deliberately bespoke — the
-DS-backed overlay migrations are now exhausted. Rest of C (inline-primitive sweep) and D remain.
-Branch `feat/design-system-migration` is UNMERGED.**
++ Phase-C slices C1 (context menu → DS Menu), C2 (delete-confirm → DS Modal), and C3 (tree-header
+glyphs → DS IconButton) DONE & live-verified. A Phase-C fit audit found the remaining overlays are
+deliberately bespoke — the DS-backed overlay migrations are exhausted; the inline-primitive sweep's
+migratable remainder is a diffuse tail. Rest of C and D remain. Branch is UNMERGED.**
 `scripts/check.sh` is green (tsc · vitest 728 · build · cargo fmt/clippy/test · docs) — the one
 red line is the documented `dropping_handle_stops_event_delivery_within_100ms` watcher flake
 (passes 3/3 in isolation; zero Rust touched this session).
@@ -183,12 +183,21 @@ in Phase C/D can be verified the same way — see `[[project-tauri-live-verify-s
   **VaultSwitcher / PendingRewrites / set-info popovers** (no DS `Popover` exists). So the
   DS-component-backed overlay migrations are **exhausted**.
 
-## Next — rest of Phase C (inline-primitive sweep), then D
-- **C — inline-control sweep** (~31 bespoke `<button>`/`<input>` remain in `ui/src`):
-  adopt DS `Button`/`IconButton`/`TextInput` inside the still-bespoke wrappers
-  (`OmniBar` input, statusbar segments, `Backlinks`, file-tree rows, the `set-info-btn` ⓘ
-  and tree-header `＋`/`🗀` glyphs). These are primitive swaps within app-specific layouts,
-  not whole-component migrations — the overlays above stay bespoke by design.
+- **C3 — inline-primitive sweep, batch 1: tree-header glyphs → DS `IconButton` (DONE 2026-07-17).**
+  `App.tsx` FILES-header `＋` (New file) / `🗀` (New folder) → `<IconButton size="sm">` (glyph
+  kept at `--text-sm` via the `style` escape hatch). Dropped the dead `tree-header__action` class
+  (it had no CSS) + the inline styles; no DS change needed (pure adoption). Live-verified: both
+  glyphs render, `＋` fires end-to-end (created + opened a file), vault restored byte-for-byte.
+  **`set-info-btn` ⓘ reviewed and KEPT bespoke** — it's a 1.25rem color-only-hover inline info
+  affordance; `IconButton` md (1.9rem box) is too big and both sizes add a bg-plate hover that
+  reads heavy there. Would need a `plain`/`ghost` IconButton variant — out of scope.
+
+## Next — rest of the inline-primitive sweep, then D
+- **C — inline-control sweep (remaining):** ~25 bespoke controls left, mostly deliberately
+  bespoke (see the C2-plan inventory). The migratable remainder is diffuse: the external-edit
+  banner buttons (`reloadFromDisk`/`keepMyEdits` → `Button`, hard to trigger for live verify) and
+  the `OmniBar` input → `TextInput` (needs a `TextInput` aria-activedescendant passthrough first).
+  Do per-file, live-verified — not bundled.
 - **D — cleanup:** gut the remaining 679-line `layout.css`, `scripts/check.sh`. All three
   deltas are now settled (BooleanCell fixed 2026-07-17) — no open UI items from the spot-check.
   Re-run a live pass after the `layout.css` gut to catch any layout regressions.

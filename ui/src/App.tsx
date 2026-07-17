@@ -1928,44 +1928,24 @@ const App: Component = () => {
                   Files
                 </span>
                 <span style={{ display: "flex", gap: "var(--space-1)" }}>
-                  <button
-                    type="button"
-                    class="tree-header__action"
-                    title="New file"
-                    aria-label="New file"
+                  <IconButton
+                    label="New file"
+                    size="sm"
                     disabled={!vaultId()}
                     onClick={() => void handleNewFile()}
-                    style={{
-                      background: "transparent",
-                      border: "none",
-                      cursor: vaultId() ? "pointer" : "default",
-                      color: "var(--c-fg-secondary)",
-                      "font-size": "var(--text-sm)",
-                      padding: "var(--space-1)",
-                      "line-height": 1,
-                    }}
+                    style={{ "font-size": "var(--text-sm)" }}
                   >
                     ＋
-                  </button>
-                  <button
-                    type="button"
-                    class="tree-header__action"
-                    title="New folder"
-                    aria-label="New folder"
+                  </IconButton>
+                  <IconButton
+                    label="New folder"
+                    size="sm"
                     disabled={!vaultId()}
                     onClick={() => void handleNewFolder()}
-                    style={{
-                      background: "transparent",
-                      border: "none",
-                      cursor: vaultId() ? "pointer" : "default",
-                      color: "var(--c-fg-secondary)",
-                      "font-size": "var(--text-sm)",
-                      padding: "var(--space-1)",
-                      "line-height": 1,
-                    }}
+                    style={{ "font-size": "var(--text-sm)" }}
                   >
                     🗀
-                  </button>
+                  </IconButton>
                 </span>
               </div>
               <div

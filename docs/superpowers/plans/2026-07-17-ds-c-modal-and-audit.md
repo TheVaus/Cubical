@@ -66,13 +66,17 @@ After C1/C2 the DS-backed overlay work is done. What's left is the **inline-prim
 sweep**: 19 bespoke `<button>` + 8 bespoke `<input>/<textarea>` in `ui/src`. Classified:
 
 **Migratable (adopt a DS primitive; each is vault-gated → verify live):**
-- `App.tsx:1771` `set-info-btn` ⓘ → `IconButton size="sm"` (recheck 1.25rem fit).
-- `App.tsx` `tree-header__action` ＋ / 🗀 (2) → `IconButton size="sm"`.
-- `App.tsx` external-edit banner `reloadFromDisk` / `keepMyEdits` (2) → `Button`.
+- ~~`App.tsx` `tree-header__action` ＋ / 🗀 (2) → `IconButton size="sm"`~~ — **DONE (C3, 2026-07-17)**.
+- `App.tsx` external-edit banner `reloadFromDisk` / `keepMyEdits` (2) → `Button` (hard to trigger live).
 - `App.tsx` `vault-btn` (switcher toggle) → `Button`/`IconButton` (labeled dropdown; check fit).
 - `OmniBar.tsx` search `<input>` → `TextInput` — **needs a TextInput `aria-activedescendant`
   passthrough** (the listbox pattern sets it dynamically); additive DS extension first.
 - A couple of `SearchPanel.tsx` / `App.tsx` controls — audit per-file before touching.
+
+**Reviewed and kept bespoke (C3):**
+- `App.tsx:1771` `set-info-btn` ⓘ — a 1.25rem color-only-hover inline info glyph. `IconButton` md
+  (1.9rem box) is too big; both sizes add a bg-plate hover that reads heavy on a tiny info
+  affordance. Would need a `plain`/`ghost` `IconButton` variant — out of scope.
 
 **Deliberately bespoke (documented reasons; do NOT migrate):**
 - `SearchPanel.tsx:607` result-row title — roving-tabindex list row (in-file comment
