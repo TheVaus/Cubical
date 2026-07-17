@@ -95,25 +95,38 @@ is optional and defaults to prior behavior:
   2 native pickers — no DS `Select` exists. `inputStyle` in
   `ui/src/properties/styles.ts` survives *only* to style these.
 
-## Accepted deltas — Phase D must re-check the first three live
-- **BooleanCell lost whole-row click.** The old markup made switch + `true/false`
-  text one `role="switch"` button; DS Toggle renders its own button and can't wrap
-  siblings, so only the 36×20 track is clickable. Fix = an additive **Toggle
-  visible-label slot**, never an app-side wrapper.
-- **ChipList's chip-edit box**: fixed `7rem` → `width:auto` (no width token; `100%`
-  would blow out the flex-wrap row).
-- **PendingRewrites** bar fit after the `size="sm"` fix.
+## Accepted deltas — LIVE-VERIFIED 2026-07-17 under `cargo tauri dev`
+Settled against the real `feature-test-vault` (`concepts/Properties.md` exercises
+all three) by driving the app with synthetic input — see the technique + full log
+in the `[[project-tauri-live-verify-setup]]` memory. Outcomes:
+- **BooleanCell lost whole-row click — REGRESSION CONFIRMED, still open.** Live: clicking
+  the `true/false` label does nothing; only the ~35×17pt Toggle track is clickable (it
+  flips and writes to disk). The old markup made switch + `true/false` text one
+  `role="switch"` button; DS Toggle renders its own button and can't wrap siblings.
+  **Fix still needed** = an additive **Toggle visible-label slot**, never an app-side
+  wrapper. This is the one real open item from the spot-check.
+- **ChipList reflow — PASS (no bug).** Live: chips wrap cleanly to new rows (verified
+  with 5 chips at a clean wide width); `+add` follows. The chip-edit box `7rem` →
+  `width:auto` fix holds. ⚠ An apparent "chips clip instead of wrap" at a narrow (~1000px)
+  window is an artifact of the editor pane being squeezed/overlapped by the fixed
+  sidebar at small widths — NOT a ChipList bug; do not chase it as one.
+- **PendingRewrites bar fit — PASS.** Live: "N pending changes" renders inline **on the
+  left** (after the vault path, not the right), same mono baseline, no clip; the `size="sm"`
+  fix fits. Popover's "Save all pending changes" (sm fullWidth) + "Undo" (sm) DS buttons
+  also fit. (Note: the flush interval is 300s — `pending_rewrites.flush_interval_secs` —
+  but flushed within ~60s in practice, so capture the bar promptly after an in-app rename.)
 - Mini-glyphs darkened one step (`--c-fg-secondary` vs the old `--c-fg-muted`) —
   the DS value is correct; recorded, not a bug.
 
-## Verification limitation (why the above is deferred)
+## Verification limitation (historical — now resolved for the three deltas)
 **The vite dev preview has no Tauri backend**: `invoke` never resolves, the app
 sits in `booting`, and vault-gated UI (Properties, dialogs, the editor stage)
-**cannot be rendered live**. The topbar renders regardless (verified live in B4).
-The technique used instead: render the exact class combos a component emits
-against the app's loaded CSS at `localhost:5173` and read computed styles — this
-proves tokens/variants, not interaction. Full live verification is Phase D under
-`cargo tauri dev`.
+**cannot be rendered live** there. The topbar renders regardless (verified live in B4).
+The pre-spot-check technique: render the exact class combos a component emits
+against the app's loaded CSS at `localhost:5173` and read computed styles — proves
+tokens/variants, not interaction. **The three deltas above were fully verified live
+2026-07-17 under `cargo tauri dev`** (real backend + vault); remaining vault-gated UI
+in Phase C/D can be verified the same way — see `[[project-tauri-live-verify-setup]]`.
 
 ## Next — Phase C, then D
 - **C — behavioral wrappers** (the harder half, ~2,600 lines untouched):
@@ -121,8 +134,10 @@ proves tokens/variants, not interaction. Full live verification is Phase D under
   the file tree, statusbar segments; plus dialog *shells* → DS `Modal` and the
   App.tsx context menu → DS `Menu`. These carry positioning/lifecycle logic the DS
   mockups lack — that's why they were held back from B.
-- **D — cleanup:** gut the remaining 679-line `layout.css`, full `cargo tauri dev`
-  verify against a real vault (settle the three deltas above), `scripts/check.sh`.
+- **D — cleanup:** gut the remaining 679-line `layout.css`, `scripts/check.sh`. The
+  three deltas' live verification is DONE (2026-07-17); the only open UI item from it is
+  the BooleanCell Toggle visible-label slot fix. Re-run a live pass after the `layout.css`
+  gut to catch any layout regressions.
 - Also open: App.tsx's `set-info-btn` ⓘ (1.25rem — IconButton `size="sm"` now
   exists, so recheck the fit) and the tree-header `＋`/`🗀` glyphs.
 
