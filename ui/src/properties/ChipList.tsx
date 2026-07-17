@@ -42,8 +42,10 @@ import { chipStyle } from "./styles";
  * button *inside* the pill (label, `✎`, `×`, `+ add`) now runs through
  * `@ds IconButton size="sm"`, using its `style` escape hatch (added this
  * task) to reproduce the label's color/font/padding inherit-from-chip
- * look — the one behavioral delta is a hover background now appearing
- * behind the label text, which the outgoing plain `<button>` never had.
+ * look. `IconButton`'s hover background (`var(--c-bg-tertiary)`) happens
+ * to equal `chipStyle`'s own pill `background`, so hovering any button
+ * inside the chip paints no visible change — no new affordance gained
+ * over the outgoing plain `<button>`.
  */
 export interface ChipListProps {
   value: string[];

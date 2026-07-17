@@ -1715,6 +1715,7 @@ const App: Component = () => {
   }) => (
     <SegmentedControl
       variant="pill"
+      role="radiogroup"
       options={[
         { label: "Off", value: "off" },
         { label: "On", value: "on" },
@@ -2512,6 +2513,7 @@ const App: Component = () => {
                   </div>
                   <SegmentedControl
                     variant="pill"
+                    role="radiogroup"
                     options={(["system", "light", "dark"] as ThemeMode[]).map(
                       (m) => ({ label: `${THEME_ICON[m]} ${m}`, value: m }),
                     )}

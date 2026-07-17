@@ -154,6 +154,7 @@ const PendingRewrites: Component<PendingRewritesProps> = (props) => {
           <span style={{ color: "var(--c-accent)" }}>
             <Button
               variant="ghost"
+              size="sm"
               ariaLabel={`${display().label} — open details`}
               ariaExpanded={state().kind !== "closed"}
               onClick={() => (state().kind === "closed" ? open() : close())}
@@ -295,6 +296,7 @@ const PendingRewrites: Component<PendingRewritesProps> = (props) => {
                       </section>
                       <Button
                         variant="primary"
+                        size="sm"
                         fullWidth
                         onClick={() => void handleFlushAll()}
                         disabled={flushing() || s.breakdown.length === 0}
@@ -371,6 +373,7 @@ const PendingRewrites: Component<PendingRewritesProps> = (props) => {
                                     </span>
                                     <Button
                                       variant="secondary"
+                                      size="sm"
                                       onClick={() => void handleUndo(op.rename_op_id)}
                                       disabled={isPending()}
                                     >
