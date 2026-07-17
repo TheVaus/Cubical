@@ -42,20 +42,3 @@ export function chipStyle(isTag: boolean): JSX.CSSProperties {
     "border-radius": "var(--radius-full)",
   };
 }
-
-/** A small chrome button (chip `×`, `+ add`, type chevron). */
-export function miniButtonStyle(): JSX.CSSProperties {
-  return {
-    display: "inline-flex",
-    "align-items": "center",
-    "justify-content": "center",
-    padding: "0 var(--space-1)",
-    "font-family": "var(--font-body)",
-    "font-size": "var(--text-xs)",
-    color: "var(--c-fg-muted)",
-    background: "transparent",
-    border: "none",
-    cursor: "pointer",
-    "line-height": "1",
-  };
-}

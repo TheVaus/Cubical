@@ -9,6 +9,10 @@ import {
   type Component,
 } from "solid-js";
 
+import Button from "@ds/components/forms/Button/Button";
+import IconButton from "@ds/components/forms/IconButton/IconButton";
+import TextInput from "@ds/components/forms/TextInput/TextInput";
+
 import type { Frontmatter, FrontmatterEntry } from "./ast/types";
 import { splitFrontmatter } from "./ast/frontmatter";
 import { coerceValue } from "./properties/coerce";
@@ -35,7 +39,6 @@ import {
   effectiveFormat,
   resolveType,
 } from "./properties/propertiesLogic";
-import { miniButtonStyle } from "./properties/styles";
 
 /**
  * L2 Session F — inline Properties UI (spec §2.4).
@@ -240,32 +243,26 @@ const PropertyRow: Component<RowProps> = (props) => {
         "border-bottom": "1px solid var(--c-border-subtle)",
       }}
     >
-      <input
-        ref={keyInput}
-        type="text"
+      <TextInput
+        ref={(el) => (keyInput = el)}
+        size="sm"
         value={keyDraft()}
-        onInput={(e) => setKeyDraft(e.currentTarget.value)}
+        onInput={setKeyDraft}
         onFocus={() => setKeyFocused(true)}
         onBlur={() => {
           setKeyFocused(false);
           commitRename();
         }}
         onKeyDown={(e) => {
-          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Enter") keyInput.blur();
         }}
-        aria-label={`Property name: ${props.keyName}`}
+        ariaLabel={`Property name: ${props.keyName}`}
         style={{
-          width: "100%",
-          "box-sizing": "border-box",
-          padding: "var(--space-1) var(--space-2)",
           "font-family": "var(--font-mono)",
           "font-size": "var(--text-xs)",
           color: "var(--c-fg-secondary)",
           background: "transparent",
           border: `1px solid ${keyFocused() ? "var(--c-accent)" : "transparent"}`,
-          "border-radius": "var(--radius-sm)",
-          outline: "none",
-          transition: "border-color var(--transition-fast)",
         }}
       />
 
@@ -336,6 +333,19 @@ const PropertyRow: Component<RowProps> = (props) => {
         </Show>
 
         <Show when={props.lossyOriginal !== undefined}>
+          {/*
+            Judgement call (design-system migration Task 4): kept bespoke
+            rather than @ds Button. None of Button's variants render this
+            look — `danger` is a solid filled var(--c-error) block (a much
+            heavier "destructive" affordance than an undo hint belongs
+            to), `secondary`/`ghost` have no warning coloring at all, and
+            there is exactly one other consumer of var(--c-warning) as an
+            outline color in the whole app (App.tsx, non-button). Forcing
+            this into `danger` to score a DS win would make an "undo the
+            lossy conversion" action visually read as "delete", a real
+            semantic regression — so this stays a bespoke warning-outline
+            pill, same standard of evidence as RawCell's Task 3 call.
+          */}
           <button
             type="button"
             onClick={() => props.onRevertLossy()}
@@ -367,16 +377,25 @@ const PropertyRow: Component<RowProps> = (props) => {
             }
           }}
         >
-          <button
-            type="button"
+          {/*
+            size="sm" is the IconButton variant purpose-built to replace
+            miniButtonStyle() — but the outgoing style bumped this glyph's
+            font-size to var(--text-sm) (the sm-default is --text-xs), so
+            that override is preserved via the style escape hatch rather
+            than silently dropped or forced up to size="md" (whose fixed
+            1.9rem square footprint is far too large for an inline
+            disclosure triangle in a dense property row).
+          */}
+          <IconButton
+            label={`Change type of ${props.keyName}`}
+            size="sm"
+            ariaHaspopup="menu"
+            ariaExpanded={props.menuOpen}
+            style={{ "font-size": "var(--text-sm)" }}
             onClick={() => props.onToggleMenu()}
-            aria-label={`Change type of ${props.keyName}`}
-            aria-haspopup="menu"
-            aria-expanded={props.menuOpen}
-            style={{ ...miniButtonStyle(), "font-size": "var(--text-sm)" }}
           >
             ▾
-          </button>
+          </IconButton>
           <Show when={props.menuOpen}>
             <div
               role="menu"
@@ -720,6 +739,14 @@ const Properties: Component<PropertiesProps> = (props) => {
               >
                 {splitFrontmatter(props.getSource()).yaml ?? ""}
               </pre>
+              {/*
+                Kept bespoke, same RawCell precedent (Task 3): @ds Button's
+                smallest, least chrome-heavy variant (ghost/sm) still
+                computes to a padded, rounded, hover-plated chrome button
+                with the default foreground color and no underline —
+                nothing like this zero-padding, accent, underlined inline
+                text link. Adopting it would turn a link into a button.
+              */}
               <button
                 type="button"
                 onClick={() => props.onOpenRaw()}
@@ -775,24 +802,31 @@ const Properties: Component<PropertiesProps> = (props) => {
               />
             )}
           </For>
-          <button
-            type="button"
+          {/*
+            @ds Button variant="secondary" size="sm" supplies the matching
+            padding/font-size/border-radius/transparent-bg geometry; the
+            style escape hatch restores the outgoing dashed-border "add
+            slot" idiom (the only such affordance in the app) and the
+            muted text color, plus the layout-only align-self/margin-top
+            that Button has no prop for. Unlike RawCell/the revert button,
+            this is a genuine button (click triggers an action, no link
+            semantics), so reskinning it via the token-driven style prop
+            is adoption, not a workaround.
+          */}
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={addProperty}
             style={{
               "align-self": "flex-start",
               "margin-top": "var(--space-2)",
-              padding: "var(--space-1) var(--space-2)",
-              "font-family": "var(--font-body)",
-              "font-size": "var(--text-xs)",
               color: "var(--c-fg-muted)",
-              background: "transparent",
-              border: "1px dashed var(--c-border-subtle)",
-              "border-radius": "var(--radius-sm)",
-              cursor: "pointer",
+              "border-style": "dashed",
+              "border-color": "var(--c-border-subtle)",
             }}
           >
             + Add property
-          </button>
+          </Button>
         </Show>
       </section>
     </Show>

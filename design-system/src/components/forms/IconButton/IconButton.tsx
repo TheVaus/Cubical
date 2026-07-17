@@ -18,6 +18,10 @@ export interface IconButtonProps {
   mono?: boolean;
   /** Compact glyph sizing for inline-use affordances (e.g. a table cell action). Defaults to 'md'. */
   size?: 'sm' | 'md';
+  /** For a glyph that discloses a menu/listbox/dialog rather than toggling in place. */
+  ariaHaspopup?: JSX.AriaAttributes['aria-haspopup'];
+  /** Escape hatch for instance-specific style overrides (token-driven values only). */
+  style?: JSX.CSSProperties;
   onClick?: (e: MouseEvent) => void;
   children: JSX.Element;
 }
@@ -35,8 +39,10 @@ const IconButton = (props: IconButtonProps) => {
       aria-label={props.label}
       aria-expanded={props.ariaExpanded}
       aria-pressed={props.ariaPressed}
+      aria-haspopup={props.ariaHaspopup}
       title={props.title ?? props.label}
       disabled={props.disabled}
+      style={props.style}
       onClick={(e) => props.onClick?.(e)}
     >
       {props.children}

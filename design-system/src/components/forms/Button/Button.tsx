@@ -26,6 +26,8 @@ export interface ButtonProps {
   ariaExpanded?: boolean;
   /** For toggle-style buttons in a single/multi-select group (e.g. a filter chip). */
   ariaPressed?: boolean;
+  /** Escape hatch for instance-specific style overrides (token-driven values only). */
+  style?: JSX.CSSProperties;
   onClick?: (e: MouseEvent) => void;
   children: JSX.Element;
 }
@@ -48,6 +50,7 @@ const Button = (props: ButtonProps) => {
       aria-label={props.ariaLabel}
       aria-expanded={props.ariaExpanded}
       aria-pressed={props.ariaPressed}
+      style={props.style}
       onClick={(e) => props.onClick?.(e)}
     >
       {props.children}
