@@ -154,8 +154,8 @@ const Gallery = () => {
         <Menu
           items={[
             { id: 'rename', label: 'Rename…', shortcut: '⌘R', onSelect: () => {} },
-            { id: 'delete', label: 'Delete', onSelect: () => {} },
             { id: 'reveal', label: 'Reveal in file tree', disabled: true, onSelect: () => {} },
+            { id: 'delete', label: 'Delete…', danger: true, onSelect: () => {} },
           ]}
         />
       </section>

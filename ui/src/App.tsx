@@ -16,6 +16,7 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import Button from "@ds/components/forms/Button/Button";
 import IconButton from "@ds/components/forms/IconButton/IconButton";
 import SegmentedControl from "@ds/components/forms/SegmentedControl/SegmentedControl";
+import Menu, { type MenuItem } from "@ds/components/overlay/Menu/Menu";
 
 import Editor, { type EditorApi } from "./Editor";
 import Properties from "./Properties";
@@ -159,19 +160,6 @@ import { VaultSwitcher } from "./VaultSwitcher";
  * file selection change, app quit.
  */
 const AUTOSAVE_DEBOUNCE_MS = 300;
-
-const contextMenuItemStyle: JSX.CSSProperties = {
-  display: "block",
-  width: "100%",
-  "text-align": "left",
-  padding: "var(--space-2) var(--space-3)",
-  background: "transparent",
-  border: "none",
-  color: "var(--c-fg-primary)",
-  "font-family": "var(--font-body)",
-  "font-size": "var(--text-sm)",
-  cursor: "pointer",
-};
 
 /**
  * File-list virtualization. A vault can hold tens of thousands of
@@ -1261,6 +1249,57 @@ const App: Component = () => {
         ? countFilesUnderFolder(buildFileTree(files(), folders()), path)
         : 0;
     setDeleteTarget({ path, kind, fileCount });
+  };
+
+  /**
+   * DS `Menu` items for the file-tree context menu, derived from the
+   * right-clicked target's `kind`. Each `onSelect` dismisses the menu and
+   * fires the same handler the old inline buttons did.
+   */
+  const buildContextMenuItems = (menu: {
+    kind: "file" | "folder" | "empty";
+    path: string;
+  }): MenuItem[] => {
+    const items: MenuItem[] = [];
+    if (menu.kind !== "file") {
+      items.push({
+        id: "new-file",
+        label: "New File",
+        onSelect: () => {
+          setContextMenu(null);
+          void handleContextMenuNewFile(menu.path);
+        },
+      });
+      items.push({
+        id: "new-folder",
+        label: "New Folder",
+        onSelect: () => {
+          setContextMenu(null);
+          void handleContextMenuNewFolder(menu.path);
+        },
+      });
+    }
+    if (menu.kind !== "empty") {
+      items.push({
+        id: "rename",
+        label: "Rename…",
+        onSelect: () => {
+          setContextMenu(null);
+          setRenamingPath(menu.path);
+        },
+      });
+      items.push({
+        id: "delete",
+        label: "Delete…",
+        danger: true,
+        onSelect: () => {
+          const kind = menu.kind === "folder" ? "folder" : "file";
+          setContextMenu(null);
+          handleRequestDelete(menu.path, kind);
+        },
+      });
+    }
+    return items;
   };
 
   /** Confirm-dialog "Delete" — moves the target to the OS trash. */
@@ -3080,75 +3119,14 @@ topics:         # type:list
               }}
             />
             <div
-              role="menu"
               style={{
                 position: "fixed",
                 top: `${menu().y}px`,
                 left: `${menu().x}px`,
-                "min-width": "10rem",
-                background: "var(--c-bg-primary)",
-                border: "1px solid var(--c-border-subtle)",
-                "border-radius": "var(--radius-md)",
-                "box-shadow": "var(--shadow-md)",
-                padding: "var(--space-1) 0",
                 "z-index": 13,
               }}
             >
-              <Show when={menu().kind !== "file"}>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    const parentDir = menu().path;
-                    setContextMenu(null);
-                    void handleContextMenuNewFile(parentDir);
-                  }}
-                  style={contextMenuItemStyle}
-                >
-                  New File
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    const parentDir = menu().path;
-                    setContextMenu(null);
-                    void handleContextMenuNewFolder(parentDir);
-                  }}
-                  style={contextMenuItemStyle}
-                >
-                  New Folder
-                </button>
-              </Show>
-              <Show when={menu().kind !== "empty"}>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    const path = menu().path;
-                    setContextMenu(null);
-                    setRenamingPath(path);
-                  }}
-                  style={contextMenuItemStyle}
-                >
-                  Rename…
-                </button>
-              </Show>
-              <Show when={menu().kind !== "empty"}>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    const path = menu().path;
-                    const kind = menu().kind === "folder" ? "folder" : "file";
-                    setContextMenu(null);
-                    handleRequestDelete(path, kind);
-                  }}
-                  style={{ ...contextMenuItemStyle, color: "var(--c-error)" }}
-                >
-                  Delete…
-                </button>
-              </Show>
+              <Menu items={buildContextMenuItems(menu())} />
             </div>
           </>
         )}

@@ -6,6 +6,8 @@ export interface MenuItem {
   label: string;
   shortcut?: string;
   disabled?: boolean;
+  /** Render in the error color for destructive actions (e.g. Delete). */
+  danger?: boolean;
   onSelect: () => void;
 }
 
@@ -22,6 +24,7 @@ const Menu = (props: MenuProps) => {
             type="button"
             role="menuitem"
             class="menu-item"
+            classList={{ danger: item.danger }}
             disabled={item.disabled}
             onClick={() => item.onSelect()}
           >

@@ -4,8 +4,9 @@ Making [`design-system/`](../../design-system/) the single source of truth for t
 app's **tokens AND components**: `ui/` borrows every component from there, so
 editing a component (or a token) changes it everywhere in the app.
 
-**Status: Phase B complete + all three Phase-D deltas settled (the last, BooleanCell, now FIXED
-& live-verified). Phases C and D remain. Branch `feat/design-system-migration` is UNMERGED.**
+**Status: Phase B complete + all three Phase-D deltas settled (BooleanCell FIXED & live-verified)
++ Phase-C slice C1 (context menu → DS Menu) DONE & live-verified. Rest of C and D remain.
+Branch `feat/design-system-migration` is UNMERGED.**
 `scripts/check.sh` is green (tsc · vitest 728 · build · cargo fmt/clippy/test · docs) — the one
 red line is the documented `dropping_handle_stops_event_delivery_within_100ms` watcher flake
 (passes 3/3 in isolation; zero Rust touched this session).
@@ -85,6 +86,9 @@ is optional and defaults to prior behavior:
   toggles too. Defaults false → prior lone-`<button>` render (Gallery unchanged).
   Visible text = `label`, so label-in-name holds with no new ARIA. Restored the
   BooleanCell whole-control click that the DS-migration split had broken.
+- **Menu** — `MenuItem.danger?: boolean` (2026-07-17, C1). Renders the item in
+  `--c-error` for destructive actions (Delete). Defaults undefined → normal color.
+  First real app consumer of DS `Menu` (was Gallery-only).
 - App composes a thin local `OnOffControl` over SegmentedControl for boolean
   settings.
 
@@ -144,12 +148,23 @@ tokens/variants, not interaction. **The three deltas above were fully verified l
 2026-07-17 under `cargo tauri dev`** (real backend + vault); remaining vault-gated UI
 in Phase C/D can be verified the same way — see `[[project-tauri-live-verify-setup]]`.
 
-## Next — Phase C, then D
+## Phase C — in progress
+- **C1 — file-tree context menu → DS `Menu` (DONE 2026-07-17, panel-only).** Plan:
+  [`plans/2026-07-17-ds-c-context-menu.md`](plans/2026-07-17-ds-c-context-menu.md).
+  Replaced the hand-rolled floating menu in `App.tsx` with `<Menu items={…} />`; the
+  app keeps the `position:fixed` anchor + scrim/outside-click dismiss (panel-only
+  boundary). DS extension: `MenuItem.danger?` (red destructive item; mirrors Button's
+  `danger`) — the one gap, additive. Killed the bespoke `contextMenuItemStyle`. Live-
+  verified under `cargo tauri dev`: file menu (Rename…/Delete red), folder menu (all
+  four), Rename… `onSelect` opens the inline input, outside-click dismisses; vault left
+  byte-for-byte. Gate fully green.
+
+## Next — rest of Phase C, then D
 - **C — behavioral wrappers** (the harder half, ~2,600 lines untouched):
   `Editor.tsx`, `OmniBar.tsx` (→ the DS CommandPalette pattern), `Backlinks.tsx`,
-  the file tree, statusbar segments; plus dialog *shells* → DS `Modal` and the
-  App.tsx context menu → DS `Menu`. These carry positioning/lifecycle logic the DS
-  mockups lack — that's why they were held back from B.
+  the file tree rows, statusbar segments; plus dialog *shells* → DS `Modal` (carries the
+  `.modal` CSS collision + several dialogs). These carry positioning/lifecycle logic the
+  DS mockups lack — that's why they were held back from B.
 - **D — cleanup:** gut the remaining 679-line `layout.css`, `scripts/check.sh`. All three
   deltas are now settled (BooleanCell fixed 2026-07-17) — no open UI items from the spot-check.
   Re-run a live pass after the `layout.css` gut to catch any layout regressions.

@@ -30,6 +30,10 @@
   background: var(--c-bg-tertiary);
 }
 
+.menu-item.danger {
+  color: var(--c-error);
+}
+
 .menu-item:disabled {
   opacity: 0.5;
   cursor: default;
