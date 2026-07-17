@@ -13,13 +13,25 @@ migratable remainder is a diffuse tail. Rest of C and D remain. Branch is UNMERG
 red line is the documented `dropping_handle_stops_event_delivery_within_100ms` watcher flake
 (passes 3/3 in isolation; zero Rust touched this session).
 
-**Next session, start here:** the spot-check is fully closed — the BooleanCell Toggle
-visible-label slot fix landed and was driven live (clicking the `true/false` text now flips the
-value both ways and writes to disk; vault restored byte-for-byte). The real remaining work is
-**Phase C** (behavioral wrappers, the harder half) and the **Phase D `layout.css` gut**.
-~55% of the campaign done by effort. For driving the live app under `cargo tauri dev` (occlusion,
-WKWebView keyboard quirks, coordinate math), read the `project-tauri-live-verify-setup`
-auto-memory before re-deriving it — the compiled CGEvent `driver` binary technique still works.
+**Next session, start here → Phase D: gut `layout.css`.** Phase C's DS-backed overlay migrations
+are done (C1 Menu, C2 Modal, C3 tree-header IconButton, all live-verified) and the audit proved the
+remaining overlays are deliberately bespoke, so the substantive Phase-C work is finished. The last
+big structural piece is **Phase D**: gut the 679-line `ui/src/styles/layout.css`, deleting rules
+made dead by the B/C migrations (e.g. `.set-info-btn` is still used — keep it; `.tree-header__action`
+already went). Note the Settings modal still uses `.modal-backdrop`/`.modal*`, so those stay until
+the Settings modal is dealt with (it's deliberately bespoke). After the gut, **re-run a full live
+pass** under `cargo tauri dev` to catch layout regressions, then `scripts/check.sh`.
+
+Smaller optional cleanups if you'd rather not open Phase D: the deferred inline-control tail — the
+external-edit banner buttons → `Button` (needs a *manual* dirty-buffer trigger; can't be scripted,
+see the C2-plan doc) and the OmniBar `<input>` → `TextInput` (needs a `TextInput`
+aria-activedescendant passthrough first). Both low-value; see the inventory in
+[`plans/2026-07-17-ds-c-modal-and-audit.md`](plans/2026-07-17-ds-c-modal-and-audit.md).
+
+~64% of the campaign done by effort. For driving the live app under `cargo tauri dev` (occlusion,
+WKWebView keyboard quirks, coordinate math), read the `project-tauri-live-verify-setup` auto-memory
+before re-deriving it — the compiled CGEvent `driver` binary technique still works (this session
+drove Menu/Modal/IconButton verification with it end-to-end).
 
 Plans: [`plans/2026-07-14-ds-component-library-migration.md`](plans/2026-07-14-ds-component-library-migration.md)
 (campaign: phases B/C/D + work-list) and
