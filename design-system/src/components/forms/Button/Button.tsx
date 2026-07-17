@@ -22,6 +22,8 @@ export interface ButtonProps {
    * "<label> — open details" while showing just "<label>").
    */
   ariaLabel?: string;
+  /** Native tooltip text, for a button whose visible label needs a longer hover explanation. */
+  title?: string;
   /** For disclosure/toggle buttons that control a popover or panel. */
   ariaExpanded?: boolean;
   /** For toggle-style buttons in a single/multi-select group (e.g. a filter chip). */
@@ -50,6 +52,7 @@ const Button = (props: ButtonProps) => {
       aria-label={props.ariaLabel}
       aria-expanded={props.ariaExpanded}
       aria-pressed={props.ariaPressed}
+      title={props.title}
       style={props.style}
       onClick={(e) => props.onClick?.(e)}
     >

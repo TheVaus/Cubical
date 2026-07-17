@@ -334,36 +334,36 @@ const PropertyRow: Component<RowProps> = (props) => {
 
         <Show when={props.lossyOriginal !== undefined}>
           {/*
-            Judgement call (design-system migration Task 4): kept bespoke
-            rather than @ds Button. None of Button's variants render this
-            look — `danger` is a solid filled var(--c-error) block (a much
-            heavier "destructive" affordance than an undo hint belongs
-            to), `secondary`/`ghost` have no warning coloring at all, and
-            there is exactly one other consumer of var(--c-warning) as an
-            outline color in the whole app (App.tsx, non-button). Forcing
-            this into `danger` to score a DS win would make an "undo the
-            lossy conversion" action visually read as "delete", a real
-            semantic regression — so this stays a bespoke warning-outline
-            pill, same standard of evidence as RawCell's Task 3 call.
+            @ds Button variant="ghost" size="sm" is the base: computed-style
+            diffing against the outgoing bespoke markup (design-system
+            migration Task 4 revert-button revisit) showed font-family,
+            font-size, background and border-width/style already match
+            ghost+sm exactly — only color, border-color, border-radius and
+            vertical padding diverge, so those go through the token-driven
+            style escape hatch, same standard as `+ Add property` above
+            (which overrides 5 properties; this overrides 5). `danger` is
+            still rejected for the same reason as before — a solid filled
+            var(--c-error) block reads as "delete", and an "undo the lossy
+            conversion" action must not. `title` needed a small, additive
+            Button prop (mirrors IconButton's existing `title`) to keep the
+            hover tooltip; it defaults to unset so no other Button call
+            site is affected.
           */}
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => props.onRevertLossy()}
             title="Revert to the value before the type change"
             style={{
               "margin-top": "var(--space-1)",
               padding: "0 var(--space-2)",
-              "font-family": "var(--font-body)",
-              "font-size": "var(--text-xs)",
               color: "var(--c-warning)",
-              background: "transparent",
-              border: "1px solid var(--c-warning)",
+              "border-color": "var(--c-warning)",
               "border-radius": "var(--radius-full)",
-              cursor: "pointer",
             }}
           >
             ⚠ was {JSON.stringify(props.lossyOriginal?.value)} — revert
-          </button>
+          </Button>
         </Show>
       </div>
 
