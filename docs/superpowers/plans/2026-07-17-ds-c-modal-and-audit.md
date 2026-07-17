@@ -59,3 +59,32 @@ up, and (worse) drop its `role="dialog"`/`aria-modal`/accessible-name, since the
 ### Out of scope
 - Settings modal, OmniBar, popovers (all bespoke per the audit above).
 - Removing `.modal*` from `layout.css` — Phase D, after the Settings modal is dealt with.
+
+## Remaining inline-control inventory (the rest of Phase C)
+
+After C1/C2 the DS-backed overlay work is done. What's left is the **inline-primitive
+sweep**: 19 bespoke `<button>` + 8 bespoke `<input>/<textarea>` in `ui/src`. Classified:
+
+**Migratable (adopt a DS primitive; each is vault-gated → verify live):**
+- `App.tsx:1771` `set-info-btn` ⓘ → `IconButton size="sm"` (recheck 1.25rem fit).
+- `App.tsx` `tree-header__action` ＋ / 🗀 (2) → `IconButton size="sm"`.
+- `App.tsx` external-edit banner `reloadFromDisk` / `keepMyEdits` (2) → `Button`.
+- `App.tsx` `vault-btn` (switcher toggle) → `Button`/`IconButton` (labeled dropdown; check fit).
+- `OmniBar.tsx` search `<input>` → `TextInput` — **needs a TextInput `aria-activedescendant`
+  passthrough** (the listbox pattern sets it dynamically); additive DS extension first.
+- A couple of `SearchPanel.tsx` / `App.tsx` controls — audit per-file before touching.
+
+**Deliberately bespoke (documented reasons; do NOT migrate):**
+- `SearchPanel.tsx:607` result-row title — roving-tabindex list row (in-file comment
+  explains why Button's box model doesn't fit).
+- `RawCell.tsx` / `Properties.tsx` "Open as raw" text links — need a DS `Link`/`TextButton`.
+- `ChipList.tsx` chips — DS `Tag` hardcodes `#`, no remove affordance, 1 button vs 2–3 controls.
+- `DateCell.tsx` (4) native date/time `<input>`s + the `<select>`s — no DS `Select`/picker exists.
+- Settings-modal `modal__navitem` nav tabs — part of the bespoke two-pane Settings modal.
+
+**Recommendation:** the migratable set (~6–8 controls) is diffuse — spread across 4 files,
+each vault-gated (needs an app relaunch + live drive to verify) and some needing their own
+DS extension (`TextInput` aria-activedescendant, `IconButton` sm-fit recheck). Best done as a
+dedicated focused pass (or folded into Phase D), one file at a time — not bundled — to keep the
+campaign's live-verification bar. It carries low user-visible value (these controls already
+work); its worth is the single-source-of-truth consistency the campaign exists for.
