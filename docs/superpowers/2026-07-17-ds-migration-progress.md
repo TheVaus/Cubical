@@ -4,18 +4,19 @@ Making [`design-system/`](../../design-system/) the single source of truth for t
 app's **tokens AND components**: `ui/` borrows every component from there, so
 editing a component (or a token) changes it everywhere in the app.
 
-**Status: Phase B complete + Phase-D delta spot-check DONE (live). Phases C and D remain.
-Branch `feat/design-system-migration` is UNMERGED (23 commits off `8f7136d`, HEAD `d48b9e0`).**
-`scripts/check.sh` was green at the last code commit (tsc · vitest 728 · build · cargo
-fmt/clippy/test · docs); the two commits since are docs-only.
+**Status: Phase B complete + all three Phase-D deltas settled (the last, BooleanCell, now FIXED
+& live-verified). Phases C and D remain. Branch `feat/design-system-migration` is UNMERGED.**
+`scripts/check.sh` is green (tsc · vitest 728 · build · cargo fmt/clippy/test · docs) — the one
+red line is the documented `dropping_handle_stops_event_delivery_within_100ms` watcher flake
+(passes 3/3 in isolation; zero Rust touched this session).
 
-**Next session, start here:** the three deferred Phase-D deltas are now live-verified (see
-"Accepted deltas" below) — only the **BooleanCell Toggle visible-label slot** fix remains open
-from that pass. The real remaining work is **Phase C** (behavioral wrappers, the harder half) and
-the **Phase D `layout.css` gut**. ~50–55% of the campaign done by effort (~65% by raw element
-count: 31 bespoke `<button>`/`<input>` remain — 23 + 8). For driving the live app under
-`cargo tauri dev` (occlusion, WKWebView keyboard quirks, coordinate math), read the
-`project-tauri-live-verify-setup` auto-memory before re-deriving it.
+**Next session, start here:** the spot-check is fully closed — the BooleanCell Toggle
+visible-label slot fix landed and was driven live (clicking the `true/false` text now flips the
+value both ways and writes to disk; vault restored byte-for-byte). The real remaining work is
+**Phase C** (behavioral wrappers, the harder half) and the **Phase D `layout.css` gut**.
+~55% of the campaign done by effort. For driving the live app under `cargo tauri dev` (occlusion,
+WKWebView keyboard quirks, coordinate math), read the `project-tauri-live-verify-setup`
+auto-memory before re-deriving it — the compiled CGEvent `driver` binary technique still works.
 
 Plans: [`plans/2026-07-14-ds-component-library-migration.md`](plans/2026-07-14-ds-component-library-migration.md)
 (campaign: phases B/C/D + work-list) and
@@ -79,6 +80,11 @@ is optional and defaults to prior behavior:
   capture the element via `ref` and call `input.blur()`.
 - **SegmentedControl** — `pill` variant (B5b); `role?: 'tablist' | 'radiogroup'`
   (B6 fix).
+- **Toggle** — `showLabel?: boolean` (2026-07-17). When set, the switch's `label`
+  renders as visible text sharing the button's hit area, so clicking the text
+  toggles too. Defaults false → prior lone-`<button>` render (Gallery unchanged).
+  Visible text = `label`, so label-in-name holds with no new ARIA. Restored the
+  BooleanCell whole-control click that the DS-migration split had broken.
 - App composes a thin local `OnOffControl` over SegmentedControl for boolean
   settings.
 
@@ -108,12 +114,13 @@ is optional and defaults to prior behavior:
 Settled against the real `feature-test-vault` (`concepts/Properties.md` exercises
 all three) by driving the app with synthetic input — see the technique + full log
 in the `[[project-tauri-live-verify-setup]]` memory. Outcomes:
-- **BooleanCell lost whole-row click — REGRESSION CONFIRMED, still open.** Live: clicking
-  the `true/false` label does nothing; only the ~35×17pt Toggle track is clickable (it
-  flips and writes to disk). The old markup made switch + `true/false` text one
-  `role="switch"` button; DS Toggle renders its own button and can't wrap siblings.
-  **Fix still needed** = an additive **Toggle visible-label slot**, never an app-side
-  wrapper. This is the one real open item from the spot-check.
+- **BooleanCell whole-control click — FIXED & live-verified 2026-07-17.** Was: clicking the
+  `true/false` label did nothing; only the ~35×17pt Toggle track was clickable. Root cause:
+  DS Toggle renders its own `role="switch"` button and can't wrap the sibling `<span>`.
+  Fix (the campaign way): additive **Toggle `showLabel` slot** in `design-system/` — the label
+  now shares the button's hit area; BooleanCell dropped its inert sibling span. Live proof under
+  `cargo tauri dev`: clicking the `true/false` **text** flipped `done` false→true→false on disk
+  (md5 changed each flip, returned to the exact original), toggling in both directions. Closed.
 - **ChipList reflow — PASS (no bug).** Live: chips wrap cleanly to new rows (verified
   with 5 chips at a clean wide width); `+add` follows. The chip-edit box `7rem` →
   `width:auto` fix holds. ⚠ An apparent "chips clip instead of wrap" at a narrow (~1000px)
@@ -143,10 +150,9 @@ in Phase C/D can be verified the same way — see `[[project-tauri-live-verify-s
   the file tree, statusbar segments; plus dialog *shells* → DS `Modal` and the
   App.tsx context menu → DS `Menu`. These carry positioning/lifecycle logic the DS
   mockups lack — that's why they were held back from B.
-- **D — cleanup:** gut the remaining 679-line `layout.css`, `scripts/check.sh`. The
-  three deltas' live verification is DONE (2026-07-17); the only open UI item from it is
-  the BooleanCell Toggle visible-label slot fix. Re-run a live pass after the `layout.css`
-  gut to catch any layout regressions.
+- **D — cleanup:** gut the remaining 679-line `layout.css`, `scripts/check.sh`. All three
+  deltas are now settled (BooleanCell fixed 2026-07-17) — no open UI items from the spot-check.
+  Re-run a live pass after the `layout.css` gut to catch any layout regressions.
 - Also open: App.tsx's `set-info-btn` ⓘ (1.25rem — IconButton `size="sm"` now
   exists, so recheck the fit) and the tree-header `＋`/`🗀` glyphs.
 

@@ -36,3 +36,24 @@
 .toggle.checked .toggle-thumb {
   transform: translateX(16px);
 }
+
+/* Visible-label slot (showLabel): the switch and its text share one hit area,
+   so clicking the text toggles too. Self-contained — no DS-global utilities. */
+.toggle-field {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.toggle-label {
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  color: var(--c-fg-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle-field.disabled .toggle-label {
+  cursor: default;
+  opacity: 0.5;
+}

@@ -8,9 +8,11 @@ import Toggle from "@ds/components/forms/Toggle/Toggle";
  * A two-state switch. A toggle has no in-progress draft state, so the
  * click commits immediately — no focus-guard is needed.
  *
- * DS `Toggle`'s `label` prop is its accessible name only — it renders
- * no visible text — so the true/false text stays as a visible sibling
- * `<span>`, matching the outgoing single-button layout's inline label.
+ * `showLabel` renders the true/false text as part of the switch's own hit
+ * area, so clicking the text flips the value too — matching the outgoing
+ * single-button layout, where switch + label were one `role="switch"`
+ * control. (An earlier layout kept the text as an inert sibling `<span>`,
+ * which broke that whole-control click.)
  */
 export interface BooleanCellProps {
   value: boolean;
@@ -23,7 +25,6 @@ const BooleanCell: Component<BooleanCellProps> = (props) => {
       style={{
         display: "inline-flex",
         "align-items": "center",
-        gap: "var(--space-2)",
         padding: "var(--space-1) var(--space-2)",
       }}
     >
@@ -31,16 +32,8 @@ const BooleanCell: Component<BooleanCellProps> = (props) => {
         checked={props.value}
         onChange={props.onCommit}
         label={props.value ? "true" : "false"}
+        showLabel
       />
-      <span
-        style={{
-          "font-family": "var(--font-body)",
-          "font-size": "var(--text-sm)",
-          color: "var(--c-fg-secondary)",
-        }}
-      >
-        {props.value ? "true" : "false"}
-      </span>
     </div>
   );
 };

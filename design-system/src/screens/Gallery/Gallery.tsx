@@ -77,6 +77,7 @@ const Gallery = () => {
         <div class="gallery-row row">
           <Toggle checked={toggleValue()} onChange={setToggleValue} label="Enable feature" />
           <Toggle checked={false} onChange={() => {}} disabled label="Disabled" />
+          <Toggle checked={toggleValue()} onChange={setToggleValue} showLabel label={toggleValue() ? 'On' : 'Off'} />
         </div>
       </section>
       <section class="gallery-section stack">
