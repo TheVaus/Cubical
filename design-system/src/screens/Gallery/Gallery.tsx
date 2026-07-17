@@ -23,6 +23,7 @@ const Gallery = () => {
   const [segmentValue, setSegmentValue] = createSignal('backlinks');
   const [showToast, setShowToast] = createSignal(false);
   const [modalOpen, setModalOpen] = createSignal(false);
+  const [confirmOpen, setConfirmOpen] = createSignal(false);
   const [paletteOpen, setPaletteOpen] = createSignal(false);
 
   return (
@@ -161,9 +162,27 @@ const Gallery = () => {
       </section>
       <section class="gallery-section stack">
         <div class="eyebrow">Overlay — Modal</div>
-        <Button variant="secondary" onClick={() => setModalOpen(true)}>Open modal</Button>
+        <div class="gallery-row row">
+          <Button variant="secondary" onClick={() => setModalOpen(true)}>Open modal</Button>
+          <Button variant="secondary" onClick={() => setConfirmOpen(true)}>Open confirm (sm/center)</Button>
+        </div>
         <Modal open={modalOpen()} onClose={() => setModalOpen(false)} title="Rename note">
           <div style={{ padding: 'var(--space-4)' }}>Modal body content.</div>
+        </Modal>
+        <Modal
+          open={confirmOpen()}
+          onClose={() => setConfirmOpen(false)}
+          size="sm"
+          placement="center"
+          ariaLabel="Confirm delete"
+        >
+          <div style={{ padding: 'var(--space-4)', display: 'flex', 'flex-direction': 'column', gap: 'var(--space-3)' }}>
+            <p style={{ margin: 0, 'font-size': 'var(--text-sm)' }}>Delete "note.md"?</p>
+            <div style={{ display: 'flex', 'justify-content': 'flex-end', gap: 'var(--space-2)' }}>
+              <Button variant="secondary" onClick={() => setConfirmOpen(false)}>Cancel</Button>
+              <Button variant="danger" onClick={() => setConfirmOpen(false)}>Delete</Button>
+            </div>
+          </div>
         </Modal>
       </section>
       <section class="gallery-section stack">

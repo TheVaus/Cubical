@@ -10,6 +10,11 @@
   animation: scrim-in var(--duration-surface) var(--ease-standard);
 }
 
+.modal-scrim.center {
+  align-items: center;
+  padding-top: 0;
+}
+
 .modal-panel {
   display: flex;
   flex-direction: column;
@@ -22,6 +27,11 @@
   box-shadow: var(--shadow-lg);
   overflow: hidden;
   animation: panel-in var(--duration-surface) var(--ease-standard);
+}
+
+/* Compact confirm/alert width. */
+.modal-panel.sm {
+  width: min(24rem, 90vw);
 }
 
 .modal-title {

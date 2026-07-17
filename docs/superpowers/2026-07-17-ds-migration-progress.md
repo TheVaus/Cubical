@@ -5,7 +5,9 @@ app's **tokens AND components**: `ui/` borrows every component from there, so
 editing a component (or a token) changes it everywhere in the app.
 
 **Status: Phase B complete + all three Phase-D deltas settled (BooleanCell FIXED & live-verified)
-+ Phase-C slice C1 (context menu → DS Menu) DONE & live-verified. Rest of C and D remain.
++ Phase-C slices C1 (context menu → DS Menu) and C2 (delete-confirm → DS Modal) DONE &
+live-verified. A Phase-C fit audit found the remaining overlays are deliberately bespoke — the
+DS-backed overlay migrations are now exhausted. Rest of C (inline-primitive sweep) and D remain.
 Branch `feat/design-system-migration` is UNMERGED.**
 `scripts/check.sh` is green (tsc · vitest 728 · build · cargo fmt/clippy/test · docs) — the one
 red line is the documented `dropping_handle_stops_event_delivery_within_100ms` watcher flake
@@ -89,6 +91,10 @@ is optional and defaults to prior behavior:
 - **Menu** — `MenuItem.danger?: boolean` (2026-07-17, C1). Renders the item in
   `--c-error` for destructive actions (Delete). Defaults undefined → normal color.
   First real app consumer of DS `Menu` (was Gallery-only).
+- **Modal** — dialog ARIA (`role="dialog"`/`aria-modal`, `ariaLabel` or title-based
+  `aria-labelledby`) + `size?: 'sm'|'md'` + `placement?: 'top'|'center'` (2026-07-17, C2).
+  All default to prior behavior (md/top, and the ARIA is always-correct for a modal).
+  First real app consumer of DS `Modal` (was Gallery-only).
 - App composes a thin local `OnOffControl` over SegmentedControl for boolean
   settings.
 
@@ -113,6 +119,14 @@ is optional and defaults to prior behavior:
 - **Every `<select>`** (EnumCell, settings date-format + currency) and DateCell's
   2 native pickers — no DS `Select` exists. `inputStyle` in
   `ui/src/properties/styles.ts` survives *only* to style these.
+- **OmniBar** (`omnibar/OmniBar.tsx`) — a ranked, multi-kind command palette (fuzzy
+  `rankItems`, matched-char `<mark>`ing, note/tag/command kinds with distinct activation,
+  recency fallback, kind badges + subtitles). DS `CommandPalette` is a flat
+  `{id,label,onRun}` list; a swap would regress all of it. Bespoke by design (2026-07-17 audit).
+- **Settings modal** (`App.tsx`, `.modal` 40rem×28rem) — two-pane (nav + body); DS `Modal`
+  is single-column/title-bar. Shell-only migration is marginal → left bespoke (2026-07-17 audit).
+- **VaultSwitcher / PendingRewrites / set-info popovers** — positioned dropdowns/popovers;
+  no DS `Popover` component exists. Bespoke (2026-07-17 audit).
 
 ## Accepted deltas — LIVE-VERIFIED 2026-07-17 under `cargo tauri dev`
 Settled against the real `feature-test-vault` (`concepts/Properties.md` exercises
@@ -148,23 +162,33 @@ tokens/variants, not interaction. **The three deltas above were fully verified l
 2026-07-17 under `cargo tauri dev`** (real backend + vault); remaining vault-gated UI
 in Phase C/D can be verified the same way — see `[[project-tauri-live-verify-setup]]`.
 
-## Phase C — in progress
+## Phase C — DS-backed overlay migrations DONE; audit reframed the rest
 - **C1 — file-tree context menu → DS `Menu` (DONE 2026-07-17, panel-only).** Plan:
   [`plans/2026-07-17-ds-c-context-menu.md`](plans/2026-07-17-ds-c-context-menu.md).
   Replaced the hand-rolled floating menu in `App.tsx` with `<Menu items={…} />`; the
   app keeps the `position:fixed` anchor + scrim/outside-click dismiss (panel-only
-  boundary). DS extension: `MenuItem.danger?` (red destructive item; mirrors Button's
-  `danger`) — the one gap, additive. Killed the bespoke `contextMenuItemStyle`. Live-
-  verified under `cargo tauri dev`: file menu (Rename…/Delete red), folder menu (all
-  four), Rename… `onSelect` opens the inline input, outside-click dismisses; vault left
-  byte-for-byte. Gate fully green.
+  boundary). DS extension: `MenuItem.danger?`. Killed the bespoke `contextMenuItemStyle`.
+  Live-verified (file menu, folder menu all-four, Rename… opens inline input, dismiss).
+- **C2 — delete-confirm dialog → DS `Modal` (DONE 2026-07-17).** Plan + Phase-C audit:
+  [`plans/2026-07-17-ds-c-modal-and-audit.md`](plans/2026-07-17-ds-c-modal-and-audit.md).
+  DS `Modal` was 560px/top/title-bar with **no dialog ARIA** and zero app consumers.
+  Extended additively: always-on `role="dialog"`/`aria-modal` + `ariaLabel`/labelledby,
+  `size?: 'sm'|'md'`, `placement?: 'top'|'center'`. Migrated the delete-confirm to
+  `<Modal size="sm" placement="center" ariaLabel="Confirm delete">`; content stays the
+  app's padded child, `onClose` keeps the `deleteInFlight` guard. Live-verified: confirm
+  renders compact+centered, Escape dismisses without deleting, vault byte-for-byte.
+- **Phase-C fit audit (see the C2 plan doc):** the remaining overlays do **not** map to
+  the DS components and are deliberately bespoke — **Settings modal** (two-pane 40rem×28rem
+  ≠ single-column `Modal`), **OmniBar** (ranked multi-kind palette ≫ flat `CommandPalette`),
+  **VaultSwitcher / PendingRewrites / set-info popovers** (no DS `Popover` exists). So the
+  DS-component-backed overlay migrations are **exhausted**.
 
-## Next — rest of Phase C, then D
-- **C — behavioral wrappers** (the harder half, ~2,600 lines untouched):
-  `Editor.tsx`, `OmniBar.tsx` (→ the DS CommandPalette pattern), `Backlinks.tsx`,
-  the file tree rows, statusbar segments; plus dialog *shells* → DS `Modal` (carries the
-  `.modal` CSS collision + several dialogs). These carry positioning/lifecycle logic the
-  DS mockups lack — that's why they were held back from B.
+## Next — rest of Phase C (inline-primitive sweep), then D
+- **C — inline-control sweep** (~31 bespoke `<button>`/`<input>` remain in `ui/src`):
+  adopt DS `Button`/`IconButton`/`TextInput` inside the still-bespoke wrappers
+  (`OmniBar` input, statusbar segments, `Backlinks`, file-tree rows, the `set-info-btn` ⓘ
+  and tree-header `＋`/`🗀` glyphs). These are primitive swaps within app-specific layouts,
+  not whole-component migrations — the overlays above stay bespoke by design.
 - **D — cleanup:** gut the remaining 679-line `layout.css`, `scripts/check.sh`. All three
   deltas are now settled (BooleanCell fixed 2026-07-17) — no open UI items from the spot-check.
   Re-run a live pass after the `layout.css` gut to catch any layout regressions.

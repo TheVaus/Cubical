@@ -17,6 +17,7 @@ import Button from "@ds/components/forms/Button/Button";
 import IconButton from "@ds/components/forms/IconButton/IconButton";
 import SegmentedControl from "@ds/components/forms/SegmentedControl/SegmentedControl";
 import Menu, { type MenuItem } from "@ds/components/overlay/Menu/Menu";
+import Modal from "@ds/components/overlay/Modal/Modal";
 
 import Editor, { type EditorApi } from "./Editor";
 import Properties from "./Properties";
@@ -3134,22 +3135,17 @@ topics:         # type:list
 
       <Show when={deleteTarget()}>
         {(target) => (
-          <div
-            class="modal-backdrop"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Confirm delete"
-            style={{ "z-index": 30 }}
-            onClick={() => !deleteInFlight() && setDeleteTarget(null)}
+          <Modal
+            open={true}
+            size="sm"
+            placement="center"
+            ariaLabel="Confirm delete"
+            onClose={() => {
+              if (!deleteInFlight()) setDeleteTarget(null);
+            }}
           >
             <div
-              onClick={(e) => e.stopPropagation()}
               style={{
-                width: "min(24rem, 90vw)",
-                background: "var(--c-bg-primary)",
-                border: "1px solid var(--c-border-subtle)",
-                "border-radius": "var(--radius-lg, var(--radius-md))",
-                "box-shadow": "var(--shadow-lg, var(--shadow-md))",
                 padding: "var(--space-4)",
                 display: "flex",
                 "flex-direction": "column",
@@ -3192,7 +3188,7 @@ topics:         # type:list
                 </Button>
               </div>
             </div>
-          </div>
+          </Modal>
         )}
       </Show>
 
