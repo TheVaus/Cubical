@@ -4,9 +4,18 @@ Making [`design-system/`](../../design-system/) the single source of truth for t
 app's **tokens AND components**: `ui/` borrows every component from there, so
 editing a component (or a token) changes it everywhere in the app.
 
-**Status: Phase B complete. Phases C and D remain. Branch `feat/design-system-migration`
-is UNMERGED (21 commits off `8f7136d`).** `scripts/check.sh` is green at HEAD
-(tsc · vitest 728 · build · cargo fmt/clippy/test · docs).
+**Status: Phase B complete + Phase-D delta spot-check DONE (live). Phases C and D remain.
+Branch `feat/design-system-migration` is UNMERGED (23 commits off `8f7136d`, HEAD `d48b9e0`).**
+`scripts/check.sh` was green at the last code commit (tsc · vitest 728 · build · cargo
+fmt/clippy/test · docs); the two commits since are docs-only.
+
+**Next session, start here:** the three deferred Phase-D deltas are now live-verified (see
+"Accepted deltas" below) — only the **BooleanCell Toggle visible-label slot** fix remains open
+from that pass. The real remaining work is **Phase C** (behavioral wrappers, the harder half) and
+the **Phase D `layout.css` gut**. ~50–55% of the campaign done by effort (~65% by raw element
+count: 31 bespoke `<button>`/`<input>` remain — 23 + 8). For driving the live app under
+`cargo tauri dev` (occlusion, WKWebView keyboard quirks, coordinate math), read the
+`project-tauri-live-verify-setup` auto-memory before re-deriving it.
 
 Plans: [`plans/2026-07-14-ds-component-library-migration.md`](plans/2026-07-14-ds-component-library-migration.md)
 (campaign: phases B/C/D + work-list) and
