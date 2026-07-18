@@ -28,7 +28,7 @@ Live Preview is implemented as Lezer-driven decorations on the CodeMirror state.
 
 ### 11.4 Theming
 
-A single CSS-variable token surface lives in `ui/src/styles/tokens.css`. **All UI components consume tokens; no hardcoded colors, fonts, or spacings exist outside the tokens file.** This is enforced by lint rule.
+The canonical CSS-variable token surface lives in `design-system/src/styles/tokens.css`; the app's `ui/src/styles/tokens.css` re-exports it (a single `@import`, plus nothing of its own), so editing a value in the design system propagates to every instance in the app. **All UI components consume tokens; no hardcoded colors, fonts, or spacings exist outside the token surface.** This is enforced by lint rule. See §11.6 for the design system's role as the app's component library.
 
 **Token categories:** colors (`--c-bg-primary`, `--c-fg-primary`, `--c-accent`, `--c-success`, `--c-warning`, `--c-error`, …), typography (`--font-body`, `--font-mono`, `--text-base`, `--leading-base`, …), spacing scale (`--space-1` through `--space-8`), border radii, shadows.
 
@@ -47,6 +47,17 @@ A single CSS-variable token surface lives in `ui/src/styles/tokens.css`. **All U
 **One vault per window, multiple windows allowed.** A single Tauri process holds `HashMap<VaultId, Vault>` in Rust state. Each window's frontend tracks one `vault_id` and uses it in all IPC commands. Users with multiple vaults open multiple windows.
 
 Cross-vault search, cross-vault tabs, and cross-vault command-palette are explicitly out of scope — most users don't ask for them, and the implementation cost is significant. The IPC contract leaves the door open if user demand emerges later.
+
+### 11.6 Component library
+
+The app's UI primitives are **not** hand-rolled in `ui/` — they come from the shared design system at [`design-system/`](../../design-system/), consumed through the `@ds` alias (wired in `ui/vite.config.ts` + `tsconfig`, with `dedupe: ["solid-js"]` keeping a single Solid instance across the boundary). `design-system/` is the single source of truth for **tokens and components**: editing a component or token there changes it everywhere in the app. The design system also stands alone as its own SolidJS package with a Gallery/Workspace playground — see [`design-system/README.md`](../../design-system/README.md).
+
+Two locked rules govern how it grows:
+
+- **Extend additively.** When a component lacks a prop the app needs, add it to the design system and default it to the component's prior behavior — never fork the component or work around the gap app-side.
+- **Components are self-contained.** A design-system component may not depend on the playground's global stylesheets (its `base.css` control reset or `layout.css` utilities); it sets its own control reset and layout in its own CSS. The app imports neither global.
+
+Some surfaces stay **deliberately bespoke** where no design-system component fits today — native `<select>` and date pickers, positioned popovers (VaultSwitcher, Pending Rewrites), the ranked multi-kind OmniBar palette, the two-pane Settings modal, and ChipList's multi-control chips. The migration record, the full bespoke list with rationale, and the follow-up backlog live in the campaign handoff [`../superpowers/2026-07-17-ds-migration-progress.md`](../superpowers/2026-07-17-ds-migration-progress.md) and in GitHub issues #34 (deferred migratable inline tail) and #35 (net-new DS primitives the bespoke surfaces would need).
 
 ---
 

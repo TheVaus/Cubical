@@ -16,6 +16,10 @@ Code-style rules enforced by review and (where noted) by tooling. Load this when
 - Prettier + ESLint.
 - Solid idioms: signals for fine-grained state, stores for structured state, `createResource` for async Tauri data.
 
+## UI components
+
+- **Reach for the design system (`@ds`) before hand-rolling a control.** `design-system/` is the app's component library and token source; `ui/` borrows from it. When a component is missing a prop you need, extend the design system additively (default to prior behavior) rather than forking it app-side, and keep DS components self-contained (no dependency on the playground's global stylesheets). The locked rules and the list of deliberately-bespoke exceptions live in [`architecture/ui.md`](architecture/ui.md) §11.6.
+
 ## Tauri commands
 
 - Coarse-grained, named as verb-noun.
