@@ -10,7 +10,7 @@ glyphs → DS IconButton) DONE & live-verified. A Phase-C fit audit found the re
 deliberately bespoke — the DS-backed overlay migrations are exhausted; the inline-primitive sweep's
 migratable remainder is a diffuse tail. PHASE D DONE (2026-07-18): `layout.css` gut audited & the
 one dead rule removed. Only the deliberately-deferred inline tail + genuinely-bespoke surfaces
-remain. Branch is UNMERGED.**
+remain. **MERGED to `main` 2026-07-18** (fast-forward; branch deleted). Deferred tail → issues #34/#35.**
 `scripts/check.sh` is green (tsc · vitest 728 · build · cargo fmt/clippy/test · docs) — the one
 red line is the documented `dropping_handle_stops_event_delivery_within_100ms` watcher flake
 (passes 3/3 in isolation; zero Rust touched this session).
