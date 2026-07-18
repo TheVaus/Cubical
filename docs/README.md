@@ -34,6 +34,7 @@ cubical/
 │   ├── cubical-sync/       # CrdtBackend trait + Loro impl (Loro lands at L7)
 │   └── cubical-app/        # Tauri app, depends on the above
 ├── ui/                     # Solid + TypeScript + Vite frontend
+├── design-system/          # @ds — SolidJS component library + canonical design tokens; ui/ borrows from here (architecture/ui.md §11.6)
 ├── docs/                   # this index
 ├── scripts/                # check.sh (the gate set) + check_docs.py
 ├── .github/                # CI workflow (runs check.sh) + Dependabot config
