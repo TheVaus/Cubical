@@ -8,19 +8,30 @@ editing a component (or a token) changes it everywhere in the app.
 + Phase-C slices C1 (context menu → DS Menu), C2 (delete-confirm → DS Modal), and C3 (tree-header
 glyphs → DS IconButton) DONE & live-verified. A Phase-C fit audit found the remaining overlays are
 deliberately bespoke — the DS-backed overlay migrations are exhausted; the inline-primitive sweep's
-migratable remainder is a diffuse tail. Rest of C and D remain. Branch is UNMERGED.**
+migratable remainder is a diffuse tail. PHASE D DONE (2026-07-18): `layout.css` gut audited & the
+one dead rule removed. Only the deliberately-deferred inline tail + genuinely-bespoke surfaces
+remain. Branch is UNMERGED.**
 `scripts/check.sh` is green (tsc · vitest 728 · build · cargo fmt/clippy/test · docs) — the one
 red line is the documented `dropping_handle_stops_event_delivery_within_100ms` watcher flake
 (passes 3/3 in isolation; zero Rust touched this session).
 
-**Next session, start here → Phase D: gut `layout.css`.** Phase C's DS-backed overlay migrations
-are done (C1 Menu, C2 Modal, C3 tree-header IconButton, all live-verified) and the audit proved the
-remaining overlays are deliberately bespoke, so the substantive Phase-C work is finished. The last
-big structural piece is **Phase D**: gut the 679-line `ui/src/styles/layout.css`, deleting rules
-made dead by the B/C migrations (e.g. `.set-info-btn` is still used — keep it; `.tree-header__action`
-already went). Note the Settings modal still uses `.modal-backdrop`/`.modal*`, so those stay until
-the Settings modal is dealt with (it's deliberately bespoke). After the gut, **re-run a full live
-pass** under `cargo tauri dev` to catch layout regressions, then `scripts/check.sh`.
+**Phase D (`layout.css` gut) is DONE — but the "gut" was near-empty, by design.** The premise was
+that B/C left many dead rules in `layout.css`; the evidence says otherwise. B/C's CSS-collision
+strategy (campaign plan §"CSS-collision strategy") already deletes each migrated element's dead
+`layout.css` rules *as it goes* — so `.chrome-btn`, `.seg-control`, `.tree-header__action`,
+`miniButtonStyle` were all removed in their own commits. By Phase D the file was already lean live
+layout scaffolding. An authoritative **defined-vs-applied class diff** (every class defined in
+`layout.css` vs every class token applied anywhere in `ui/src`+`design-system/src` JSX) found **exactly
+one** orphan: `.statusbar__spacer` (a leftover from the old statusbar design; today's three-region
+statusbar spaces via `flex:1 1 0` on the proj/file groups, needs no spacer element). Deleted it
+(−3 lines → 676). Everything else — shell, topbar, `.tab*`, stage, `.side*`, statusbar, `.rs-tab*`,
+`.tree-row*`, `.empty-vault*`, `.vault-btn/-switcher*`, `.recent-vaults*`, `.kb-row` — is live, and
+the Settings-modal `.modal*` + `.set-info-*` are the documented deliberately-kept set. **Do NOT
+delete more of `layout.css` to shrink it — the remaining rules all have live consumers (verified).**
+Live pass under `cargo tauri dev` vs `feature-test-vault`: app boots, full layout renders, and with
+`concepts/Properties.md` open the statusbar shows all three regions correctly (path left · **149**
+words · **5** blocks mid · `concepts/Properties.md` right) — the spacer removal caused zero
+regression. Vault left byte-for-byte (md5 `803ebb…` before == after).
 
 Smaller optional cleanups if you'd rather not open Phase D: the deferred inline-control tail — the
 external-edit banner buttons → `Button` (needs a *manual* dirty-buffer trigger; can't be scripted,
@@ -204,17 +215,21 @@ in Phase C/D can be verified the same way — see `[[project-tauri-live-verify-s
   affordance; `IconButton` md (1.9rem box) is too big and both sizes add a bg-plate hover that
   reads heavy there. Would need a `plain`/`ghost` IconButton variant — out of scope.
 
-## Next — rest of the inline-primitive sweep, then D
-- **C — inline-control sweep (remaining):** ~25 bespoke controls left, mostly deliberately
-  bespoke (see the C2-plan inventory). The migratable remainder is diffuse: the external-edit
-  banner buttons (`reloadFromDisk`/`keepMyEdits` → `Button`, hard to trigger for live verify) and
-  the `OmniBar` input → `TextInput` (needs a `TextInput` aria-activedescendant passthrough first).
-  Do per-file, live-verified — not bundled.
-- **D — cleanup:** gut the remaining 679-line `layout.css`, `scripts/check.sh`. All three
-  deltas are now settled (BooleanCell fixed 2026-07-17) — no open UI items from the spot-check.
-  Re-run a live pass after the `layout.css` gut to catch any layout regressions.
-- Also open: App.tsx's `set-info-btn` ⓘ (1.25rem — IconButton `size="sm"` now
-  exists, so recheck the fit) and the tree-header `＋`/`🗀` glyphs.
+## Next — only the deferred inline tail remains (all structural work done)
+- **D — cleanup: DONE (2026-07-18).** `layout.css` gut audited; one dead rule (`.statusbar__spacer`)
+  removed; live-verified under `cargo tauri dev`; `scripts/check.sh` green (modulo the watcher flake).
+  See the Phase-D block at the top for the full finding. Nothing more to gut — the rest is live.
+- **C — inline-control sweep (remaining), all low-value & deferred:** the migratable remainder is a
+  diffuse tail — the external-edit banner buttons (`reloadFromDisk`/`keepMyEdits` → `Button`; deferred
+  because the 300ms autosave clears `dirty` before the fs-watcher fires, so the banner can't be
+  triggered by a script — do it by hand while working that flow) and the `OmniBar` input → `TextInput`
+  (needs a `TextInput` aria-activedescendant passthrough first). Everything else on the inventory is
+  genuinely bespoke (Settings two-pane modal, OmniBar ranked palette, popovers, chips, selects, the
+  `set-info-btn` ⓘ) — do NOT migrate; read the reasons in the C2-plan inventory before touching.
+- **Campaign state:** all four DS-backed overlay migrations + Phase-B primitives + Phase-D layout
+  cleanup are complete. The DS is the app's single source of truth for tokens and for every
+  component that has an app consumer. What's left is the deferred inline tail above (optional,
+  low-value) — the campaign's structural goals are met.
 
 ## Gotchas
 - **Flaky test, not yours:** `cubical-core`'s
