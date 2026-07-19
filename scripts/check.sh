@@ -11,6 +11,7 @@ cd "$(git rev-parse --show-toplevel)"
 # keeps the gate correct from a clean checkout (e.g. CI), not just when a stale
 # `ui/dist` happens to be lying around.
 echo "==> tsc";          ( cd ui && npx tsc --noEmit )
+echo "==> tsc (design-system)"; ( cd design-system && npx tsc --noEmit )
 echo "==> vitest";       ( cd ui && npx vitest run )
 echo "==> build";        ( cd ui && npm run build )
 echo "==> cargo fmt";    cargo fmt --all --check
