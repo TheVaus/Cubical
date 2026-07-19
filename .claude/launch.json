@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "ui", "run", "dev"],
       "port": 5173
+    },
+    {
+      "name": "design-system",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "design-system", "run", "dev", "--", "--port", "5174", "--strictPort"],
+      "port": 5174
     }
   ]
 }
