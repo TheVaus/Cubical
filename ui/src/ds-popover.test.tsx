@@ -115,4 +115,32 @@ describe("Popover", () => {
     setOpen(true);
     expect(host.querySelector(".ds-popover__panel")).not.toBeNull();
   });
+
+  it("does not call onClose on Escape while mounted but closed (open=false)", () => {
+    const onClose = vi.fn();
+    mount(() => (
+      <Popover open={false} onClose={onClose} ariaLabel="Test popover">
+        <p>content</p>
+      </Popover>
+    ));
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    );
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("detaches the Escape listener once open toggles back to false", () => {
+    const onClose = vi.fn();
+    const [open, setOpen] = createSignal(true);
+    mount(() => (
+      <Popover open={open()} onClose={onClose} ariaLabel="Test popover">
+        <p>content</p>
+      </Popover>
+    ));
+    setOpen(false);
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    );
+    expect(onClose).not.toHaveBeenCalled();
+  });
 });

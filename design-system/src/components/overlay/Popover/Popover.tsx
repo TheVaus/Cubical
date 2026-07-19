@@ -1,4 +1,4 @@
-import { onCleanup, onMount, Show, type JSX } from 'solid-js';
+import { createEffect, onCleanup, Show, type JSX } from 'solid-js';
 import './Popover.css';
 
 export type PopoverPlacement = 'bottom-start' | 'bottom-end' | 'top-start' | 'top-end';
@@ -32,11 +32,12 @@ const Popover = (props: PopoverProps) => {
   const onKey = (e: KeyboardEvent) => {
     if (e.key === 'Escape') props.onClose();
   };
-  onMount(() => {
+  createEffect(() => {
+    if (!props.open) return;
     document.addEventListener('keydown', onKey);
-  });
-  onCleanup(() => {
-    document.removeEventListener('keydown', onKey);
+    onCleanup(() => {
+      document.removeEventListener('keydown', onKey);
+    });
   });
 
   const placement = () => props.placement ?? 'bottom-start';
