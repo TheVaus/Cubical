@@ -17,6 +17,7 @@ import FileTreeRow from '../../components/data/FileTreeRow/FileTreeRow';
 import BacklinkRow from '../../components/data/BacklinkRow/BacklinkRow';
 import Menu from '../../components/overlay/Menu/Menu';
 import Modal from '../../components/overlay/Modal/Modal';
+import Popover from '../../components/overlay/Popover/Popover';
 import CommandPalette from '../../components/overlay/CommandPalette/CommandPalette';
 
 const ALL_ICONS: IconName[] = [
@@ -35,6 +36,7 @@ const Gallery = () => {
   const [modalOpen, setModalOpen] = createSignal(false);
   const [confirmOpen, setConfirmOpen] = createSignal(false);
   const [paletteOpen, setPaletteOpen] = createSignal(false);
+  const [popoverOpen, setPopoverOpen] = createSignal(false);
 
   return (
     <div class="gallery stack scroll-y">
@@ -227,6 +229,25 @@ const Gallery = () => {
             </div>
           </div>
         </Modal>
+      </section>
+      <section class="gallery-section stack">
+        <div class="eyebrow">Overlay — Popover</div>
+        <div class="gallery-popover-anchor">
+          <Button variant="secondary" onClick={() => setPopoverOpen((v) => !v)}>
+            Toggle popover
+          </Button>
+          <Popover
+            open={popoverOpen()}
+            onClose={() => setPopoverOpen(false)}
+            ariaLabel="Gallery popover"
+            placement="bottom-start"
+            class="gallery-popover-panel"
+          >
+            <p style={{ margin: 0, 'font-size': 'var(--text-sm)' }}>
+              Anchor-relative panel with a click-through backdrop and Escape to dismiss.
+            </p>
+          </Popover>
+        </div>
       </section>
       <section class="gallery-section stack">
         <div class="eyebrow">Overlay — CommandPalette</div>

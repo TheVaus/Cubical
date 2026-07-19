@@ -28,3 +28,13 @@
   padding: var(--space-3);
   color: var(--c-fg-primary);
 }
+
+.gallery-popover-anchor {
+  position: relative;
+  display: inline-block;
+}
+
+.gallery-popover-panel {
+  width: 220px;
+  padding: var(--space-3);
+}
