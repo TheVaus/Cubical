@@ -5,6 +5,7 @@ import Icon, { type IconName } from '../../components/graphics/Icon/Icon';
 import Button from '../../components/forms/Button/Button';
 import IconButton from '../../components/forms/IconButton/IconButton';
 import TextInput from '../../components/forms/TextInput/TextInput';
+import Select from '../../components/forms/Select/Select';
 import Toggle from '../../components/forms/Toggle/Toggle';
 import SegmentedControl from '../../components/forms/SegmentedControl/SegmentedControl';
 import Badge from '../../components/feedback/Badge/Badge';
@@ -27,6 +28,7 @@ const ALL_ICONS: IconName[] = [
 
 const Gallery = () => {
   const [textInputValue, setTextInputValue] = createSignal('');
+  const [selectValue, setSelectValue] = createSignal('backlinks');
   const [toggleValue, setToggleValue] = createSignal(true);
   const [segmentValue, setSegmentValue] = createSignal('backlinks');
   const [showToast, setShowToast] = createSignal(false);
@@ -79,6 +81,39 @@ const Gallery = () => {
         <div class="gallery-row row">
           <TextInput value={textInputValue()} onInput={setTextInputValue} placeholder="Search notes…" />
           <TextInput value="" onInput={() => {}} placeholder="Disabled" disabled />
+        </div>
+      </section>
+      <section class="gallery-section stack">
+        <div class="eyebrow">Forms — Select</div>
+        <div class="gallery-row row">
+          <Select
+            options={[
+              { value: 'backlinks', label: 'Backlinks' },
+              { value: 'mentions', label: 'Mentions' },
+              { value: 'unlinked', label: 'Unlinked mentions' },
+            ]}
+            value={selectValue()}
+            onChange={setSelectValue}
+            ariaLabel="Gallery select — md"
+          />
+          <Select
+            options={[
+              { value: 'backlinks', label: 'Backlinks' },
+              { value: 'mentions', label: 'Mentions' },
+              { value: 'unlinked', label: 'Unlinked mentions' },
+            ]}
+            value={selectValue()}
+            onChange={setSelectValue}
+            size="sm"
+            ariaLabel="Gallery select — sm"
+          />
+          <Select
+            options={[{ value: 'disabled', label: 'Disabled' }]}
+            value="disabled"
+            onChange={() => {}}
+            disabled
+            ariaLabel="Gallery select — disabled"
+          />
         </div>
       </section>
       <section class="gallery-section stack">

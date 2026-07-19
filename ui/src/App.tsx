@@ -15,6 +15,7 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 
 import Button from "@ds/components/forms/Button/Button";
 import IconButton from "@ds/components/forms/IconButton/IconButton";
+import Select from "@ds/components/forms/Select/Select";
 import SegmentedControl from "@ds/components/forms/SegmentedControl/SegmentedControl";
 import Menu, { type MenuItem } from "@ds/components/overlay/Menu/Menu";
 import Modal from "@ds/components/overlay/Modal/Modal";
@@ -2717,16 +2718,12 @@ topics:         # type:list
                         from the type menu.
                       </div>
                     </div>
-                    <select
+                    <Select
+                      options={DATE_FORMAT_TOKENS.map((t) => ({ value: t }))}
                       value={dateDefault()}
-                      onChange={(e) =>
-                        setDateDefaultValue(e.currentTarget.value)
-                      }
-                    >
-                      <For each={DATE_FORMAT_TOKENS}>
-                        {(token) => <option value={token}>{token}</option>}
-                      </For>
-                    </select>
+                      onChange={(v) => setDateDefaultValue(v)}
+                      ariaLabel="Default date format"
+                    />
                   </div>
                   <div class="set-row">
                     <div>
@@ -2736,18 +2733,12 @@ topics:         # type:list
                         from the type menu.
                       </div>
                     </div>
-                    <select
+                    <Select
+                      options={CURRENCY_CODES.map((c) => ({ value: c, label: c.toUpperCase() }))}
                       value={currencyDefault()}
-                      onChange={(e) =>
-                        setCurrencyDefaultValue(e.currentTarget.value)
-                      }
-                    >
-                      <For each={CURRENCY_CODES}>
-                        {(code) => (
-                          <option value={code}>{code.toUpperCase()}</option>
-                        )}
-                      </For>
-                    </select>
+                      onChange={(v) => setCurrencyDefaultValue(v)}
+                      ariaLabel="Default currency"
+                    />
                   </div>
                   <div class="set-row">
                     <div>
