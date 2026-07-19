@@ -9,6 +9,7 @@ import {
 
 import IconButton from "@ds/components/forms/IconButton/IconButton";
 import TextInput from "@ds/components/forms/TextInput/TextInput";
+import Icon from "@ds/components/graphics/Icon/Icon";
 
 import { chipStyle } from "./styles";
 
@@ -168,7 +169,7 @@ const ChipList: Component<ChipListProps> = (props) => {
                       size="sm"
                       onClick={() => startEdit(i())}
                     >
-                      ✎
+                      <Icon name="edit" />
                     </IconButton>
                   </Show>
                   <IconButton
@@ -176,7 +177,7 @@ const ChipList: Component<ChipListProps> = (props) => {
                     size="sm"
                     onClick={() => removeChip(i())}
                   >
-                    ×
+                    <Icon name="close" />
                   </IconButton>
                 </span>
               }
