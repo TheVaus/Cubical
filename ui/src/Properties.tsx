@@ -11,6 +11,7 @@ import {
 
 import Button from "@ds/components/forms/Button/Button";
 import IconButton from "@ds/components/forms/IconButton/IconButton";
+import Link from "@ds/components/forms/Link/Link";
 import TextInput from "@ds/components/forms/TextInput/TextInput";
 import Icon from "@ds/components/graphics/Icon/Icon";
 
@@ -749,30 +750,17 @@ const Properties: Component<PropertiesProps> = (props) => {
                 {splitFrontmatter(props.getSource()).yaml ?? ""}
               </pre>
               {/*
-                Kept bespoke, same RawCell precedent (Task 3): @ds Button's
-                smallest, least chrome-heavy variant (ghost/sm) still
-                computes to a padded, rounded, hover-plated chrome button
-                with the default foreground color and no underline —
-                nothing like this zero-padding, accent, underlined inline
-                text link. Adopting it would turn a link into a button.
+                Uses the DS `Link` (issue #35), same RawCell precedent —
+                a ghost Button would still read as a chrome button, not
+                an inline text link.
               */}
-              <button
-                type="button"
+              <Link
+                size="xs"
                 onClick={() => props.onOpenRaw()}
-                style={{
-                  "align-self": "flex-start",
-                  padding: "0",
-                  "font-family": "var(--font-body)",
-                  "font-size": "var(--text-xs)",
-                  color: "var(--c-accent)",
-                  background: "transparent",
-                  border: "none",
-                  cursor: "pointer",
-                  "text-decoration": "underline",
-                }}
+                style={{ "align-self": "flex-start" }}
               >
                 Open as raw
-              </button>
+              </Link>
             </div>
           }
         >

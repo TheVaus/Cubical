@@ -5,6 +5,7 @@ import Icon, { type IconName } from '../../components/graphics/Icon/Icon';
 import Button from '../../components/forms/Button/Button';
 import IconButton from '../../components/forms/IconButton/IconButton';
 import TextInput from '../../components/forms/TextInput/TextInput';
+import Link from '../../components/forms/Link/Link';
 import Select from '../../components/forms/Select/Select';
 import Toggle from '../../components/forms/Toggle/Toggle';
 import SegmentedControl from '../../components/forms/SegmentedControl/SegmentedControl';
@@ -83,6 +84,14 @@ const Gallery = () => {
         <div class="gallery-row row">
           <TextInput value={textInputValue()} onInput={setTextInputValue} placeholder="Search notes…" />
           <TextInput value="" onInput={() => {}} placeholder="Disabled" disabled />
+        </div>
+      </section>
+      <section class="gallery-section stack">
+        <div class="eyebrow">Forms — Link</div>
+        <div class="gallery-row row">
+          <Link size="xs" onClick={() => {}}>Open as raw</Link>
+          <Link size="sm" onClick={() => {}}>Action link</Link>
+          <Link size="md" href="https://example.com">External link</Link>
         </div>
       </section>
       <section class="gallery-section stack">
