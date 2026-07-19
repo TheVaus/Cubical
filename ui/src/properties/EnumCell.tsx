@@ -1,9 +1,9 @@
-import { createSignal, For, Show, type Component } from "solid-js";
+import { createSignal, Show, type Component } from "solid-js";
 
 import IconButton from "@ds/components/forms/IconButton/IconButton";
+import Select from "@ds/components/forms/Select/Select";
 import TextInput from "@ds/components/forms/TextInput/TextInput";
-
-import { inputStyle } from "./styles";
+import Icon from "@ds/components/graphics/Icon/Icon";
 
 /**
  * Enum-valued frontmatter cell (spec §4.2). Two modes:
@@ -63,15 +63,14 @@ const EnumCell: Component<EnumCellProps> = (props) => {
       }
     >
       <div style={{ display: "flex", "align-items": "center", gap: "var(--space-1)" }}>
-        <select
+        <Select
+          options={props.values.map((v) => ({ value: v }))}
           value={String(props.value ?? "")}
-          onChange={(e) => props.onCommit(toStored(e.currentTarget.value))}
-          style={{ ...inputStyle(false), flex: "1" }}
-        >
-          <For each={props.values}>
-            {(v) => <option value={v}>{v}</option>}
-          </For>
-        </select>
+          onChange={(v) => props.onCommit(toStored(v))}
+          size="sm"
+          ariaLabel="Value"
+          style={{ flex: "1" }}
+        />
         <IconButton
           label="Edit allowed values"
           size="sm"
@@ -80,7 +79,7 @@ const EnumCell: Component<EnumCellProps> = (props) => {
             setEditing(true);
           }}
         >
-          ✎
+          <Icon name="edit" />
         </IconButton>
       </div>
     </Show>

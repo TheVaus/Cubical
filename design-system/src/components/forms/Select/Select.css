@@ -1,0 +1,49 @@
+/* Carries its own control reset — see Button.css. */
+.ds-select {
+  position: relative;
+  display: inline-flex;
+}
+
+.ds-select.full-width {
+  display: flex;
+  width: 100%;
+}
+
+.ds-select__control {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  height: 32px;
+  padding: 0 var(--space-6) 0 var(--space-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--c-border-subtle);
+  background: var(--c-bg-primary);
+  color: var(--c-fg-primary);
+  font-size: var(--text-sm);
+  width: 100%;
+  transition: border-color var(--duration-state) var(--ease-standard);
+}
+
+.ds-select__control.sm {
+  height: auto;
+  padding: var(--space-1) var(--space-5) var(--space-1) var(--space-2);
+}
+
+.ds-select__control:focus-visible {
+  border-color: var(--c-accent);
+  outline: 2px solid var(--c-focus-ring);
+  outline-offset: 2px;
+}
+
+.ds-select__control:disabled {
+  opacity: 0.5;
+}
+
+.ds-select__caret {
+  position: absolute;
+  top: 50%;
+  right: var(--space-2);
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--c-fg-muted);
+}

@@ -15,9 +15,11 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 
 import Button from "@ds/components/forms/Button/Button";
 import IconButton from "@ds/components/forms/IconButton/IconButton";
+import Select from "@ds/components/forms/Select/Select";
 import SegmentedControl from "@ds/components/forms/SegmentedControl/SegmentedControl";
 import Menu, { type MenuItem } from "@ds/components/overlay/Menu/Menu";
 import Modal from "@ds/components/overlay/Modal/Modal";
+import Popover from "@ds/components/overlay/Popover/Popover";
 import Icon, { type IconName } from "@ds/components/graphics/Icon/Icon";
 
 import Editor, { type EditorApi } from "./Editor";
@@ -1778,11 +1780,15 @@ const App: Component = () => {
       >
         <Icon name="info" />
       </button>
-      <Show when={openInfo() === props.id}>
-        <div class="set-info-pop" role="dialog" aria-label="Setting help">
-          {props.children}
-        </div>
-      </Show>
+      <Popover
+        open={openInfo() === props.id}
+        onClose={() => setOpenInfo(null)}
+        ariaLabel="Setting help"
+        placement="bottom-end"
+        class="set-info-pop"
+      >
+        {props.children}
+      </Popover>
     </>
   );
 
@@ -2482,12 +2488,6 @@ const App: Component = () => {
           }}
         >
           <div class="modal" onClick={(e) => e.stopPropagation()}>
-            <Show when={openInfo() !== null}>
-              <div
-                class="set-info-backdrop"
-                onClick={() => setOpenInfo(null)}
-              />
-            </Show>
             <span class="modal__close">
               <IconButton
                 label="Close settings"
@@ -2717,16 +2717,12 @@ topics:         # type:list
                         from the type menu.
                       </div>
                     </div>
-                    <select
+                    <Select
+                      options={DATE_FORMAT_TOKENS.map((t) => ({ value: t }))}
                       value={dateDefault()}
-                      onChange={(e) =>
-                        setDateDefaultValue(e.currentTarget.value)
-                      }
-                    >
-                      <For each={DATE_FORMAT_TOKENS}>
-                        {(token) => <option value={token}>{token}</option>}
-                      </For>
-                    </select>
+                      onChange={(v) => setDateDefaultValue(v)}
+                      ariaLabel="Default date format"
+                    />
                   </div>
                   <div class="set-row">
                     <div>
@@ -2736,18 +2732,12 @@ topics:         # type:list
                         from the type menu.
                       </div>
                     </div>
-                    <select
+                    <Select
+                      options={CURRENCY_CODES.map((c) => ({ value: c, label: c.toUpperCase() }))}
                       value={currencyDefault()}
-                      onChange={(e) =>
-                        setCurrencyDefaultValue(e.currentTarget.value)
-                      }
-                    >
-                      <For each={CURRENCY_CODES}>
-                        {(code) => (
-                          <option value={code}>{code.toUpperCase()}</option>
-                        )}
-                      </For>
-                    </select>
+                      onChange={(v) => setCurrencyDefaultValue(v)}
+                      ariaLabel="Default currency"
+                    />
                   </div>
                   <div class="set-row">
                     <div>

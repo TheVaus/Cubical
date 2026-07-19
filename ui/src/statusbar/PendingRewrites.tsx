@@ -1,13 +1,13 @@
 import {
   createSignal,
   For,
-  onCleanup,
   Show,
   untrack,
   type Component,
 } from "solid-js";
 
 import Button from "@ds/components/forms/Button/Button";
+import Popover from "@ds/components/overlay/Popover/Popover";
 
 import {
   flushPendingRewrites,
@@ -95,26 +95,6 @@ const PendingRewrites: Component<PendingRewritesProps> = (props) => {
     setState(reducePendingRewritesPopover(untrack(state), { type: "close" }));
   };
 
-  const onDocumentMouseDown = (e: MouseEvent) => {
-    if (state().kind === "closed") return;
-    const root = popoverRoot;
-    if (root && e.target instanceof Node && root.contains(e.target)) return;
-    close();
-  };
-
-  const onDocumentKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "Escape" && state().kind !== "closed") close();
-  };
-
-  document.addEventListener("mousedown", onDocumentMouseDown);
-  document.addEventListener("keydown", onDocumentKeyDown);
-  onCleanup(() => {
-    document.removeEventListener("mousedown", onDocumentMouseDown);
-    document.removeEventListener("keydown", onDocumentKeyDown);
-  });
-
-  let popoverRoot: HTMLSpanElement | undefined;
-
   const handleFlushAll = async () => {
     const vid = props.vaultId;
     if (!vid) return;
@@ -150,7 +130,7 @@ const PendingRewrites: Component<PendingRewritesProps> = (props) => {
   return (
     <Show when={props.vaultId !== null && formatPendingRewrites(props.count)}>
       {(display) => (
-        <span style={{ position: "relative" }} ref={(el) => (popoverRoot = el)}>
+        <span style={{ position: "relative" }}>
           <span style={{ color: "var(--c-accent)" }}>
             <Button
               variant="ghost"
@@ -162,30 +142,14 @@ const PendingRewrites: Component<PendingRewritesProps> = (props) => {
               {display().label}
             </Button>
           </span>
-          <Show when={state().kind !== "closed"}>
-            <div
-              role="dialog"
-              aria-label="Pending rewrites"
-              style={{
-                position: "absolute",
-                bottom: "calc(100% + var(--space-2))",
-                right: 0,
-                "min-width": "20rem",
-                "max-width": "28rem",
-                background: "var(--c-bg-primary)",
-                border: "1px solid var(--c-border-subtle)",
-                "border-radius": "var(--radius-md)",
-                "box-shadow": "var(--shadow-lg)",
-                padding: "var(--space-3)",
-                display: "flex",
-                "flex-direction": "column",
-                gap: "var(--space-3)",
-                "z-index": 15,
-                "font-family": "var(--font-body)",
-                color: "var(--c-fg-primary)",
-                "text-align": "left",
-              }}
-            >
+          <Popover
+            open={state().kind !== "closed"}
+            onClose={close}
+            ariaLabel="Pending rewrites"
+            placement="top-end"
+            class="pending-rewrites-popover"
+          >
+            <>
               <header
                 style={{
                   "font-size": "var(--text-sm)",
@@ -390,8 +354,8 @@ const PendingRewrites: Component<PendingRewritesProps> = (props) => {
                   );
                 }}
               </Show>
-            </div>
-          </Show>
+            </>
+          </Popover>
         </span>
       )}
     </Show>

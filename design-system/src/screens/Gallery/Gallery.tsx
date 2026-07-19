@@ -5,6 +5,7 @@ import Icon, { type IconName } from '../../components/graphics/Icon/Icon';
 import Button from '../../components/forms/Button/Button';
 import IconButton from '../../components/forms/IconButton/IconButton';
 import TextInput from '../../components/forms/TextInput/TextInput';
+import Select from '../../components/forms/Select/Select';
 import Toggle from '../../components/forms/Toggle/Toggle';
 import SegmentedControl from '../../components/forms/SegmentedControl/SegmentedControl';
 import Badge from '../../components/feedback/Badge/Badge';
@@ -16,6 +17,7 @@ import FileTreeRow from '../../components/data/FileTreeRow/FileTreeRow';
 import BacklinkRow from '../../components/data/BacklinkRow/BacklinkRow';
 import Menu from '../../components/overlay/Menu/Menu';
 import Modal from '../../components/overlay/Modal/Modal';
+import Popover from '../../components/overlay/Popover/Popover';
 import CommandPalette from '../../components/overlay/CommandPalette/CommandPalette';
 
 const ALL_ICONS: IconName[] = [
@@ -27,12 +29,14 @@ const ALL_ICONS: IconName[] = [
 
 const Gallery = () => {
   const [textInputValue, setTextInputValue] = createSignal('');
+  const [selectValue, setSelectValue] = createSignal('backlinks');
   const [toggleValue, setToggleValue] = createSignal(true);
   const [segmentValue, setSegmentValue] = createSignal('backlinks');
   const [showToast, setShowToast] = createSignal(false);
   const [modalOpen, setModalOpen] = createSignal(false);
   const [confirmOpen, setConfirmOpen] = createSignal(false);
   const [paletteOpen, setPaletteOpen] = createSignal(false);
+  const [popoverOpen, setPopoverOpen] = createSignal(false);
 
   return (
     <div class="gallery stack scroll-y">
@@ -79,6 +83,39 @@ const Gallery = () => {
         <div class="gallery-row row">
           <TextInput value={textInputValue()} onInput={setTextInputValue} placeholder="Search notes…" />
           <TextInput value="" onInput={() => {}} placeholder="Disabled" disabled />
+        </div>
+      </section>
+      <section class="gallery-section stack">
+        <div class="eyebrow">Forms — Select</div>
+        <div class="gallery-row row">
+          <Select
+            options={[
+              { value: 'backlinks', label: 'Backlinks' },
+              { value: 'mentions', label: 'Mentions' },
+              { value: 'unlinked', label: 'Unlinked mentions' },
+            ]}
+            value={selectValue()}
+            onChange={setSelectValue}
+            ariaLabel="Gallery select — md"
+          />
+          <Select
+            options={[
+              { value: 'backlinks', label: 'Backlinks' },
+              { value: 'mentions', label: 'Mentions' },
+              { value: 'unlinked', label: 'Unlinked mentions' },
+            ]}
+            value={selectValue()}
+            onChange={setSelectValue}
+            size="sm"
+            ariaLabel="Gallery select — sm"
+          />
+          <Select
+            options={[{ value: 'disabled', label: 'Disabled' }]}
+            value="disabled"
+            onChange={() => {}}
+            disabled
+            ariaLabel="Gallery select — disabled"
+          />
         </div>
       </section>
       <section class="gallery-section stack">
@@ -192,6 +229,25 @@ const Gallery = () => {
             </div>
           </div>
         </Modal>
+      </section>
+      <section class="gallery-section stack">
+        <div class="eyebrow">Overlay — Popover</div>
+        <div class="gallery-popover-anchor">
+          <Button variant="secondary" onClick={() => setPopoverOpen((v) => !v)}>
+            Toggle popover
+          </Button>
+          <Popover
+            open={popoverOpen()}
+            onClose={() => setPopoverOpen(false)}
+            ariaLabel="Gallery popover"
+            placement="bottom-start"
+            class="gallery-popover-panel"
+          >
+            <p style={{ margin: 0, 'font-size': 'var(--text-sm)' }}>
+              Anchor-relative panel with a click-through backdrop and Escape to dismiss.
+            </p>
+          </Popover>
+        </div>
       </section>
       <section class="gallery-section stack">
         <div class="eyebrow">Overlay — CommandPalette</div>

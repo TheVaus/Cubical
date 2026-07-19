@@ -251,6 +251,20 @@
   color: var(--c-fg-primary);
   font-weight: 600;
 }
+/* Content-layout for the pending-rewrites popover; overlay chrome
+   (position/bg/border/radius/shadow/z-index) comes from the DS Popover
+   panel this class is passed to as its `class` prop. */
+.pending-rewrites-popover {
+  min-width: 20rem;
+  max-width: 28rem;
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  font-family: var(--font-body);
+  color: var(--c-fg-primary);
+  text-align: left;
+}
 
 /* right sidebar: inlined segmented header + panel body */
 .rs-tabs {
@@ -544,18 +558,13 @@
 .set-info-btn:hover {
   color: var(--c-accent);
 }
+/* Content-layout/typography only — overlay chrome (position/bg/border/
+   radius/shadow/z-index) comes from the DS Popover panel this class is
+   passed to as its `class` prop. */
 .set-info-pop {
-  position: absolute;
-  top: calc(100% + var(--space-1));
-  right: 0;
-  z-index: 20;
   width: max-content;
   max-width: 320px;
   padding: var(--space-3);
-  background: var(--c-bg-primary);
-  border: 1px solid var(--c-border-subtle);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md);
   color: var(--c-fg-secondary);
   font-size: var(--text-xs);
   text-align: left;
@@ -579,32 +588,15 @@
 .set-info-pop code {
   font-family: var(--font-mono);
 }
-.set-info-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 19;
-  background: transparent;
-}
 .vault-switcher-anchor {
   position: relative;
 }
-.vault-switcher-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 19;
-  background: transparent;
-}
+/* Content-layout only — overlay chrome (position/bg/border/radius/shadow/
+   z-index) comes from the DS Popover panel this class is passed to as its
+   `class` prop. */
 .vault-switcher {
-  position: absolute;
-  bottom: calc(100% + var(--space-1));
-  left: 0;
   min-width: 12rem;
   padding: var(--space-2);
-  background: var(--c-bg-primary);
-  border: 1px solid var(--c-border-subtle);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md);
-  z-index: 20;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
