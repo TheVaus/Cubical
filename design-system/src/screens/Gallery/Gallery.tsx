@@ -1,6 +1,7 @@
-import { createSignal, Show } from 'solid-js';
+import { createSignal, For, Show } from 'solid-js';
 import './Gallery.css';
 import CubeMark from '../../components/brand/CubeMark/CubeMark';
+import Icon, { type IconName } from '../../components/graphics/Icon/Icon';
 import Button from '../../components/forms/Button/Button';
 import IconButton from '../../components/forms/IconButton/IconButton';
 import TextInput from '../../components/forms/TextInput/TextInput';
@@ -16,6 +17,13 @@ import BacklinkRow from '../../components/data/BacklinkRow/BacklinkRow';
 import Menu from '../../components/overlay/Menu/Menu';
 import Modal from '../../components/overlay/Modal/Modal';
 import CommandPalette from '../../components/overlay/CommandPalette/CommandPalette';
+
+const ALL_ICONS: IconName[] = [
+  'plus', 'folder-plus', 'info', 'chevron-right', 'chevron-down',
+  'close', 'edit', 'settings', 'warning', 'sun', 'moon', 'link',
+  'file-text', 'bar-chart', 'palette', 'puzzle', 'library', 'keyboard',
+  'hash', 'command',
+];
 
 const Gallery = () => {
   const [textInputValue, setTextInputValue] = createSignal('');
@@ -196,6 +204,19 @@ const Gallery = () => {
             { id: 'b', label: 'Toggle theme', onRun: () => {} },
           ]}
         />
+      </section>
+      <section class="gallery-section stack">
+        <div class="eyebrow">Graphics — Icon</div>
+        <div class="icon-gallery">
+          <For each={ALL_ICONS}>
+            {(n) => (
+              <div class="icon-gallery__cell">
+                <Icon name={n} size={20} />
+                <code>{n}</code>
+              </div>
+            )}
+          </For>
+        </div>
       </section>
     </div>
   );
