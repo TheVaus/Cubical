@@ -1,3 +1,5 @@
+import { SVG_INVARIANTS } from "../../graphics/svg";
+
 export type FileKind = 'folder' | 'folder-open' | 'md' | 'txt' | 'png' | 'svg' | 'pdf' | 'code' | 'canvas' | 'broken';
 
 const DOC = 'M3.5 1.5h6l3 3v9a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1v-11a1 1 0 0 1 1-1z';
@@ -8,16 +10,7 @@ export interface FileIconProps {
 }
 
 const FileIcon = (props: FileIconProps) => {
-  const common = {
-    width: 16,
-    height: 16,
-    viewBox: '0 0 16 16',
-    fill: 'none',
-    stroke: 'currentColor',
-    'stroke-width': 1.3,
-    'stroke-linejoin': 'round' as const,
-    'stroke-linecap': 'round' as const,
-  };
+  const common = { width: 16, height: 16, viewBox: '0 0 16 16', 'stroke-width': 1.3, ...SVG_INVARIANTS };
 
   if (props.kind === 'folder') {
     return (

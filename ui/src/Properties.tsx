@@ -12,6 +12,7 @@ import {
 import Button from "@ds/components/forms/Button/Button";
 import IconButton from "@ds/components/forms/IconButton/IconButton";
 import TextInput from "@ds/components/forms/TextInput/TextInput";
+import Icon from "@ds/components/graphics/Icon/Icon";
 
 import type { Frontmatter, FrontmatterEntry } from "./ast/types";
 import { splitFrontmatter } from "./ast/frontmatter";
@@ -362,7 +363,8 @@ const PropertyRow: Component<RowProps> = (props) => {
               "border-radius": "var(--radius-full)",
             }}
           >
-            ⚠ was {JSON.stringify(props.lossyOriginal?.value)} — revert
+            <Icon name="warning" size={14} /> was{" "}
+            {JSON.stringify(props.lossyOriginal?.value)} — revert
           </Button>
         </Show>
       </div>
@@ -394,7 +396,7 @@ const PropertyRow: Component<RowProps> = (props) => {
             style={{ "font-size": "var(--text-sm)" }}
             onClick={() => props.onToggleMenu()}
           >
-            ▾
+            <Icon name="chevron-down" size={14} />
           </IconButton>
           <Show when={props.menuOpen}>
             <div
@@ -453,7 +455,14 @@ const PropertyRow: Component<RowProps> = (props) => {
                       <span>{family.label}</span>
                       <Show when={family.leaves.length > 1}>
                         <span aria-hidden="true">
-                          {props.openFamily === family.label ? "▾" : "▸"}
+                          <Icon
+                            name={
+                              props.openFamily === family.label
+                                ? "chevron-down"
+                                : "chevron-right"
+                            }
+                            size={14}
+                          />
                         </span>
                       </Show>
                     </button>

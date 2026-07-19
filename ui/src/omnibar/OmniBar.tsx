@@ -8,6 +8,7 @@ import {
   type Component,
 } from "solid-js";
 import { rankItems, matchText, type OmniItem, type RankedItem } from "./ranker";
+import Icon from "@ds/components/graphics/Icon/Icon";
 
 /**
  * L4-C Omni-Bar — a `Cmd/Ctrl+K` modal that fuzzy-finds notes + tags and
@@ -229,11 +230,16 @@ const OmniRow: Component<{
           "font-size": "var(--text-xs)",
         }}
       >
-        {props.ranked.item.kind === "tag"
-          ? "#"
-          : props.ranked.item.kind === "command"
-            ? "⚡"
-            : "◧"}
+        <Icon
+          name={
+            props.ranked.item.kind === "tag"
+              ? "hash"
+              : props.ranked.item.kind === "command"
+                ? "command"
+                : "file-text"
+          }
+          size={13}
+        />
       </span>
       <span
         style={{

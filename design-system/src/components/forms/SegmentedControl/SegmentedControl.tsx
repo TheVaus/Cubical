@@ -1,8 +1,10 @@
-import { For } from 'solid-js';
+import { For, Show } from 'solid-js';
+import Icon, { type IconName } from '../../graphics/Icon/Icon';
 import './SegmentedControl.css';
 
 export interface SegmentedOption {
   label: string;
+  icon?: IconName;
   value: string;
 }
 
@@ -46,6 +48,9 @@ const SegmentedControl = (props: SegmentedControlProps) => {
             classList={{ selected: props.value === option.value }}
             onClick={() => props.onChange(option.value)}
           >
+            <Show when={option.icon}>
+              <Icon name={option.icon!} size={14} />
+            </Show>
             {option.label}
           </button>
         )}

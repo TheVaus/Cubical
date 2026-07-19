@@ -57,6 +57,6 @@ export default defineConfig({
     // the right environment. Component tests (deferred) would need
     // jsdom or happy-dom.
     environment: "node",
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
   },
 });

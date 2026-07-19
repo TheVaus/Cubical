@@ -39,6 +39,20 @@ Every component's states are demonstrated on the Gallery screen
 (`src/screens/Gallery`), including the theme switcher so all three themes can
 be checked in place.
 
+## Iconography
+
+Icons come from the `Icon` component (`components/graphics/Icon`), backed by a
+registry of artwork vendored inline from **Lucide** (ISC — see
+`components/graphics/Icon/LUCIDE-LICENSE`). No runtime icon dependency ships;
+`lucide-static` is a build-time source only.
+
+- Outline only, drawn on Lucide's 24-unit grid, rendered at 16px by default via
+  `currentColor` — no filled or multi-color icons.
+- Decorative by default (`aria-hidden`); the accessible name comes from the
+  wrapping control's label. Pass `title`/`ariaLabel` only for a standalone icon.
+- To add an icon: copy the inner SVG markup from the pinned `lucide-static`
+  package into the registry and extend the `IconName` union. Do not hand-draw.
+
 ## Screens
 
 - **Workspace** — topbar, file tree, a real CodeMirror 6 Markdown editor,
