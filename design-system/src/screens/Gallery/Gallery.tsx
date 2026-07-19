@@ -5,7 +5,9 @@ import Icon, { type IconName } from '../../components/graphics/Icon/Icon';
 import Button from '../../components/forms/Button/Button';
 import IconButton from '../../components/forms/IconButton/IconButton';
 import TextInput from '../../components/forms/TextInput/TextInput';
+import Link from '../../components/forms/Link/Link';
 import Select from '../../components/forms/Select/Select';
+import DatePicker from '../../components/forms/DatePicker/DatePicker';
 import Toggle from '../../components/forms/Toggle/Toggle';
 import SegmentedControl from '../../components/forms/SegmentedControl/SegmentedControl';
 import Badge from '../../components/feedback/Badge/Badge';
@@ -30,6 +32,8 @@ const ALL_ICONS: IconName[] = [
 const Gallery = () => {
   const [textInputValue, setTextInputValue] = createSignal('');
   const [selectValue, setSelectValue] = createSignal('backlinks');
+  const [dateValue, setDateValue] = createSignal('2026-07-19');
+  const [dateTimeValue, setDateTimeValue] = createSignal('2026-07-19T09:30');
   const [toggleValue, setToggleValue] = createSignal(true);
   const [segmentValue, setSegmentValue] = createSignal('backlinks');
   const [showToast, setShowToast] = createSignal(false);
@@ -86,6 +90,14 @@ const Gallery = () => {
         </div>
       </section>
       <section class="gallery-section stack">
+        <div class="eyebrow">Forms — Link</div>
+        <div class="gallery-row row">
+          <Link size="xs" onClick={() => {}}>Open as raw</Link>
+          <Link size="sm" onClick={() => {}}>Action link</Link>
+          <Link size="md" href="https://example.com">External link</Link>
+        </div>
+      </section>
+      <section class="gallery-section stack">
         <div class="eyebrow">Forms — Select</div>
         <div class="gallery-row row">
           <Select
@@ -115,6 +127,23 @@ const Gallery = () => {
             onChange={() => {}}
             disabled
             ariaLabel="Gallery select — disabled"
+          />
+        </div>
+      </section>
+      <section class="gallery-section stack">
+        <div class="eyebrow">Forms — DatePicker</div>
+        <div class="gallery-row row">
+          <DatePicker
+            value={dateValue()}
+            onInput={setDateValue}
+            ariaLabel="Gallery date picker"
+          />
+          <DatePicker
+            type="datetime-local"
+            value={dateTimeValue()}
+            onInput={setDateTimeValue}
+            size="sm"
+            ariaLabel="Gallery datetime picker — sm"
           />
         </div>
       </section>
@@ -175,8 +204,15 @@ const Gallery = () => {
       <section class="gallery-section stack">
         <div class="eyebrow">Data — Tag</div>
         <div class="gallery-row row">
-          <Tag label="design" />
-          <Tag label="cubical" resolved />
+          <Tag label="#design" tag />
+          <Tag label="draft" onRemove={() => {}} />
+          <Tag
+            label="#cubical"
+            tag
+            onClick={() => {}}
+            onEdit={() => {}}
+            onRemove={() => {}}
+          />
         </div>
       </section>
       <section class="gallery-section stack">

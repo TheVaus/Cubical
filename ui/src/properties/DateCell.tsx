@@ -1,9 +1,9 @@
 import { createEffect, createSignal, on, Show, type Component } from "solid-js";
 
+import DatePicker from "@ds/components/forms/DatePicker/DatePicker";
 import TextInput from "@ds/components/forms/TextInput/TextInput";
 
 import { getDateFormat, validateDate } from "./dateFormats";
-import { inputStyle } from "./styles";
 
 /**
  * Date-valued frontmatter cell (spec §4.3). Renders per the resolved
@@ -80,32 +80,34 @@ const DateCell: Component<DateCellProps> = (props) => {
             />
           }
         >
-          <input
+          <DatePicker
             type="date"
+            size="sm"
             value={draft()}
-            onInput={(e) => setDraft(e.currentTarget.value)}
+            onInput={(v) => setDraft(v)}
             onChange={() => commit(draft())}
             onFocus={() => setFocused(true)}
             onBlur={() => {
               setFocused(false);
               commit(draft());
             }}
-            style={inputStyle(focused())}
+            ariaLabel="Date"
           />
         </Show>
       }
     >
-      <input
+      <DatePicker
         type="datetime-local"
+        size="sm"
         value={toInput(draft())}
-        onInput={(e) => setDraft(fromInput(e.currentTarget.value))}
+        onInput={(v) => setDraft(fromInput(v))}
         onChange={() => commit(draft())}
         onFocus={() => setFocused(true)}
         onBlur={() => {
           setFocused(false);
           commit(draft());
         }}
-        style={inputStyle(focused())}
+        ariaLabel="Date and time"
       />
     </Show>
   );
