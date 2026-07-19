@@ -18,6 +18,7 @@ import IconButton from "@ds/components/forms/IconButton/IconButton";
 import SegmentedControl from "@ds/components/forms/SegmentedControl/SegmentedControl";
 import Menu, { type MenuItem } from "@ds/components/overlay/Menu/Menu";
 import Modal from "@ds/components/overlay/Modal/Modal";
+import Icon, { type IconName } from "@ds/components/graphics/Icon/Icon";
 
 import Editor, { type EditorApi } from "./Editor";
 import Properties from "./Properties";
@@ -172,10 +173,10 @@ const FILE_ROW_HEIGHT = 32;
 const FILE_LIST_OVERSCAN = 8;
 
 /** Header theme button cycle order (spec §2.5 / DoD §6). */
-const THEME_ICON: Record<ThemeMode, string> = {
-  system: "⚙",
-  light: "☀",
-  dark: "☾",
+const THEME_ICON: Record<ThemeMode, IconName> = {
+  system: "settings",
+  light: "sun",
+  dark: "moon",
 };
 
 const App: Component = () => {
@@ -1775,7 +1776,7 @@ const App: Component = () => {
         aria-expanded={openInfo() === props.id}
         onClick={() => flipInfo(props.id)}
       >
-        ⓘ
+        <Icon name="info" />
       </button>
       <Show when={openInfo() === props.id}>
         <div class="set-info-pop" role="dialog" aria-label="Setting help">
@@ -1935,7 +1936,7 @@ const App: Component = () => {
                     onClick={() => void handleNewFile()}
                     style={{ "font-size": "var(--text-sm)" }}
                   >
-                    ＋
+                    <Icon name="plus" />
                   </IconButton>
                   <IconButton
                     label="New folder"
@@ -1944,7 +1945,7 @@ const App: Component = () => {
                     onClick={() => void handleNewFolder()}
                     style={{ "font-size": "var(--text-sm)" }}
                   >
-                    🗀
+                    <Icon name="folder-plus" />
                   </IconButton>
                 </span>
               </div>
@@ -2025,7 +2026,14 @@ const App: Component = () => {
                               }}
                             >
                               <span class="tree-row__twisty">
-                                {row.collapsed ? "▸" : "▾"}
+                                <Icon
+                                  name={
+                                    row.collapsed
+                                      ? "chevron-right"
+                                      : "chevron-down"
+                                  }
+                                  size={14}
+                                />
                               </span>
                               <Show
                                 when={isRenamingFolder()}
@@ -2128,7 +2136,7 @@ const App: Component = () => {
                                       aria-hidden="true"
                                     >
                                       {" "}
-                                      ⚠
+                                      <Icon name="warning" />
                                     </span>
                                   </Show>
                                 </span>
@@ -2183,7 +2191,9 @@ const App: Component = () => {
                     <span class="vault-btn__name">
                       {vaultPath()?.split("/").filter(Boolean).pop() ?? "vault"}
                     </span>
-                    <span class="vault-btn__caret">⌄</span>
+                    <span class="vault-btn__caret">
+                      <Icon name="chevron-down" size={14} />
+                    </span>
                   </button>
                   <Show when={vaultSwitcherOpen()}>
                     <VaultSwitcher
@@ -2204,7 +2214,7 @@ const App: Component = () => {
                   label="Settings"
                   onClick={() => setSettingsOpen(true)}
                 >
-                  ⚙
+                  <Icon name="settings" />
                 </IconButton>
               </div>
             </div>
@@ -2486,7 +2496,7 @@ const App: Component = () => {
                   setOpenInfo(null);
                 }}
               >
-                ✕
+                <Icon name="close" />
               </IconButton>
             </span>
             <nav class="modal__nav">
@@ -2494,14 +2504,14 @@ const App: Component = () => {
               <For
                 each={
                   [
-                    { id: "appearance", label: "🎨 Appearance" },
-                    { id: "editor", label: "📝 Editor" },
-                    { id: "wikilinks", label: "🔗 Wiki links" },
-                    { id: "plugins", label: "🧩 Plugins" },
-                    { id: "statusbar", label: "📊 Status bar" },
-                    { id: "vault", label: "🗄 Vault" },
-                    { id: "shortcuts", label: "⌨ Shortcuts" },
-                  ] as { id: SettingsTab; label: string }[]
+                    { id: "appearance", icon: "palette", label: "Appearance" },
+                    { id: "editor", icon: "file-text", label: "Editor" },
+                    { id: "wikilinks", icon: "link", label: "Wiki links" },
+                    { id: "plugins", icon: "puzzle", label: "Plugins" },
+                    { id: "statusbar", icon: "bar-chart", label: "Status bar" },
+                    { id: "vault", icon: "library", label: "Vault" },
+                    { id: "shortcuts", icon: "keyboard", label: "Shortcuts" },
+                  ] as { id: SettingsTab; icon: IconName; label: string }[]
                 }
               >
                 {(t) => (
@@ -2516,6 +2526,7 @@ const App: Component = () => {
                       setOpenInfo(null);
                     }}
                   >
+                    <Icon name={t.icon} size={16} />
                     {t.label}
                   </button>
                 )}
@@ -2535,7 +2546,7 @@ const App: Component = () => {
                     variant="pill"
                     role="radiogroup"
                     options={(["system", "light", "dark"] as ThemeMode[]).map(
-                      (m) => ({ label: `${THEME_ICON[m]} ${m}`, value: m }),
+                      (m) => ({ label: m, value: m, icon: THEME_ICON[m] }),
                     )}
                     value={themeMode()}
                     onChange={(v) => setTheme(v as ThemeMode)}
