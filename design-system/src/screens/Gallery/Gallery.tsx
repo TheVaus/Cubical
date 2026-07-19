@@ -184,8 +184,15 @@ const Gallery = () => {
       <section class="gallery-section stack">
         <div class="eyebrow">Data — Tag</div>
         <div class="gallery-row row">
-          <Tag label="design" />
-          <Tag label="cubical" resolved />
+          <Tag label="#design" tag />
+          <Tag label="draft" onRemove={() => {}} />
+          <Tag
+            label="#cubical"
+            tag
+            onClick={() => {}}
+            onEdit={() => {}}
+            onRemove={() => {}}
+          />
         </div>
       </section>
       <section class="gallery-section stack">

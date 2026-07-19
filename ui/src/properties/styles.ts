@@ -25,20 +25,3 @@ export function inputStyle(focused: boolean): JSX.CSSProperties {
     transition: "border-color var(--transition-fast)",
   };
 }
-
-/** A rounded chip pill (string-list / tag-list members). */
-export function chipStyle(isTag: boolean): JSX.CSSProperties {
-  return {
-    display: "inline-flex",
-    "align-items": "center",
-    gap: "var(--space-1)",
-    padding: "0 var(--space-2)",
-    height: "1.5rem",
-    "font-family": isTag ? "var(--font-mono)" : "var(--font-body)",
-    "font-size": "var(--text-xs)",
-    color: isTag ? "var(--c-accent)" : "var(--c-fg-primary)",
-    background: "var(--c-bg-tertiary)",
-    border: "1px solid var(--c-border-subtle)",
-    "border-radius": "var(--radius-full)",
-  };
-}

@@ -1,23 +1,30 @@
-/* Carries its own control reset — see Button.css. */
-.tag {
-  border: none;
-  cursor: pointer;
+.ds-tag {
   display: inline-flex;
   align-items: center;
-  height: 20px;
+  gap: var(--space-1);
   padding: 0 var(--space-2);
-  border-radius: var(--radius-full);
-  background: var(--c-bg-tertiary);
-  color: var(--c-fg-secondary);
-  font-family: var(--font-mono);
+  height: 1.5rem;
+  font-family: var(--font-body);
   font-size: var(--text-xs);
-  transition: color var(--duration-state) var(--ease-standard);
-}
-
-.tag:hover {
   color: var(--c-fg-primary);
+  background: var(--c-bg-tertiary);
+  border: 1px solid var(--c-border-subtle);
+  border-radius: var(--radius-full);
 }
 
-.tag.resolved {
+.ds-tag--tag {
+  font-family: var(--font-mono);
   color: var(--c-accent);
+}
+
+.ds-tag__label {
+  color: inherit;
+  font: inherit;
+  padding: 0;
+  background: transparent;
+  border: none;
+}
+
+button.ds-tag__label {
+  cursor: pointer;
 }
