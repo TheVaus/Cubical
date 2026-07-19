@@ -19,6 +19,7 @@ import Select from "@ds/components/forms/Select/Select";
 import SegmentedControl from "@ds/components/forms/SegmentedControl/SegmentedControl";
 import Menu, { type MenuItem } from "@ds/components/overlay/Menu/Menu";
 import Modal from "@ds/components/overlay/Modal/Modal";
+import Popover from "@ds/components/overlay/Popover/Popover";
 import Icon, { type IconName } from "@ds/components/graphics/Icon/Icon";
 
 import Editor, { type EditorApi } from "./Editor";
@@ -1779,11 +1780,15 @@ const App: Component = () => {
       >
         <Icon name="info" />
       </button>
-      <Show when={openInfo() === props.id}>
-        <div class="set-info-pop" role="dialog" aria-label="Setting help">
-          {props.children}
-        </div>
-      </Show>
+      <Popover
+        open={openInfo() === props.id}
+        onClose={() => setOpenInfo(null)}
+        ariaLabel="Setting help"
+        placement="bottom-end"
+        class="set-info-pop"
+      >
+        {props.children}
+      </Popover>
     </>
   );
 
@@ -2483,12 +2488,6 @@ const App: Component = () => {
           }}
         >
           <div class="modal" onClick={(e) => e.stopPropagation()}>
-            <Show when={openInfo() !== null}>
-              <div
-                class="set-info-backdrop"
-                onClick={() => setOpenInfo(null)}
-              />
-            </Show>
             <span class="modal__close">
               <IconButton
                 label="Close settings"
