@@ -1,0 +1,28 @@
+/* Carries its own control reset — see Button.css. */
+.ds-datepicker {
+  font: inherit;
+  height: 32px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--c-border-subtle);
+  background: var(--c-bg-primary);
+  color: var(--c-fg-primary);
+  font-size: var(--text-sm);
+  width: 100%;
+  transition: border-color var(--duration-state) var(--ease-standard);
+}
+
+.ds-datepicker:focus-visible {
+  border-color: var(--c-accent);
+  outline: 2px solid var(--c-focus-ring);
+  outline-offset: 2px;
+}
+
+.ds-datepicker:disabled {
+  opacity: 0.5;
+}
+
+.ds-datepicker.sm {
+  height: auto;
+  padding: var(--space-1) var(--space-2);
+}
