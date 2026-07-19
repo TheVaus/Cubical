@@ -19,7 +19,7 @@
   border: 1px solid var(--c-border-subtle);
   background: var(--c-bg-primary);
   color: var(--c-fg-primary);
-  font-size: var(--text-base);
+  font-size: var(--text-sm);
   width: 100%;
   transition: border-color var(--duration-state) var(--ease-standard);
 }
@@ -27,7 +27,6 @@
 .ds-select__control.sm {
   height: auto;
   padding: var(--space-1) var(--space-5) var(--space-1) var(--space-2);
-  font-size: var(--text-sm);
 }
 
 .ds-select__control:focus-visible {
