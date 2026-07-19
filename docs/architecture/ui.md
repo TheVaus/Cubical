@@ -52,6 +52,8 @@ Cross-vault search, cross-vault tabs, and cross-vault command-palette are explic
 
 The app's UI primitives are **not** hand-rolled in `ui/` — they come from the shared design system at [`design-system/`](../../design-system/), consumed through the `@ds` alias (wired in `ui/vite.config.ts` + `tsconfig`, with `dedupe: ["solid-js"]` keeping a single Solid instance across the boundary). `design-system/` is the single source of truth for **tokens and components**: editing a component or token there changes it everywhere in the app. The design system also stands alone as its own SolidJS package with a Gallery/Workspace playground — see [`design-system/README.md`](../../design-system/README.md).
 
+**Icons** come from the design system's `Icon` component (`components/graphics/Icon`), backed by a registry of SVG artwork **vendored inline from Lucide** (ISC-licensed). No runtime icon dependency ships — consistent with self-containment; `lucide-static` is a build-time source only. Icons render outline-only on a 24-unit grid at 16px by default via `currentColor`, decorative by default (the accessible name comes from the wrapping control). Conventions + how to add one: [`design-system/README.md`](../../design-system/README.md) → Iconography.
+
 Two locked rules govern how it grows:
 
 - **Extend additively.** When a component lacks a prop the app needs, add it to the design system and default it to the component's prior behavior — never fork the component or work around the gap app-side.
