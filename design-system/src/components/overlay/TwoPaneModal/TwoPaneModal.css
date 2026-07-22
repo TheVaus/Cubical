@@ -1,0 +1,82 @@
+.ds-two-pane-modal__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* modal scrim: a true dim for figure/ground separation (NOT --c-bg-overlay,
+     which is a 5% subtle tint — and white-on-dark, the wrong direction). */
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.ds-two-pane-modal__panel {
+  position: relative;
+  width: min(40rem, 92vw);
+  height: min(28rem, 84vh);
+  display: flex;
+  overflow: hidden;
+  background: var(--c-bg-primary);
+  border: 1px solid var(--c-border-subtle);
+  border-radius: var(--radius-lg, var(--radius-md));
+  box-shadow: var(--shadow-lg, var(--shadow-md));
+}
+
+.ds-two-pane-modal__close {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  z-index: 2;
+}
+
+.ds-two-pane-modal__nav {
+  flex: 0 0 11rem;
+  background: var(--c-bg-secondary);
+  border-right: 1px solid var(--c-border-subtle);
+  padding: var(--space-3) var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.ds-two-pane-modal__navtitle {
+  margin: 0 var(--space-2) var(--space-2);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--c-fg-muted);
+}
+
+.ds-two-pane-modal__navitem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  margin: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--c-fg-secondary);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.ds-two-pane-modal__navitem:hover {
+  color: var(--c-fg-primary);
+  background: var(--c-bg-tertiary);
+}
+
+.ds-two-pane-modal__navitem--active {
+  color: var(--c-fg-inverse);
+  background: var(--c-accent);
+}
+
+.ds-two-pane-modal__body {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: var(--space-5);
+}
