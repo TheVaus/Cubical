@@ -19,6 +19,7 @@ import Select from "@ds/components/forms/Select/Select";
 import SegmentedControl from "@ds/components/forms/SegmentedControl/SegmentedControl";
 import Menu, { type MenuItem } from "@ds/components/overlay/Menu/Menu";
 import Modal from "@ds/components/overlay/Modal/Modal";
+import TwoPaneModal from "@ds/components/overlay/TwoPaneModal/TwoPaneModal";
 import Popover from "@ds/components/overlay/Popover/Popover";
 import Icon, { type IconName } from "@ds/components/graphics/Icon/Icon";
 
@@ -180,6 +181,26 @@ const THEME_ICON: Record<ThemeMode, IconName> = {
   light: "sun",
   dark: "moon",
 };
+
+type SettingsTab =
+  | "appearance"
+  | "editor"
+  | "wikilinks"
+  | "plugins"
+  | "statusbar"
+  | "vault"
+  | "shortcuts";
+
+/** Settings nav items, in display order. Feeds `TwoPaneModal`'s `items`. */
+const SETTINGS_TABS: { id: SettingsTab; icon: IconName; label: string }[] = [
+  { id: "appearance", icon: "palette", label: "Appearance" },
+  { id: "editor", icon: "file-text", label: "Editor" },
+  { id: "wikilinks", icon: "link", label: "Wiki links" },
+  { id: "plugins", icon: "puzzle", label: "Plugins" },
+  { id: "statusbar", icon: "bar-chart", label: "Status bar" },
+  { id: "vault", icon: "library", label: "Vault" },
+  { id: "shortcuts", icon: "keyboard", label: "Shortcuts" },
+];
 
 const App: Component = () => {
   // Core substrate: the open vault's session identity. Features read
@@ -420,14 +441,6 @@ const App: Component = () => {
   const effectiveBindings = createMemo(() =>
     resolveBindings(shortcutOverrides()),
   );
-  type SettingsTab =
-    | "appearance"
-    | "editor"
-    | "wikilinks"
-    | "plugins"
-    | "statusbar"
-    | "vault"
-    | "shortcuts";
   const [settingsTab, setSettingsTab] = createSignal<SettingsTab>("appearance");
   // Which complex setting's info popover is open (`null` = none). One at a
   // time; toggling the same `ⓘ` closes it (spec §State).
@@ -2476,65 +2489,22 @@ const App: Component = () => {
         onRunCommand={handleRunCommand}
       />
 
-      <Show when={settingsOpen()}>
-        <div
-          class="modal-backdrop"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Settings"
-          onClick={() => {
-            setSettingsOpen(false);
-            setOpenInfo(null);
-          }}
-        >
-          <div class="modal" onClick={(e) => e.stopPropagation()}>
-            <span class="modal__close">
-              <IconButton
-                label="Close settings"
-                onClick={() => {
-                  setSettingsOpen(false);
-                  setOpenInfo(null);
-                }}
-              >
-                <Icon name="close" />
-              </IconButton>
-            </span>
-            <nav class="modal__nav">
-              <h3 class="modal__navtitle">Settings</h3>
-              <For
-                each={
-                  [
-                    { id: "appearance", icon: "palette", label: "Appearance" },
-                    { id: "editor", icon: "file-text", label: "Editor" },
-                    { id: "wikilinks", icon: "link", label: "Wiki links" },
-                    { id: "plugins", icon: "puzzle", label: "Plugins" },
-                    { id: "statusbar", icon: "bar-chart", label: "Status bar" },
-                    { id: "vault", icon: "library", label: "Vault" },
-                    { id: "shortcuts", icon: "keyboard", label: "Shortcuts" },
-                  ] as { id: SettingsTab; icon: IconName; label: string }[]
-                }
-              >
-                {(t) => (
-                  <button
-                    type="button"
-                    class="modal__navitem"
-                    classList={{
-                      "modal__navitem--active": settingsTab() === t.id,
-                    }}
-                    onClick={() => {
-                      setSettingsTab(t.id);
-                      setOpenInfo(null);
-                    }}
-                  >
-                    <Icon name={t.icon} size={16} />
-                    {t.label}
-                  </button>
-                )}
-              </For>
-            </nav>
-            <div class="modal__body">
+      <TwoPaneModal
+        open={settingsOpen()}
+        onClose={() => {
+          setSettingsOpen(false);
+          setOpenInfo(null);
+        }}
+        title="Settings"
+        items={SETTINGS_TABS}
+        activeId={settingsTab()}
+        onSelect={(id) => {
+          setSettingsTab(id as SettingsTab);
+          setOpenInfo(null);
+        }}
+      >
               <Show when={settingsTab() === "appearance"}>
-                <h2 class="modal__h2">Appearance</h2>
+                <h2 class="set-h2">Appearance</h2>
                 <div class="set-row">
                   <div>
                     <div class="set-row__lab">Theme</div>
@@ -2554,7 +2524,7 @@ const App: Component = () => {
                 </div>
               </Show>
               <Show when={settingsTab() === "editor"}>
-                <h2 class="modal__h2">Editor</h2>
+                <h2 class="set-h2">Editor</h2>
                 <div class="set-row">
                   <div>
                     <div class="set-row__lab">
@@ -2755,7 +2725,7 @@ topics:         # type:list
                 </Show>
               </Show>
               <Show when={settingsTab() === "wikilinks"}>
-                <h2 class="modal__h2">Wiki links</h2>
+                <h2 class="set-h2">Wiki links</h2>
                 <div class="set-row">
                   <div>
                     <div class="set-row__lab">
@@ -2788,7 +2758,7 @@ topics:         # type:list
                 </div>
               </Show>
               <Show when={settingsTab() === "plugins"}>
-                <h2 class="modal__h2">Core Plugins</h2>
+                <h2 class="set-h2">Core Plugins</h2>
                 <For each={CORE_PLUGINS}>
                   {(p) => {
                     const on = () => corePlugins()[p.id] ?? p.defaultEnabled;
@@ -2833,7 +2803,7 @@ topics:         # type:list
                 </For>
               </Show>
               <Show when={settingsTab() === "statusbar"}>
-                <h2 class="modal__h2">Status bar</h2>
+                <h2 class="set-h2">Status bar</h2>
                 <div class="set-row">
                   <div>
                     <div class="set-row__lab">Show status bar</div>
@@ -2875,7 +2845,7 @@ topics:         # type:list
                 </For>
               </Show>
               <Show when={settingsTab() === "vault"}>
-                <h2 class="modal__h2">Vault</h2>
+                <h2 class="set-h2">Vault</h2>
                 <div class="set-row">
                   <div>
                     <div class="set-row__lab">Current vault</div>
@@ -2912,10 +2882,7 @@ topics:         # type:list
                   onChange={setShortcutOverridesValue}
                 />
               </Show>
-            </div>
-          </div>
-        </div>
-      </Show>
+      </TwoPaneModal>
 
       <Show when={createOffer() !== null}>
         <div

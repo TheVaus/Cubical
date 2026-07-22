@@ -100,10 +100,10 @@ describe("TwoPaneModal", () => {
       </TwoPaneModal>
     ));
     const [appearance, editor] = navItems();
-    expect(editor.classList.contains("ds-two-pane-modal__navitem--active")).toBe(true);
-    expect(editor.getAttribute("aria-current")).toBe("true");
-    expect(appearance.classList.contains("ds-two-pane-modal__navitem--active")).toBe(false);
-    expect(appearance.getAttribute("aria-current")).toBeNull();
+    expect(editor!.classList.contains("ds-two-pane-modal__navitem--active")).toBe(true);
+    expect(editor!.getAttribute("aria-current")).toBe("true");
+    expect(appearance!.classList.contains("ds-two-pane-modal__navitem--active")).toBe(false);
+    expect(appearance!.getAttribute("aria-current")).toBeNull();
   });
 
   it("calls onSelect with the item id when a nav item is clicked", () => {

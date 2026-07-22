@@ -91,7 +91,7 @@ const ShortcutsPanel: Component<ShortcutsPanelProps> = (props) => {
 
   return (
     <>
-      <h2 class="modal__h2">Shortcuts</h2>
+      <h2 class="set-h2">Shortcuts</h2>
       <For each={COMMAND_DEFAULTS}>
         {(c) => (
           <div class="kb-row">
