@@ -524,7 +524,7 @@ grep -rn 'modal-backdrop\|modal__\|\.modal ' ui/src   # expect: no matches
 - [ ] **Step 6: Run the full gate**
 
 Run: `scripts/check.sh`
-Expected: PASS — tsc (`ui` + `design-system`), vitest (728 + the 7 new = 735), build, cargo fmt/clippy/test, docs. The only acceptable red line is the documented `dropping_handle_stops_event_delivery_within_100ms` watcher flake.
+Expected: PASS — tsc (`ui` + `design-system`), vitest (**764 baseline + the 7 new = 771**), build, cargo fmt/clippy/test, docs. The only acceptable red line is the documented `dropping_handle_stops_event_delivery_within_100ms` watcher flake.
 
 - [ ] **Step 7: Commit**
 
@@ -646,6 +646,8 @@ Also add `TwoPaneModal` to the `#35` list in the 2026-07-19 addendum in `docs/su
 
 Rewrite (never append) the `#35` sentence to read **6 of 7** primitives built+adopted+merged, naming `TwoPaneModal` and leaving only the richer ranked `CommandPalette` for OmniBar.
 
+Also correct the **Tests** line in the same block: it currently reads `728 vitest`, which is stale — the measured baseline at plan time was 764, so after this work it is **771 vitest + 562 Rust**.
+
 - [ ] **Step 4: Run the docs gate and commit**
 
 ```bash
@@ -669,4 +671,5 @@ gh issue edit 35 --body-file /tmp/i35.md
 
 - **Do not touch `Modal`, `CommandPalette`, or `Popover`.** The shared-`Overlay` refactor (spec approach C) is a deliberate future follow-up, not part of this plan.
 - The `.set-info-btn` ⓘ / `.set-info-pop` rules and all `.set-row*` rules stay exactly where they are — they style body content the app still owns.
-- If `scripts/check.sh` reports a vitest count other than 735, reconcile before committing; do not adjust the expected number to match a failure.
+- If `scripts/check.sh` reports a vitest count other than 771, reconcile before committing; do not adjust the expected number to match a failure.
+- **`CLAUDE.md`'s Project state records "728 vitest", which is stale** (the real baseline measured at plan time is 764). Correct it to 771 as part of Task 4, Step 3.
