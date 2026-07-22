@@ -132,12 +132,14 @@ is optional and defaults to prior behavior:
    `role` prop; roving-tabindex deliberately NOT added (out of scope).
 
 ## Deliberately bespoke — each evidenced; read why before "fixing"
-> **Update 2026-07-19 (issue #35):** five of the surfaces below have since been un-bespoked by net-new
+> **Update 2026-07-19/20 (issue #35):** six of the surfaces below have since been un-bespoked by net-new
 > DS primitives — `Select` (the `<select>`s), `DatePicker` (the native pickers), `Popover` (VaultSwitcher /
-> PendingRewrites / set-info), `Link` (the "Open as raw" links), and a richer pill `Tag` (ChipList chips).
-> `properties/styles.ts` was deleted with the last of them. **Still bespoke:** the OmniBar ranked palette and
-> the two-pane Settings modal (their two primitives remain parked in #35). The list below is the *as-of-2026-07-17*
-> record; the durable, current bespoke set lives in [`architecture/ui.md`](../architecture/ui.md) §11.6.
+> PendingRewrites / set-info), `Link` (the "Open as raw" links), and a richer pill `Tag` (ChipList chips),
+> all merged 2026-07-19; plus `TwoPaneModal` (the two-pane Settings modal), merged 2026-07-20, which retired
+> the bespoke `.modal*` shell from `layout.css`. `properties/styles.ts` was deleted with the Tag work.
+> **Still bespoke:** only the OmniBar ranked palette (its `CommandPalette` primitive remains parked in #35).
+> The list below is the *as-of-2026-07-17* record; the durable, current bespoke set lives in
+> [`architecture/ui.md`](../architecture/ui.md) §11.6.
 
 - **"Open as raw" text links** (`RawCell.tsx`, `Properties.tsx`) — DS ghost Button
   computes to a padded, non-underlined, hover-plated button; the target is a

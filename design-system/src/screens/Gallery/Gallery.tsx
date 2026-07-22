@@ -20,6 +20,7 @@ import BacklinkRow from '../../components/data/BacklinkRow/BacklinkRow';
 import Menu from '../../components/overlay/Menu/Menu';
 import Modal from '../../components/overlay/Modal/Modal';
 import Popover from '../../components/overlay/Popover/Popover';
+import TwoPaneModal from '../../components/overlay/TwoPaneModal/TwoPaneModal';
 import CommandPalette from '../../components/overlay/CommandPalette/CommandPalette';
 
 const ALL_ICONS: IconName[] = [
@@ -41,6 +42,8 @@ const Gallery = () => {
   const [confirmOpen, setConfirmOpen] = createSignal(false);
   const [paletteOpen, setPaletteOpen] = createSignal(false);
   const [popoverOpen, setPopoverOpen] = createSignal(false);
+  const [twoPaneOpen, setTwoPaneOpen] = createSignal(false);
+  const [twoPaneTab, setTwoPaneTab] = createSignal('appearance');
 
   return (
     <div class="gallery stack scroll-y">
@@ -284,6 +287,29 @@ const Gallery = () => {
             </p>
           </Popover>
         </div>
+      </section>
+      <section class="gallery-section stack">
+        <div class="eyebrow">Overlay — TwoPaneModal</div>
+        <div class="gallery-row row">
+          <Button variant="secondary" onClick={() => setTwoPaneOpen(true)}>
+            Open two-pane modal
+          </Button>
+        </div>
+        <TwoPaneModal
+          open={twoPaneOpen()}
+          onClose={() => setTwoPaneOpen(false)}
+          title="Settings"
+          items={[
+            { id: 'appearance', icon: 'palette', label: 'Appearance' },
+            { id: 'editor', icon: 'file-text', label: 'Editor' },
+            { id: 'keyboard', icon: 'keyboard', label: 'Shortcuts' },
+          ]}
+          activeId={twoPaneTab()}
+          onSelect={(id) => setTwoPaneTab(id)}
+        >
+          <h2>{twoPaneTab()}</h2>
+          <p>Body content for the "{twoPaneTab()}" pane. The consumer owns this slot.</p>
+        </TwoPaneModal>
       </section>
       <section class="gallery-section stack">
         <div class="eyebrow">Overlay — CommandPalette</div>
