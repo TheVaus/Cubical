@@ -1,14 +1,4 @@
-//! `cubical` — a terminal frontend over [`cubical_engine`].
-//!
-//! Proof that the engine is genuinely frontend-agnostic: this binary links
-//! `cubical-engine` with **no Tauri dependency**, builds an [`AppState`],
-//! opens a vault, and drives the exact same command handlers the GUI uses —
-//! supplying its own [`EventSink`] (a no-op) instead of a `TauriEventSink`.
-//!
-//! Standalone one-shot: open the vault, run the initial scan to completion,
-//! answer the query, exit. (The GUI-vs-CLI concurrency story — forwarding to
-//! a running instance — is a later step; see the engine/transport decoupling
-//! plan.)
+// Terminal frontend over cubical-engine with no Tauri dep — proves the engine is frontend-agnostic.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -27,8 +17,13 @@ use cubical_engine::state::AppState;
 #[derive(Parser)]
 #[command(name = "cubical", about = "Query a Cubical vault from the terminal.")]
 struct Cli {
-    /// Path to the vault directory.
-    #[arg(long, short, global = true, default_value = ".")]
+    #[arg(
+        long,
+        short,
+        global = true,
+        default_value = ".",
+        help = "Path to the vault directory."
+    )]
     vault: PathBuf,
     #[command(subcommand)]
     cmd: Cmd,
@@ -36,17 +31,16 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// List the vault's markdown files (vault-relative paths).
+    #[command(about = "List the vault's markdown files (vault-relative paths).")]
     List,
-    /// Resolve a wiki-link target to a file path. Exits non-zero if
-    /// unresolved (missing or ambiguous).
+    #[command(about = "Resolve a wiki-link target to a file path. Exits non-zero if unresolved.")]
     Resolve {
-        /// The target as written inside `[[…]]`, e.g. `Daily` or `notes/Daily`.
+        #[arg(help = "The target as written inside [[…]], e.g. `Daily` or `notes/Daily`.")]
         target: String,
     },
-    /// List the notes that link to a given note (vault-relative path).
+    #[command(about = "List the notes that link to a given note (vault-relative path).")]
     Backlinks {
-        /// Vault-relative path of the target note, e.g. `notes/Daily.md`.
+        #[arg(help = "Vault-relative path of the target note, e.g. `notes/Daily.md`.")]
         path: String,
     },
 }
@@ -124,9 +118,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// Poll the vault's scan status until the initial scan finishes. The
-/// engine runs the scan as a background task; a one-shot CLI query needs
-/// the index fully populated before it reads.
+// Block until the engine's background initial scan completes — a one-shot query needs a full index.
 async fn wait_for_scan(state: &AppState, vault_id: &str) -> Result<()> {
     loop {
         let info = vault::get_vault_info(
