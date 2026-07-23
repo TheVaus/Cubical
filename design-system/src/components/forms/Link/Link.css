@@ -1,6 +1,3 @@
-/* Carries its own control reset (font/background/border/padding/cursor) so
-   the button-mode variant renders as an inline text link, not a chrome
-   button, in a host with no `button` reset of its own. */
 .ds-link {
   display: inline;
   padding: 0;

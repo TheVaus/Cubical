@@ -31,8 +31,6 @@
   border-bottom-color: var(--c-accent);
 }
 
-/* Pill variant: a bordered chip group for compact inline settings (the filled
-   active chip), as opposed to the default underline tabs. */
 .segmented-control.pill {
   flex: 0 0 auto;
   gap: var(--space-1);

@@ -1,14 +1,3 @@
-/* ============================================================
-   UI rework — layered chrome + stage + floating sidebars.
-   Uses the app's design tokens (tokens.css). The model:
-     • .topbar / .statusbar  = full-width L0 chrome.
-     • .stage                = positioning context.
-     • .editor-layer         = fixed, centered editor (never moves).
-     • .side                 = floating sidebar layers that slide
-                               off-screen on collapse — no reflow of
-                               the editor underneath.
-   ============================================================ */
-
 .app-shell {
   display: flex;
   flex-direction: column;
@@ -35,10 +24,6 @@
   min-width: 0;
   padding: 0 var(--space-2);
 }
-/* Flanks are fixed at the sidebar widths so the center region maps exactly
-   to the editor — independent of collapse state. The left flank aligns the
-   tabs to the editor's left edge; the right flank sits above the right
-   sidebar and holds its collapse toggle. */
 .topbar__flank--left {
   flex: 0 0 18rem;
 }
@@ -46,8 +31,6 @@
   flex: 0 0 18rem;
   justify-content: flex-end;
 }
-/* center == editor width: tabs (left, grow) + source toggle (right, static).
-   They are flex siblings, so they can never overlap. */
 .topbar__center {
   flex: 1 1 auto;
   min-width: 0;
@@ -116,9 +99,6 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  /* The single scroll viewport for the editor pane: the title, properties
-     and document text all live inside it and scroll together, so a tall
-     properties block rolls up off the top instead of staying pinned. */
   overflow-y: auto;
   overflow-x: hidden;
   padding: var(--space-5) var(--space-4) 0;
@@ -126,9 +106,6 @@
 .editor-inner {
   width: 100%;
   max-width: 44rem;
-  /* Size to content but fill the viewport at minimum, so a short note still
-     paints a full-height editor surface. Growing past the viewport is what
-     drives `.editor-scroll` to scroll. */
   flex: 0 0 auto;
   min-height: 100%;
   display: flex;
@@ -136,8 +113,6 @@
   gap: var(--space-3);
 }
 
-/* Obsidian-style editable filename title (the filename IS the title — no H1
-   is ever written into the document). Renames the file on commit. */
 .doc-title {
   display: block;
   width: 100%;
@@ -203,8 +178,6 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  /* inset so the search bar / filter / tree don't touch the panel edges
-     (the old full-window padding is gone in the rework) */
   padding: var(--space-2) var(--space-2) 0;
 }
 
@@ -251,9 +224,6 @@
   color: var(--c-fg-primary);
   font-weight: 600;
 }
-/* Content-layout for the pending-rewrites popover; overlay chrome
-   (position/bg/border/radius/shadow/z-index) comes from the DS Popover
-   panel this class is passed to as its `class` prop. */
 .pending-rewrites-popover {
   min-width: 20rem;
   max-width: 28rem;
@@ -286,8 +256,6 @@
   border-radius: var(--radius-sm, var(--radius-md));
   cursor: pointer;
 }
-/* selected segment: calm neutral fill (consistent with the settings
-   segmented control; accent stays reserved for primary actions/modes) */
 .rs-tab--active {
   color: var(--c-fg-primary);
   background: var(--c-bg-tertiary);
@@ -485,9 +453,6 @@
 .set-info-btn:hover {
   color: var(--c-accent);
 }
-/* Content-layout/typography only — overlay chrome (position/bg/border/
-   radius/shadow/z-index) comes from the DS Popover panel this class is
-   passed to as its `class` prop. */
 .set-info-pop {
   width: max-content;
   max-width: 320px;
@@ -518,9 +483,6 @@
 .vault-switcher-anchor {
   position: relative;
 }
-/* Content-layout only — overlay chrome (position/bg/border/radius/shadow/
-   z-index) comes from the DS Popover panel this class is passed to as its
-   `class` prop. */
 .vault-switcher {
   min-width: 12rem;
   padding: var(--space-2);

@@ -11,6 +11,7 @@ This is the docs index. The session primer is [`CLAUDE.md`](../CLAUDE.md) — st
 | What's the session primer? Current state? | [`CLAUDE.md`](../CLAUDE.md) |
 | What's locked architecturally? | [`architecture/README.md`](architecture/README.md) — split by domain |
 | What's the code-style rule for X? | [`conventions.md`](conventions.md) |
+| Why is this code written this way? What invariant does it hold? | [`implementation/`](implementation/) — split by domain |
 | Where are we in the build order? What ships next? | [`build-order.md`](build-order.md) |
 | What does this layer cover? What landed? | [`layer-0-spec.md`](layer-0-spec.md) · [`layer-1-spec.md`](layer-1-spec.md) · [`layer-2-spec.md`](layer-2-spec.md) · [`layer-3-spec.md`](layer-3-spec.md) · [`layer-4-spec.md`](layer-4-spec.md) |
 | I'm touching IPC / Tauri | [`migration-touchpoints.md`](migration-touchpoints.md) |
@@ -46,6 +47,8 @@ cubical/
 
 Crates without Tauri deps (`cubical-core`, `cubical-ast`, `cubical-index`, `cubical-search`, `cubical-sync`) must remain buildable and testable without the app harness. Tauri-coupled surfaces are inventoried in [`migration-touchpoints.md`](migration-touchpoints.md).
 
+Source files carry no explanatory comments — at most a brief one-line pointer. The rationale that used to live in them is owned by [`implementation/`](implementation/), one file per domain.
+
 ## Other content
 
 - [`reviews/`](reviews/) — past workflow reviews (some recommendations still actionable)
@@ -68,6 +71,7 @@ This is enforced by `scripts/check_docs.py` (in the gate set — see `CLAUDE.md`
 | Build-order ladder + v1.0 cut | [`build-order.md`](build-order.md) |
 | Locked design + DB schemas | [`architecture/`](architecture/) (doc-wins precedence owned by [`architecture/README.md`](architecture/README.md)) |
 | Per-layer intent + what landed | `layer-N-spec.md` |
+| Implementation invariants (why the code is shaped this way) | [`implementation/`](implementation/) |
 | Code style, commits, tests | [`conventions.md`](conventions.md) |
 | Tauri-coupled surfaces | [`migration-touchpoints.md`](migration-touchpoints.md) |
 | Out-of-scope non-features | [`architecture/constraints.md`](architecture/constraints.md) |

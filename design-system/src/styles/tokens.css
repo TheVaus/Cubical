@@ -48,9 +48,6 @@
   /* File-tree row */
   --row-height: 32px;
 
-  /* App-compat aliases: the app (ui/) consumes this file as its single source
-     of truth and references these NAMES; keep them wired to the canonical
-     tokens above so editing one value propagates to the app too. */
   --font-body: var(--font-sans);
   --leading-base: var(--leading-body);
   --leading-loose: 1.75;

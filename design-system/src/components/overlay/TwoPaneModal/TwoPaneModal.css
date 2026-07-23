@@ -5,8 +5,6 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  /* modal scrim: a true dim for figure/ground separation (NOT --c-bg-overlay,
-     which is a 5% subtle tint — and white-on-dark, the wrong direction). */
   background: rgba(0, 0, 0, 0.5);
 }
 

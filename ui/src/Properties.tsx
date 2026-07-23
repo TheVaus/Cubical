@@ -651,11 +651,6 @@ const Properties: Component<PropertiesProps> = (props) => {
               >
                 {splitFrontmatter(props.getSource()).yaml ?? ""}
               </pre>
-              {/*
-                Uses the DS `Link` (issue #35), same RawCell precedent —
-                a ghost Button would still read as a chrome button, not
-                an inline text link.
-              */}
               <Link
                 size="xs"
                 onClick={() => props.onOpenRaw()}
@@ -701,17 +696,6 @@ const Properties: Component<PropertiesProps> = (props) => {
               />
             )}
           </For>
-          {/*
-            @ds Button variant="secondary" size="sm" supplies the matching
-            padding/font-size/border-radius/transparent-bg geometry; the
-            style escape hatch restores the outgoing dashed-border "add
-            slot" idiom (the only such affordance in the app) and the
-            muted text color, plus the layout-only align-self/margin-top
-            that Button has no prop for. Unlike RawCell/the revert button,
-            this is a genuine button (click triggers an action, no link
-            semantics), so reskinning it via the token-driven style prop
-            is adoption, not a workaround.
-          */}
           <Button
             variant="secondary"
             size="sm"

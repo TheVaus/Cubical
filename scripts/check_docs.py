@@ -1,19 +1,7 @@
 #!/usr/bin/env python3
-"""Docs consistency checker for Cubical.
+"""Docs consistency checker. Enforces docs/README.md -> "Doc discipline".
 
-Enforces the invariants codified in docs/README.md -> "Doc discipline":
-
-  1. No broken internal doc links (targets that are .md / .html / a directory).
-     Code citations (.rs/.tsx/:line), example syntax ([text](url)), and the
-     frozen `superpowers/archive/` snapshots are out of scope by design.
-  2. Single-source ownership — a fact lives in exactly one doc:
-       - DB schemas `links` / `tags` / `pending_rewrites`  -> architecture/document-model.md
-       - the "doc wins over code" precedence rule           -> architecture/README.md
-       - the layer-tag enumeration                          -> build-order.md
-  3. CLAUDE.md (the auto-loaded primer) stays under its line budget.
-
-Run from anywhere:  python3 scripts/check_docs.py
-Exit 0 = clean, 1 = violations found.
+Run from anywhere: python3 scripts/check_docs.py (0 = clean, 1 = violations).
 """
 import re
 import subprocess
@@ -24,11 +12,7 @@ ROOT = Path(subprocess.check_output(
     ["git", "rev-parse", "--show-toplevel"], text=True).strip())
 
 LINK = re.compile(r"\]\(([^)]+)\)")
-# Fenced code blocks hold illustrative content — e.g. a plan showing the literal
-# markdown to write into a not-yet-created file. Links inside them are example
-# syntax (out of scope per this module's contract), not navigable doc links, and
-# resolve relative to the future file's location, not the doc quoting them. Strip
-# fences before link-scanning so they don't register as broken links.
+# Links inside fences are example syntax, not navigable doc links — strip first.
 FENCE = re.compile(r"```.*?```", re.DOTALL)
 TAG_ENUM = re.compile(r"l4a.*l4b.*l4c")          # an enumeration line, not a lone tag
 PRIMER_BUDGET = 65
@@ -50,8 +34,7 @@ def is_doc_link(target: str) -> bool:
     if target.endswith((".md", ".html", "/")):
         return True
     base = target.rsplit("/", 1)[-1]
-    # a path segment with no file extension is a directory reference (e.g. reviews,
-    # architecture/) — but a bare word with no slash (url, display) is example text.
+    # extensionless segment = directory ref; a bare word with no slash is example text
     return "/" in target and "." not in base
 
 

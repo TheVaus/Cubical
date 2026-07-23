@@ -37,8 +37,6 @@
   transform: translateX(16px);
 }
 
-/* Visible-label slot (showLabel): the switch and its text share one hit area,
-   so clicking the text toggles too. Self-contained — no DS-global utilities. */
 .toggle-field {
   display: inline-flex;
   align-items: center;

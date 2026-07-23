@@ -40,6 +40,11 @@ Code-style rules enforced by review and (where noted) by tooling. Load this when
   (fmt, clippy, Rust tests, tsc, vitest, UI build, docs check). Add or remove a
   gate in `check.sh` and CI follows automatically; don't duplicate the gate list
   in the workflow.
+- **Gate order is load-bearing: the frontend gates run first.** Tauri's
+  `generate_context!()` embeds `ui/dist` at compile time, so the bundle must
+  exist before any cargo step that builds `cubical-app`. Building it up front
+  keeps the gate correct from a clean checkout (CI included), not just when a
+  stale `ui/dist` happens to be lying around.
 - **Rust toolchain is pinned** (`rust-toolchain.toml`). Local builds match CI
   byte-for-byte, and the `clippy -D warnings` gate only shifts when the toolchain
   is bumped deliberately, not whenever a new stable ships. Bump it in its own

@@ -1,14 +1,1 @@
-/*
- * Cubical design tokens — SINGLE SOURCE OF TRUTH.
- *
- * The canonical palette now lives in the design system:
- *   design-system/src/styles/tokens.css
- * The app re-exports it so editing one value there propagates to every instance
- * in the app. That file is a superset: it defines the design system's own token
- * vocabulary PLUS the app-compat aliases the app references (--c-accent-hover,
- * --c-bg-overlay, --c-fg-inverse, --editor-*, --font-body, --leading-base/loose,
- * --transition-fast/base). Do not add token values here — add them there.
- *
- * Architecture: docs/architecture/ui.md §11.4
- */
 @import "../../../design-system/src/styles/tokens.css";

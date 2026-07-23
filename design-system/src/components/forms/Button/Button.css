@@ -1,6 +1,3 @@
-/* Each rule carries its own control reset (font/background/border/padding/
-   cursor) so the component renders correctly in a host that has no `button`
-   reset of its own — the app's base.css deliberately has none. */
 .btn {
   font: inherit;
   background: none;
