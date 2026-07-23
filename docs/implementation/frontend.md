@@ -71,9 +71,33 @@ feature module**. The adapters (the App-level `keydown`, the CodeMirror keymap)
 inject the `run` closures and wire it to their runtime.
 
 Keep it that way: the moment the registry imports a feature, the "one place
-that defines shortcuts" property is gone. Rebinding is layered on top as a
-persisted diff against the defaults, so the default table stays the extension
-point.
+that defines shortcuts" property is gone. Adding a command is a single entry in
+the default table — the keymap, the global handler and the Settings UI are all
+derived from it.
+
+Rebinding is layered on top as a **diff, not a snapshot**:
+
+- A command with no override falls through to its default, so a later change to
+  a default is picked up automatically instead of being frozen by a stale
+  saved snapshot.
+- Resolution only ever iterates the default table, so an override naming a
+  command that no longer exists is silently ignored rather than resurrecting it.
+- `global` and `editor` are **independent key spaces** — the same chord in the
+  other scope is not a conflict.
+
+## Substrate vs feature ownership
+
+`ui/src/core/` is substrate: it owns the always-on plumbing and knows nothing
+about any feature. Two boundaries worth preserving:
+
+- **Settings substrate owns the side-effects only** — persist-on-change and
+  seed-on-vault-open. Each setting's *reactive value* stays owned by the
+  feature that renders it. That is deliberate: it keeps the compile-time
+  key→value typing instead of collapsing into a stringly-typed record. The
+  substrate persists and seeds; it never decides what a setting *means*. A
+  failed read is logged and skipped, leaving the feature at its initial value.
+- **Vault session** holds the open vault's identity and scan lifecycle.
+  Features read from it; it never reaches back into them.
 
 ## Editor compartments
 
@@ -310,6 +334,38 @@ Related rules in the same surface:
   display-only. Dates use a curated format table with explicit validation
   regexes — deliberately no date library — so adding a format is a one-row
   change.
+
+## Fetching effects: untrack your own writes
+
+Panels that fetch on a signal change (backlinks, unlinked mentions) follow two
+rules together:
+
+- **Guard against late responses.** Capture an in-flight token in the closure so
+  a slow response from a previous fetch can never overwrite a newer one's state.
+- **Read your own state through `untrack`.** The reducers return a *fresh object
+  reference* every time, so a tracked read of the panel's own state inside the
+  effect that writes it forms a self-trigger loop. This is not theoretical: it
+  blew the JS stack synchronously, and once a file was selected it spun on the
+  fetch-start state and never reached loaded, because each iteration's token
+  superseded the previous fetch. A regression test covers it.
+
+## Frontmatter serialization
+
+The serializer edits the **existing block in place**, reusing the parsed node of
+every unchanged key. That is what lets foreign comments and blank lines survive
+an edit to some *other* property — a naive re-emit would silently reformat the
+user's file, which the source-of-truth rule forbids.
+
+- Types are stored as a trailing `# type:<token>` comment on the key's line.
+  The token may contain spaces (date formats) and parentheses (enums), and a
+  comment counts as a type hint **only** when its token resolves to a known
+  kind — otherwise it's an ordinary comment and is left alone.
+- **Anchors and aliases remain unmodelable.** Editing a value shared by
+  reference is genuinely ambiguous, so the Properties UI renders read-only
+  rather than guessing.
+- Date formats that share a regex are disambiguated by **range validation**, so
+  `17/06/2026` falls through to day-first rather than parsing as month 17.
+  Cross-format conversion is best-effort and flags lossy narrowing.
 
 ## Small single-owner helpers
 
