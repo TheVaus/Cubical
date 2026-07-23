@@ -118,7 +118,6 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-// Block until the engine's background initial scan completes — a one-shot query needs a full index.
 async fn wait_for_scan(state: &AppState, vault_id: &str) -> Result<()> {
     loop {
         let info = vault::get_vault_info(

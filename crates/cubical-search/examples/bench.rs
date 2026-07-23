@@ -1,23 +1,9 @@
-//! L4-A perf benchmark driver. Issues a 200-query mix against the
-//! 30k-file sandbox vault's Tantivy index and reports p50 / p99 / mean
-//! / min / max latency in milliseconds. Best-effort — if the index
-//! directory doesn't exist on this machine, the driver prints a
-//! friendly note and exits 0.
-//!
-//! Run:
-//!     cargo run --release -p cubical-search --example bench
-//!
-//! The vault path is hard-coded to `~/Developer/sandbox/cubical-cancel-test/`
-//! since that's the canonical L3 §5.6 perf vault. To benchmark a
-//! different index, set `CUBICAL_SEARCH_BENCH_VAULT=<absolute-path>`.
-
 use std::path::PathBuf;
 use std::time::Instant;
 
 use cubical_search::query::{run_search, FieldScope, SearchQuery, SortMode};
 use cubical_search::SearchIndex;
 
-/// 200-query mix: 100 single-term, 50 two-term, 30 field-scoped, 20 phrase.
 const SINGLE_TERMS: &[&str] = &[
     "the",
     "search",
@@ -269,7 +255,6 @@ fn main() {
 
     let mut samples_ms: Vec<f64> = Vec::with_capacity(200);
 
-    // 100 single-term.
     for term in SINGLE_TERMS.iter().take(100) {
         let q = SearchQuery {
             text: (*term).into(),
@@ -284,7 +269,6 @@ fn main() {
         samples_ms.push(start.elapsed().as_secs_f64() * 1000.0);
     }
 
-    // 50 two-term.
     for (a, b) in TWO_TERMS.iter().take(50) {
         let q = SearchQuery {
             text: format!("{a} {b}"),
@@ -299,7 +283,6 @@ fn main() {
         samples_ms.push(start.elapsed().as_secs_f64() * 1000.0);
     }
 
-    // 30 field-scoped.
     for (scope, text) in field_scoped_queries().into_iter().take(30) {
         let q = SearchQuery {
             text: text.into(),
@@ -314,7 +297,6 @@ fn main() {
         samples_ms.push(start.elapsed().as_secs_f64() * 1000.0);
     }
 
-    // 20 phrase.
     for phrase in PHRASES.iter().take(20) {
         let q = SearchQuery {
             text: (*phrase).into(),

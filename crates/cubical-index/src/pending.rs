@@ -1,35 +1,16 @@
-//! Queries against the L3 `pending_rewrites` table (migration 006,
-//! schema in `migrations/006_pending_rewrites.sql`). Each row is a
-//! deferred per-file token rewrite produced by a rename operation
-//! (file / tag / block-id); rows are grouped by `rename_op_id` so a
-//! single undo deletes exactly what one rename enqueued. See
-//! `docs/architecture/document-model.md` §5.7 and
-//! `docs/layer-3-spec.md` §2.10.
-
 use libsql::params;
 
 use crate::error::IndexError;
 use crate::runner::IndexConn;
 
-/// Kind of textual rewrite a pending row encodes.
-///
-/// String form stored in the `rewrite_kind` column matches the values
-/// listed in the schema comment: `"wiki_link"`, `"tag"`, `"block_ref"`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RewriteKind {
-    /// `[[old]]` → `[[new]]`. `old_token` / `new_token` are bare wiki-link
-    /// targets (no `[[`, no `|display`, no `#anchor`).
     WikiLink,
-    /// `#old` → `#new` (and nested-prefix variants). Tokens are stored
-    /// without the leading `#`.
     Tag,
-    /// `^old` block-id rewrite: both the defining `^id` line and any
-    /// `[[file#^id]]` referrer. Tokens are stored without the leading `^`.
     BlockRef,
 }
 
 impl RewriteKind {
-    /// String form stored in the `rewrite_kind` column.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -39,9 +20,6 @@ impl RewriteKind {
         }
     }
 
-    /// Parse the column value back into a [`RewriteKind`]. Unknown
-    /// strings produce [`IndexError::UnknownEnum`] with full context so
-    /// the caller can log which row tripped it.
     pub fn from_column(value: &str) -> Result<Self, IndexError> {
         match value {
             "wiki_link" => Ok(RewriteKind::WikiLink),
@@ -56,64 +34,35 @@ impl RewriteKind {
     }
 }
 
-/// One row read back from the `pending_rewrites` table.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingRewriteRow {
-    /// Auto-increment row id.
     pub id: i64,
-    /// File the rewrite should be applied to.
     pub target_file: String,
-    /// What kind of token this rewrite encodes.
     pub rewrite_kind: RewriteKind,
-    /// The token as written on disk before the rewrite.
     pub old_token: String,
-    /// The token to substitute in.
     pub new_token: String,
-    /// Unix seconds at enqueue time.
     pub created_at: i64,
-    /// Rename operation that produced this row. Multiple rows share
-    /// this id when the originating rename touched multiple files.
     pub rename_op_id: i64,
 }
 
-/// A new row to insert into `pending_rewrites`. Mirrors
-/// [`PendingRewriteRow`] minus the auto-incremented `id`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewPendingRewrite {
-    /// File the rewrite should be applied to.
     pub target_file: String,
-    /// What kind of token this rewrite encodes.
     pub rewrite_kind: RewriteKind,
-    /// The token as written on disk before the rewrite.
     pub old_token: String,
-    /// The token to substitute in.
     pub new_token: String,
-    /// Unix seconds at enqueue time.
     pub created_at: i64,
-    /// Rename operation that produced this row.
     pub rename_op_id: i64,
 }
 
-/// A `rename_op_id` group surfaced for the status-bar undo dropdown.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RenameOpRow {
-    /// The grouped rename operation id.
     pub rename_op_id: i64,
-    /// How many pending rows belong to this op.
     pub row_count: i64,
-    /// Earliest `created_at` in the group; effectively the time the
-    /// rename was enqueued.
     pub created_at_min: i64,
-    /// A representative `rewrite_kind` for the group, chosen
-    /// deterministically (`MIN(rewrite_kind)` in lexicographic order).
     pub representative_kind: RewriteKind,
 }
 
-/// Append pending rewrite rows to the cache.
-///
-/// Runs on the caller's connection without an inner transaction so
-/// callers can batch enqueue + count + emit-event inside one outer
-/// transaction. Empty `rows` is a no-op.
 pub async fn enqueue_pending(
     conn: &IndexConn,
     rows: &[NewPendingRewrite],
@@ -141,10 +90,6 @@ pub async fn enqueue_pending(
     Ok(())
 }
 
-/// All pending rows for a given target file, ordered by `created_at`
-/// then `id`. The id tiebreaker makes the order deterministic even when
-/// two rows share a `created_at` (common in test fixtures and possible
-/// in production for rapid renames).
 pub async fn pending_for_target(
     conn: &IndexConn,
     target_file: &str,
@@ -175,8 +120,6 @@ pub async fn pending_for_target(
     Ok(out)
 }
 
-/// All distinct target file paths that have at least one pending row.
-/// Sorted ascending for stable iteration.
 pub async fn pending_targets(conn: &IndexConn) -> Result<Vec<String>, IndexError> {
     let mut rows = conn
         .connection()
@@ -192,7 +135,6 @@ pub async fn pending_targets(conn: &IndexConn) -> Result<Vec<String>, IndexError
     Ok(out)
 }
 
-/// Total number of pending rows across all targets.
 pub async fn pending_count_total(conn: &IndexConn) -> Result<i64, IndexError> {
     let mut rows = conn
         .connection()
@@ -204,7 +146,6 @@ pub async fn pending_count_total(conn: &IndexConn) -> Result<i64, IndexError> {
     Ok(row.get::<i64>(0)?)
 }
 
-/// Number of pending rows for a single target file.
 pub async fn pending_count_for_target(
     conn: &IndexConn,
     target_file: &str,
@@ -222,8 +163,6 @@ pub async fn pending_count_for_target(
     Ok(row.get::<i64>(0)?)
 }
 
-/// Per-target breakdown sorted by count descending, with `target_file`
-/// as the tiebreaker for stable output.
 pub async fn pending_count_breakdown(conn: &IndexConn) -> Result<Vec<(String, i64)>, IndexError> {
     let mut rows = conn
         .connection()
@@ -244,9 +183,6 @@ pub async fn pending_count_breakdown(conn: &IndexConn) -> Result<Vec<(String, i6
     Ok(out)
 }
 
-/// Delete every pending row belonging to `rename_op_id`. Returns the
-/// number of rows removed; `0` if the op id is unknown (idempotent
-/// from the caller's perspective).
 pub async fn delete_rename_op(conn: &IndexConn, rename_op_id: i64) -> Result<u64, IndexError> {
     Ok(conn
         .connection()
@@ -257,8 +193,6 @@ pub async fn delete_rename_op(conn: &IndexConn, rename_op_id: i64) -> Result<u64
         .await?)
 }
 
-/// Delete every pending row for `target_file`. Returns the number of
-/// rows removed.
 pub async fn delete_pending_for_target(
     conn: &IndexConn,
     target_file: &str,
@@ -272,10 +206,6 @@ pub async fn delete_pending_for_target(
         .await?)
 }
 
-/// Most-recent rename ops, newest first. The representative kind is
-/// `MIN(rewrite_kind)` in lexicographic order — deterministic but
-/// otherwise arbitrary; the J.2 dropdown only uses it for a leading
-/// icon, not for semantic dispatch.
 pub async fn list_recent_rename_ops(
     conn: &IndexConn,
     limit: i64,
@@ -364,8 +294,6 @@ mod tests {
     #[tokio::test]
     async fn pending_for_target_orders_by_created_at_then_id() {
         let (_d, conn) = open_test_index().await;
-        // Three rows with the same created_at; insertion order (id) must
-        // be the tiebreaker.
         enqueue_pending(
             &conn,
             &[
@@ -377,8 +305,6 @@ mod tests {
         .await
         .unwrap();
 
-        // And one row with an earlier timestamp inserted last — must
-        // still come first by created_at.
         enqueue_pending(
             &conn,
             &[row("a.md", RewriteKind::WikiLink, "zero", "x", 50, 1)],
@@ -443,7 +369,6 @@ mod tests {
     #[tokio::test]
     async fn pending_count_breakdown_orders_by_count_desc() {
         let (_d, conn) = open_test_index().await;
-        // a.md: 1 row, b.md: 3 rows, c.md: 2 rows -> ordering must be b, c, a.
         enqueue_pending(
             &conn,
             &[
@@ -488,11 +413,9 @@ mod tests {
         assert_eq!(removed, 2);
         assert_eq!(pending_count_total(&conn).await.unwrap(), 2);
 
-        // Op 2's rows survived.
         let surviving = pending_targets(&conn).await.unwrap();
         assert_eq!(surviving, vec!["c.md".to_string(), "d.md".into()]);
 
-        // Deleting an unknown op is a no-op and returns 0.
         let removed = delete_rename_op(&conn, 999).await.unwrap();
         assert_eq!(removed, 0);
         assert_eq!(pending_count_total(&conn).await.unwrap(), 2);
@@ -518,7 +441,6 @@ mod tests {
         let survivors = pending_targets(&conn).await.unwrap();
         assert_eq!(survivors, vec!["b.md".to_string()]);
 
-        // Deleting for an unknown target is a no-op.
         let removed = delete_pending_for_target(&conn, "ghost.md").await.unwrap();
         assert_eq!(removed, 0);
     }
@@ -526,7 +448,6 @@ mod tests {
     #[tokio::test]
     async fn list_recent_rename_ops_limits_and_orders_by_created_at_desc() {
         let (_d, conn) = open_test_index().await;
-        // Four ops with increasing created_at; limit=2 should return ops 4, 3.
         enqueue_pending(
             &conn,
             &[
@@ -534,7 +455,6 @@ mod tests {
                 row("a.md", RewriteKind::WikiLink, "x", "y", 20, 2),
                 row("b.md", RewriteKind::Tag, "x", "y", 30, 3),
                 row("c.md", RewriteKind::BlockRef, "x", "y", 40, 4),
-                // Extra row in op 3 so we can sanity-check row_count.
                 row("b.md", RewriteKind::Tag, "x", "y", 35, 3),
             ],
         )
@@ -556,9 +476,6 @@ mod tests {
     #[tokio::test]
     async fn unknown_rewrite_kind_in_row_errors_cleanly() {
         let (_d, conn) = open_test_index().await;
-        // Insert a row by hand with a bogus rewrite_kind to simulate a
-        // corrupt / out-of-band write. Read-back should produce an
-        // IndexError, not panic.
         conn.connection()
             .execute(
                 "INSERT INTO pending_rewrites \

@@ -1,30 +1,7 @@
-//! Pulldown-cmark event stream → canonical AST.
-//!
-//! `pulldown-cmark` emits a flat event stream (`Start`, `End`, `Text`,
-//! ...). The normalizer walks that stream with an explicit stack so
-//! the AST it produces is structurally identical to what the editor's
-//! Lezer-based normalizer will produce in L1 session B. Both feed
-//! the same indexer in `cubical-core`.
-//!
-//! Soft line breaks are folded into the surrounding text (a single
-//! space). Hard breaks become [`Inline::LineBreak`]. CommonMark tables,
-//! footnotes, definition lists, and other extensions are *not* enabled
-//! — Cubical's AST is intentionally slim. Tag, wiki-link, and
-//! block-id recognition arrives at L3.
-//!
-//! Block-level spans are derived from the byte ranges
-//! `pulldown-cmark` reports for each event, shifted by `body_offset`
-//! so they line up with the original source string (frontmatter
-//! included).
-
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 
 use crate::types::{Block, Inline, ListItem, Span};
 
-/// Walk the event stream for `body` and produce the top-level block
-/// sequence. `body_offset` is the byte offset of `body` within the
-/// original source — it shifts every emitted span so block ranges
-/// match what the caller originally passed to [`crate::parse`].
 pub(crate) fn normalize(body: &str, body_offset: usize) -> Vec<Block> {
     let parser = Parser::new_ext(body, Options::empty()).into_offset_iter();
     let mut state = State::new(body_offset);
@@ -34,9 +11,6 @@ pub(crate) fn normalize(body: &str, body_offset: usize) -> Vec<Block> {
     state.finish()
 }
 
-/// One in-flight "container" — a node that accepts blocks or inlines
-/// until its matching `End` event arrives. The stack is the structural
-/// backbone of the walk.
 enum Container {
     Doc(Vec<Block>),
     Heading {
@@ -73,23 +47,15 @@ enum Container {
         title: Option<String>,
         alt: Vec<Inline>,
     },
-    /// Captures `Text` events into a single string buffer rather
-    /// than into an inline vector — code blocks have no children.
     CodeBlockBody {
         lang: Option<String>,
         content: String,
         start: usize,
     },
-    /// Captures `Event::Html` chunks inside a `Tag::HtmlBlock` into a
-    /// single content string. Closed on `End(HtmlBlock)`.
     HtmlBlock {
         content: String,
         start: usize,
     },
-    /// Transparent container for tags pulldown-cmark emits but the
-    /// canonical AST does not model (tables, footnotes, definition
-    /// lists, etc.). Consumes the matching `End` event without
-    /// emitting anything.
     Swallow,
 }
 
@@ -117,20 +83,12 @@ impl State {
                 value: s.to_string(),
             }),
             Event::SoftBreak => {
-                // Fold soft breaks into the surrounding text run as a
-                // single space. This matches CommonMark rendering and
-                // keeps `Inline::Text` runs contiguous.
                 self.push_inline(Inline::Text {
                     value: " ".to_string(),
                 });
             }
             Event::HardBreak => self.push_inline(Inline::LineBreak),
             Event::Html(s) | Event::InlineHtml(s) => {
-                // Block-level HTML inside a `Tag::HtmlBlock` is
-                // collected on the open `HtmlBlock` container.
-                // Inline HTML inside a paragraph attaches to the
-                // surrounding inline context as text — we don't
-                // model inline raw HTML as its own variant.
                 if let Some(Container::HtmlBlock { content, .. }) = self.stack.last_mut() {
                     content.push_str(&s);
                 } else if self.is_inline_context() {
@@ -149,13 +107,6 @@ impl State {
                     span: self.shift(range),
                 });
             }
-            // Pulldown-cmark events Cubical doesn't model in L1.
-            // - `FootnoteReference` / `Start(FootnoteDefinition)`:
-            //   footnotes aren't enabled in `Options`, so they
-            //   never arrive.
-            // - `TaskListMarker`: lists don't carry task state in
-            //   L1; tasks are L3.
-            // - `Start(Table*)`: tables aren't enabled.
             Event::TaskListMarker(_)
             | Event::FootnoteReference(_)
             | Event::DisplayMath(_)
@@ -164,10 +115,6 @@ impl State {
     }
 
     fn start(&mut self, tag: Tag<'_>, range: std::ops::Range<usize>) {
-        // A new block-level container inside an Item must close any
-        // implicit paragraph (tight-list inline content) we created
-        // for stray text — otherwise the new block would be parented
-        // under the implicit paragraph instead of the item.
         if !matches!(
             tag,
             Tag::Emphasis
@@ -206,9 +153,6 @@ impl State {
                         }
                     }
                 };
-                // Code blocks have no inline children we'd recurse
-                // into; we accumulate their text inline by pushing a
-                // synthetic container that captures `Text` events.
                 self.stack.push(Container::CodeBlockBody {
                     lang,
                     content: String::new(),
@@ -244,10 +188,6 @@ impl State {
                 content: String::new(),
                 start: range.start,
             }),
-            // Tags the L1 AST does not model (math, table, footnote,
-            // definition list, metadata block, etc.). Push a
-            // transparent "swallow" container so the matching End
-            // is consumed without distorting the structure.
             Tag::FootnoteDefinition(_)
             | Tag::Table(_)
             | Tag::TableHead
@@ -266,8 +206,6 @@ impl State {
     }
 
     fn end(&mut self, tag: TagEnd, range: std::ops::Range<usize>) {
-        // Closing an Item must first close any implicit Paragraph we
-        // injected for tight-list inline content.
         if matches!(tag, TagEnd::Item) {
             self.close_implicit_paragraph_in_item();
         }
@@ -276,8 +214,6 @@ impl State {
         };
         match top {
             Container::Doc(_) => {
-                // Should not happen: Doc is only popped via finish().
-                // Push it back to keep the invariant.
                 self.stack.push(Container::Doc(Vec::new()));
             }
             Container::Heading {
@@ -367,31 +303,18 @@ impl State {
             | Some(Container::Item { blocks, .. }) => {
                 blocks.push(block);
             }
-            _ => {
-                // Stray block in an inline context — drop. This is a
-                // pathological case that shouldn't happen with
-                // pulldown-cmark's grammar but is handled defensively.
-            }
+            _ => {}
         }
     }
 
     fn push_inline(&mut self, inline: Inline) {
-        // Code-block bodies aren't structurally inlines — they
-        // accumulate text in their own buffer, regardless of variant.
         if let Some(Container::CodeBlockBody { content, .. }) = self.stack.last_mut() {
             if let Inline::Text { value } = inline {
                 content.push_str(&value);
             }
-            // Other inline variants inside a code block (shouldn't
-            // happen, but defensively) are dropped.
             return;
         }
 
-        // Tight-list items receive inline events directly without a
-        // wrapping `Tag::Paragraph`. Inject an implicit Paragraph the
-        // first time inline content appears inside an Item; the
-        // matching close happens in `close_implicit_paragraph_in_item`
-        // when a sub-block starts or the Item ends.
         if matches!(self.stack.last(), Some(Container::Item { .. })) {
             self.stack.push(Container::Paragraph {
                 inlines: Vec::new(),
@@ -408,7 +331,6 @@ impl State {
             _ => None,
         };
         if let Some(v) = target {
-            // Coalesce adjacent Text runs to keep the AST tight.
             if let Inline::Text { value: s } = &inline {
                 if let Some(Inline::Text { value: prev }) = v.last_mut() {
                     prev.push_str(s);
@@ -419,17 +341,7 @@ impl State {
         }
     }
 
-    /// If the stack ends in `..., Item, Paragraph`, close the
-    /// Paragraph. This is the single seam where implicit (tight-list)
-    /// paragraphs become real `Block::Paragraph`s inside their parent
-    /// item. We use the inlines' first-byte and last-byte source
-    /// positions to derive a span.
     fn close_implicit_paragraph_in_item(&mut self) {
-        // Distinguishing implicit from explicit Paragraphs would
-        // require carrying a flag; pulldown-cmark would have already
-        // popped any explicit Paragraph via `End(Paragraph)` before
-        // we reach this point in a normal event stream, so any
-        // Paragraph still on the stack here under an Item is implicit.
         let n = self.stack.len();
         if n < 2 {
             return;
@@ -442,11 +354,6 @@ impl State {
         let Some(Container::Paragraph { inlines, start: _ }) = self.stack.pop() else {
             return;
         };
-        // Implicit paragraphs don't have their own source span — fall
-        // back to the parent Item's start, which is the closest
-        // available offset. This is best-effort; consumers that need
-        // exact paragraph spans should rely on explicit (loose)
-        // paragraphs.
         let item_start = match self.stack.last() {
             Some(Container::Item { start, .. }) => *start,
             _ => 0,
@@ -478,23 +385,11 @@ impl State {
     fn finish(mut self) -> Vec<Block> {
         match self.stack.pop() {
             Some(Container::Doc(blocks)) => blocks,
-            // Defensive: if the stack got into a weird state, return
-            // whatever's at the bottom rather than panicking.
             _ => Vec::new(),
         }
     }
 }
 
-/// Walk an `Inline` sequence and split every `Inline::Text` value
-/// through the wiki-link tokenizer, then through the tag tokenizer.
-/// Other inline kinds (Code, Emph, Strong, Link, Image, LineBreak) are
-/// preserved as-is; Emph / Strong / Link / Image recurse into their
-/// children so nested text is tokenized.
-///
-/// Wiki-link splitting runs first so a `#tag` inside a wiki-link
-/// target (`[[note#tag]]` would be parsed as a heading anchor, but
-/// `[[note]]#tag` is two tokens — the wiki-link plus a tag) stays out
-/// of the tag pass.
 fn split_inlines(inlines: Vec<Inline>) -> Vec<Inline> {
     use crate::tag::{scan_tags, TokenizedRun as TagRun};
     use crate::wikilink::{scan_wikilinks, TokenizedRun as WikiRun};
@@ -634,7 +529,6 @@ mod tests {
         assert!(!ordered);
         assert_eq!(items.len(), 2);
         assert!(span.end > span.start);
-        // First item should hold a paragraph and a nested list.
         let first = &items[0];
         assert!(first
             .blocks
@@ -663,10 +557,6 @@ mod tests {
     #[test]
     fn thematic_break() {
         let doc = parse("---\n");
-        // A bare `---` at offset 0 is *not* a thematic break — it's
-        // an unclosed frontmatter opener. The split code returns
-        // `(None, source)` in that case, so pulldown-cmark sees the
-        // whole source and emits a thematic break.
         assert!(doc
             .blocks
             .iter()
@@ -711,7 +601,6 @@ mod tests {
         assert!(kinds.contains(&"link"));
         assert!(kinds.contains(&"image"));
 
-        // Spot-check the link payload.
         let link = inlines
             .iter()
             .find_map(|i| match i {
@@ -730,7 +619,6 @@ mod tests {
 
     #[test]
     fn hard_break_is_emitted() {
-        // Two trailing spaces + newline → hard break.
         let src = "line one  \nline two\n";
         let doc = parse(src);
         let Block::Paragraph { inlines, .. } = &doc.blocks[0] else {
@@ -761,10 +649,8 @@ mod tests {
     fn block_spans_cover_source_ranges_in_absolute_offsets() {
         let src = "---\ntitle: x\n---\n\n# Heading\n\nBody.\n";
         let doc = parse(src);
-        // The frontmatter span ends where the body starts.
         let fm = doc.frontmatter.as_ref().unwrap();
         assert_eq!(fm.span.start, 0);
-        // First block's span starts at or after the body offset.
         let first_span = match &doc.blocks[0] {
             Block::Heading { span, .. } => span,
             other => panic!("expected heading, got {other:?}"),

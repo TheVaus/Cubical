@@ -1,9 +1,3 @@
-//! Hand-written tokenizer + recursive-descent parser for the query DSL.
-//!
-//! Grammar (clause order fixed):
-//! `<command> [FROM <source>] [WHERE <cond> {AND <cond>}] [SORT <key> [ASC|DESC]]`
-//! Keywords are case-insensitive. See the design spec §3.
-
 use crate::ast::{Command, Cond, Op, Query, Sort, SortDir, Source, Value};
 use crate::error::ParseError;
 
@@ -119,7 +113,6 @@ fn tokenize(src: &str) -> Result<Vec<Tok>, ParseError> {
     Ok(out)
 }
 
-/// Parse query source into a [`Query`].
 pub fn parse(src: &str) -> Result<Query, ParseError> {
     let toks = tokenize(src)?;
     let mut p = Parser { toks, pos: 0 };

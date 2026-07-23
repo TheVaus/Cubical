@@ -1,13 +1,6 @@
-//! The Tauri adapter for the engine's [`EventSink`]. This is the **only**
-//! place the event transport names Tauri — the engine emits
-//! transport-agnostic [`AppEvent`]s and this forwards them to
-//! `AppHandle::emit`. See `docs/migration-touchpoints.md`.
-
 use cubical_engine::events::{AppEvent, EventSink};
 use tauri::{Emitter, Runtime};
 
-/// Forwards [`AppEvent`]s to a Tauri `AppHandle`. Generic over the runtime
-/// so it works against production `Wry` and `tauri::test::MockRuntime`.
 pub struct TauriEventSink<R: Runtime = tauri::Wry> {
     app: tauri::AppHandle<R>,
 }

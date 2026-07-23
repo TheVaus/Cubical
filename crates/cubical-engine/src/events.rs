@@ -1,12 +1,3 @@
-//! Event names + payload types + emit helpers.
-//!
-//! This module is the **single chokepoint** for backend → frontend events.
-//! Pure command handlers never call `app_handle.emit()` directly; they call
-//! `emit_*` helpers here. If the event transport ever migrates, only this
-//! file changes.
-//!
-//! See `docs/migration-touchpoints.md`.
-
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -26,49 +17,22 @@ use tokio_util::sync::CancellationToken;
 
 use crate::state::{OpenVault, ScanStatusBackend};
 
-/// Per-vault own-write hash gate consumed by the watcher dispatcher.
-///
-/// The flush executor inserts `(relative_path, content_hash_hex)` BEFORE
-/// the atomic write; the watcher dispatcher's `Modified` branch, after
-/// computing the post-write disk hash, removes the matching entry and
-/// suppresses the `vault:file-changed` emit. This is the backend mirror
-/// of L2's editor-side hash gate — flush writes have no editor to
-/// match them, so they would otherwise bounce back into the UI as
-/// external edits and re-trigger reads.
 pub type FlushOwnWrites = Arc<Mutex<HashSet<(PathBuf, String)>>>;
 
-// -- Event name constants ---------------------------------------------------
-//
-// One constant per event. No string literals scattered across the codebase.
-
-/// Streamed during a vault scan; payload counts converge as the scan progresses.
 pub const VAULT_SCAN_PROGRESS: &str = "vault:scan-progress";
 
-/// Emitted exactly once per vault open when its initial scan finishes.
 pub const VAULT_SCAN_COMPLETE: &str = "vault:scan-complete";
 
-/// Emitted if a scan was cancelled before completion (e.g., vault closed mid-scan).
 pub const VAULT_SCAN_CANCELLED: &str = "vault:scan-cancelled";
 
-/// Emitted whenever the file watcher reports a change in the vault.
 pub const VAULT_FILE_CHANGED: &str = "vault:file-changed";
 
-/// L3 Session J — emitted whenever the pending-rewrites total for a
-/// vault changes (enqueue from a rename, drain from a flush, undo). The
-/// payload carries the new count so the status-bar item updates in one
-/// hop without a follow-up `get_pending_rewrites_count` round trip.
 pub const VAULT_PENDING_REWRITES_CHANGED: &str = "vault:pending-rewrites-changed";
 
-/// L3 Session J — emitted exactly once at the end of a flush, carrying
-/// per-flush totals. Drives the post-flush toast in J.2.
 pub const VAULT_FLUSH_COMPLETE: &str = "vault:flush-complete";
 
-/// Live tail of the audit log, useful for in-app debugging UIs.
 pub const VAULT_AUDIT: &str = "vault:audit";
 
-// -- Payload structs --------------------------------------------------------
-
-/// Payload for [`VAULT_SCAN_PROGRESS`].
 #[derive(Serialize, Clone)]
 pub struct VaultScanProgress {
     pub vault_id: String,
@@ -76,7 +40,6 @@ pub struct VaultScanProgress {
     pub files_total_estimate: u32,
 }
 
-/// Payload for [`VAULT_SCAN_COMPLETE`].
 #[derive(Serialize, Clone)]
 pub struct VaultScanComplete {
     pub vault_id: String,
@@ -84,31 +47,22 @@ pub struct VaultScanComplete {
     pub duration_ms: u64,
 }
 
-/// Payload for [`VAULT_SCAN_CANCELLED`].
 #[derive(Serialize, Clone)]
 pub struct VaultScanCancelled {
     pub vault_id: String,
 }
 
-/// Payload for [`VAULT_FILE_CHANGED`].
 #[derive(Serialize, Clone)]
 pub struct VaultFileChanged {
     pub vault_id: String,
     pub path: String,
     pub kind: VaultFileChangeKind,
-    /// Set only when `kind == Renamed`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub from_path: Option<String>,
-    /// Content hash of the file after the watcher processed the event.
-    /// Set for `Created` and `Modified`; `None` for `Removed` and
-    /// `Renamed`. Used by L2's hash-gating to suppress the editor's
-    /// own-write echoes (see `docs/layer-2-spec.md` §2.8) and by L2's
-    /// external-edit conflict detection (§2.7).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub new_content_hash: Option<String>,
 }
 
-/// Discriminator for [`VaultFileChanged`].
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum VaultFileChangeKind {
@@ -118,7 +72,6 @@ pub enum VaultFileChangeKind {
     Renamed,
 }
 
-/// Payload for [`VAULT_AUDIT`].
 #[derive(Serialize, Clone)]
 pub struct VaultAudit {
     pub level: String,
@@ -126,14 +79,12 @@ pub struct VaultAudit {
     pub message: String,
 }
 
-/// Payload for [`VAULT_PENDING_REWRITES_CHANGED`].
 #[derive(Serialize, Clone)]
 pub struct VaultPendingRewritesChanged {
     pub vault_id: String,
     pub count: i64,
 }
 
-/// Payload for [`VAULT_FLUSH_COMPLETE`].
 #[derive(Serialize, Clone)]
 pub struct VaultFlushComplete {
     pub vault_id: String,
@@ -141,17 +92,6 @@ pub struct VaultFlushComplete {
     pub refs_updated: i64,
 }
 
-// -- Event sink (transport abstraction) -------------------------------------
-//
-// The engine produces transport-agnostic `AppEvent`s and hands them to an
-// `EventSink`. The Tauri frontend supplies a sink that forwards to
-// `AppHandle::emit`; a CLI supplies one that prints or ignores; tests
-// supply one that collects. This is what lets the command handlers +
-// background tasks run with no Tauri dependency — the only Tauri code is
-// the `TauriEventSink` adapter below.
-
-/// A backend → frontend event, transport-agnostic. One variant per
-/// emitted event, carrying its serialisable payload.
 #[derive(Clone)]
 pub enum AppEvent {
     ScanProgress(VaultScanProgress),
@@ -164,7 +104,6 @@ pub enum AppEvent {
 }
 
 impl AppEvent {
-    /// The frontend event name this maps to.
     #[must_use]
     pub fn name(&self) -> &'static str {
         match self {
@@ -179,85 +118,44 @@ impl AppEvent {
     }
 }
 
-/// Sink the engine emits [`AppEvent`]s into. `Send + Sync` so the
-/// long-lived spawned tasks (scan + watcher dispatchers, flush timer) can
-/// hold an `Arc<dyn EventSink>` across `await` points.
 pub trait EventSink: Send + Sync {
     fn emit(&self, event: AppEvent);
 }
 
-// The Tauri adapter (`TauriEventSink`) lives in the `cubical-app` shell
-// (`crates/cubical-app/src/tauri_sink.rs`) — it's the only place the event
-// transport names Tauri, so it stays out of this Tauri-free crate.
-
-/// An [`EventSink`] that drops every event. For fire-and-forget callers
-/// (a CLI that doesn't surface progress) and tests that only assert on
-/// persisted state.
 pub struct NoopEventSink;
 
 impl EventSink for NoopEventSink {
     fn emit(&self, _event: AppEvent) {}
 }
 
-// -- Emit helpers -----------------------------------------------------------
-//
-// Thin wrappers so call sites read `emit_scan_progress(sink, payload)`
-// rather than constructing `AppEvent` variants inline.
-
-/// Emit a [`VAULT_SCAN_PROGRESS`] event.
 pub fn emit_scan_progress(sink: &dyn EventSink, payload: VaultScanProgress) {
     sink.emit(AppEvent::ScanProgress(payload));
 }
 
-/// Emit a [`VAULT_SCAN_COMPLETE`] event.
 pub fn emit_scan_complete(sink: &dyn EventSink, payload: VaultScanComplete) {
     sink.emit(AppEvent::ScanComplete(payload));
 }
 
-/// Emit a [`VAULT_SCAN_CANCELLED`] event.
 pub fn emit_scan_cancelled(sink: &dyn EventSink, payload: VaultScanCancelled) {
     sink.emit(AppEvent::ScanCancelled(payload));
 }
 
-/// Emit a [`VAULT_FILE_CHANGED`] event.
 pub fn emit_file_changed(sink: &dyn EventSink, payload: VaultFileChanged) {
     sink.emit(AppEvent::FileChanged(payload));
 }
 
-/// Emit a [`VAULT_AUDIT`] event.
 pub fn emit_audit(sink: &dyn EventSink, payload: VaultAudit) {
     sink.emit(AppEvent::Audit(payload));
 }
 
-/// Emit a [`VAULT_PENDING_REWRITES_CHANGED`] event.
 pub fn emit_pending_rewrites_changed(sink: &dyn EventSink, payload: VaultPendingRewritesChanged) {
     sink.emit(AppEvent::PendingRewritesChanged(payload));
 }
 
-/// Emit a [`VAULT_FLUSH_COMPLETE`] event.
 pub fn emit_flush_complete(sink: &dyn EventSink, payload: VaultFlushComplete) {
     sink.emit(AppEvent::FlushComplete(payload));
 }
 
-// -- Scan dispatcher --------------------------------------------------------
-//
-// Spawned by `commands::vault::open_vault`. Owns the scan task, forwards
-// `ScanProgress` updates from the scan's mpsc into Tauri events, and
-// emits the terminal event (complete / cancelled) when the scan ends.
-// Lives here because it touches `AppHandle` and the emit helpers; the
-// pure command handler stays Tauri-free by calling
-// [`spawn_scan_dispatcher`] and walking away.
-
-/// Spawn the dispatcher task that drives a scan to completion.
-///
-/// Returns immediately. The dispatcher:
-/// 1. Spawns the actual scan via [`cubical_core::scan`].
-/// 2. Forwards every [`ScanProgress`] from the scan's channel into a
-///    [`VaultScanProgress`] Tauri event.
-/// 3. When the scan terminates, emits exactly one of
-///    [`VaultScanComplete`] or [`VaultScanCancelled`] and updates the
-///    `OpenVault.scan_status` field in shared state so subsequent
-///    `get_vault_info` queries see the new state.
 pub fn spawn_scan_dispatcher(
     sink: Arc<dyn EventSink>,
     state: Arc<RwLock<std::collections::HashMap<String, OpenVault>>>,
@@ -286,20 +184,12 @@ pub fn spawn_scan_dispatcher(
         });
 
         let scan_outcome = scan_handle.await;
-        // The scan task has returned (success, cancellation, or panic),
-        // which means the sender side of the progress channel is dropped
-        // and the pump will see end-of-stream and exit.
         let _ = progress_pump.await;
 
         let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
 
         let (new_status, new_search_state) = match scan_outcome {
             Ok(Ok(file_count)) => {
-                // Replay the rename-durability journal now that the scan
-                // has resolved links: reconnect any referrers stranded by
-                // a rename whose index state was wiped before flush
-                // (design 2026-06-27). Best-effort, before announcing
-                // scan-complete so clients see reconnected links.
                 crate::commands::rename::replay_rename_journal(&vault, sink.as_ref(), &vault_id)
                     .await;
                 emit_scan_complete(
@@ -322,10 +212,6 @@ pub fn spawn_scan_dispatcher(
                         vault_id: vault_id.clone(),
                     },
                 );
-                // Cancellation leaves the index in whatever shape the scan
-                // reached. Mark as `Error` so polling clients know the
-                // index is not authoritatively up to date — a follow-up
-                // rebuild or close+reopen is the way to recover.
                 (
                     ScanStatusBackend::Cancelled,
                     cubical_search::IndexState::Error,
@@ -369,26 +255,6 @@ pub fn spawn_scan_dispatcher(
     });
 }
 
-// -- Watcher dispatcher -----------------------------------------------------
-//
-// Spawned by `commands::vault::open_vault` after `start_watcher`. Owns the
-// receiver end of the watcher mpsc, persists each event to the `files`
-// table + `audit_log`, and emits `vault:file-changed`. Lives here for
-// the same reason `spawn_scan_dispatcher` does: the pure command handler
-// stays Tauri-free.
-
-/// Spawn the dispatcher task that consumes [`WatchEvent`]s.
-///
-/// Each event:
-/// 1. Updates the `files` table (`Created` / `Modified` refresh
-///    `mtime_unix` + `content_hash` + `last_seen`; `Removed` and
-///    `Renamed` refresh `last_seen` only — row-level deletion / path
-///    update are L1+ work, see `docs/layer-0-spec.md` §6 + §3).
-/// 2. Inserts a row into `audit_log` (`category = 'watcher'`).
-/// 3. Emits a `vault:file-changed` Tauri event.
-///
-/// Errors are logged and the loop continues — a single failed event
-/// must not take the watcher down.
 pub fn spawn_watcher_dispatcher(
     sink: Arc<dyn EventSink>,
     vault_id: String,
@@ -398,10 +264,6 @@ pub fn spawn_watcher_dispatcher(
 ) {
     tokio::spawn(async move {
         while let Some(first) = events_rx.recv().await {
-            // Drain everything already queued so a burst of writes — a
-            // rename flushing thousands of backlinks, or an external bulk
-            // edit — is processed as one batch with a single search
-            // commit, instead of one commit per file.
             let mut batch = vec![first];
             while let Ok(next) = events_rx.try_recv() {
                 batch.push(next);
@@ -421,14 +283,8 @@ async fn handle_watch_batch(
 ) {
     let arrived = Instant::now();
 
-    // Apply every event's DB + index writes, then commit the search index
-    // once for the whole batch.
     let hashes = apply_watch_events_batch(vault, &batch).await;
 
-    // Emit `vault:file-changed` AFTER the commit: the reader uses
-    // `ReloadPolicy::Manual`, so the UI's file-changed re-query only sees
-    // committed docs. Own-writes are suppressed — their bytes are already
-    // indexed, but the editor that produced them needs no echo.
     for (ev, new_content_hash) in batch.iter().zip(hashes) {
         if consume_own_write_hash(flush_own_writes, ev, new_content_hash.as_deref()).await {
             tracing::debug!(
@@ -449,24 +305,10 @@ async fn handle_watch_batch(
     }
 }
 
-/// Apply one watcher event to the index — the `files` row plus an
-/// `audit_log` insert.
-///
-/// Pulled out of [`handle_watch_event`] so it can be unit-tested without
-/// an `AppHandle`. Returns the file's content hash post-update for
-/// `Created`/`Modified` events (so the caller can put it on the emitted
-/// payload — see L2 spec §3.5); returns `None` for `Removed`/`Renamed`
-/// and for the degenerate hash-failed case. Errors are logged and
-/// swallowed: a bad write should not take the dispatcher down.
 pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) -> Option<String> {
     let now = unix_now_secs();
     let conn = vault.index().connection();
 
-    // Directory `Created`/`Modified` → record it in `folders` and skip
-    // all file-oriented extraction (a dir has no content/hash/links). The
-    // caller still emits `vault:file-changed`, so the tree refetches and
-    // the new folder appears. (`Removed` is handled in the match below:
-    // the path is already gone from disk and can't be stat'd as a dir.)
     if let WatchEvent::Created(rel) | WatchEvent::Modified(rel) = ev {
         if vault.root().join(rel).is_dir() {
             let path_str = rel.to_string_lossy().into_owned();
@@ -488,19 +330,12 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) -> O
         }
     }
 
-    // -- Update files row -------------------------------------------------
     let new_content_hash = match ev {
         WatchEvent::Created(rel) | WatchEvent::Modified(rel) => {
             let abs = vault.root().join(rel);
             let path_str = rel.to_string_lossy().into_owned();
-            // None case (file already gone, unreadable, or hash failed):
-            // upsert with zeros + empty hash, but still audit + emit so
-            // the UI refreshes. The next scan or modify event will heal
-            // the row.
             let (size, mtime, hash): (i64, i64, String) =
                 read_file_stats(&abs, vault).await.unwrap_or_default();
-            // type_id is derived from the registry; if no handler
-            // matches (impossible with the default registry) skip.
             let type_id = vault
                 .registry()
                 .handler_for(&abs)
@@ -537,17 +372,6 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) -> O
                 tracing::warn!(path = %path_str, error = %e, "watcher: files upsert failed");
             }
 
-            // L1: refresh `frontmatter` rows for markdown files. Best
-            // effort — a malformed YAML or transient I/O error here
-            // must not take the dispatcher down. Non-markdown types
-            // skip; frontmatter is a markdown-only concept.
-            //
-            // L3 Session J (chain 3): read the source ONCE for this
-            // markdown file and materialize any pending rewrites for
-            // `path_str`, then hand the materialized text to every
-            // extractor. (`hash` above stays raw — that's
-            // `files.content_hash`, which tracks on-disk bytes for
-            // change detection, NOT the rewritten view.)
             if type_id == "markdown" {
                 let raw_source = read_source_off_executor(&abs).await.unwrap_or_default();
                 let source = match materialize_on_read(vault.index(), &path_str, &raw_source).await
@@ -562,35 +386,18 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) -> O
                 if let Err(e) = refresh_frontmatter(vault, &path_str, &source).await {
                     tracing::warn!(path = %path_str, error = %e, "watcher: frontmatter refresh failed");
                 }
-                // L3: refresh `links` rows. Best effort — same policy
-                // as frontmatter; a read or SQL failure must not take
-                // the dispatcher down. Removed/Renamed events skip:
-                // `Removed` leaves the row alone (FK cascade will fire
-                // when the eventual cleanup-rewrite session ships);
-                // `Renamed` is handled by the future pending-rewrites
-                // work along with the rest of the rename pipeline.
                 if let Err(e) = refresh_links(vault, &path_str, &source).await {
                     tracing::warn!(path = %path_str, error = %e, "watcher: links refresh failed");
                 }
-                // L3 Session D: refresh `tags` rows. Same best-effort
-                // policy as links + frontmatter.
                 if let Err(e) = refresh_tags(vault, &path_str, &source).await {
                     tracing::warn!(path = %path_str, error = %e, "watcher: tags refresh failed");
                 }
-                // L3 §2.7: refresh block-id definitions, then re-derive
-                // this file's block_refs from its just-written links.
                 if let Err(e) = refresh_blocks(vault, &path_str, &source).await {
                     tracing::warn!(path = %path_str, error = %e, "watcher: blocks refresh failed");
                 }
                 if let Err(e) = refresh_block_refs_for_file(vault, &path_str).await {
                     tracing::warn!(path = %path_str, error = %e, "watcher: block_refs refresh failed");
                 }
-                // L4-A: keep the Tantivy index in sync with create/modify
-                // events. Same best-effort policy as the libSQL refreshers
-                // — log on error, do not take the dispatcher down. Caller
-                // commits the SearchIndex once at the end of this
-                // dispatcher invocation (per-event the watcher is already
-                // debounced upstream).
                 let search_size_bytes = source.len() as u64;
                 if let Err(e) = cubical_core::vault::search_refresh::refresh_search_index(
                     vault,
@@ -612,14 +419,6 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) -> O
             }
         }
         WatchEvent::Removed(rel) => {
-            // The file is gone from disk — drop its `files` row so it
-            // stops surfacing in the tree / `list_files`. The
-            // `ON DELETE CASCADE` FKs on `frontmatter`, `links`, `tags`,
-            // `blocks`, and `block_refs` (keyed on the owning/source
-            // path) carry this file's OUTBOUND rows with it. INBOUND
-            // references (other files' `links.target_path` /
-            // `block_refs.target_file_path`, which have no FK) are left
-            // intact so they correctly degrade to broken links.
             let path_str = rel.to_string_lossy().into_owned();
             if let Err(e) = conn
                 .execute(
@@ -630,16 +429,9 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) -> O
             {
                 tracing::warn!(path = %path_str, error = %e, "watcher: files row delete failed");
             }
-            // The removed path could have been a directory rather than a
-            // file (it's gone now, so we can't tell which) — drop any
-            // matching `folders` row too. No-op when it was a file.
             if let Err(e) = cubical_index::delete_folder(vault.index(), &path_str).await {
                 tracing::warn!(path = %path_str, error = %e, "watcher: folder row delete failed");
             }
-            // L4-A: remove the file from the Tantivy index. The libSQL
-            // `files` row sticks around (see above) but the search doc
-            // should not — stale snippets pointing at a deleted file
-            // would break ranking + click-through.
             if let Err(e) =
                 cubical_core::vault::search_refresh::delete_search_index(vault, &path_str).await
             {
@@ -648,12 +440,6 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) -> O
             None
         }
         WatchEvent::Renamed { from, to: _ } => {
-            // Path-keyed identity update is non-trivial: a row rename
-            // would orphan any future `wiki_links` / `block_refs`
-            // pointing at the old path. Defer to L3's pending-rewrites
-            // work. For now: refresh `last_seen` on the old row, emit
-            // the event, and audit-log it. The next vault scan will
-            // observe the new path as a fresh row.
             let from_str = from.to_string_lossy().into_owned();
             if let Err(e) = conn
                 .execute(
@@ -664,11 +450,6 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) -> O
             {
                 tracing::warn!(path = %from_str, error = %e, "watcher: rename last_seen update failed");
             }
-            // L4-A: drop the old path's search doc. The new path will
-            // be re-indexed via the paired Created/Modified event the
-            // watcher emits on a rename (same convergence the L3
-            // refreshers rely on). Upsert is idempotent so a follow-up
-            // Modified is the right ownership boundary for the new doc.
             if let Err(e) =
                 cubical_core::vault::search_refresh::delete_search_index(vault, &from_str).await
             {
@@ -678,7 +459,6 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) -> O
         }
     };
 
-    // -- Audit log ---------------------------------------------------------
     let (message, detail) = audit_payload_for(ev);
     if let Err(e) = conn
         .execute(
@@ -688,32 +468,12 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) -> O
         )
         .await
     {
-        // TODO(L0+): auto-prune to 10000 rows per spec §7. Skipped for
-        // now; the table grows unbounded until that lands.
         tracing::warn!(error = %e, "watcher: audit_log insert failed");
     }
-
-    // NB: no `search().commit()` here. The dispatcher batches one commit
-    // per drained burst of events (see `apply_watch_events_batch`). A bulk
-    // rewrite — e.g. a rename flushing pending rewrites across thousands
-    // of backlinks — fires one watch event per file; committing per event
-    // would do O(n) segment merges + fsyncs and dominated the operation.
-    // This matches the "caller commits" contract the scan path
-    // (`SEARCH_COMMIT_EVERY`) and `search_refresh` already follow.
 
     new_content_hash
 }
 
-/// Apply a drained burst of watch events to the index, then commit the
-/// Tantivy index **once** for the whole batch. Returns each event's
-/// post-update content hash (in input order) so the caller can run its
-/// own-write gate + emit `vault:file-changed`.
-///
-/// This batching is the fix for the per-event-commit perf cliff: a
-/// rename flushing thousands of backlinks fires one `Modified` event per
-/// file, and a Tantivy commit (segment merge + fsync + GC) per file
-/// turned a bulk flush into a multi-minute hang. One commit per drained
-/// burst makes it O(1) commits instead of O(events).
 pub(crate) async fn apply_watch_events_batch(
     vault: &Vault,
     events: &[WatchEvent],
@@ -722,17 +482,12 @@ pub(crate) async fn apply_watch_events_batch(
     for ev in events {
         hashes.push(apply_watch_event_to_db(vault, ev).await);
     }
-    // One commit for the whole burst — the reader reloads here, so every
-    // doc in the batch becomes queryable together.
     if let Err(e) = vault.search().commit() {
         tracing::warn!(error = %e, "watcher: batch search commit failed");
     }
     hashes
 }
 
-/// Pull size/mtime/hash for an absolute path. Hashing happens off the
-/// runtime via `spawn_blocking`, mirroring what `scan.rs` does for
-/// large files.
 async fn read_file_stats(abs: &std::path::Path, vault: &Vault) -> Option<(i64, i64, String)> {
     let metadata = match std::fs::metadata(abs) {
         Ok(m) => m,
@@ -798,12 +553,6 @@ fn audit_payload_for(ev: &WatchEvent) -> (String, String) {
     }
 }
 
-/// L3 Session J — backend own-write hash gate consumer.
-///
-/// Returns `true` if the event matches an entry in `flush_own_writes`
-/// (and the entry has been drained — own-write gate entries are
-/// single-use). Only `Modified` events with a non-empty hash can match;
-/// all other event kinds pass through.
 pub(crate) async fn consume_own_write_hash(
     flush_own_writes: &FlushOwnWrites,
     ev: &WatchEvent,
@@ -868,10 +617,6 @@ fn unix_now_secs() -> i64 {
 
 #[cfg(test)]
 mod tests {
-    //! Tests for the watcher dispatcher's DB side. The Tauri-emit half
-    //! is exercised by the smoke pass against `cargo tauri dev`; here
-    //! we cover the audit-log row shape and the files-table updates,
-    //! which are the parts that can regress silently.
 
     use super::*;
     use std::path::PathBuf;
@@ -892,7 +637,6 @@ mod tests {
             apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("note.md"))).await;
         assert!(hash.is_some(), "Created on a real file returns its hash");
 
-        // files row exists with type_id=markdown and a non-empty hash.
         let conn = vault.index().connection();
         let mut rows = conn
             .query(
@@ -907,7 +651,6 @@ mod tests {
         assert_eq!(type_id, "markdown");
         assert!(!hash.is_empty(), "content_hash must be set");
 
-        // audit_log row exists with category=watcher and a JSON detail.
         let mut rows = conn
             .query(
                 "SELECT category, level, message, detail
@@ -938,8 +681,6 @@ mod tests {
         std::fs::write(&p, "---\ntitle: Old\n---\n\nbody\n").unwrap();
         let vault = Vault::open(dir.path()).await.expect("vault open");
 
-        // Seed a Created event so the `files` row exists, then
-        // overwrite the file and fire Modified.
         let h1 = apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("note.md")))
             .await
             .expect("Created hash");
@@ -969,12 +710,6 @@ mod tests {
 
     #[tokio::test]
     async fn modified_event_materializes_pending_for_extractors_but_hashes_raw_bytes() {
-        // L3 Session J (chain 3): the watcher's Modified branch reads
-        // the source ONCE per markdown file and materializes any pending
-        // wiki-link rewrites before handing it to the link extractor.
-        // CRITICAL: files.content_hash is computed against the RAW bytes
-        // (its purpose is tracking on-disk state), NOT the materialized
-        // view.
         use cubical_core::sha256_bytes_hex;
         use cubical_index::{enqueue_pending, links_from, NewPendingRewrite, RewriteKind};
 
@@ -982,15 +717,12 @@ mod tests {
         let p = dir.path().join("a.md");
         let raw = "linked to [[OldName]]\n";
         std::fs::write(&p, raw).unwrap();
-        // Target file so the rewrite resolves to a real path.
         std::fs::write(dir.path().join("Daily.md"), "body\n").unwrap();
         let vault = Vault::open(dir.path()).await.expect("vault open");
 
-        // Seed a Created event so `files` rows exist for both paths.
         apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("a.md"))).await;
         apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("Daily.md"))).await;
 
-        // Enqueue a pending rewrite for a.md: OldName → Daily.
         enqueue_pending(
             vault.index(),
             &[NewPendingRewrite {
@@ -1005,27 +737,21 @@ mod tests {
         .await
         .unwrap();
 
-        // Fire Modified. (File on disk unchanged; the watcher just
-        // re-applies the extractors over the post-materialize view.)
         let hash = apply_watch_event_to_db(&vault, &WatchEvent::Modified(PathBuf::from("a.md")))
             .await
             .expect("Modified hash");
 
-        // Extractor output: the link resolves to Daily.md, not OldName.
         let rows = links_from(vault.index(), "a.md").await.expect("query");
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].target_raw, "Daily");
         assert_eq!(rows[0].target_path.as_deref(), Some("Daily.md"));
 
-        // content_hash is over the RAW bytes (not the materialized view).
         assert_eq!(hash, sha256_bytes_hex(raw.as_bytes()));
-        // And the file on disk is still raw.
         assert_eq!(std::fs::read_to_string(&p).unwrap(), raw);
     }
 
     #[tokio::test]
     async fn created_dir_event_records_folder_and_skips_files_table() {
-        // A directory create must land in `folders`, not `files`.
         let dir = tempdir().unwrap();
         std::fs::create_dir(dir.path().join("projects")).unwrap();
         let vault = Vault::open(dir.path()).await.expect("vault open");
@@ -1107,7 +833,6 @@ mod tests {
     #[tokio::test]
     async fn removed_event_returns_no_hash() {
         let (_dir, vault) = fresh_vault_with_one_md("note.md").await;
-        // Seed a row first so the UPDATE has something to touch.
         apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("note.md"))).await;
 
         let hash =
@@ -1117,17 +842,11 @@ mod tests {
 
     #[tokio::test]
     async fn removed_event_deletes_files_row_and_cascades_children() {
-        // External delete (app open): the watcher's Removed branch must
-        // DROP the `files` row so the file stops showing in the tree, and
-        // the ON DELETE CASCADE FKs must carry its outbound frontmatter /
-        // links / tags / blocks rows with it. Regression guard for the
-        // "deleted file lingers in the file tree" bug.
         let dir = tempdir().unwrap();
         let p = dir.path().join("note.md");
         std::fs::write(&p, "---\ntitle: Hi\n---\n\n#planning body\n").unwrap();
         let vault = Vault::open(dir.path()).await.expect("vault open");
 
-        // Created seeds the files row plus its outbound index rows.
         apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("note.md"))).await;
         let conn = vault.index().connection();
         let count = |sql: &'static str| {
@@ -1148,7 +867,6 @@ mod tests {
             "Created should have seeded a frontmatter row",
         );
 
-        // Now delete it on disk and fire Removed.
         std::fs::remove_file(&p).unwrap();
         apply_watch_event_to_db(&vault, &WatchEvent::Removed(PathBuf::from("note.md"))).await;
 
@@ -1187,8 +905,6 @@ mod tests {
         let payload = file_changed_payload(
             "v1",
             &WatchEvent::Removed(PathBuf::from("note.md")),
-            // Even if a caller passes a hash for a Remove (it shouldn't),
-            // we drop it — the wire shape is invariant on event kind.
             Some("ignored".into()),
         );
         assert!(payload.new_content_hash.is_none());
@@ -1209,8 +925,6 @@ mod tests {
         .await;
         assert!(suppressed, "matching modify+hash must drain the entry");
 
-        // Entry was single-use — a second pass through the gate sees an
-        // empty set and lets the event through.
         let suppressed_again = consume_own_write_hash(
             &gate,
             &WatchEvent::Modified(PathBuf::from("a.md")),
@@ -1227,11 +941,6 @@ mod tests {
             .await
             .insert((PathBuf::from("a.md"), "deadbeef".into()));
 
-        // Same path, different hash — external edit landed on top of
-        // the flush write before the watcher observed it. Must pass
-        // through (the user sees the change) and the original entry
-        // stays put (a subsequent identical-hash event would still be
-        // suppressed).
         let suppressed = consume_own_write_hash(
             &gate,
             &WatchEvent::Modified(PathBuf::from("a.md")),
@@ -1281,19 +990,8 @@ mod tests {
         assert_eq!(payload.path, "b.md");
     }
 
-    // ------------------------------------------------------------------
-    // L4-A: watcher → Tantivy fan-out.
-    //
-    // `apply_watch_event_to_db` no longer commits (the dispatcher batches
-    // one commit per drained burst), so these tests drive the index via
-    // `apply_watch_events_batch`, which commits the batch once.
-
     #[tokio::test]
     async fn modified_event_refreshes_search_index() {
-        // Modify a markdown file via the dispatcher, then run a search
-        // and assert the new content is queryable. The Created event
-        // seeds an empty body; the Modified event introduces a unique
-        // token we can search for.
         use cubical_search::query::run_search;
         use cubical_search::{FieldScope, SearchQuery, SortMode};
 
@@ -1302,17 +1000,12 @@ mod tests {
         std::fs::write(&p, "old body\n").unwrap();
         let vault = Vault::open(dir.path()).await.expect("vault open");
 
-        // Seed Created, then rewrite the file and fire Modified. Each
-        // batch call commits once so both upserts land.
         apply_watch_events_batch(&vault, &[WatchEvent::Created(PathBuf::from("note.md"))]).await;
         std::fs::write(&p, "freshly indexed unicorn token\n").unwrap();
         apply_watch_events_batch(&vault, &[WatchEvent::Modified(PathBuf::from("note.md"))]).await;
 
-        // doc_count should be exactly 1 (upsert is delete-by-path then
-        // add, never duplicates).
         assert_eq!(vault.search().doc_count().unwrap(), 1);
 
-        // The unique post-Modified token is queryable.
         let resp = run_search(
             vault.search(),
             &SearchQuery {
@@ -1328,8 +1021,6 @@ mod tests {
         assert_eq!(resp.hits.len(), 1, "post-Modified body must be indexed");
         assert_eq!(resp.hits[0].path, "note.md");
 
-        // And the pre-Modified token is NOT queryable — upsert replaced
-        // the doc, not appended to it.
         let stale = run_search(
             vault.search(),
             &SearchQuery {
@@ -1351,10 +1042,6 @@ mod tests {
 
     #[tokio::test]
     async fn removed_event_drops_doc_from_search_index() {
-        // Delete a file via the dispatcher, then assert doc_count drops
-        // from 1 to 0. The libSQL `files` row stays (per the existing
-        // Removed branch policy) but the search doc must go — no stale
-        // results pointing at a deleted file.
         let (_dir, vault) = fresh_vault_with_one_md("gone.md").await;
         apply_watch_events_batch(&vault, &[WatchEvent::Created(PathBuf::from("gone.md"))]).await;
         assert_eq!(
@@ -1373,10 +1060,6 @@ mod tests {
 
     #[tokio::test]
     async fn renamed_event_drops_old_path_from_search_index() {
-        // Rename = delete old in this dispatcher invocation. The new
-        // path's doc lands via the paired Created/Modified event the
-        // watcher emits next; we don't simulate it here — what matters
-        // is that the OLD path is gone after the Renamed call.
         let (_dir, vault) = fresh_vault_with_one_md("a.md").await;
         apply_watch_events_batch(&vault, &[WatchEvent::Created(PathBuf::from("a.md"))]).await;
         assert_eq!(vault.search().doc_count().unwrap(), 1);
@@ -1398,12 +1081,6 @@ mod tests {
 
     #[tokio::test]
     async fn batch_commits_once_for_many_events() {
-        // Regression guard for the per-event-commit perf bug: a bulk
-        // rewrite (a rename flushing thousands of backlinks) fires one
-        // watch event per file. The dispatcher must commit the Tantivy
-        // index ONCE for the whole drained batch — a commit per file does
-        // O(n) segment merges + fsyncs and turned a big flush into a
-        // multi-minute hang.
         let dir = tempdir().unwrap();
         let n = 50usize;
         let mut events = Vec::with_capacity(n);
@@ -1426,7 +1103,6 @@ mod tests {
             delta, 1,
             "a batch of {n} events must commit exactly once (got {delta})"
         );
-        // Functionality preserved: every file is indexed + queryable.
         assert_eq!(
             vault.search().doc_count().unwrap(),
             n as u64,

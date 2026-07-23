@@ -1,9 +1,3 @@
-//! Pure async handlers for `link_autocomplete` + `tag_autocomplete`.
-//!
-//! Both are thin: pull the open vault, call the read-only index helper
-//! (`files_for_link_query` / `tag_paths_for_prefix`), map to wire types.
-//! See `docs/layer-3-spec.md` §2.6 + §8 Session F.
-
 use std::path::Path;
 
 use cubical_core::vault::links::resolve_target;
@@ -17,14 +11,8 @@ use crate::api::types::{
 use crate::error::CubicalError;
 use crate::state::AppState;
 
-/// Server-side cap on candidates returned per request. Keeps the
-/// dropdown responsive and the IPC payload small; the user narrows by
-/// typing more, which re-queries.
 const AUTOCOMPLETE_LIMIT: u32 = 50;
 
-/// Display title for a candidate: the basename minus `.md`, falling
-/// back to the full path when no terminal segment exists. Mirrors
-/// `commands::tags::derive_title`.
 fn derive_title(path: &str) -> String {
     Path::new(path)
         .file_stem()
@@ -33,7 +21,6 @@ fn derive_title(path: &str) -> String {
         .unwrap_or_else(|| path.to_string())
 }
 
-/// File candidates for the `[[` link-autocomplete dropdown.
 pub async fn link_autocomplete(
     state: &AppState,
     req: LinkAutocompleteRequest,
@@ -54,7 +41,6 @@ pub async fn link_autocomplete(
     Ok(LinkAutocompleteResponse { candidates })
 }
 
-/// Tag candidates for the `#` tag-autocomplete dropdown.
 pub async fn tag_autocomplete(
     state: &AppState,
     req: TagAutocompleteRequest,
@@ -69,9 +55,6 @@ pub async fn tag_autocomplete(
     Ok(TagAutocompleteResponse { candidates })
 }
 
-/// Every distinct tag path in the vault (uncapped, ordered). Unlike
-/// `tag_autocomplete`, returns the full set so the Omni-Bar can
-/// fuzzy-rank tags client-side. See the L4-C design spec §4.
 pub async fn list_tags(
     state: &AppState,
     req: ListTagsRequest,
@@ -84,10 +67,6 @@ pub async fn list_tags(
     Ok(ListTagsResponse { tags })
 }
 
-/// Block ids defined in the resolved target file. The target is resolved
-/// the same way `resolve_link` does (exact vault path → unique basename
-/// → unique suffix). Returns an empty list when the target doesn't
-/// resolve. Capped server-side at `AUTOCOMPLETE_LIMIT`. See spec §9.11.
 pub async fn block_id_autocomplete(
     state: &AppState,
     req: BlockIdAutocompleteRequest,
@@ -232,7 +211,6 @@ mod tests {
         )
         .await
         .unwrap();
-        // Same tag on another file/source — must dedupe to one row.
         replace_tags_for_file(
             vault.index(),
             "b.md",

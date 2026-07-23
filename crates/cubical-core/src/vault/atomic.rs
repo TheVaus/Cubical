@@ -1,14 +1,3 @@
-//! Atomic file writes: temp-file + fsync + rename.
-//!
-//! Per `docs/layer-0-spec.md` §4. The helper exists from L0 onward so
-//! L1+ consumers (notably `write_file_text` in L2) don't have to
-//! reinvent the dance — and so the Windows retry logic for locked
-//! targets (antivirus, OneDrive) lives in one place.
-//!
-//! Sync API on purpose: callers run it inside
-//! `tokio::task::spawn_blocking`. Both writing and `rename` block,
-//! and pretending otherwise just hides the cost.
-
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -16,36 +5,17 @@ use std::time::Duration;
 
 use crate::vault::VaultError;
 
-/// Extension appended to form the temp path adjacent to `target`.
 const TMP_SUFFIX: &str = ".cubical-tmp";
 
-/// Windows retry backoffs for the final `rename`. Sequential — total
-/// budget ~1s. Spec §4: "50ms, 200ms, 800ms".
 const RENAME_RETRY_DELAYS: &[Duration] = &[
     Duration::from_millis(50),
     Duration::from_millis(200),
     Duration::from_millis(800),
 ];
 
-/// Write `content` to `target` atomically.
-///
-/// Procedure: open `<target>.cubical-tmp`, write all bytes, fsync the
-/// file handle, drop it, then `rename` over `target`. On Windows the
-/// rename retries up to 3 times with exponential backoff before
-/// surfacing the failure; the temp file is preserved on final failure
-/// so a human can recover.
-///
-/// Idempotent in the sense that calling it twice with the same content
-/// yields the same on-disk bytes. Not safe to call concurrently on the
-/// same `target` — the temp path is fixed per target, so racing writers
-/// would clobber each other's temp file.
-///
-/// `target` must have a parent directory that exists; this function
-/// does not create directories.
 pub fn atomic_write(target: &Path, content: &[u8]) -> Result<(), VaultError> {
     let tmp = temp_path_for(target);
 
-    // Phase 1: write + fsync the temp file.
     {
         let mut file = OpenOptions::new()
             .write(true)
@@ -55,18 +25,12 @@ pub fn atomic_write(target: &Path, content: &[u8]) -> Result<(), VaultError> {
             .map_err(VaultError::Io)?;
         file.write_all(content).map_err(VaultError::Io)?;
         file.sync_all().map_err(VaultError::Io)?;
-        // Explicit drop happens at end-of-scope; named for clarity.
         drop(file);
     }
 
-    // Phase 2: rename with retry. POSIX `rename` is atomic and
-    // non-blocking; the retry only matters on Windows where a locked
-    // target can transiently reject the call.
     rename_with_retry(&tmp, target)
 }
 
-/// Build the temp path for a target — sibling file with the
-/// `.cubical-tmp` suffix appended to the basename.
 fn temp_path_for(target: &Path) -> PathBuf {
     let mut s = target.as_os_str().to_owned();
     s.push(TMP_SUFFIX);
@@ -96,16 +60,11 @@ fn rename_with_retry(from: &Path, to: &Path) -> Result<(), VaultError> {
 
 #[cfg(windows)]
 fn is_transient_rename_error(e: &std::io::Error) -> bool {
-    // ERROR_ACCESS_DENIED (5), ERROR_SHARING_VIOLATION (32),
-    // ERROR_LOCK_VIOLATION (33). `raw_os_error` is the Win32 code on
-    // Windows.
     matches!(e.raw_os_error(), Some(5) | Some(32) | Some(33))
 }
 
 #[cfg(not(windows))]
 fn is_transient_rename_error(_e: &std::io::Error) -> bool {
-    // POSIX rename is atomic. There's no transient failure mode that
-    // warrants retry on non-Windows.
     false
 }
 

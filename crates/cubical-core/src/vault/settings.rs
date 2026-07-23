@@ -1,10 +1,3 @@
-//! The `.cubical/config.toml` settings file ⇄ in-memory map boundary.
-//!
-//! Settings are a flat map of dotted keys (`appearance.theme_mode`) to
-//! JSON scalar values, mirroring the IPC shape. On disk they become
-//! nested TOML tables. This module is pure + no-Tauri; the app layer owns
-//! the in-memory copy and the IPC.
-
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -12,17 +5,12 @@ use serde_json::Value as Json;
 
 use super::VaultError;
 
-/// Flat settings map: dotted key → JSON scalar value.
 pub type SettingsMap = BTreeMap<String, Json>;
 
-/// Serialize a flat dotted-key map to TOML with nested tables.
-/// `{"appearance.theme_mode": "dark"}` → `[appearance]\ntheme_mode = "dark"`.
 pub fn to_toml(map: &SettingsMap) -> Result<String, VaultError> {
     let mut root = toml::value::Table::new();
     for (dotted, json) in map {
         if json.is_null() {
-            // TOML has no null type; a null setting is treated as unset
-            // (absent ⇒ caller default) rather than corrupting to the string "null".
             continue;
         }
         insert_dotted(&mut root, dotted, json_to_toml(json));
@@ -31,7 +19,6 @@ pub fn to_toml(map: &SettingsMap) -> Result<String, VaultError> {
         .map_err(|e| VaultError::Settings(format!("encode TOML: {e}")))
 }
 
-/// Parse TOML into a flat dotted-key settings map.
 pub fn from_toml(src: &str) -> Result<SettingsMap, VaultError> {
     let value: toml::Value =
         toml::from_str(src).map_err(|e| VaultError::Settings(format!("parse TOML: {e}")))?;
@@ -42,7 +29,6 @@ pub fn from_toml(src: &str) -> Result<SettingsMap, VaultError> {
     Ok(out)
 }
 
-/// Convert a TOML scalar to a JSON value (inverse of `json_to_toml`).
 fn toml_to_json(v: &toml::Value) -> Json {
     match v {
         toml::Value::Boolean(b) => Json::Bool(*b),
@@ -55,7 +41,6 @@ fn toml_to_json(v: &toml::Value) -> Json {
     }
 }
 
-/// Recursively flatten nested tables into dotted keys.
 fn flatten(table: &toml::value::Table, prefix: String, out: &mut SettingsMap) {
     for (k, v) in table {
         let key = if prefix.is_empty() {
@@ -72,20 +57,14 @@ fn flatten(table: &toml::value::Table, prefix: String, out: &mut SettingsMap) {
     }
 }
 
-/// Workspace/UI state (transient session layout) lives in the DB, never in
-/// `config.toml`. Everything under the `ui.` namespace is workspace state;
-/// all other keys are durable settings.
 pub fn is_workspace_key(key: &str) -> bool {
     key.starts_with("ui.")
 }
 
-/// `<vault_root>/.cubical/config.toml`.
 pub fn settings_path(vault_root: &Path) -> PathBuf {
     vault_root.join(".cubical").join("config.toml")
 }
 
-/// Load settings from the file. A missing file ⇒ empty map (defaults).
-/// A present-but-malformed file is an error (callers keep prior state).
 pub fn load(vault_root: &Path) -> Result<SettingsMap, VaultError> {
     let path = settings_path(vault_root);
     match std::fs::read_to_string(&path) {
@@ -98,7 +77,6 @@ pub fn load(vault_root: &Path) -> Result<SettingsMap, VaultError> {
     }
 }
 
-/// Atomically write the settings map to the file, creating `.cubical/`.
 pub fn save(vault_root: &Path, map: &SettingsMap) -> Result<(), VaultError> {
     let path = settings_path(vault_root);
     if let Some(parent) = path.parent() {
@@ -109,8 +87,6 @@ pub fn save(vault_root: &Path, map: &SettingsMap) -> Result<(), VaultError> {
     super::atomic::atomic_write(&path, toml.as_bytes())
 }
 
-/// Convert a JSON scalar to a TOML value. Non-scalar / unrepresentable
-/// values fall back to their JSON string (forward-safety).
 fn json_to_toml(v: &Json) -> toml::Value {
     match v {
         Json::Bool(b) => toml::Value::Boolean(*b),
@@ -121,7 +97,6 @@ fn json_to_toml(v: &Json) -> toml::Value {
     }
 }
 
-/// Insert `value` at a dotted path into a TOML table, creating sub-tables.
 fn insert_dotted(table: &mut toml::value::Table, dotted: &str, value: toml::Value) {
     let mut parts = dotted.split('.').peekable();
     let mut cur = table;

@@ -1,22 +1,3 @@
-//! Pure async command handlers for the L4-A search surface.
-//!
-//! Four commands:
-//!
-//! - `search` — run a free-text query against an open vault's Tantivy
-//!   index. Forwards to [`cubical_search::query::run_search`] and stamps
-//!   `still_indexing` based on the per-vault [`IndexState`] cell.
-//! - `search_index_status` — cheap polling shape for the future
-//!   "still indexing…" status-bar pill.
-//! - `search_rebuild_index` — wipe + repopulate without dropping the
-//!   `SearchIndex` handle. Uses `delete_all` + commit + a fresh scan
-//!   dispatcher; the SearchIndex stays alive across the rebuild so we
-//!   don't have to juggle filesystem ownership.
-//! - `search_get_health` — segment + doc + disk-bytes snapshot for the
-//!   dev console.
-//!
-//! All four are vault-id-keyed since the app supports multiple open
-//! vaults (see `OpenVault` in `state.rs`).
-
 use std::path::Path;
 
 use cubical_search::{query::run_search, IndexHealth, IndexState, IndexStatus, SearchResponse};
@@ -27,20 +8,12 @@ use crate::error::CubicalError;
 use crate::events::{spawn_scan_dispatcher, EventSink};
 use crate::state::AppState;
 
-/// Run a free-text query against the named vault's index.
-///
-/// The `still_indexing` flag is stamped from the per-vault `IndexState`
-/// cell: `Building` ⇒ `true`, anything else ⇒ `false`. The frontend
-/// uses it to decide whether to suffix the result list with a
-/// "still indexing…" hint.
 pub async fn search(state: &AppState, req: SearchRequest) -> Result<SearchResponse, CubicalError> {
     let guard = state.vaults().read().await;
     let open = guard
         .get(&req.vault_id)
         .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
 
-    // Snapshot the search state under the std mutex — short hold, no
-    // await inside.
     let building = matches!(
         open.search_state
             .lock()
@@ -54,7 +27,6 @@ pub async fn search(state: &AppState, req: SearchRequest) -> Result<SearchRespon
     Ok(response)
 }
 
-/// Cheap polling shape for the future status-bar indicator.
 pub async fn search_index_status(
     state: &AppState,
     req: SearchVaultRequest,
@@ -76,15 +48,6 @@ pub async fn search_index_status(
     Ok(status)
 }
 
-/// Wipe the in-index document set and trigger a re-scan that
-/// re-populates from the `.md` source-of-truth.
-///
-/// Returns immediately after marking the index as `Building`; the
-/// caller polls `search_index_status` to see the transition back to
-/// `Ready`. The Tantivy handle on the `Vault` is kept alive across the
-/// rebuild — we never wipe the on-disk directory while a writer is
-/// live, which would race the OS-level mmap. Tantivy's
-/// `delete_all_documents` + `commit` is the safe equivalent.
 pub async fn search_rebuild_index(
     state: &AppState,
     app: std::sync::Arc<dyn EventSink>,
@@ -95,22 +58,16 @@ pub async fn search_rebuild_index(
         .get(&req.vault_id)
         .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
 
-    // Mark Building before the wipe so any concurrent `search`
-    // observers see the in-progress state.
     if let Ok(mut cell) = open.search_state.lock() {
         cell.state = IndexState::Building;
     }
 
-    // Drop every doc + commit so the reader stops seeing stale docs
-    // before the rescan starts repopulating.
     open.vault.search().delete_all()?;
     open.vault.search().commit()?;
 
     let vault = open.vault.clone();
     let vault_id = req.vault_id.clone();
     let vaults_arc = state.vaults_arc();
-    // Release the read guard before spawning so the dispatcher can take
-    // the write lock at terminal time.
     drop(guard);
 
     spawn_scan_dispatcher(
@@ -124,8 +81,6 @@ pub async fn search_rebuild_index(
     Ok(())
 }
 
-/// Debug snapshot of the on-disk index — segments, document count,
-/// approximate disk bytes. Drives the dev console + future settings UI.
 pub async fn search_get_health(
     state: &AppState,
     req: SearchVaultRequest,
@@ -144,10 +99,6 @@ pub async fn search_get_health(
     })
 }
 
-/// Recursive size of `p` in bytes. Best-effort — any I/O error along
-/// the way short-circuits to `Err`, which the caller folds to `0`. We
-/// don't want a transient permission glitch in the health endpoint
-/// taking down the dev console.
 fn dir_size(p: &Path) -> std::io::Result<u64> {
     let mut total = 0;
     for entry in std::fs::read_dir(p)? {
@@ -172,10 +123,6 @@ mod tests {
     use tempfile::{tempdir, TempDir};
     use tokio_util::sync::CancellationToken;
 
-    /// Build an `AppState` with one open vault registered under
-    /// `vault_id`. Returns the temp dir (keeps the vault root alive),
-    /// the `Vault` handle, and the wired `AppState`. Mirrors the helper
-    /// in `commands::links::tests::fresh_state_with_vault`.
     async fn fresh_state_with_vault(vault_id: &str) -> (TempDir, Vault, AppState) {
         let dir = tempdir().unwrap();
         let vault = Vault::open(dir.path()).await.expect("open");
@@ -193,10 +140,6 @@ mod tests {
         (dir, vault, state)
     }
 
-    /// Mark the vault's per-search state to `Ready` — by default,
-    /// `OpenVault::new` initialises it to `Building` because the
-    /// real `open_vault` always kicks off a scan. Tests that don't
-    /// care about that bootstrap flip it explicitly.
     async fn mark_ready(state: &AppState, vault_id: &str) {
         let guard = state.vaults().read().await;
         let open = guard.get(vault_id).unwrap();
@@ -232,16 +175,12 @@ mod tests {
     #[tokio::test]
     async fn still_indexing_flag_set_when_state_is_building() {
         let (_dir, vault, state) = fresh_state_with_vault("v1").await;
-        // OpenVault::new defaults to Building, so we don't need to set
-        // it — but be explicit for the assertion's sake.
         {
             let guard = state.vaults().read().await;
             let open = guard.get("v1").unwrap();
             open.search_state.lock().unwrap().state = IndexState::Building;
         }
 
-        // Seed one doc so a non-empty text query has something to find;
-        // `still_indexing` flag is set regardless of hits.
         let src = "# Hello\n\nworld of search.\n";
         cubical_core::vault::search_refresh::refresh_search_index(
             &vault,
@@ -280,8 +219,6 @@ mod tests {
     #[tokio::test]
     async fn status_reflects_state_cell() {
         let (_dir, _vault, state) = fresh_state_with_vault("v1").await;
-        // Default is Building — flip to Ready and read back via the
-        // public command.
         mark_ready(&state, "v1").await;
 
         let st = search_index_status(
@@ -298,8 +235,6 @@ mod tests {
     #[tokio::test]
     async fn health_reports_schema_version_2() {
         let (_dir, vault, state) = fresh_state_with_vault("v1").await;
-        // Seed one doc so the health endpoint sees a non-trivial index;
-        // the schema_version assertion is the load-bearing one.
         let src = "# Hello\n\nbody.\n";
         cubical_core::vault::search_refresh::refresh_search_index(
             &vault,
@@ -355,18 +290,6 @@ mod tests {
 
     #[tokio::test]
     async fn rebuild_wipes_docs_immediately() {
-        // The full rebuild path spins up a fresh scan dispatcher which
-        // requires a Tauri AppHandle. The dispatcher is exercised
-        // end-to-end by `commands::vault::tests` already; here we
-        // verify the immediate-effect contract of `search_rebuild_index`:
-        //   1. Marks state as Building.
-        //   2. Wipes every existing doc from the index BEFORE
-        //      returning (so a concurrent search doesn't see stale
-        //      hits during the rescan).
-        //
-        // We do this by calling the writer + reader directly — the
-        // public IPC handler's only added behaviour beyond delete_all+commit
-        // is the dispatcher spawn, which needs an AppHandle.
         let (_dir, vault, _state) = fresh_state_with_vault("v1").await;
         let src = "# Hello\n\nbody one.\n";
         cubical_core::vault::search_refresh::refresh_search_index(

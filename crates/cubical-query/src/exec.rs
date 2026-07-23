@@ -1,5 +1,3 @@
-//! Execute a parsed [`Query`] against an open index connection.
-
 use cubical_index::IndexConn;
 use libsql::{params_from_iter, Value as SqlValue};
 use serde::Serialize;
@@ -8,44 +6,29 @@ use crate::ast::{Command, Query};
 use crate::error::QueryError;
 use crate::plan::{plan, SqlParam};
 
-/// A reference to a note in a result.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct NoteRef {
-    /// Vault-relative path.
     pub path: String,
-    /// Display title (filename stem — no `# H1` injection).
     pub title: String,
 }
 
-/// One row of a `TABLE` result.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Row {
-    /// The note this row is about (the implicit first column).
     pub note: NoteRef,
-    /// The projected cell values, in column order; empty string if the
-    /// frontmatter key is absent.
     pub cells: Vec<String>,
 }
 
-/// The shaped result of a query.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum QueryResult {
-    /// `LIST` — note links.
     List {
-        /// Matching notes.
         notes: Vec<NoteRef>,
     },
-    /// `TABLE` — columns + rows.
     Table {
-        /// Column headers (the named frontmatter keys; the file column is implicit).
         columns: Vec<String>,
-        /// Result rows.
         rows: Vec<Row>,
     },
-    /// `COUNT` — a single number.
     Count {
-        /// Number of matching files.
         count: usize,
     },
 }
@@ -69,7 +52,6 @@ fn to_sql_values(params: &[SqlParam]) -> Vec<SqlValue> {
         .collect()
 }
 
-/// Render a libSQL cell value as display text. NULL / missing → "".
 fn cell_text(v: &SqlValue) -> String {
     match v {
         SqlValue::Null => String::new(),
@@ -80,7 +62,6 @@ fn cell_text(v: &SqlValue) -> String {
     }
 }
 
-/// Execute `q` against `conn`, returning the shaped result.
 pub async fn run(conn: &IndexConn, q: &Query) -> Result<QueryResult, QueryError> {
     let p = plan(q);
     let values = to_sql_values(&p.params);
@@ -196,12 +177,11 @@ mod tests {
     #[tokio::test]
     async fn numeric_comparison_is_numeric_not_lexical() {
         let (_d, conn) = seed().await;
-        // priority >= 2 → a(3), c(2); not b(1). Proves numeric compare.
         let q = parse("LIST WHERE priority >= 2 SORT priority DESC").unwrap();
         match run(&conn, &q).await.unwrap() {
             QueryResult::List { notes } => {
                 let paths: Vec<_> = notes.iter().map(|n| n.path.as_str()).collect();
-                assert_eq!(paths, vec!["a.md", "c.md"]); // 3 then 2
+                assert_eq!(paths, vec!["a.md", "c.md"]);
             }
             _ => panic!("expected list"),
         }
@@ -210,7 +190,6 @@ mod tests {
     #[tokio::test]
     async fn table_projects_cells_and_empty_for_missing_key() {
         let (_d, conn) = seed().await;
-        // 'note' key exists on none of the seeded files → empty cell.
         let q = parse("TABLE status, note").unwrap();
         match run(&conn, &q).await.unwrap() {
             QueryResult::Table { columns, rows } => {

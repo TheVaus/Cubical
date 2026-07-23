@@ -1,47 +1,27 @@
-//! Queries against the L3 `blocks` + `block_refs` tables (migration 005,
-//! schema in `migrations/005_blocks.sql`). `blocks` holds `^block-id`
-//! definitions per file; `block_refs` holds resolved `[[#^id]]` refs.
-//! "Broken" refs are computed at query time via an anti-join to
-//! `blocks`. See `docs/layer-3-spec.md` §2.7.
-
 use libsql::params;
 
 use crate::error::IndexError;
 use crate::runner::IndexConn;
 
-/// One `blocks` row: a block-id definition in a file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlockRow {
-    /// Block id without the leading `^`.
     pub block_id: String,
-    /// Byte offset of the line carrying the id.
     pub position_hint: u64,
 }
 
-/// One `block_refs` row: a resolved `[[target#^id]]` reference.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlockRefRow {
-    /// Resolved target file path.
     pub target_file_path: String,
-    /// Target block id (no `^`).
     pub target_block_id: String,
 }
 
-/// A broken block ref surfaced for vault health: a ref whose target
-/// block id does not exist in `blocks`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BrokenBlockRef {
-    /// File containing the `[[…#^id]]`.
     pub source_file_path: String,
-    /// Target file the ref points at.
     pub target_file_path: String,
-    /// Missing block id.
     pub target_block_id: String,
 }
 
-/// Replace all `blocks` rows for `file_path`. Delete-then-insert; runs
-/// on the caller's connection (no own transaction). `last_modified` is
-/// stamped now (unix seconds).
 pub async fn replace_blocks_for_file(
     conn: &IndexConn,
     file_path: &str,
@@ -70,7 +50,6 @@ pub async fn replace_blocks_for_file(
     Ok(())
 }
 
-/// All block-id definitions in `file_path`, ordered by `position_hint`.
 pub async fn blocks_for_file(
     conn: &IndexConn,
     file_path: &str,
@@ -95,7 +74,6 @@ pub async fn blocks_for_file(
     Ok(out)
 }
 
-/// Whether `(file_path, block_id)` exists in `blocks`.
 pub async fn block_exists(
     conn: &IndexConn,
     file_path: &str,
@@ -111,8 +89,6 @@ pub async fn block_exists(
     Ok(rows.next().await?.is_some())
 }
 
-/// Replace all `block_refs` rows for `source_file_path`. Delete-then-
-/// insert on the caller's connection.
 pub async fn replace_block_refs_for_file(
     conn: &IndexConn,
     source_file_path: &str,
@@ -139,8 +115,6 @@ pub async fn replace_block_refs_for_file(
     Ok(())
 }
 
-/// Every block ref whose target block id is not defined in `blocks`.
-/// Ordered for stable output.
 pub async fn broken_block_refs(conn: &IndexConn) -> Result<Vec<BrokenBlockRef>, IndexError> {
     let mut rows = conn
         .connection()
@@ -165,7 +139,6 @@ pub async fn broken_block_refs(conn: &IndexConn) -> Result<Vec<BrokenBlockRef>, 
     Ok(out)
 }
 
-/// Unix seconds now (saturating). Local helper to avoid a chrono dep.
 fn now_unix_secs() -> i64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
@@ -265,7 +238,6 @@ mod tests {
         let (_d, conn) = open_test_index().await;
         seed_file(&conn, "src.md").await;
         seed_file(&conn, "tgt.md").await;
-        // tgt.md defines only "present".
         replace_blocks_for_file(
             &conn,
             "tgt.md",
@@ -276,7 +248,6 @@ mod tests {
         )
         .await
         .unwrap();
-        // src.md references both "present" (ok) and "gone" (broken).
         replace_block_refs_for_file(
             &conn,
             "src.md",

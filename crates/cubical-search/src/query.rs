@@ -1,12 +1,3 @@
-//! Query API and runner.
-//!
-//! Builds a Tantivy `QueryParser` over the schema's text fields with the
-//! default-scope boosts `title^3 + headings^2 + tags^2 + body +
-//! frontmatter`. `FieldScope` swaps the parser's default fields, `fuzzy:
-//! true` rewrites single-term queries on `Default` into a
-//! `FuzzyTermQuery` against `title`, and one `<mark>…</mark>` snippet per
-//! matched text field is generated via `SnippetGenerator`.
-
 use crate::error::SearchError;
 use crate::index::SearchIndex;
 use crate::schema::Fields;
@@ -16,121 +7,70 @@ use tantivy::query::{BooleanQuery, FuzzyTermQuery, Occur, Query, QueryParser, Te
 use tantivy::schema::{Field, IndexRecordOption, TantivyDocument, Value};
 use tantivy::{DocAddress, Order, Searcher, SnippetGenerator, Term};
 
-/// Hard cap on `limit`.
 pub const LIMIT_MAX: usize = 500;
-/// Default `limit` when caller passes 0.
 pub const LIMIT_DEFAULT: usize = 50;
-/// Minimum term length (chars) for fuzzy matching.
 pub const FUZZY_MIN_LEN: usize = 4;
 
-/// Free-text query input.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SearchQuery {
-    /// The user-typed query string.
     pub text: String,
-    /// Page size. 0 → `LIMIT_DEFAULT`. >`LIMIT_MAX` → error.
     #[serde(default)]
     pub limit: usize,
-    /// Pagination offset.
     #[serde(default)]
     pub offset: usize,
-    /// Which fields to search.
     #[serde(default)]
     pub fields: FieldScope,
-    /// Whether to apply edit-distance-1 fuzziness on single-term queries
-    /// (≥`FUZZY_MIN_LEN` chars) under `FieldScope::Default`.
     #[serde(default)]
     pub fuzzy: bool,
-    /// Sort order.
     #[serde(default)]
     pub sort: SortMode,
 }
 
-/// What to search.
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum FieldScope {
-    /// `title^3 + headings^2 + body + tags^2 + frontmatter`.
     #[default]
     Default,
-    /// Restrict to `headings`.
     HeadingsOnly,
-    /// Restrict to `body`.
     BodyOnly,
-    /// Restrict to `code`.
     CodeOnly,
-    /// Exact-match filter on `tags` (multi-valued AND, lowercased).
     Tags {
-        /// Tags to require — each is lowercased before lookup so callers
-        /// can pass display-cased values.
         tags: Vec<String>,
     },
 }
 
-/// Sort order for results.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SortMode {
-    /// Descending BM25.
     #[default]
     Relevance,
-    /// Descending `mtime_secs`.
     RecencyDesc,
 }
 
-/// One result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchHit {
-    /// Vault-relative path.
     pub path: String,
-    /// Display title.
     pub title: String,
-    /// BM25 score, or — when `sort = RecencyDesc` — the `mtime_secs`
-    /// value cast to `f32`. The cast is lossy above ~2^24 (≈Apr 1970),
-    /// but ordering is still correct because Tantivy sorts on the i64
-    /// *before* the cast; the public `f32` is intentionally opaque under
-    /// `RecencyDesc` (callers should treat it as a sort-key remnant, not
-    /// a meaningful score).
     pub score: f32,
-    /// Unix-seconds modification time.
     pub mtime_secs: i64,
-    /// Per-field highlighted snippets.
     pub matched_fields: Vec<MatchedField>,
-    /// Stored tag values for the hit.
     pub tags: Vec<String>,
 }
 
-/// One snippet from one matched field.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MatchedField {
-    /// Field name (`"title"`, `"headings"`, `"body"`, `"code"`,
-    /// `"frontmatter"`).
     pub field: String,
-    /// Up to ~150-char snippet with `<mark>…</mark>` highlights.
     pub snippet: String,
 }
 
-/// Wraps a hit list with metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchResponse {
-    /// Ranked hits, capped at `limit`.
     pub hits: Vec<SearchHit>,
-    /// Size of the top-K hit window the runner pulled from Tantivy
-    /// — i.e. `min(matches, limit + offset)`. **Not** the true match
-    /// count in the index. Frontends must not display this as
-    /// "X total results"; it's only useful as an "is there more after
-    /// this page?" hint (`total_estimated == limit + offset` ⇒ likely
-    /// more pages exist). A true count would require a `Count`
-    /// collector on a second pass; L4-A doesn't pay that cost.
     pub total_estimated: u64,
-    /// Elapsed milliseconds for this query.
     pub took_ms: u64,
-    /// True if the index state was `Building` at query time. Set by the
-    /// caller in `commands::search`; always `false` here.
     pub still_indexing: bool,
 }
 
-/// Run a query against `idx`.
 pub fn run_search(idx: &SearchIndex, q: &SearchQuery) -> Result<SearchResponse, SearchError> {
     let started = std::time::Instant::now();
     let limit = match q.limit {
@@ -156,9 +96,6 @@ pub fn run_search(idx: &SearchIndex, q: &SearchQuery) -> Result<SearchResponse, 
     let reader = idx.reader_clone();
     let searcher = reader.searcher();
 
-    // Scope fields for the searchable scopes (None for the tags filter,
-    // which is an exact-match clause, not a parsed text query). Computed
-    // once so both the parsed query and the fuzzy clause can use it.
     let scope_fields: Option<Vec<Field>> = match &q.fields {
         FieldScope::Default => Some(vec![f.title, f.headings, f.body, f.tags, f.frontmatter]),
         FieldScope::HeadingsOnly => Some(vec![f.headings]),
@@ -167,12 +104,8 @@ pub fn run_search(idx: &SearchIndex, q: &SearchQuery) -> Result<SearchResponse, 
         FieldScope::Tags { .. } => None,
     };
 
-    // Build the parsed query for the chosen scope.
     let parsed: Box<dyn Query> = match (&q.fields, &scope_fields) {
         (FieldScope::Tags { tags }, _) => {
-            // Exact-match AND across all requested tags. Tags are
-            // indexed as `STRING` (untokenized) — lowercase the query
-            // term to match the at-index normalization in `IndexDoc`.
             let clauses: Vec<(Occur, Box<dyn Query>)> = tags
                 .iter()
                 .map(|t| {
@@ -185,9 +118,6 @@ pub fn run_search(idx: &SearchIndex, q: &SearchQuery) -> Result<SearchResponse, 
             Box::new(BooleanQuery::new(clauses))
         }
         (_, Some(scope_fields)) => {
-            // Build the QueryParser query (stemmed-exact matches, field
-            // boosts, and the term queries `SnippetGenerator` highlights
-            // from).
             let mut p = QueryParser::for_index(idx.index(), scope_fields.clone());
             if matches!(q.fields, FieldScope::Default) {
                 p.set_field_boost(f.title, 3.0);
@@ -198,12 +128,6 @@ pub fn run_search(idx: &SearchIndex, q: &SearchQuery) -> Result<SearchResponse, 
                 .parse_query(&prepare_query_text(&q.text))
                 .map_err(|e| SearchError::QueryParse(e.to_string()))?;
 
-            // Plain word queries (no operator punctuation) ALSO get
-            // search-as-you-type prefix matching, OR'd with the exact
-            // query so a token's prefix matches the whole token while
-            // stemmed whole-word matches and snippet highlighting keep
-            // working. Queries with operator syntax (quotes, `-`, `tag:`,
-            // …) skip prefix expansion and use the parser alone.
             match simple_terms(&q.text) {
                 Some(terms) => {
                     let prefix = build_prefix_query(&searcher, &terms, scope_fields)?;
@@ -218,13 +142,6 @@ pub fn run_search(idx: &SearchIndex, q: &SearchQuery) -> Result<SearchResponse, 
         (_, None) => unreachable!("only the tags scope has no scope fields"),
     };
 
-    // Typo tolerance (L4-A revisit, task_256abd1c). When fuzzy is on and
-    // the query is a single term ≥ `FUZZY_MIN_LEN`, add an edit-distance-1
-    // fuzzy clause spanning ALL of the scope's fields (the old code did
-    // `title` only, which is why the L4-B panel had to disable fuzzy).
-    // It is OR'd with the parsed (exact + prefix) query, so exact/prefix
-    // matches still rank top via BM25 and only typo recall is added
-    // (e.g. `ricj` → `rich`). The tags filter scope is left untouched.
     let final_query: Box<dyn Query> = match (q.fuzzy, &scope_fields, single_term(&q.text)) {
         (true, Some(scope_fields), Some(term)) if term.chars().count() >= FUZZY_MIN_LEN => {
             let fuzzy = build_fuzzy_query(scope_fields, &term);
@@ -236,8 +153,6 @@ pub fn run_search(idx: &SearchIndex, q: &SearchQuery) -> Result<SearchResponse, 
         _ => parsed,
     };
 
-    // Collect (score, addr) pairs. Recency sort returns i64 mtime in place of
-    // score — we cast to f32 to fit `SearchHit::score`.
     let pulled: Vec<(f32, DocAddress)> = match q.sort {
         SortMode::Relevance => {
             let top = TopDocs::with_limit(limit + q.offset);
@@ -296,12 +211,6 @@ pub fn run_search(idx: &SearchIndex, q: &SearchQuery) -> Result<SearchResponse, 
     })
 }
 
-/// Split `text` into lowercased terms iff it is a "simple" query —
-/// whitespace-separated tokens of only alphanumeric characters. Returns
-/// `None` for anything containing operator punctuation (`:`, `-`, `"`,
-/// `#`, …), which routes to the full `QueryParser` so phrase / negation /
-/// field-prefix syntax still works. Alphanumeric-only tokens are also
-/// safe to splice into a regex without escaping.
 fn simple_terms(text: &str) -> Option<Vec<String>> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
@@ -318,16 +227,6 @@ fn simple_terms(text: &str) -> Option<Vec<String>> {
     (!terms.is_empty()).then_some(terms)
 }
 
-/// Build an AND-of-terms prefix query over `fields`: every term must
-/// prefix-match the term dictionary of at least one field. Powers
-/// search-as-you-type — a token's prefix matches the whole token.
-///
-/// Each prefix is expanded against the live term dictionary into the
-/// concrete matching terms, and every match becomes a `TermQuery`. Using
-/// real `TermQuery` leaves (rather than a `RegexQuery`) is what lets
-/// `SnippetGenerator` highlight prefix hits — it extracts terms from the
-/// query. The indexed dictionaries are lowercased and `simple_terms`
-/// lowercased the query terms, so the byte ranges align.
 fn build_prefix_query(
     searcher: &Searcher,
     terms: &[String],
@@ -342,19 +241,11 @@ fn build_prefix_query(
                 per_field.push((Occur::Should, Box::new(tq)));
             }
         }
-        // An empty clause (no dictionary term shares this prefix in any
-        // field) matches nothing, so the AND correctly yields no hits.
         must.push((Occur::Must, Box::new(BooleanQuery::new(per_field))));
     }
     Ok(Box::new(BooleanQuery::new(must)))
 }
 
-/// Edit-distance-1 fuzzy match of `term` across every field in `fields`,
-/// OR'd together — the typo-tolerance clause (e.g. `ricj` → `rich`).
-/// Distance 1 (with transpositions) keeps recall precise on the large
-/// `body` field; `term` is lowercased to match the analyzer's
-/// normalization. Tantivy's `FuzzyTermQuery` runs a Levenshtein
-/// automaton against each field's term dictionary, so this stays cheap.
 fn build_fuzzy_query(fields: &[Field], term: &str) -> Box<dyn Query> {
     let lowered = term.to_lowercase();
     let clauses: Vec<(Occur, Box<dyn Query>)> = fields
@@ -368,9 +259,6 @@ fn build_fuzzy_query(fields: &[Field], term: &str) -> Box<dyn Query> {
     Box::new(BooleanQuery::new(clauses))
 }
 
-/// Stream the `field` term dictionary for every term beginning with
-/// `prefix` (across all segments, de-duplicated) and return them as
-/// `Term`s.
 fn expand_prefix(
     searcher: &Searcher,
     field: Field,
@@ -397,15 +285,12 @@ fn expand_prefix(
     Ok(out)
 }
 
-/// Strip raw `#` from query text (`#project` → `project`) and lowercase
-/// the right-hand-side of any `tag:Value`. `#` is a `QueryParser`
-/// metacharacter; lowercasing matches the at-index normalization.
 fn prepare_query_text(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
     while let Some(c) = chars.next() {
         if c == '#' && chars.peek().map(|n| n.is_alphanumeric()).unwrap_or(false) {
-            continue; // drop the '#'; keep the term
+            continue;
         }
         out.push(c);
     }
@@ -413,8 +298,6 @@ fn prepare_query_text(text: &str) -> String {
     out
 }
 
-/// Lowercase the run that follows each occurrence of `prefix`, stopping
-/// at the next whitespace character.
 fn lowercase_after(prefix: &str, s: &mut String) {
     let mut out = String::with_capacity(s.len());
     let mut rest = s.as_str();
@@ -429,8 +312,6 @@ fn lowercase_after(prefix: &str, s: &mut String) {
     *s = out;
 }
 
-/// Returns the lone term in `text` if and only if `text` (after trimming)
-/// is a single non-empty token without whitespace.
 fn single_term(text: &str) -> Option<String> {
     let trimmed = text.trim();
     if trimmed.is_empty() || trimmed.contains(char::is_whitespace) {
@@ -440,9 +321,6 @@ fn single_term(text: &str) -> Option<String> {
     }
 }
 
-/// Build one `<mark>`-highlighted snippet per text field that produced
-/// a non-empty match for `q` in `doc`. Fields with no matching terms or
-/// no snippet content are silently skipped.
 fn collect_snippets(
     searcher: &Searcher,
     q: &dyn Query,
@@ -466,9 +344,6 @@ fn collect_snippets(
         if snippet.is_empty() {
             continue;
         }
-        // Tantivy 0.22 emits `<b>…</b>` by default; the design spec calls
-        // for `<mark>…</mark>` semantics so the UI can style highlights
-        // independently of bold text.
         let html = snippet
             .to_html()
             .replace("<b>", "<mark>")
@@ -537,12 +412,6 @@ mod tests {
 
     #[test]
     fn single_term_fuzzy_spans_all_fields() {
-        // L4-A revisit (task_256abd1c): fuzzy is no longer title-only.
-        // With fuzzy ON, a single-term (≥`FUZZY_MIN_LEN`) query gets an
-        // edit-distance-1 clause across ALL scope fields, so a typo in a
-        // BODY word still matches — and exact body matches keep working
-        // with fuzzy ON (the bug that forced the L4-B panel to send
-        // `fuzzy: false` is gone). a.md body = "the quick brown fox".
         let (_t, idx) = fixture_index();
         let run = |text: &str, fuzzy: bool| {
             run_search(
@@ -560,11 +429,8 @@ mod tests {
             .hits
             .len()
         };
-        // Exact body word: found with fuzzy either way (no longer lost
-        // to a title-only rewrite when fuzzy is ON).
         assert_eq!(run("quick", true), 1, "exact body word found, fuzzy ON");
         assert_eq!(run("quick", false), 1, "exact body word found, fuzzy OFF");
-        // Typos in a body word now match with fuzzy ON, but not OFF.
         assert_eq!(
             run("quikc", true),
             1,
@@ -580,8 +446,6 @@ mod tests {
 
     #[test]
     fn prefix_of_a_word_matches() {
-        // Reproduces the reported bug: a prefix of an indexed token must
-        // match (search-as-you-type), not only the whole token.
         let (_t, idx) = fixture_index();
         let run = |text: &str| {
             run_search(
@@ -599,7 +463,6 @@ mod tests {
             .hits
             .len()
         };
-        // a.md body is "the quick brown fox".
         assert_eq!(run("quick"), 1, "exact word still matches");
         assert_eq!(run("qui"), 1, "prefix of a body word matches");
         assert_eq!(run("brow"), 1, "prefix of another body word matches");
@@ -625,7 +488,6 @@ mod tests {
             .hits
             .len()
         };
-        // headings: c.md "Search"; code: a.md "fn alpha()".
         assert_eq!(run("sear", FieldScope::HeadingsOnly), 1);
         assert_eq!(run("alph", FieldScope::CodeOnly), 1);
         assert_eq!(run("brow", FieldScope::BodyOnly), 1);
@@ -770,8 +632,6 @@ mod tests {
     #[test]
     fn fuzzy_on_short_term_no_match_expansion() {
         let (_t, idx) = fixture_index();
-        // 3-char term: below the fuzzy threshold so we fall through to the
-        // parsed query, and "fxo" is not the same token as "fox" → no hits.
         let r = run_search(
             &idx,
             &SearchQuery {
@@ -789,9 +649,6 @@ mod tests {
 
     #[test]
     fn body_match_produces_highlighted_snippet() {
-        // Regression for L4-B (§5 deviation #1 → option (a)): once
-        // `body` is STORED, a body hit must yield a <mark>-bearing
-        // snippet, not just a title snippet.
         let (_t, idx) = fixture_index();
         let r = run_search(
             &idx,
@@ -905,10 +762,6 @@ mod tests {
 
     #[test]
     fn snippet_contains_mark_tags() {
-        // As of L4-B all prose fields are STORED, so any matched text
-        // field can yield a snippet. This test pins the title path: the
-        // query matches `title` on "Alpha Notes" so we exercise the
-        // `<b>` → `<mark>` post-processing on a title snippet.
         let (_t, idx) = fixture_index();
         let r = run_search(
             &idx,

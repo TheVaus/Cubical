@@ -1,26 +1,9 @@
-//! Pure async command handler for the L3 wiki-link surface.
-//!
-//! `resolve_link` answers "which file does this wiki-link target point
-//! at?" by combining the AST-level link grammar (target + optional
-//! anchor, parsed inline here from a simple substring split) with
-//! `cubical_core::vault::links::resolve_target` over the live `files`
-//! table. No I/O beyond a single libSQL query — resolution itself is
-//! pure.
-//!
-//! See `docs/layer-3-spec.md` §4 (resolution order) and §8 Session A.
-
 use cubical_core::vault::links::resolve_target;
 
 use crate::api::types::{ResolveLinkRequest, ResolveLinkResponse, ResolvedAnchor};
 use crate::error::CubicalError;
 use crate::state::AppState;
 
-/// Resolve a wiki-link's target string to a vault-relative path,
-/// returning the parsed anchor alongside it.
-///
-/// Returns `target_path: None` when no unique match exists; the anchor
-/// (if any) is still echoed so the frontend can choose to surface a
-/// "broken link" indicator with the right kind hint.
 pub async fn resolve_link(
     state: &AppState,
     req: ResolveLinkRequest,
@@ -31,9 +14,6 @@ pub async fn resolve_link(
         .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
     let conn = open.vault.index().connection();
 
-    // Snapshot the current files.path set. The resolver is pure over
-    // this snapshot — ordering doesn't matter for resolution, but
-    // we sort so determinism is preserved if two paths tie.
     let mut rows = conn
         .query("SELECT path FROM files ORDER BY path", ())
         .await?;
@@ -52,14 +32,6 @@ pub async fn resolve_link(
     })
 }
 
-/// Split a wiki-link `target_raw` (post-tokenizer shape, no `[[…]]`,
-/// no leading `!`) into its target portion and optional anchor.
-///
-/// Mirrors `cubical_ast::wikilink::scan_wikilinks`'s grammar for the
-/// `target#anchor` body — anchor always precedes the `|display` pipe,
-/// so the caller is responsible for having stripped any `|display`
-/// segment before passing the string in. (The frontend only sends the
-/// target portion; this matches the AST's `WikiLink::target` field.)
 pub(crate) fn split_target_anchor(target_raw: &str) -> (String, Option<ResolvedAnchor>) {
     let trimmed = target_raw.trim();
     let (target, anchor_text) = match trimmed.find('#') {
@@ -128,16 +100,11 @@ mod tests {
         assert!(a.is_none());
     }
 
-    // -- End-to-end resolve_link tests ----------------------------------
-
     use crate::state::{OpenVault, ScanStatusBackend};
     use cubical_core::Vault;
     use tempfile::{tempdir, TempDir};
     use tokio_util::sync::CancellationToken;
 
-    /// Build an `AppState` with one open vault registered under
-    /// `vault_id`. Returns the temp dir (keeps the vault root alive),
-    /// the `Vault` handle, and the wired `AppState`.
     async fn fresh_state_with_vault(vault_id: &str) -> (TempDir, Vault, AppState) {
         let dir = tempdir().unwrap();
         let vault = Vault::open(dir.path()).await.expect("open");
@@ -155,7 +122,6 @@ mod tests {
         (dir, vault, state)
     }
 
-    /// Seed a `files` row so `resolve_link` has something to match.
     async fn seed_files_row(vault: &Vault, rel: &str) {
         vault
             .index()

@@ -1,12 +1,3 @@
-//! Pure async command handler for `query_tag_page`.
-//!
-//! Returns every file carrying `tag_path` or any of its descendants
-//! (prefix match — `tag:parent` matches `parent`, `parent/child`,
-//! deeper). Matching is case-insensitive; display titles are derived
-//! from the basename.
-//!
-//! See `docs/layer-3-spec.md` §2.5 and §3.1.
-
 use std::path::Path;
 
 use cubical_index::files_for_tag_prefix;
@@ -15,9 +6,6 @@ use crate::api::types::{QueryTagPageRequest, QueryTagPageResponse, TagPageFile};
 use crate::error::CubicalError;
 use crate::state::AppState;
 
-/// Derive a display title from a vault-relative path: the filename
-/// without its `.md` extension. Falls back to the full path string when
-/// the path has no terminal segment (e.g. the empty string).
 fn derive_title(path: &str) -> String {
     Path::new(path)
         .file_stem()
@@ -26,11 +14,6 @@ fn derive_title(path: &str) -> String {
         .unwrap_or_else(|| path.to_string())
 }
 
-/// List every file carrying `tag_path` or any descendant tag, with
-/// display titles derived from each file's basename. Sorted by `path`.
-///
-/// Empty response when no file matches — the UI shows an empty-state
-/// panel rather than erroring.
 pub async fn query_tag_page(
     state: &AppState,
     req: QueryTagPageRequest,
@@ -114,8 +97,6 @@ mod tests {
 
     #[test]
     fn derive_title_handles_dot_prefix() {
-        // A leading-dot file like `.cubical` has no stem.extension split
-        // so the stem is the whole basename. Acceptable for our needs.
         assert_eq!(derive_title("dir/.cubical"), ".cubical");
     }
 
@@ -181,7 +162,6 @@ mod tests {
         .expect("ok");
         let paths: Vec<&str> = resp.files.iter().map(|f| f.path.as_str()).collect();
         assert_eq!(paths, vec!["child.md", "grand.md", "parent.md"]);
-        // Titles derived from basenames.
         assert_eq!(resp.files[0].title, "child");
         assert_eq!(resp.files[1].title, "grand");
         assert_eq!(resp.files[2].title, "parent");

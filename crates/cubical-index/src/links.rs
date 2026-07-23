@@ -1,53 +1,19 @@
-//! Queries against the L3 `links` table.
-//!
-//! The schema is in `migrations/003_links.sql`. One row per wiki-link
-//! occurrence in a source file; `target_path` is `None` when the link
-//! could not be resolved at extraction time. See `docs/layer-3-spec.md`
-//! §2.1 and `docs/architecture/document-model.md` §5.2.
-
 use libsql::params;
 
 use crate::error::IndexError;
 use crate::runner::IndexConn;
 
-/// One row inserted into the `links` table.
-///
-/// `target_path` is `None` at extraction time when resolution failed
-/// (e.g. the target file does not exist yet, or the wiki-link string
-/// resolves ambiguously). The row is still kept so the backlinks UI
-/// can surface unresolved links and a later rename can re-resolve.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LinkRow {
-    /// The wiki-link target as written, with anchor stripped (so it's
-    /// just the file-name-ish portion).
     pub target_raw: String,
-    /// The resolved vault-relative path, if resolution succeeded.
     pub target_path: Option<String>,
-    /// `"heading"` or `"block"`, or `None` if the link had no anchor.
     pub anchor_kind: Option<String>,
-    /// The anchor text (heading text or block id), or `None`.
     pub anchor_value: Option<String>,
-    /// The optional `|display` text.
     pub display_text: Option<String>,
-    /// `true` when the link was written `![[…]]`.
     pub is_embed: bool,
-    /// Byte offset of the link's opener within its source file. Used to
-    /// order rows by appearance.
     pub position: u64,
 }
 
-/// Replace the entire set of link rows for `source_path`.
-///
-/// "Delete-then-insert" semantics keyed on `source_path`: any prior
-/// rows for the file are removed, then `rows` is inserted in order.
-/// `rows` may be empty — in that case the call simply clears the
-/// file's link rows.
-///
-/// The DELETE and INSERTs are not wrapped in their own transaction —
-/// they execute directly on the caller's connection so they participate
-/// in any outer transaction the caller has open (the scan + watcher
-/// hot paths run them inside a per-batch tx for atomicity). This
-/// mirrors `cubical_core::vault::refresh_frontmatter`.
 pub async fn replace_links_for_file(
     conn: &IndexConn,
     source_path: &str,
@@ -81,8 +47,6 @@ pub async fn replace_links_for_file(
     Ok(())
 }
 
-/// All link rows whose `source_path` equals the argument, ordered by
-/// `position` (source order).
 pub async fn links_from(conn: &IndexConn, source_path: &str) -> Result<Vec<LinkRow>, IndexError> {
     let mut rows = conn
         .connection()
@@ -100,8 +64,6 @@ pub async fn links_from(conn: &IndexConn, source_path: &str) -> Result<Vec<LinkR
     Ok(out)
 }
 
-/// All link rows whose `target_path` equals the argument (backlinks).
-/// Ordered by `(source_path, position)` so a per-file grouping is stable.
 pub async fn links_to(conn: &IndexConn, target_path: &str) -> Result<Vec<LinkRow>, IndexError> {
     let mut rows = conn
         .connection()
@@ -119,32 +81,17 @@ pub async fn links_to(conn: &IndexConn, target_path: &str) -> Result<Vec<LinkRow
     Ok(out)
 }
 
-/// Backlinks row — a `links` row enriched with `source_path`, the
-/// shape `get_backlinks` returns to the frontend. Distinct from
-/// [`LinkRow`] because backlinks need the *source* file, not just the
-/// columns `LinkRow` carries.
-///
-/// See `docs/layer-3-spec.md` §2.3.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BacklinkRow {
-    /// Vault-relative path of the file that contains the link.
     pub source_path: String,
-    /// The wiki-link target as written, with anchor stripped.
     pub target_raw: String,
-    /// `"heading"` or `"block"`, or `None`.
     pub anchor_kind: Option<String>,
-    /// Heading text or block id, or `None`.
     pub anchor_value: Option<String>,
-    /// The optional `|display` text.
     pub display_text: Option<String>,
-    /// `true` when the link was written `![[…]]`.
     pub is_embed: bool,
-    /// Byte offset of the link's opener within `source_path`.
     pub position: u64,
 }
 
-/// All backlinks pointing at `target_path`, ordered by
-/// `(source_path, position)` so per-file grouping is stable.
 pub async fn backlinks_for(
     conn: &IndexConn,
     target_path: &str,
@@ -176,9 +123,6 @@ pub async fn backlinks_for(
     Ok(out)
 }
 
-/// Escape LIKE-special bytes (`\`, `%`, `_`) so a literal can be used
-/// inside `LIKE … ESCAPE '\'` without its specials acting as wildcards.
-/// Mirrors `crate::tags`'s identically-named private helper.
 fn escape_like_literal(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for ch in s.chars() {
@@ -190,12 +134,6 @@ fn escape_like_literal(s: &str) -> String {
     out
 }
 
-/// Markdown file paths matching `query` as a case-insensitive substring
-/// of the vault-relative path, ordered by path, capped at `limit`. An
-/// empty `query` returns the first `limit` markdown paths. Non-markdown
-/// files are excluded — wiki-links target notes, not binaries.
-///
-/// Backs the `[[` link-autocomplete command (L3 Session F, spec §2.6).
 pub async fn files_for_link_query(
     conn: &IndexConn,
     query: &str,
@@ -241,9 +179,6 @@ mod tests {
     use crate::runner::open_index;
     use tempfile::TempDir;
 
-    /// Insert a minimal `files` row so the `links.source_path` FK is
-    /// satisfied. The L3 link index doesn't care about the column
-    /// values — only that a parent row exists.
     async fn seed_file(conn: &IndexConn, path: &str) {
         conn.connection()
             .execute(
@@ -343,8 +278,6 @@ mod tests {
         replace_links_for_file(&conn, "a.md", &[row("X", Some("x.md"))])
             .await
             .expect("replace");
-        // Delete the parent file row; the FK ON DELETE CASCADE should
-        // remove the link rows too.
         conn.connection()
             .execute("DELETE FROM files WHERE path = 'a.md'", ())
             .await
@@ -360,7 +293,6 @@ mod tests {
         seed_file(&conn, "b.md").await;
         seed_file(&conn, "target.md").await;
 
-        // Two links from b.md, ordered by position; one link from a.md.
         let mut a_row = row("Target", Some("target.md"));
         a_row.position = 50;
         let mut b_row_1 = row("Target", Some("target.md"));
@@ -377,8 +309,6 @@ mod tests {
 
         let got = backlinks_for(&conn, "target.md").await.expect("backlinks");
         assert_eq!(got.len(), 3);
-        // Sorted by (source_path, position) — a.md first, then b.md's
-        // two rows in ascending position order.
         assert_eq!(got[0].source_path, "a.md");
         assert_eq!(got[0].position, 50);
         assert_eq!(got[1].source_path, "b.md");
@@ -403,7 +333,6 @@ mod tests {
         seed_file(&conn, "notes/cubical-ast.md").await;
         seed_file(&conn, "archive/old.md").await;
 
-        // Case-insensitive substring over the whole path.
         let got = files_for_link_query(&conn, "cubical", 50).await.unwrap();
         assert_eq!(
             got,
@@ -434,8 +363,7 @@ mod tests {
     #[tokio::test]
     async fn files_for_link_query_excludes_non_markdown_and_escapes_like() {
         let (_dir, conn) = open_test_index().await;
-        seed_file(&conn, "real_note.md").await; // markdown
-                                                // A binary file must never appear in link autocomplete.
+        seed_file(&conn, "real_note.md").await;
         conn.connection()
             .execute(
                 "INSERT INTO files \
@@ -449,8 +377,6 @@ mod tests {
         let got = files_for_link_query(&conn, "note", 50).await.unwrap();
         assert_eq!(got, vec!["real_note.md".to_string()]);
 
-        // The `_` in the query must be escaped — it must NOT act as a LIKE
-        // single-char wildcard. "real_note" matches; a near-miss must not.
         let exact = files_for_link_query(&conn, "real_note", 50).await.unwrap();
         assert_eq!(exact, vec!["real_note.md".to_string()]);
     }

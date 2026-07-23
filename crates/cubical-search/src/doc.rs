@@ -1,38 +1,18 @@
-//! Project an on-disk markdown file into Tantivy fields.
-
 use cubical_ast::{frontmatter::parse_frontmatter, parse, Block, Document, Inline};
 
-/// Projection of one `.md` file into the search schema.
 #[derive(Debug, Clone, PartialEq)]
 pub struct IndexDoc {
-    /// Vault-relative path.
     pub path: String,
-    /// Frontmatter `title` if a string scalar; else filename stem.
     pub title: String,
-    /// Concatenated heading text.
     pub headings: String,
-    /// Prose body (Task 5 fills this).
     pub body: String,
-    /// Fenced + inline code text (Task 5 fills this).
     pub code: String,
-    /// Lowercased tag strings.
     pub tags: Vec<String>,
-    /// Flattened frontmatter scalars (`key value` pairs), excluding `title` and `tags`.
     pub frontmatter: String,
-    /// File mtime in unix seconds.
     pub mtime_secs: i64,
-    /// File size in bytes.
     pub size_bytes: u64,
 }
 
-/// Build the simple fields from raw source + filesystem metadata. The
-/// AST is parsed locally so the caller hands only `(path, source, mtime, size)`.
-///
-/// `tags` are collected from frontmatter `tags:` plus inline `#tag`
-/// occurrences (from `Inline::Tag` nodes during the AST walk; frontmatter
-/// is excluded by construction since `cubical_ast::parse` splits it off
-/// before block parsing). They are lowercased at projection time so the
-/// `tag:` field-prefix query parses to the same form as the indexed value.
 #[must_use]
 pub fn project(path: &str, source: &str, mtime_secs: i64, size_bytes: u64) -> IndexDoc {
     let doc = parse(source);
@@ -63,7 +43,6 @@ fn derive_title(path: &str, _doc: &Document, source: &str) -> String {
             return t.to_string();
         }
     }
-    // Fallback: filename stem (everything after the last `/`, with `.md` stripped).
     let stem = path.rsplit('/').next().unwrap_or(path);
     stem.strip_suffix(".md").unwrap_or(stem).to_string()
 }
@@ -75,10 +54,6 @@ fn collect_tags(_doc: &Document, source: &str, body_tags: &[String]) -> Vec<Stri
             out.push(t.to_lowercase());
         }
     }
-    // Body-only tags come from the parsed AST's `Inline::Tag` nodes (the
-    // walker already collected them). Frontmatter is excluded by
-    // construction — `parse()` strips it before block parsing — so a YAML
-    // scalar like `summary: "track #urgent"` never reaches the body walk.
     for path in body_tags {
         out.push(path.to_lowercase());
     }
@@ -106,21 +81,6 @@ fn flatten_frontmatter(source: &str) -> String {
     buf
 }
 
-/// Single-pass walker that projects a `Document`'s blocks into the
-/// `headings`, `body`, and `code` field strings while also recording
-/// body-scoped tags for `collect_tags`.
-///
-/// Spec rules ([`docs/architecture/document-model.md`] §5; the L4-A plan
-/// task 5):
-/// - `headings` collects ATX heading text only; we never descend into
-///   headings for body text.
-/// - `body` accumulates prose / list item / blockquote / table-cell text,
-///   standard markdown image alt, and wiki-link display text (alias if
-///   set, else the target's last `/`-segment for block-refs).
-/// - `body` excludes fenced/inline code, wiki-image embeds
-///   (`![[image.png]]`), raw `[[…]]` syntax, raw `#tag` tokens, raw
-///   `^block-id` markers, frontmatter, HTML, transcluded content.
-/// - `code` collects fenced + inline code text.
 #[derive(Default)]
 struct Walker {
     headings: String,
@@ -140,27 +100,12 @@ fn is_image_target(target: &str) -> bool {
     IMAGE_EXTS.iter().any(|ext| lower.ends_with(ext))
 }
 
-/// Strip standalone `^block-id` tokens from text. A block id is `^`
-/// followed by a non-empty run of letters/digits/`_`/`-`, bounded on
-/// the left by whitespace or string start and on the right by
-/// whitespace or string end. We replace each occurrence with a single
-/// space — the body field is whitespace-collapsed at use time, so this
-/// keeps surrounding prose intact (`"a ^id b"` → `"a   b"`).
-///
-/// The defining-line rule in `cubical-core::vault::pending` only treats
-/// the last token of a line as a block id, but by the time text reaches
-/// the AST inline soft breaks have folded into spaces — we no longer
-/// know where the line break was. The body field is text only, never
-/// rendered structurally, so a slightly broader strip is acceptable;
-/// `^foo` in body prose would just remove `^foo` from the searchable
-/// index, which is the correct outcome anyway.
 fn strip_block_id_markers(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut prev_was_boundary = true;
     let mut chars = text.chars().peekable();
     while let Some(c) = chars.next() {
         if c == '^' && prev_was_boundary {
-            // Collect the candidate block-id body (alphanumeric / `_` / `-`).
             let mut body = String::new();
             while let Some(&p) = chars.peek() {
                 if p.is_alphanumeric() || p == '_' || p == '-' {
@@ -172,13 +117,10 @@ fn strip_block_id_markers(text: &str) -> String {
             }
             let next_is_boundary = chars.peek().map(|c| c.is_whitespace()).unwrap_or(true);
             if !body.is_empty() && next_is_boundary {
-                // Replace `^id` with a single space to keep word
-                // boundaries with surrounding prose intact.
                 out.push(' ');
                 prev_was_boundary = true;
                 continue;
             }
-            // Not a block-id marker — re-emit the consumed run.
             out.push('^');
             out.push_str(&body);
             prev_was_boundary = body
@@ -204,8 +146,6 @@ impl Walker {
     fn walk_block(&mut self, block: &Block) {
         match block {
             Block::Heading { inlines, .. } => {
-                // Collect heading text directly into `headings`; never
-                // contribute to `body` or descend with tag collection.
                 let mut sink = String::new();
                 Self::collect_inline_text(inlines, &mut sink);
                 let trimmed = sink.trim();
@@ -233,10 +173,7 @@ impl Walker {
                     self.code.push('\n');
                 }
             }
-            Block::ThematicBreak { .. } | Block::Html { .. } => {
-                // HTML blocks are excluded from `body` per spec (HTML
-                // comments and transclusions don't contribute).
-            }
+            Block::ThematicBreak { .. } | Block::Html { .. } => {}
         }
     }
 
@@ -275,9 +212,6 @@ impl Walker {
                 embed,
                 ..
             } => {
-                // Wiki-image embeds (`![[diagram.png]]`) contribute
-                // nothing to `body` — the image asset isn't searchable
-                // text.
                 if *embed && is_image_target(target) {
                     return;
                 }
@@ -291,20 +225,12 @@ impl Walker {
                 }
             }
             Inline::Tag { path } => {
-                // Body-only tag — recorded for `collect_tags`, never
-                // appears in the `body` field.
                 self.tags.push(path.clone());
             }
-            Inline::PropertyRef { .. } => {
-                // The rendered value is display-time, cross-file state not
-                // known at index time — contribute nothing to the body.
-            }
+            Inline::PropertyRef { .. } => {}
         }
     }
 
-    /// Flatten a chain of inlines into a single text run. Used for
-    /// heading text and image alt where we want the textual content
-    /// without contributing to `body` mid-walk.
     fn collect_inline_text(inlines: &[Inline], out: &mut String) {
         for inline in inlines {
             match inline {
@@ -435,7 +361,6 @@ mod tests {
 
     #[test]
     fn body_block_ref_uses_target_not_resolved_content() {
-        // ^abc is the block id; the body field must not try to resolve it.
         let src = "Cite [[Other#^abc]] here.\n";
         let d = project("x.md", src, 0, 0);
         assert!(d.body.contains("Other"));

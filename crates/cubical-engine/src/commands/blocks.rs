@@ -1,8 +1,3 @@
-//! Pure handlers for L3 block references (Session G):
-//! `create_block_ref` (lazily mint + persist a `^block-id` in a file's
-//! source) and `get_broken_block_refs` (vault-health surfacing).
-//! See `docs/layer-3-spec.md` §2.7 + §3.3.
-
 use cubical_core::vault::blocks::refresh_blocks;
 use cubical_index::broken_block_refs;
 use sha2::{Digest, Sha256};
@@ -14,10 +9,6 @@ use crate::api::types::{
 use crate::error::CubicalError;
 use crate::state::AppState;
 
-/// Lazily mint (or reuse) a block id on the line at `position` in
-/// `target_path`, writing `^id` into the source and persisting the
-/// `blocks` row. Idempotent: if the line already ends with a block id,
-/// returns it unchanged.
 pub async fn create_block_ref(
     state: &AppState,
     req: CreateBlockRefRequest,
@@ -40,10 +31,6 @@ pub async fn create_block_ref(
             .await
             .map_err(|e| CubicalError::Io(e.to_string()))?;
     }
-    // Persist the blocks row immediately so resolution doesn't wait on
-    // the watcher. (The watcher echo will re-refresh; replace is
-    // idempotent.) Source passed in is the post-mint text we just
-    // wrote — no need to re-read or re-materialize.
     refresh_blocks(&vault, &req.target_path, &new_source)
         .await
         .map_err(|e| CubicalError::Io(e.to_string()))?;
@@ -51,21 +38,13 @@ pub async fn create_block_ref(
     Ok(CreateBlockRefResponse { block_id })
 }
 
-/// Compute the new source + the id for the line containing `position`.
-/// If that line already ends with a valid `^id`, reuse it (no change).
-/// Otherwise append ` ^<generated>` to the line's end. The id is
-/// deterministic per (path, position): `b` + first 6 hex of
-/// sha256("path:position"), guaranteeing a letter start + uniqueness in
-/// practice; on the rare in-file collision a numeric suffix is added.
 fn mint_block_id(source: &str, position: u64, path: &str) -> (String, String) {
     let pos = (position as usize).min(source.len());
-    // Find the [line_start, line_end) byte range containing `pos`.
     let line_start = source[..pos].rfind('\n').map_or(0, |i| i + 1);
     let line_end = source[pos..].find('\n').map_or(source.len(), |i| pos + i);
     let line = &source[line_start..line_end];
     let line_trimmed = line.trim_end();
 
-    // Reuse an existing trailing id.
     if let Some(existing) = trailing_block_id(line_trimmed) {
         return (source.to_string(), existing);
     }
@@ -73,7 +52,6 @@ fn mint_block_id(source: &str, position: u64, path: &str) -> (String, String) {
     let existing_ids = existing_block_ids(source);
     let id = unique_id(path, position, &existing_ids);
 
-    // Insert ` ^id` at the end of the trimmed line content.
     let insert_at = line_start + line_trimmed.len();
     let mut new_source = String::with_capacity(source.len() + id.len() + 2);
     new_source.push_str(&source[..insert_at]);
@@ -82,7 +60,6 @@ fn mint_block_id(source: &str, position: u64, path: &str) -> (String, String) {
     (new_source, id)
 }
 
-/// Trailing `^id` on an already-trimmed line, if valid.
 fn trailing_block_id(line: &str) -> Option<String> {
     let caret = line.rfind('^')?;
     let id = &line[caret + 1..];
@@ -98,7 +75,6 @@ fn trailing_block_id(line: &str) -> Option<String> {
     }
 }
 
-/// All trailing block ids currently in `source` (for collision checks).
 fn existing_block_ids(source: &str) -> Vec<String> {
     source
         .lines()
@@ -122,7 +98,6 @@ fn unique_id(path: &str, position: u64, existing: &[String]) -> String {
     if !existing.contains(&base) {
         return base;
     }
-    // Rare collision: append an incrementing suffix.
     for n in 2.. {
         let candidate = format!("{base}-{n}");
         if !existing.contains(&candidate) {
@@ -132,7 +107,6 @@ fn unique_id(path: &str, position: u64, existing: &[String]) -> String {
     unreachable!("the loop always returns")
 }
 
-/// Every block ref whose target block id is missing, for vault health.
 pub async fn get_broken_block_refs(
     state: &AppState,
     req: GetBrokenBlockRefsRequest,
@@ -182,13 +156,11 @@ mod tests {
         let dir = tempdir().unwrap();
         std::fs::write(dir.path().join("a.md"), "first para\n\nsecond para\n").unwrap();
         let (vault, state) = state_with_vault_at(dir.path(), "v1").await;
-        // The `files` row must exist for the blocks FK; a scan creates it.
         let (tx, _rx) = tokio::sync::mpsc::channel(8);
         cubical_core::vault::scan(vault.clone(), CancellationToken::new(), tx)
             .await
             .unwrap();
 
-        // position 0 → the first line ("first para").
         let resp = create_block_ref(
             &state,
             CreateBlockRefRequest {
@@ -202,14 +174,12 @@ mod tests {
         let id = resp.block_id;
         assert!(!id.is_empty());
 
-        // The id was written to source at the end of the first line.
         let src = std::fs::read_to_string(dir.path().join("a.md")).unwrap();
         assert!(
             src.lines().next().unwrap().ends_with(&format!("^{id}")),
             "src was: {src:?}"
         );
 
-        // And a blocks row was persisted.
         let exists = cubical_index::block_exists(vault.index(), "a.md", &id)
             .await
             .unwrap();
@@ -221,7 +191,6 @@ mod tests {
         let dir = tempdir().unwrap();
         std::fs::write(dir.path().join("a.md"), "first para ^existing\n").unwrap();
         let (vault, state) = state_with_vault_at(dir.path(), "v1").await;
-        // The `files` row must exist for the blocks FK; a scan creates it.
         let (tx, _rx) = tokio::sync::mpsc::channel(8);
         cubical_core::vault::scan(vault.clone(), CancellationToken::new(), tx)
             .await
@@ -237,7 +206,6 @@ mod tests {
         .await
         .expect("ok");
         assert_eq!(resp.block_id, "existing");
-        // Source unchanged (no second id appended).
         let src = std::fs::read_to_string(dir.path().join("a.md")).unwrap();
         assert_eq!(src, "first para ^existing\n");
     }

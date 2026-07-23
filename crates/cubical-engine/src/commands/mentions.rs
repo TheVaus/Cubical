@@ -1,15 +1,3 @@
-//! Pure async command handlers for `get_unlinked_mentions` and
-//! `link_mention` (L3 Session I, spec §2.9 + §3.1).
-//!
-//! `get_unlinked_mentions` is read-only: scans every markdown file in
-//! the vault (except the open note itself) for plain-text occurrences
-//! of the open note's title + aliases. The scan is on-demand — no new
-//! index table, per spec.
-//!
-//! `link_mention` rewrites one matched span in one source file into a
-//! `[[Title]]` (or `[[Title|alias]]` when the alias casing differs
-//! from the title). Atomic write with on-disk hash gate.
-
 use cubical_core::vault::links::read_source_off_executor;
 use cubical_core::vault::mentions::{find_mention_occurrences, MentionHit};
 use cubical_core::vault::pending::materialize_on_read;
@@ -23,14 +11,8 @@ use crate::commands::snippet::build_snippet;
 use crate::error::CubicalError;
 use crate::state::AppState;
 
-/// Maximum markdown files scanned per request. Acts as a safety fuse
-/// against pathological vaults; the spec doesn't cap it, but a
-/// surprised user with 200k files is better served by a partial answer
-/// than a frozen UI. Documented in §9.14 alongside the perf notes.
 const MAX_SCAN_FILES: usize = 50_000;
 
-/// List every unlinked mention of the open note's title / aliases in
-/// other markdown files, with a context snippet per hit.
 pub async fn get_unlinked_mentions(
     state: &AppState,
     req: GetUnlinkedMentionsRequest,
@@ -45,7 +27,6 @@ pub async fn get_unlinked_mentions(
     let root = vault.root().to_path_buf();
     let conn = vault.index().connection().clone();
 
-    // 1) Title from the basename (minus `.md`).
     let title = title_from_path(&req.path);
     if title.is_empty() {
         return Ok(GetUnlinkedMentionsResponse {
@@ -53,12 +34,8 @@ pub async fn get_unlinked_mentions(
         });
     }
 
-    // 2) Aliases from the frontmatter index for this path.
     let aliases = aliases_for(&conn, &req.path).await?;
 
-    // 3) Build the needle list — title plus any aliases, case-insensitively
-    //    deduped, blanks dropped. Preserve original casing for display in
-    //    `Mention.needle` (powers the alias-vs-title rewrite shape).
     let needles = build_needles(&title, &aliases);
     if needles.is_empty() {
         return Ok(GetUnlinkedMentionsResponse {
@@ -66,23 +43,14 @@ pub async fn get_unlinked_mentions(
         });
     }
 
-    // 4) Snapshot the markdown candidate paths (excluding the open note).
     let candidates = list_markdown_candidates(&conn, &req.path).await?;
 
-    // 5) For each candidate, read + materialize + scan. Hits accumulate;
-    //    sort at end.
-    //
-    // L3 Session J (chain 3): each candidate's source goes through
-    // `materialize_on_read` so an unlinked-mention scan over a file
-    // with a pending rename rewrite operates on the post-rewrite text
-    // (otherwise we'd offer to "Link it" against a span that the user
-    // sees as already-rewritten via the editor's materialized view).
     let mut out: Vec<Mention> = Vec::new();
     let needle_refs: Vec<&str> = needles.iter().map(|s| s.as_str()).collect();
     for path in candidates.into_iter().take(MAX_SCAN_FILES) {
         let abs = root.join(&path);
         let Some(on_disk) = read_source_off_executor(&abs).await else {
-            continue; // unreadable file = no mentions
+            continue;
         };
         let source = materialize_on_read(vault.index(), &path, &on_disk).await?;
         let hits = find_mention_occurrences(&source, &needle_refs);
@@ -111,17 +79,6 @@ pub async fn get_unlinked_mentions(
     Ok(GetUnlinkedMentionsResponse { mentions: out })
 }
 
-/// Rewrite one matched span in one source file into a `[[Title]]`
-/// (or `[[Title|alias]]` when the matched text differs case-insensitively
-/// from the canonical title). Reads the source fresh just-in-time +
-/// writes atomically.
-///
-/// **L3 Session J (chain 3):** if there are any pending rewrites
-/// targeting `source_path`, flush them first (write the materialized
-/// view to disk + drop the rows) and then read fresh. This avoids the
-/// "splice into materialized but write non-materialized" trap from the
-/// design spec — the splice always sees the same bytes that the
-/// editor's `read_file_text` sees.
 pub async fn link_mention(
     state: &AppState,
     req: LinkMentionRequest,
@@ -137,10 +94,6 @@ pub async fn link_mention(
         )
     };
 
-    // Flush any pending rewrites for the source file first. The flush is
-    // a no-op when the queue is empty; when non-empty, it rewrites the
-    // file on disk and drops the matching rows so the read below sees a
-    // bytes-equal copy of the materialized view.
     let pending_count = {
         let mut rows = conn
             .query(
@@ -163,8 +116,6 @@ pub async fn link_mention(
         .await?;
     }
 
-    // Read fresh just-in-time so a same-millisecond external edit is
-    // reflected. If the file has been removed entirely, surface IO.
     let source = tokio::task::spawn_blocking({
         let abs = abs.clone();
         move || std::fs::read_to_string(&abs)
@@ -173,7 +124,6 @@ pub async fn link_mention(
     .map_err(|e| CubicalError::Io(format!("read task join error: {e}")))?
     .map_err(|e| CubicalError::Io(e.to_string()))?;
 
-    // Bounds check.
     let start = req.position as usize;
     let end = start.saturating_add(req.byte_len as usize);
     if end > source.len() {
@@ -195,27 +145,19 @@ pub async fn link_mention(
         ));
     }
 
-    // Sanity-check the span still looks like a word boundary'd needle.
-    // We don't re-run the full scan, but we do require:
-    //   * the span contains at least one word char
-    //   * the byte char immediately before/after is a non-word char
-    //     (or the file edge)
     if matched.chars().all(|c| !c.is_alphanumeric() && c != '_') {
         return Err(CubicalError::InvalidRequest(
             "mention span no longer contains a word".into(),
         ));
     }
-    let prev_ok = matched_neighbor_ok(&source, start, /*before=*/ true);
-    let next_ok = matched_neighbor_ok(&source, end, /*before=*/ false);
+    let prev_ok = matched_neighbor_ok(&source, start, true);
+    let next_ok = matched_neighbor_ok(&source, end, false);
     if !prev_ok || !next_ok {
         return Err(CubicalError::InvalidRequest(
             "mention has moved (whole-word boundary lost)".into(),
         ));
     }
 
-    // Decide the replacement shape:
-    //   matched ≡ title (case-insensitive) → [[Title]]
-    //   otherwise (alias-display or differing casing on alias)  →  [[Title|matched]]
     let replacement = if matched.to_lowercase() == title.to_lowercase() {
         format!("[[{title}]]")
     } else {
@@ -236,9 +178,6 @@ pub async fn link_mention(
         .await
         .map_err(|e| CubicalError::Io(format!("write task join error: {e}")))??;
 
-    // Mirror write_file_text's eager files-row update so the next
-    // `get_unlinked_mentions` refresh sees the new hash. Best-effort —
-    // the watcher will also report it.
     {
         let guard = state.vaults().read().await;
         let open = guard
@@ -263,9 +202,6 @@ pub async fn link_mention(
     Ok(LinkMentionResponse { new_hash })
 }
 
-/// Whole-word boundary check on the source side. `before=true` checks
-/// the char immediately preceding `byte_idx`; `before=false` checks the
-/// char immediately at `byte_idx`. Edge of file always satisfies.
 fn matched_neighbor_ok(source: &str, byte_idx: usize, before: bool) -> bool {
     if before {
         match source[..byte_idx].chars().next_back() {
@@ -280,16 +216,11 @@ fn matched_neighbor_ok(source: &str, byte_idx: usize, before: bool) -> bool {
     }
 }
 
-/// Compute the canonical title for a vault-relative path — its basename
-/// without the `.md` extension.
 fn title_from_path(path: &str) -> String {
     let base = path.rsplit('/').next().unwrap_or(path);
     base.strip_suffix(".md").unwrap_or(base).to_string()
 }
 
-/// Build the deduped needle list. Title always wins for case; aliases
-/// with the same lowercased form as the title (or as an earlier alias)
-/// are dropped. Blank entries are dropped silently.
 fn build_needles(title: &str, aliases: &[String]) -> Vec<String> {
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut out = Vec::new();
@@ -311,10 +242,6 @@ fn build_needles(title: &str, aliases: &[String]) -> Vec<String> {
     out
 }
 
-/// Read the `frontmatter` row for `path` with key=`aliases` and decode
-/// the JSON value into a list of strings. Non-list / non-string entries
-/// are silently dropped (per "Decisions": "frontmatter aliases of wrong
-/// shape silently dropped").
 async fn aliases_for(conn: &libsql::Connection, path: &str) -> Result<Vec<String>, CubicalError> {
     let mut rows = conn
         .query(
@@ -342,7 +269,6 @@ async fn aliases_for(conn: &libsql::Connection, path: &str) -> Result<Vec<String
     }
 }
 
-/// Every markdown `files.path` except `exclude_path`, in stable order.
 async fn list_markdown_candidates(
     conn: &libsql::Connection,
     exclude_path: &str,
@@ -554,7 +480,6 @@ mod tests {
     async fn frontmatter_aliases_of_wrong_shape_are_dropped() {
         let (_dir, vault, state) = fresh("v1").await;
         seed_md(&vault, "Daily.md", "body").await;
-        // Non-list aliases (a YAML scalar number) — silently dropped.
         seed_frontmatter(&vault, "Daily.md", "aliases", "42").await;
         seed_md(&vault, "Other.md", "Daily mention here\n").await;
         let resp = get_unlinked_mentions(
@@ -566,7 +491,6 @@ mod tests {
         )
         .await
         .unwrap();
-        // Title still matches.
         assert_eq!(resp.mentions.len(), 1);
         let _ = vault;
     }
@@ -588,19 +512,10 @@ mod tests {
 
     #[tokio::test]
     async fn get_unlinked_mentions_materializes_candidate_source() {
-        // L3 Session J (chain 3): a candidate source file with a
-        // pending wiki-link rewrite is scanned against its MATERIALIZED
-        // text, not the on-disk raw bytes. So a "Daily" plain-text hit
-        // in raw text that is *already linked* to [[Journal]] in the
-        // post-rewrite view must NOT surface as an unlinked mention.
         use cubical_index::{enqueue_pending, NewPendingRewrite, RewriteKind};
 
         let (_dir, vault, state) = fresh("v1").await;
         seed_md(&vault, "Daily.md", "body").await;
-        // Raw disk has [[OldName]] — a stale link, not a mention.
-        // After materialization the pending row rewrites [[OldName]]
-        // → [[Daily]] and the file's only "Daily" occurrence is the
-        // wiki-link itself, which is excluded from mentions.
         seed_md(&vault, "Project.md", "see [[OldName]] for context\n").await;
         enqueue_pending(
             vault.index(),
@@ -625,13 +540,9 @@ mod tests {
         )
         .await
         .unwrap();
-        // Materialized view of Project.md has the Daily wiki-link, so
-        // there's no plain-text "Daily" mention.
         assert!(resp.mentions.is_empty(), "{:?}", resp.mentions);
         let _ = vault;
     }
-
-    // ---- link_mention --------------------------------------------
 
     #[tokio::test]
     async fn link_mention_rewrites_span_and_returns_new_hash() {
@@ -669,10 +580,6 @@ mod tests {
         let body = "The Journal entry tracks this.\n";
         seed_md(&vault, "Project.md", body).await;
 
-        // The match is on "Journal" (alias); the canonical title is
-        // "Daily". The frontend supplies target_title=Daily AND the
-        // matched span; the backend produces [[Daily|Journal]] because
-        // the matched text differs from the target title.
         let pos = body.find("Journal").unwrap() as u64;
         link_mention(
             &state,
@@ -711,7 +618,6 @@ mod tests {
         .await
         .unwrap();
         let on_disk = std::fs::read_to_string(vault.root().join("Project.md")).unwrap();
-        // Match casing dropped in favour of the canonical title.
         assert_eq!(on_disk, "The [[Daily]] check-in is done.\n");
     }
 
@@ -719,11 +625,6 @@ mod tests {
     async fn link_mention_handles_non_ascii_title_with_unicode_case_fold() {
         let (_dir, vault, state) = fresh("v1").await;
         seed_md(&vault, "CAFÉ.md", "body").await;
-        // Match on "café" (lowercased); canonical title is "CAFÉ".
-        // Pre-fix this would have produced [[CAFÉ|café]] (eq_ignore_ascii_case
-        // only folds A-Z↔a-z, so É vs é is treated as not-equal), which is
-        // wrong — full Unicode casefold says "CAFÉ" == "café" so the bare
-        // form is correct.
         let body = "see café for context\n";
         seed_md(&vault, "Project.md", body).await;
         let pos = body.find("café").unwrap() as u64;
@@ -747,7 +648,6 @@ mod tests {
     async fn link_mention_invalidrequest_when_span_no_longer_alphanumeric() {
         let (_dir, vault, state) = fresh("v1").await;
         seed_md(&vault, "Daily.md", "body").await;
-        // Body where the chosen byte range now points at whitespace.
         seed_md(&vault, "Project.md", "                  short body\n").await;
 
         let err = link_mention(
@@ -788,18 +688,10 @@ mod tests {
 
     #[tokio::test]
     async fn link_mention_flushes_pending_rewrites_before_splicing() {
-        // L3 Session J (chain 3): when the source file has pending
-        // rewrites, link_mention flushes them FIRST (writing the
-        // materialized text to disk + dropping the rows) then splices
-        // against the just-flushed source. This closes the
-        // "splice-into-materialized-but-write-non-materialized" trap.
         use cubical_index::{enqueue_pending, pending_for_target, NewPendingRewrite, RewriteKind};
 
         let (_dir, vault, state) = fresh("v1").await;
         seed_md(&vault, "Daily.md", "body").await;
-        // Disk text contains [[OldName]] which a pending row will
-        // rewrite to [[Daily]], plus a separate plain-text "Daily"
-        // mention to splice.
         let body = "see [[OldName]] and mention Daily here\n";
         seed_md(&vault, "Project.md", body).await;
         enqueue_pending(
@@ -816,8 +708,6 @@ mod tests {
         .await
         .unwrap();
 
-        // After the flush+splice, on-disk content should reflect both:
-        // the pending wiki-link rewrite AND the new [[Daily]] mention.
         let post_flush_body = "see [[Daily]] and mention Daily here\n";
         let pos = post_flush_body.find("mention Daily").unwrap() + "mention ".len();
         link_mention(
@@ -835,7 +725,6 @@ mod tests {
 
         let on_disk = std::fs::read_to_string(vault.root().join("Project.md")).unwrap();
         assert_eq!(on_disk, "see [[Daily]] and mention [[Daily]] here\n");
-        // Pending rows for this target are gone (flush succeeded).
         let remaining = pending_for_target(vault.index(), "Project.md")
             .await
             .unwrap();

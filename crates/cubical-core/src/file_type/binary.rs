@@ -1,18 +1,7 @@
-//! [`BinaryHandler`] — catch-all for non-markdown files.
-
 use std::path::Path;
 
 use super::{sha256_file_hex, FileTypeError, FileTypeHandler};
 
-/// Catch-all handler for non-markdown files (images, PDFs, attachments, ...).
-///
-/// In Layer 0 the binary handler only records that a file exists and computes
-/// a SHA-256 content hash. The deduplicated `.assets/<hash>` pipeline lands in
-/// L1+ alongside the asset workflow.
-///
-/// Because [`FileTypeHandler::matches`] returns `true` unconditionally, this
-/// handler must be registered last in any [`super::FileTypeRegistry`] —
-/// otherwise it will shadow more specific handlers.
 pub struct BinaryHandler;
 
 impl FileTypeHandler for BinaryHandler {

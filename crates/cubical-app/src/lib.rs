@@ -1,21 +1,3 @@
-//! `cubical-app` — the Tauri shell.
-//!
-//! A thin frontend over the [`cubical_engine`] crate, which owns all the
-//! actual logic (command handlers, state, events, IPC types) with no Tauri
-//! dependency. This crate contributes only the Tauri-specific surface:
-//!
-//! - the `#[tauri::command]` shims below — each pulls `AppState` via
-//!   `tauri::State` and forwards to a `cubical_engine::commands` handler,
-//!   constructing a [`tauri_sink::TauriEventSink`] so the handler can emit
-//!   events without naming Tauri;
-//! - [`tauri_sink`] — the one adapter from the engine's `EventSink` to
-//!   `AppHandle::emit`;
-//! - the Tauri builder, plugin registration, and logging setup in [`run`].
-//!
-//! Migration off Tauri (or adding a CLI frontend) means writing a new shell
-//! against `cubical_engine`; this crate is the rewrite boundary. See
-//! `docs/migration-touchpoints.md`.
-
 #![forbid(unsafe_code)]
 
 mod recent_vaults;
@@ -51,11 +33,6 @@ use cubical_engine::state::AppState;
 use tauri::Manager;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
-/// Initialize structured logging for the Rust side.
-///
-/// Called from `main` (desktop entry point) and from any future mobile entry
-/// points. Output goes to stderr in dev builds; release builds will eventually
-/// rotate into `<vault>/.cubical/cubical.log` (post-L0 work).
 fn init_logging() {
     tracing_subscriber::registry()
         .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
@@ -63,9 +40,6 @@ fn init_logging() {
         .init();
 }
 
-/// Build and run the Tauri application.
-///
-/// Mobile entry points should also call this. Currently desktop-only.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     init_logging();
@@ -127,13 +101,6 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
-// ---------------------------------------------------------------------------
-// Tauri command shims — three lines each, forwarding to pure handlers in
-// `commands::vault`. The shims are the only `#[tauri::command]`-decorated
-// functions in the crate; everything below them is Tauri-free.
-// ---------------------------------------------------------------------------
-
-/// Tauri shim — see [`commands::vault::open_vault`].
 #[tauri::command]
 async fn open_vault(
     state: tauri::State<'_, AppState>,
@@ -147,8 +114,6 @@ async fn open_vault(
         req,
     )
     .await?;
-    // Record the successful open in the machine-local recents (best-effort;
-    // never fails the open).
     if let Some(store) = recent_vaults_store(&app) {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -159,8 +124,6 @@ async fn open_vault(
     Ok(resp)
 }
 
-/// Resolve the recent-vaults store file in the OS app-config dir, or
-/// `None` if the platform can't give us one (recents then no-op).
 fn recent_vaults_store(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
     app.path()
         .app_config_dir()
@@ -168,8 +131,6 @@ fn recent_vaults_store(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
         .map(|dir| dir.join("recent_vaults.json"))
 }
 
-/// Tauri command — list recent vaults, most-recent first, each stamped
-/// with a live existence check. Absent store or config dir → empty list.
 #[tauri::command]
 fn list_recent_vaults(app: tauri::AppHandle) -> recent_vaults::ListRecentVaultsResponse {
     let vaults = recent_vaults_store(&app)
@@ -178,7 +139,6 @@ fn list_recent_vaults(app: tauri::AppHandle) -> recent_vaults::ListRecentVaultsR
     recent_vaults::ListRecentVaultsResponse { vaults }
 }
 
-/// Tauri command — remove one entry from the recent-vaults list.
 #[tauri::command]
 fn remove_recent_vault(app: tauri::AppHandle, req: recent_vaults::RemoveRecentVaultRequest) {
     if let Some(p) = recent_vaults_store(&app) {
@@ -186,7 +146,6 @@ fn remove_recent_vault(app: tauri::AppHandle, req: recent_vaults::RemoveRecentVa
     }
 }
 
-/// Tauri shim — see [`commands::vault::cancel_vault_scan`].
 #[tauri::command]
 async fn cancel_vault_scan(
     state: tauri::State<'_, AppState>,
@@ -195,7 +154,6 @@ async fn cancel_vault_scan(
     commands::vault::cancel_vault_scan(state.inner(), req).await
 }
 
-/// Tauri shim — see [`commands::vault::get_vault_info`].
 #[tauri::command]
 async fn get_vault_info(
     state: tauri::State<'_, AppState>,
@@ -204,7 +162,6 @@ async fn get_vault_info(
     commands::vault::get_vault_info(state.inner(), req).await
 }
 
-/// Tauri shim — see [`commands::vault::list_files`].
 #[tauri::command]
 async fn list_files(
     state: tauri::State<'_, AppState>,
@@ -213,7 +170,6 @@ async fn list_files(
     commands::vault::list_files(state.inner(), req).await
 }
 
-/// Tauri shim — see [`commands::vault::create_file`].
 #[tauri::command]
 async fn create_file(
     state: tauri::State<'_, AppState>,
@@ -222,7 +178,6 @@ async fn create_file(
     commands::vault::create_file(state.inner(), req).await
 }
 
-/// Tauri shim — see [`commands::vault::create_file_at_path`].
 #[tauri::command]
 async fn create_file_at_path(
     state: tauri::State<'_, AppState>,
@@ -231,7 +186,6 @@ async fn create_file_at_path(
     commands::vault::create_file_at_path(state.inner(), req).await
 }
 
-/// Tauri shim — see [`commands::vault::create_folder`].
 #[tauri::command]
 async fn create_folder(
     state: tauri::State<'_, AppState>,
@@ -240,7 +194,6 @@ async fn create_folder(
     commands::vault::create_folder(state.inner(), req).await
 }
 
-/// Tauri shim — see [`commands::vault::delete_path`].
 #[tauri::command]
 async fn delete_path(
     state: tauri::State<'_, AppState>,
@@ -249,7 +202,6 @@ async fn delete_path(
     commands::vault::delete_path(state.inner(), req).await
 }
 
-/// Tauri shim — see [`commands::vault::get_frontmatter`].
 #[tauri::command]
 async fn get_frontmatter(
     state: tauri::State<'_, AppState>,
@@ -258,7 +210,6 @@ async fn get_frontmatter(
     commands::vault::get_frontmatter(state.inner(), req).await
 }
 
-/// Tauri shim — see [`commands::vault::read_file_text`].
 #[tauri::command]
 async fn read_file_text(
     state: tauri::State<'_, AppState>,
@@ -267,7 +218,6 @@ async fn read_file_text(
     commands::vault::read_file_text(state.inner(), req).await
 }
 
-/// Tauri shim — see [`commands::vault::write_file_text`].
 #[tauri::command]
 async fn write_file_text(
     state: tauri::State<'_, AppState>,
@@ -276,7 +226,6 @@ async fn write_file_text(
     commands::vault::write_file_text(state.inner(), req).await
 }
 
-/// Tauri shim — see [`commands::vault::get_setting`].
 #[tauri::command]
 async fn get_setting(
     state: tauri::State<'_, AppState>,
@@ -285,7 +234,6 @@ async fn get_setting(
     commands::vault::get_setting(state.inner(), req).await
 }
 
-/// Tauri shim — see [`commands::vault::set_setting`].
 #[tauri::command]
 async fn set_setting(
     state: tauri::State<'_, AppState>,
@@ -294,7 +242,6 @@ async fn set_setting(
     commands::vault::set_setting(state.inner(), req).await
 }
 
-/// Tauri shim — see [`commands::vault::get_canonical_ast`].
 #[tauri::command]
 async fn get_canonical_ast(
     state: tauri::State<'_, AppState>,
@@ -303,7 +250,6 @@ async fn get_canonical_ast(
     commands::vault::get_canonical_ast(state.inner(), req).await
 }
 
-/// Tauri shim — see [`commands::links::resolve_link`].
 #[tauri::command]
 async fn resolve_link(
     state: tauri::State<'_, AppState>,
@@ -312,7 +258,6 @@ async fn resolve_link(
     commands::links::resolve_link(state.inner(), req).await
 }
 
-/// Tauri shim — see [`commands::embeds::get_embed`].
 #[tauri::command]
 async fn get_embed(
     state: tauri::State<'_, AppState>,
@@ -321,7 +266,6 @@ async fn get_embed(
     commands::embeds::get_embed(state.inner(), req).await
 }
 
-/// Tauri shim — see [`commands::property_ref::get_property`].
 #[tauri::command]
 async fn get_property(
     state: tauri::State<'_, AppState>,
@@ -330,7 +274,6 @@ async fn get_property(
     commands::property_ref::get_property(state.inner(), req).await
 }
 
-/// Tauri shim — see [`commands::mentions::get_unlinked_mentions`].
 #[tauri::command]
 async fn get_unlinked_mentions(
     state: tauri::State<'_, AppState>,
@@ -339,7 +282,6 @@ async fn get_unlinked_mentions(
     commands::mentions::get_unlinked_mentions(state.inner(), req).await
 }
 
-/// Tauri shim — see [`commands::mentions::link_mention`].
 #[tauri::command]
 async fn link_mention(
     state: tauri::State<'_, AppState>,
@@ -348,7 +290,6 @@ async fn link_mention(
     commands::mentions::link_mention(state.inner(), req).await
 }
 
-/// Tauri shim — see [`commands::backlinks::get_backlinks`].
 #[tauri::command]
 async fn get_backlinks(
     state: tauri::State<'_, AppState>,
@@ -357,7 +298,6 @@ async fn get_backlinks(
     commands::backlinks::get_backlinks(state.inner(), req).await
 }
 
-/// Tauri shim — see [`commands::tags::query_tag_page`].
 #[tauri::command]
 async fn query_tag_page(
     state: tauri::State<'_, AppState>,
@@ -366,7 +306,6 @@ async fn query_tag_page(
     commands::tags::query_tag_page(state.inner(), req).await
 }
 
-/// Tauri shim — see [`commands::autocomplete::link_autocomplete`].
 #[tauri::command]
 async fn link_autocomplete(
     state: tauri::State<'_, AppState>,
@@ -375,7 +314,6 @@ async fn link_autocomplete(
     commands::autocomplete::link_autocomplete(state.inner(), req).await
 }
 
-/// Tauri shim — see [`commands::autocomplete::tag_autocomplete`].
 #[tauri::command]
 async fn tag_autocomplete(
     state: tauri::State<'_, AppState>,
@@ -384,7 +322,6 @@ async fn tag_autocomplete(
     commands::autocomplete::tag_autocomplete(state.inner(), req).await
 }
 
-/// Tauri shim — see [`commands::autocomplete::list_tags`].
 #[tauri::command]
 async fn list_tags(
     state: tauri::State<'_, AppState>,
@@ -393,7 +330,6 @@ async fn list_tags(
     commands::autocomplete::list_tags(state.inner(), req).await
 }
 
-/// Tauri shim — see [`commands::autocomplete::block_id_autocomplete`].
 #[tauri::command]
 async fn block_id_autocomplete(
     state: tauri::State<'_, AppState>,
@@ -402,7 +338,6 @@ async fn block_id_autocomplete(
     commands::autocomplete::block_id_autocomplete(state.inner(), req).await
 }
 
-/// Tauri shim — see [`commands::blocks::create_block_ref`].
 #[tauri::command]
 async fn create_block_ref(
     state: tauri::State<'_, AppState>,
@@ -411,7 +346,6 @@ async fn create_block_ref(
     commands::blocks::create_block_ref(state.inner(), req).await
 }
 
-/// Tauri shim — see [`commands::blocks::get_broken_block_refs`].
 #[tauri::command]
 async fn get_broken_block_refs(
     state: tauri::State<'_, AppState>,
@@ -420,7 +354,6 @@ async fn get_broken_block_refs(
     commands::blocks::get_broken_block_refs(state.inner(), req).await
 }
 
-/// Tauri shim — see [`commands::rename::rename_file`].
 #[tauri::command]
 async fn rename_file(
     state: tauri::State<'_, AppState>,
@@ -435,7 +368,6 @@ async fn rename_file(
     .await
 }
 
-/// Tauri shim — see [`commands::rename::rename_folder`].
 #[tauri::command]
 async fn rename_folder(
     state: tauri::State<'_, AppState>,
@@ -450,7 +382,6 @@ async fn rename_folder(
     .await
 }
 
-/// Tauri shim — see [`commands::rename::rename_tag`].
 #[tauri::command]
 async fn rename_tag(
     state: tauri::State<'_, AppState>,
@@ -465,7 +396,6 @@ async fn rename_tag(
     .await
 }
 
-/// Tauri shim — see [`commands::rename::rename_block_id`].
 #[tauri::command]
 async fn rename_block_id(
     state: tauri::State<'_, AppState>,
@@ -480,7 +410,6 @@ async fn rename_block_id(
     .await
 }
 
-/// Tauri shim — see [`commands::rename::flush_pending_rewrites`].
 #[tauri::command]
 async fn flush_pending_rewrites(
     state: tauri::State<'_, AppState>,
@@ -495,7 +424,6 @@ async fn flush_pending_rewrites(
     .await
 }
 
-/// Tauri shim — see [`commands::rename::flush_pending_rewrites_for_target`].
 #[tauri::command]
 async fn flush_pending_rewrites_for_target(
     state: tauri::State<'_, AppState>,
@@ -510,7 +438,6 @@ async fn flush_pending_rewrites_for_target(
     .await
 }
 
-/// Tauri shim — see [`commands::rename::get_pending_rewrites_count`].
 #[tauri::command]
 async fn get_pending_rewrites_count(
     state: tauri::State<'_, AppState>,
@@ -519,7 +446,6 @@ async fn get_pending_rewrites_count(
     commands::rename::get_pending_rewrites_count(state.inner(), req).await
 }
 
-/// Tauri shim — see [`commands::rename::get_pending_rewrites_breakdown`].
 #[tauri::command]
 async fn get_pending_rewrites_breakdown(
     state: tauri::State<'_, AppState>,
@@ -528,7 +454,6 @@ async fn get_pending_rewrites_breakdown(
     commands::rename::get_pending_rewrites_breakdown(state.inner(), req).await
 }
 
-/// Tauri shim — see [`commands::rename::list_recent_rename_ops`].
 #[tauri::command]
 async fn list_recent_rename_ops(
     state: tauri::State<'_, AppState>,
@@ -537,7 +462,6 @@ async fn list_recent_rename_ops(
     commands::rename::list_recent_rename_ops(state.inner(), req).await
 }
 
-/// Tauri shim — see [`commands::rename::undo_rename`].
 #[tauri::command]
 async fn undo_rename(
     state: tauri::State<'_, AppState>,
@@ -552,7 +476,6 @@ async fn undo_rename(
     .await
 }
 
-/// Tauri shim — see [`commands::search::search`].
 #[tauri::command]
 async fn search(
     state: tauri::State<'_, AppState>,
@@ -561,7 +484,6 @@ async fn search(
     commands::search::search(state.inner(), req).await
 }
 
-/// Tauri shim — see [`commands::search::search_index_status`].
 #[tauri::command]
 async fn search_index_status(
     state: tauri::State<'_, AppState>,
@@ -570,7 +492,6 @@ async fn search_index_status(
     commands::search::search_index_status(state.inner(), req).await
 }
 
-/// Tauri shim — see [`commands::search::search_rebuild_index`].
 #[tauri::command]
 async fn search_rebuild_index(
     state: tauri::State<'_, AppState>,
@@ -585,7 +506,6 @@ async fn search_rebuild_index(
     .await
 }
 
-/// Tauri shim — see [`commands::search::search_get_health`].
 #[tauri::command]
 async fn search_get_health(
     state: tauri::State<'_, AppState>,
@@ -594,7 +514,6 @@ async fn search_get_health(
     commands::search::search_get_health(state.inner(), req).await
 }
 
-/// Tauri shim — see [`commands::dataview::dataview_query`].
 #[tauri::command]
 async fn dataview_query(
     state: tauri::State<'_, AppState>,
@@ -603,7 +522,6 @@ async fn dataview_query(
     commands::dataview::dataview_query(state.inner(), req).await
 }
 
-/// Tauri shim — see [`commands::vault::reload_settings`].
 #[tauri::command]
 async fn reload_settings(
     state: tauri::State<'_, AppState>,
@@ -612,7 +530,6 @@ async fn reload_settings(
     commands::vault::reload_settings(state.inner(), req).await
 }
 
-/// Tauri shim — see [`commands::vault::close_vault`].
 #[tauri::command]
 async fn close_vault(
     state: tauri::State<'_, AppState>,

@@ -1,5 +1,3 @@
-//! Tantivy index wrapper.
-
 use crate::doc::IndexDoc;
 use crate::error::SearchError;
 use crate::schema::{build_schema, register_tokenizers, Fields};
@@ -13,8 +11,6 @@ use tantivy::query::AllQuery;
 use tantivy::schema::{Schema, TantivyDocument, Value};
 use tantivy::{doc, Index, IndexReader, IndexWriter, ReloadPolicy, Term};
 
-/// Current on-disk schema version. Bump on any schema change; mismatch
-/// wipes `<vault>/.cubical/search/` and forces a rebuild.
 pub const SCHEMA_VERSION: u32 = 2;
 
 const SCHEMA_JSON: &str = "schema.json";
@@ -24,31 +20,21 @@ struct SchemaStamp {
     version: u32,
 }
 
-/// Tantivy wrapper. One per vault. Single writer, shared reader.
 pub struct SearchIndex {
     dir: PathBuf,
     fields: Fields,
     schema: Schema,
-    // Consumed by `QueryParser` construction in `query.rs`.
     index: Index,
     writer: Mutex<IndexWriter>,
     reader: IndexReader,
-    /// Count of successful `commit()` calls. Tantivy commits are
-    /// expensive (segment merge + fsync + GC), so callers batch them;
-    /// this counter lets tests assert a bulk operation commits O(1)
-    /// times rather than once per document.
     commit_count: AtomicU64,
 }
 
 impl SearchIndex {
-    /// Open or create the search index at `dir`. Wipes + rebuilds the
-    /// directory if `schema.json` is missing, unparseable, or carries a
-    /// non-current version.
     pub fn open(dir: impl AsRef<Path>) -> Result<Self, SearchError> {
         let dir = dir.as_ref().to_path_buf();
         std::fs::create_dir_all(&dir)?;
 
-        // Check the stamp; wipe if mismatched.
         let stamp_path = dir.join(SCHEMA_JSON);
         let needs_wipe = match std::fs::read_to_string(&stamp_path) {
             Ok(s) => match serde_json::from_str::<SchemaStamp>(&s) {
@@ -58,7 +44,6 @@ impl SearchIndex {
             Err(_) => true,
         };
         if needs_wipe && dir.exists() {
-            // Wipe contents but keep the directory itself (atomic enough; no concurrent writer at open time).
             for entry in std::fs::read_dir(&dir)? {
                 let path = entry?.path();
                 if path.is_dir() {
@@ -75,14 +60,12 @@ impl SearchIndex {
         let index = Index::open_or_create(mmap, schema.clone())?;
         register_tokenizers(index.tokenizers());
 
-        // 50 MB writer heap (Tantivy default).
         let writer = index.writer(50_000_000)?;
         let reader = index
             .reader_builder()
             .reload_policy(ReloadPolicy::Manual)
             .try_into()?;
 
-        // Re-stamp.
         std::fs::write(
             &stamp_path,
             serde_json::to_string(&SchemaStamp {
@@ -101,22 +84,18 @@ impl SearchIndex {
         })
     }
 
-    /// The vault-relative directory backing this index.
     pub fn dir(&self) -> &Path {
         &self.dir
     }
 
-    /// Read-only schema handle.
     pub fn schema(&self) -> &Schema {
         &self.schema
     }
 
-    /// Field handles for query construction.
     pub fn fields(&self) -> Fields {
         self.fields
     }
 
-    /// Upsert one document — delete-by-path then add. Caller commits.
     pub fn upsert(&self, d: &IndexDoc) -> Result<(), SearchError> {
         let writer = self
             .writer
@@ -142,7 +121,6 @@ impl SearchIndex {
         Ok(())
     }
 
-    /// Delete by path. Caller commits.
     pub fn delete_path(&self, path: &str) -> Result<(), SearchError> {
         let writer = self
             .writer
@@ -153,14 +131,6 @@ impl SearchIndex {
         Ok(())
     }
 
-    /// Remove every indexed document whose `path` is not in `keep`.
-    /// Returns the number deleted. Caller commits.
-    ///
-    /// Reconciles the index with the authoritative on-disk file set after
-    /// a scan: files renamed or deleted while the app wasn't watching
-    /// leave no watcher event, so their docs would otherwise linger and
-    /// surface stale hits. The index is derived state — the `.md` files
-    /// are truth — so dropping orphans is always safe.
     pub fn retain_paths(&self, keep: &HashSet<String>) -> Result<usize, SearchError> {
         let searcher = self.reader.searcher();
         let addrs = searcher.search(&AllQuery, &DocSetCollector)?;
@@ -181,8 +151,6 @@ impl SearchIndex {
         Ok(removed)
     }
 
-    /// Commit buffered writes + reload the reader so subsequent queries
-    /// see them.
     pub fn commit(&self) -> Result<(), SearchError> {
         {
             let mut writer = self
@@ -196,33 +164,18 @@ impl SearchIndex {
         Ok(())
     }
 
-    /// Number of successful commits so far. Used by tests to assert that
-    /// a bulk operation (e.g. flushing a rename's pending rewrites across
-    /// thousands of files) commits the index a bounded number of times
-    /// instead of once per file.
     pub fn commit_count(&self) -> u64 {
         self.commit_count.load(Ordering::Relaxed)
     }
 
-    /// Total document count (after the most recent reload).
     pub fn doc_count(&self) -> Result<u64, SearchError> {
         Ok(self.reader.searcher().num_docs())
     }
 
-    /// Active segment count (after the most recent reload). Surfaced by
-    /// the `search_get_health` IPC command for the dev console + future
-    /// settings UI.
     pub fn segment_count(&self) -> u64 {
         self.reader.searcher().segment_readers().len() as u64
     }
 
-    /// Wipe every document from the index. Caller commits — typically
-    /// followed by a fresh scan that re-populates from the source-of-truth
-    /// `.md` files. Used by `search_rebuild_index`.
-    ///
-    /// Holds the writer guard while marking the deletion so this races
-    /// safely against `upsert` / `delete_path` callers on other threads
-    /// — they'll either land before or after the mark.
     pub fn delete_all(&self) -> Result<(), SearchError> {
         let writer = self
             .writer
@@ -232,12 +185,10 @@ impl SearchIndex {
         Ok(())
     }
 
-    /// Cheap-clone access to a fresh `IndexReader` for the query module.
     pub(crate) fn reader_clone(&self) -> IndexReader {
         self.reader.clone()
     }
 
-    /// Index handle (for `QueryParser` construction in `query.rs`).
     pub(crate) fn index(&self) -> &Index {
         &self.index
     }
@@ -308,7 +259,6 @@ mod tests {
             idx.upsert(&doc_fixture("a.md", "hello", &[])).unwrap();
             idx.commit().unwrap();
         }
-        // Stomp the stamp with a bad version.
         std::fs::write(tmp.path().join("schema.json"), r#"{"version": 999}"#).unwrap();
         let idx = SearchIndex::open(tmp.path()).unwrap();
         assert_eq!(
@@ -350,11 +300,9 @@ mod tests {
     fn segment_count_is_zero_until_commit_then_at_least_one() {
         let tmp = TempDir::new().unwrap();
         let idx = SearchIndex::open(tmp.path()).unwrap();
-        // Empty index has zero segments.
         assert_eq!(idx.segment_count(), 0);
         idx.upsert(&doc_fixture("a.md", "x", &[])).unwrap();
         idx.commit().unwrap();
-        // After at least one commit there is at least one segment.
         assert!(idx.segment_count() >= 1);
     }
 }

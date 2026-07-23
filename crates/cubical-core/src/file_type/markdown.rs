@@ -1,15 +1,7 @@
-//! [`MarkdownHandler`] — claims `.md` and `.markdown`.
-
 use std::path::Path;
 
 use super::{sha256_file_hex, FileTypeError, FileTypeHandler};
 
-/// Handler for plain markdown notes (`.md` / `.markdown`).
-///
-/// Layer 0 only classifies files and computes a SHA-256 content hash for
-/// change detection. [`FileTypeHandler::sanitize_for_export`] is a
-/// pass-through; the `cubical_id` frontmatter strip lands at L7 alongside
-/// frontmatter UUIDs.
 pub struct MarkdownHandler;
 
 impl FileTypeHandler for MarkdownHandler {

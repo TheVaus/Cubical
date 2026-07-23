@@ -1,32 +1,15 @@
-//! Queries against the L3 `tags` table.
-//!
-//! The schema is in `migrations/004_tags.sql`. One row per
-//! `(file_path, tag_path, source)` triple — inline `#tag` tokens and
-//! frontmatter `tags:` entries feed the same table with a discriminating
-//! `source` column. See `docs/layer-3-spec.md` §2.4 and
-//! `docs/architecture/document-model.md` §5.6.
-
 use libsql::params;
 
 use crate::error::IndexError;
 use crate::runner::IndexConn;
 
-/// Where a tag was declared.
-///
-/// `Inline` covers `#tag` tokens in the markdown body; `Frontmatter`
-/// covers entries in the YAML `tags:` list (whether scalar or sequence).
-/// Stored as the string `"inline"` / `"frontmatter"` in the `source`
-/// column.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TagSource {
-    /// `#tag` token in the markdown body.
     Inline,
-    /// `tags:` entry in the YAML frontmatter.
     Frontmatter,
 }
 
 impl TagSource {
-    /// String form stored in the `source` column.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -36,26 +19,12 @@ impl TagSource {
     }
 }
 
-/// One row inserted into the `tags` table.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TagRow {
-    /// The tag body without the leading `#`, with the case as written.
     pub tag_path: String,
-    /// Whether this row was sourced from an inline token or a
-    /// frontmatter entry.
     pub source: TagSource,
 }
 
-/// Replace the entire set of tag rows for `file_path`.
-///
-/// "Delete-then-insert" semantics keyed on `file_path`: any prior rows
-/// for the file are removed, then `rows` is inserted. `rows` may be
-/// empty — the call simply clears the file's tag rows.
-///
-/// As with [`crate::replace_links_for_file`], the DELETE and INSERTs are
-/// not wrapped in their own transaction — they execute directly on the
-/// caller's connection so they participate in any outer transaction the
-/// caller has open.
 pub async fn replace_tags_for_file(
     conn: &IndexConn,
     file_path: &str,
@@ -75,10 +44,6 @@ pub async fn replace_tags_for_file(
     Ok(())
 }
 
-/// Escape LIKE-special bytes (`\`, `%`, `_`) in a literal so it can be
-/// used as a prefix in `LIKE … ESCAPE '\'`. Tag grammar allows `_`, so
-/// this is not optional — an unescaped `_` would match any single
-/// character and bleed siblings into the prefix match.
 fn escape_like_literal(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for ch in s.chars() {
@@ -90,13 +55,6 @@ fn escape_like_literal(s: &str) -> String {
     out
 }
 
-/// Distinct file paths that carry `tag_path` or any of its descendants
-/// (`tag_path/…`). Matching is case-insensitive — the spec says
-/// "case-insensitive matching, case-preserving display", and L3 Session D
-/// stores `tag_path` with the case as written. Ordered by `file_path`
-/// for stable rendering.
-///
-/// Used by `query_tag_page` to back the virtual tag-page listing.
 pub async fn files_for_tag_prefix(
     conn: &IndexConn,
     tag_path: &str,
@@ -121,12 +79,6 @@ pub async fn files_for_tag_prefix(
     Ok(out)
 }
 
-/// Distinct tag paths whose lowercased form starts with `query`
-/// (case-insensitive prefix), ordered by `tag_path`, capped at `limit`.
-/// An empty `query` returns the first `limit` distinct tag paths. Case
-/// is preserved as written (display); matching is case-insensitive.
-///
-/// Backs the `#` tag-autocomplete command (L3 Session F, spec §2.6).
 pub async fn tag_paths_for_prefix(
     conn: &IndexConn,
     query: &str,
@@ -151,9 +103,6 @@ pub async fn tag_paths_for_prefix(
     Ok(out)
 }
 
-/// Every distinct tag path in the vault, ordered by `tag_path` (case
-/// preserved as written). Backs the L4-C Omni-Bar's client-side fuzzy
-/// tag source — the full set, uncapped, unlike `tag_paths_for_prefix`.
 pub async fn all_tag_paths(conn: &IndexConn) -> Result<Vec<String>, IndexError> {
     let mut rows = conn
         .connection()
@@ -166,9 +115,6 @@ pub async fn all_tag_paths(conn: &IndexConn) -> Result<Vec<String>, IndexError> 
     Ok(out)
 }
 
-/// All tag rows for a given file, ordered by `(source, tag_path)` so
-/// inline tags come before frontmatter ones and each group is
-/// lexicographic.
 pub async fn tags_for_file(conn: &IndexConn, file_path: &str) -> Result<Vec<TagRow>, IndexError> {
     let mut rows = conn
         .connection()
@@ -240,9 +186,6 @@ mod tests {
             .await
             .expect("replace");
         let got = tags_for_file(&conn, "a.md").await.expect("lookup");
-        // Ordering is (source, tag_path) so inline ('inline' < 'frontmatter'
-        // lexicographically? — actually 'frontmatter' < 'inline'). Both
-        // strings are stable; assert by set rather than order.
         assert_eq!(got.len(), 2);
         assert!(got.contains(&row("todo", TagSource::Inline)));
         assert!(got.contains(&row("project/cubical", TagSource::Frontmatter)));
@@ -263,7 +206,6 @@ mod tests {
         )
         .await
         .expect("replace a");
-        // Same tag on a different file/source — DISTINCT must collapse it.
         replace_tags_for_file(
             &conn,
             "b.md",
@@ -302,8 +244,6 @@ mod tests {
     async fn duplicate_same_triple_is_idempotent() {
         let (_dir, conn) = open_test_index().await;
         seed_file(&conn, "a.md").await;
-        // Same tag at multiple positions feeds the same triple — should
-        // collapse to one row per the PK, via INSERT OR IGNORE.
         let rows = vec![
             row("todo", TagSource::Inline),
             row("todo", TagSource::Inline),
@@ -392,8 +332,6 @@ mod tests {
             .expect("sibling");
 
         let got = files_for_tag_prefix(&conn, "project").await.expect("query");
-        // sibling.md (tag "projection") must NOT match — prefix is
-        // segment-boundary, not character-prefix.
         assert_eq!(
             got,
             vec![
@@ -425,8 +363,6 @@ mod tests {
     async fn files_for_tag_prefix_dedupes_when_same_file_has_inline_and_frontmatter() {
         let (_dir, conn) = open_test_index().await;
         seed_file(&conn, "a.md").await;
-        // Same file carries the tag both inline AND via frontmatter —
-        // virtual tag pages list each file once, not once per source.
         let rows = vec![
             row("todo", TagSource::Inline),
             row("todo", TagSource::Frontmatter),
@@ -446,10 +382,6 @@ mod tests {
         replace_tags_for_file(&conn, "match.md", &[row("my_tag", TagSource::Inline)])
             .await
             .expect("match");
-        // A tag with a single-char-different body must NOT bleed through
-        // an unescaped LIKE `_`. (Body grammar doesn't actually allow a
-        // bare `/` straight after — but in case extraction ever loosens,
-        // the escape is still load-bearing.)
         replace_tags_for_file(&conn, "wildcard.md", &[row("myXtag", TagSource::Inline)])
             .await
             .expect("wildcard");
@@ -483,13 +415,11 @@ mod tests {
             .await
             .unwrap();
 
-        // Prefix match, case-insensitive; distinct across files.
         let got = tag_paths_for_prefix(&conn, "proj", 50).await.unwrap();
         assert_eq!(
             got,
             vec!["Project".to_string(), "project/cubical".to_string()]
         );
-        // Non-matching prefix yields nothing.
         assert!(tag_paths_for_prefix(&conn, "zzz", 50)
             .await
             .unwrap()
@@ -501,7 +431,6 @@ mod tests {
         let (_dir, conn) = open_test_index().await;
         seed_file(&conn, "a.md").await;
         seed_file(&conn, "b.md").await;
-        // Same tag on two files must collapse to one DISTINCT row.
         replace_tags_for_file(&conn, "a.md", &[row("todo", TagSource::Inline)])
             .await
             .unwrap();
@@ -540,7 +469,6 @@ mod tests {
         )
         .await
         .unwrap();
-        // `_` in the query must be escaped, so it does not match `myXtag`.
         let got = tag_paths_for_prefix(&conn, "my_", 50).await.unwrap();
         assert_eq!(got, vec!["my_tag".to_string()]);
     }

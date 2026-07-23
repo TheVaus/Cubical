@@ -1,25 +1,3 @@
-//! Cross-language AST parity harness — Rust side.
-//!
-//! Owns the source-of-truth assertion that
-//! `cubical_ast::parse(input)` serialized as JSON equals each fixture's
-//! `expected` field. The same fixture file is consumed by the
-//! TypeScript side (`ui/src/ast/parity.test.ts`) so a single ground
-//! truth keeps the editor's Lezer-backed normalizer and the indexer's
-//! pulldown-cmark normalizer in lockstep.
-//!
-//! ## Updating fixtures
-//!
-//! When you intentionally change the AST shape, regenerate the
-//! `expected` fields in place by setting an env var:
-//!
-//! ```sh
-//! CUBICAL_UPDATE_PARITY_FIXTURES=1 cargo test -p cubical-ast --test parity_fixtures
-//! ```
-//!
-//! Then re-run the TS side (`cd ui && npm test`) to confirm the
-//! normalizer agrees with the new shape. If it doesn't, fix the TS
-//! normalizer — never edit the fixtures by hand.
-
 use cubical_ast::parse;
 use serde::{Deserialize, Serialize};
 

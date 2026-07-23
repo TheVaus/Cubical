@@ -1,43 +1,20 @@
-//! Pure wiki-link tokenizer. Scans an `Inline::Text` value for
-//! `[[…]]` / `![[…]]` runs and yields a sequence of `TokenizedRun`s.
-//!
-//! Grammar in `docs/superpowers/plans/2026-05-23-l3-session-a-wikilink-parsing.md`
-//! § "Wiki-link grammar". The grammar is mirrored byte-for-byte in
-//! `ui/src/ast/wikilink.ts`; the L1 parity harness extends to wiki-link
-//! fixtures so the two stay in lockstep.
-
 use crate::types::Anchor;
 
-/// One run produced by [`scan_wikilinks`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenizedRun {
-    /// Plain text between (or around) wiki-links.
     Text(String),
-    /// A successfully parsed wiki-link.
     WikiLink {
-        /// Parsed target (trimmed, non-empty).
         target: String,
-        /// Optional `|display` text.
         display: Option<String>,
-        /// Optional `#heading` or `#^block-id` anchor.
         anchor: Option<Anchor>,
-        /// `true` when prefixed `!` (embed).
         embed: bool,
     },
-    /// A frontmatter property reference: `[[note.prop]]` (cross-file) or
-    /// `[[.prop]]` (self, `note == None`). Top-level key only; the target
-    /// is split at the FIRST dot.
     PropertyRef {
-        /// Resolved note name, or `None` for a self-reference.
         note: Option<String>,
-        /// Property (frontmatter key) name, trimmed, non-empty.
         property: String,
     },
 }
 
-/// Scan a text run for `[[…]]` and `![[…]]`. Always returns at least one
-/// element when `input` is non-empty (a single `Text` if no wiki-links).
-/// An empty `input` returns an empty `Vec`.
 pub fn scan_wikilinks(input: &str) -> Vec<TokenizedRun> {
     if input.is_empty() {
         return Vec::new();
@@ -66,9 +43,6 @@ pub fn scan_wikilinks(input: &str) -> Vec<TokenizedRun> {
                 i = cursor;
             }
             None => {
-                // Unparseable body (empty target); skip the `[[` and keep
-                // searching after it. Do not flush — accumulate into the
-                // text run that surrounds this section.
                 i = content_start;
             }
         }
@@ -79,8 +53,6 @@ pub fn scan_wikilinks(input: &str) -> Vec<TokenizedRun> {
     out
 }
 
-/// Find the next opening bracket from `start`. Returns
-/// `(opener_byte_pos, content_byte_pos, is_embed)`.
 fn find_open(bytes: &[u8], start: usize) -> Option<(usize, usize, bool)> {
     let mut i = start;
     while i + 1 < bytes.len() {
@@ -95,7 +67,6 @@ fn find_open(bytes: &[u8], start: usize) -> Option<(usize, usize, bool)> {
     None
 }
 
-/// Find the next `]]` from `start`. Returns the index of the first `]`.
 fn find_close(bytes: &[u8], start: usize) -> Option<usize> {
     let mut i = start;
     while i + 1 < bytes.len() {
@@ -107,8 +78,6 @@ fn find_close(bytes: &[u8], start: usize) -> Option<usize> {
     None
 }
 
-/// Parse the inner body of `[[BODY]]` into a `WikiLink`. Returns `None`
-/// when the body is empty after trimming.
 fn parse_body(body: &str, is_embed: bool) -> Option<TokenizedRun> {
     let (head, display) = match body.find('|') {
         Some(pipe) => (&body[..pipe], Some(body[pipe + 1..].trim().to_string())),
@@ -145,8 +114,6 @@ fn parse_body(body: &str, is_embed: bool) -> Option<TokenizedRun> {
     if target.is_empty() {
         return None;
     }
-    // Property-ref branch: a dotted target with no anchor is a frontmatter
-    // reference, not a navigational link. Split at the FIRST dot.
     if anchor.is_none() {
         if let Some(dot) = target.find('.') {
             let note_raw = target[..dot].trim();
@@ -211,7 +178,6 @@ mod tests {
 
     #[test]
     fn property_ref_splits_on_first_dot_only() {
-        // Top-level only: remainder kept verbatim, won't resolve later.
         assert_eq!(scan_wikilinks("[[a.b.c]]"), vec![pref(Some("a"), "b.c")]);
     }
 
@@ -223,7 +189,6 @@ mod tests {
 
     #[test]
     fn dotted_target_with_anchor_stays_wikilink() {
-        // Anchor present → not a property ref (broken link later; acceptable).
         assert!(matches!(
             scan_wikilinks("[[Gandalf.age#h]]").as_slice(),
             [TokenizedRun::WikiLink { .. }]

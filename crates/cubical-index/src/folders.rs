@@ -1,21 +1,8 @@
-//! Queries against the `folders` table (migration 007, schema in
-//! `migrations/007_folders.sql`).
-//!
-//! The file tree is otherwise derived from `files` paths, so an empty
-//! directory has no representation. This table records every directory
-//! in the vault so empty folders still render. It is derived,
-//! rebuildable state — the on-disk directory is the source of truth,
-//! re-discovered by every scan. Paths are vault-relative with no
-//! leading or trailing slash; the vault root is never stored.
-
 use libsql::params;
 
 use crate::error::IndexError;
 use crate::runner::IndexConn;
 
-/// Upsert a folder row. `created_at` is preserved on conflict so a
-/// re-scan / re-create doesn't reset it; `last_seen` is always bumped so
-/// the staleness sweep can tell which rows a scan touched.
 pub async fn upsert_folder(conn: &IndexConn, path: &str, now: i64) -> Result<(), IndexError> {
     conn.connection()
         .execute(
@@ -27,7 +14,6 @@ pub async fn upsert_folder(conn: &IndexConn, path: &str, now: i64) -> Result<(),
     Ok(())
 }
 
-/// Delete a single folder row. No-op if the path isn't tracked.
 pub async fn delete_folder(conn: &IndexConn, path: &str) -> Result<(), IndexError> {
     conn.connection()
         .execute("DELETE FROM folders WHERE path = ?1", params![path])
@@ -35,9 +21,6 @@ pub async fn delete_folder(conn: &IndexConn, path: &str) -> Result<(), IndexErro
     Ok(())
 }
 
-/// Delete every folder row not seen since `cutoff` (i.e. whose
-/// `last_seen < cutoff`). Returns the number of rows swept. Used by the
-/// scan to drop folders deleted while the app wasn't watching.
 pub async fn sweep_stale_folders(conn: &IndexConn, cutoff: i64) -> Result<u64, IndexError> {
     let n = conn
         .connection()
@@ -46,8 +29,6 @@ pub async fn sweep_stale_folders(conn: &IndexConn, cutoff: i64) -> Result<u64, I
     Ok(n)
 }
 
-/// All tracked folder paths, ascending. Drives the file-tree merge that
-/// makes empty folders visible.
 pub async fn list_folders(conn: &IndexConn) -> Result<Vec<String>, IndexError> {
     let mut rows = conn
         .connection()

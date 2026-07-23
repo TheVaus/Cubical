@@ -1,48 +1,17 @@
-//! Extract tag occurrences from a parsed `cubical_ast::Document` and
-//! refresh the libSQL `tags` index for a single file.
-//!
-//! [`extract_tags`] is the pure walker — `Document` in, `Vec<TagExtraction>`
-//! out, no I/O. [`refresh_tags`] is the side-effecting helper that the
-//! scan + watcher write paths call after they UPSERT the matching
-//! `files` row — it parses the markdown off the runtime, runs
-//! `extract_tags`, and atomically replaces the file's rows in the
-//! `tags` table. Shape and resilience policy mirror
-//! [`crate::vault::links::refresh_links`].
-//!
-//! Two declaration sources feed one extraction (`docs/layer-3-spec.md`
-//! §2.4): inline `#tag` tokens parsed into [`cubical_ast::Inline::Tag`]
-//! by the AST normalizer, and frontmatter `tags:` entries pulled from
-//! the parsed [`cubical_ast::Frontmatter`]. The `source` field on each
-//! extraction discriminates the two so the libSQL row carries the
-//! correct `source` column.
-//!
-//! Within a single file we dedupe by `(lowercase(tag_path), source)`:
-//! `#FooBar` and `#foobar` in the same file collapse to one row, with
-//! the first-seen casing preserved (matches the spec's "case-insensitive
-//! matching, case-preserving display" rule).
-
 use cubical_ast::{parse, Block, Document, Inline, ListItem};
 use cubical_index::{replace_tags_for_file, TagRow, TagSource};
 
 use crate::vault::Vault;
 
-/// One tag occurrence extracted from a `Document`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TagExtraction {
-    /// The tag body without the leading `#`, with the case as written
-    /// at the first occurrence within the file. Nested via `/`.
     pub tag_path: String,
-    /// Where this occurrence was declared.
     pub source: TagSource,
 }
 
-/// Walk a `Document` and return one [`TagExtraction`] per unique
-/// `(tag_path lowercase, source)` pair, preserving the first-seen
-/// casing of each tag. Order: every inline tag (in document order)
-/// followed by every frontmatter tag (in YAML order).
 #[must_use]
 pub fn extract_tags(doc: &Document) -> Vec<TagExtraction> {
-    let mut seen_inline: Vec<(String, String)> = Vec::new(); // (lc, original)
+    let mut seen_inline: Vec<(String, String)> = Vec::new();
     let mut seen_frontmatter: Vec<(String, String)> = Vec::new();
 
     for block in &doc.blocks {
@@ -124,18 +93,10 @@ fn collect_frontmatter_tags(value: &serde_json::Value, seen: &mut Vec<(String, S
                 collect_frontmatter_tags(entry, seen);
             }
         }
-        // Numbers, booleans, nulls, objects: not tag-shaped. Skip.
         _ => {}
     }
 }
 
-/// Split a frontmatter `tags:` scalar into individual tag bodies.
-///
-/// `tags: foo` yields `["foo"]`. `tags: "foo, bar"` and
-/// `tags: "foo bar"` both yield `["foo", "bar"]` — common in
-/// hand-written Obsidian frontmatter where the user types one string
-/// instead of a YAML list. Leading `#` is stripped because the YAML
-/// scalar usually omits it but some users include it; either survives.
 fn parse_frontmatter_tag_string(raw: &str) -> Vec<String> {
     raw.split(|c: char| c == ',' || c.is_whitespace())
         .map(str::trim)
@@ -145,8 +106,6 @@ fn parse_frontmatter_tag_string(raw: &str) -> Vec<String> {
         .collect()
 }
 
-/// Insert `(lowercase, original)` into `seen` if the lowercase form
-/// isn't already present; do nothing if it is. First-seen casing wins.
 fn push_unique(seen: &mut Vec<(String, String)>, candidate: &str) {
     let trimmed = candidate.trim();
     if trimmed.is_empty() {
@@ -159,18 +118,6 @@ fn push_unique(seen: &mut Vec<(String, String)>, candidate: &str) {
     seen.push((lc, trimmed.to_string()));
 }
 
-/// Parse `abs_path`'s markdown, extract tags (inline + frontmatter), and
-/// replace this file's rows in the `tags` table.
-///
-/// `rel_path_str` is the path key used in `files.path` and
-/// `tags.file_path`. The caller is responsible for ensuring the matching
-/// `files` row exists before this is invoked so the FK has a parent to
-/// point at.
-///
-/// On read or parse failure, the file's tag rows are wiped (treated as
-/// "no tags") rather than left stale. SQL errors propagate so the
-/// caller can decide whether to retry; the scan + watcher write paths
-/// log and continue, mirroring `refresh_links`.
 pub async fn refresh_tags(
     vault: &Vault,
     rel_path_str: &str,
@@ -196,10 +143,6 @@ pub async fn refresh_tags(
     Ok(inserted)
 }
 
-/// Parse `source` off the runtime. Returns `None` only if the parse
-/// task itself fails to join — every failure is logged at `warn` and
-/// treated as "no tags to record" (the existing rows are wiped by
-/// [`refresh_tags`]).
 async fn parse_off_executor(source: &str) -> Option<Document> {
     let owned = source.to_string();
     let result = tokio::task::spawn_blocking(move || parse(&owned)).await;
@@ -324,7 +267,6 @@ mod tests {
         let doc = parse("---\ntags: \"alpha, beta gamma\"\n---\nbody\n");
         let tags = extract_tags(&doc);
         let paths: Vec<&str> = tags.iter().map(|t| t.tag_path.as_str()).collect();
-        // Comma-and-whitespace split; "alpha", "beta", "gamma".
         assert_eq!(paths, vec!["alpha", "beta", "gamma"]);
     }
 
@@ -338,12 +280,9 @@ mod tests {
 
     #[test]
     fn combines_frontmatter_and_inline_with_dedup() {
-        // Frontmatter has FooBar; inline has foobar. Same logical tag,
-        // different sources — both rows ship.
         let doc = parse("---\ntags: [FooBar]\n---\n#foobar in body\n");
         let tags = extract_tags(&doc);
         assert_eq!(tags.len(), 2);
-        // Inline first (document order), then frontmatter.
         assert_eq!(tags[0].source, TagSource::Inline);
         assert_eq!(tags[0].tag_path, "foobar");
         assert_eq!(tags[1].source, TagSource::Frontmatter);

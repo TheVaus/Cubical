@@ -1,5 +1,3 @@
-//! Tantivy schema definition for the search index.
-
 use tantivy::schema::{
     Field, IndexRecordOption, Schema, SchemaBuilder, TextFieldIndexing, TextOptions, FAST, INDEXED,
     STORED, STRING,
@@ -8,36 +6,23 @@ use tantivy::tokenizer::{
     Language, LowerCaser, SimpleTokenizer, Stemmer, TextAnalyzer, TokenizerManager,
 };
 
-/// Tokenizer name for the English-stemmed prose tokenizer.
 pub const TOKENIZER_EN_STEM: &str = "en_stem";
 
-/// Tokenizer name for the code tokenizer (lowercase, no stem).
 pub const TOKENIZER_CODE: &str = "code";
 
-/// Handles for every field in the schema.
 #[derive(Debug, Clone, Copy)]
 pub struct Fields {
-    /// Vault-relative path. `STRING` (not tokenized); upsert/delete key.
     pub path: Field,
-    /// Title text. `TEXT` + `en_stem`. Stored.
     pub title: Field,
-    /// Concatenated heading text. `TEXT` + `en_stem`. Stored.
     pub headings: Field,
-    /// Prose body. `TEXT` + `en_stem`. Stored.
     pub body: Field,
-    /// Code text. `TEXT` + `code`. Stored.
     pub code: Field,
-    /// Multi-valued lowercase tag strings. `STRING`. Stored.
     pub tags: Field,
-    /// Flattened frontmatter scalars. `TEXT` + `en_stem`. Stored.
     pub frontmatter: Field,
-    /// Unix seconds. `i64` `INDEXED|STORED|FAST`.
     pub mtime_secs: Field,
-    /// File size in bytes. `u64` `INDEXED|STORED|FAST`.
     pub size_bytes: Field,
 }
 
-/// Build the schema (called once per `SearchIndex::open`).
 pub fn build_schema() -> (Schema, Fields) {
     let mut sb = SchemaBuilder::new();
 
@@ -81,7 +66,6 @@ pub fn build_schema() -> (Schema, Fields) {
     )
 }
 
-/// Register `en_stem` and `code` tokenizers on the supplied manager.
 pub fn register_tokenizers(mgr: &TokenizerManager) {
     let en_stem = TextAnalyzer::builder(SimpleTokenizer::default())
         .filter(LowerCaser)

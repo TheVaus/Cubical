@@ -1,85 +1,51 @@
-//! Consolidated app-level error type.
-//!
-//! Per `docs/layer-0-spec.md` §9, the IPC boundary speaks one error type.
-//! `CubicalError` folds the crate-local error types — `VaultError` from
-//! `cubical-core`, `IndexError` from `cubical-index`, `FileTypeError` from
-//! `cubical-core` — into a single enum that serializes to a stable JSON
-//! shape for the frontend.
-//!
-//! The spec originally placed this in `cubical-core`, but the actual
-//! workspace dep graph (cubical-core consumes cubical-index for the
-//! libSQL handle) means the consolidated error must live downstream of
-//! both crates. `cubical-app` is the natural home — it's the only crate
-//! that needs to fold every error variant — and there is no IPC layer
-//! below this one that would need the same fold.
-
 use serde::{Serialize, Serializer};
 
 use cubical_core::{FileTypeError, VaultError};
 use cubical_index::IndexError;
 
-/// Every fallible IPC command returns `Result<T, CubicalError>`.
-///
-/// Variants are stable wire identifiers. Renaming a variant is a
-/// frontend-breaking change.
 #[derive(Debug, thiserror::Error)]
 pub enum CubicalError {
-    /// The vault path does not exist on disk.
     #[error("vault not found: {0}")]
     VaultNotFound(String),
 
-    /// The vault path exists but is not a directory.
     #[error("vault path is not a directory: {0}")]
     VaultNotADirectory(String),
 
-    /// The vault path is not writable by this process.
     #[error("vault path is not writable: {0}")]
     VaultNotWritable(String),
 
-    /// The on-disk schema is newer than this build supports.
     #[error("schema version {0} is newer than this build supports")]
     SchemaVersionUnsupported(u32),
 
-    /// The named vault is not currently open in this session.
     #[error("vault not open: {0}")]
     VaultNotOpen(String),
 
-    /// The named file is not tracked in the vault's index.
     #[error("file not found in vault: {0}")]
     FileNotFound(String),
 
-    /// The scan was cancelled before completing.
     #[error("scan cancelled")]
     ScanCancelled,
 
-    /// I/O failure.
     #[error("io error: {0}")]
     Io(String),
 
-    /// libSQL failure.
     #[error("database error: {0}")]
     Db(String),
 
-    /// File-type handler failure (hash, sanitize).
     #[error("file type error: {0}")]
     FileType(String),
 
-    /// OS file watcher failure.
     #[error("watcher error: {0}")]
     Watcher(String),
 
-    /// Tantivy search index failure.
     #[error("search index error: {0}")]
     Search(String),
 
-    /// Argument validation failure.
     #[error("invalid request: {0}")]
     InvalidRequest(String),
 }
 
 impl CubicalError {
-    /// Stable `code` field for the JSON wire shape. Used by `Serialize`
-    /// and available for tests / logs.
     fn code(&self) -> &'static str {
         match self {
             Self::VaultNotFound(_) => "VaultNotFound",
@@ -100,8 +66,6 @@ impl CubicalError {
 }
 
 impl Serialize for CubicalError {
-    /// Serializes as `{ "code": "<variant>", "message": "<display>" }`.
-    /// The frontend matches on `code`; `message` is for human-facing UI.
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeStruct;
         let mut s = serializer.serialize_struct("CubicalError", 2)?;
@@ -133,10 +97,6 @@ impl From<IndexError> for CubicalError {
             IndexError::Io { source, .. } => Self::Io(source.to_string()),
             IndexError::LibSql(e) => Self::Db(e.to_string()),
             IndexError::SchemaTooNew(v) => Self::SchemaVersionUnsupported(v),
-            // L3 Session J: surfaces when a `pending_rewrites.rewrite_kind`
-            // row carries a value this build doesn't know (corrupt or
-            // future-version DB). Fold into `Db` so the frontend toast
-            // path stays uniform.
             other @ IndexError::UnknownEnum { .. } => Self::Db(other.to_string()),
         }
     }
@@ -149,11 +109,6 @@ impl From<FileTypeError> for CubicalError {
 }
 
 impl From<cubical_search::SearchError> for CubicalError {
-    /// L4-A — direct fold of search errors into the IPC enum. The
-    /// existing `VaultError::Search` path covers errors that surface
-    /// through `Vault::open`; this impl covers the IPC commands that
-    /// call `run_search` / index mutators directly without going
-    /// through `VaultError`.
     fn from(value: cubical_search::SearchError) -> Self {
         Self::Search(value.to_string())
     }

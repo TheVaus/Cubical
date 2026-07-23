@@ -1,14 +1,3 @@
-//! Non-blocking vault scan.
-//!
-//! Walks the vault tree, dispatches each file through the
-//! [`FileTypeRegistry`](crate::file_type::FileTypeRegistry), computes a
-//! content hash via the matching handler, and upserts a row into the
-//! `files` table. Progress is streamed back via an
-//! [`mpsc::Sender<ScanProgress>`] so callers can forward to whatever
-//! transport they want (a Tauri event in the app crate, a test channel
-//! in unit tests). Cancellation is cooperative and is checked between
-//! files — `tokio_util::sync::CancellationToken` is the contract.
-
 use std::time::SystemTime;
 
 use cubical_ast::Anchor;
@@ -33,43 +22,16 @@ use crate::vault::{
     Vault, VaultError,
 };
 
-/// Number of files persisted per index transaction.
-///
-/// Autocommitting every file means one `fsync` per file — tens of
-/// thousands of them on a large vault, which is the difference between
-/// a scan that finishes in seconds and one that grinds for minutes.
-/// Batching collapses that to one `fsync` per batch. A re-scan resumes
-/// cleanly from the last committed batch.
 const SCAN_BATCH_SIZE: u32 = 500;
 
-/// Commit the Tantivy index every N docs during initial scan so the
-/// writer's in-memory buffer stays bounded on large vaults.
 const SEARCH_COMMIT_EVERY: usize = 5_000;
 
-/// Progress update streamed from an in-flight scan.
-///
-/// `files_total_estimate` is a rolling lower-bound: it is the count of
-/// regular-file entries the walker has *seen so far* (not the final
-/// total). It converges to the true total as the walk completes.
 #[derive(Debug, Clone, Copy)]
 pub struct ScanProgress {
-    /// Files that have been hashed and persisted to the index.
     pub files_processed: u32,
-    /// Rolling lower-bound estimate of the total file count.
     pub files_total_estimate: u32,
 }
 
-/// Scan `vault` and upsert every tracked file into the `files` table.
-///
-/// On success returns the final processed-file count. On cancellation
-/// returns [`VaultError::ScanCancelled`]; partial work already committed
-/// is left in place so a re-scan can resume cleanly. Other I/O or hash
-/// failures on individual files are logged and skipped — they don't
-/// abort the whole scan.
-///
-/// The progress channel is best-effort: if the receiver is dropped (e.g.
-/// the dispatcher task already exited), updates are silently discarded
-/// rather than failing the scan.
 pub async fn scan(
     vault: Vault,
     cancel: CancellationToken,
@@ -78,33 +40,18 @@ pub async fn scan(
     let root = vault.root().to_path_buf();
     let registry = vault.registry_arc();
 
-    // Captured before the walk: every file the walk upserts is stamped
-    // with `last_seen >= scan_started_secs`. After the walk, rows still
-    // carrying an older `last_seen` were not seen this scan — they were
-    // deleted on disk while the app wasn't watching — and get swept.
     let scan_started_secs = unix_now_secs();
 
     let mut files_processed: u32 = 0;
     let mut files_total_estimate: u32 = 0;
 
-    // Persist files in batched transactions rather than autocommitting
-    // each one — see `SCAN_BATCH_SIZE`. `conn` is hoisted so the
-    // transaction handle and the per-file upserts share it.
     let conn = vault.index().connection();
     let mut tx = conn.transaction().await.map_err(IndexError::from)?;
     let mut batch_count: u32 = 0;
     let mut search_batch_count: usize = 0;
-    // Every markdown path indexed this scan — used to reconcile the
-    // search index (drop docs for files renamed/deleted while the app
-    // wasn't watching) once the walk is complete.
     let mut indexed_search_paths: std::collections::HashSet<String> =
         std::collections::HashSet::new();
 
-    // Pass-1 buffer: link occurrences per source file. Resolution is
-    // deferred to Pass 2 (after the walk) so it sees the COMPLETE file
-    // set — both for correctness (forward references) and to avoid the
-    // O(N²) of re-loading the path set per file. See
-    // docs/layer-3-spec.md §5.6.
     let mut pending_links: Vec<(String, Vec<LinkExtraction>)> = Vec::new();
 
     let walker = WalkDir::new(&root).follow_links(false).into_iter();
@@ -119,14 +66,11 @@ pub async fn scan(
         if name == "node_modules" {
             return false;
         }
-        // Skip dot-prefixed directories. This catches `.cubical/`, `.git/`,
-        // `.idea/`, `.obsidian/`, `.DS_Store/` (rare but possible), etc.
         !name.starts_with('.')
     });
 
     for entry_result in walker {
         if cancel.is_cancelled() {
-            // Commit work done so far so a re-scan resumes cleanly.
             tx.commit().await.map_err(IndexError::from)?;
             tracing::info!(processed = files_processed, "scan cancelled mid-walk");
             return Err(VaultError::ScanCancelled);
@@ -140,11 +84,6 @@ pub async fn scan(
             }
         };
         if !entry.file_type().is_file() {
-            // Record directories (other than the vault root) into the
-            // `folders` table so empty ones still render in the tree.
-            // Excluded dirs (dot-prefixed, `node_modules`) are already
-            // pruned by the walker's `filter_entry` above, so anything
-            // reaching here is a folder we want to track.
             if entry.file_type().is_dir() && entry.depth() > 0 {
                 let rel = entry
                     .path()
@@ -158,9 +97,6 @@ pub async fn scan(
             }
             continue;
         }
-        // Skip atomic-write scratch files left behind by a crashed
-        // write. Mirrors the watcher's same filter in
-        // `watcher.rs::is_excluded` — both filters must agree.
         if entry.path().extension().is_some_and(|e| e == "cubical-tmp") {
             continue;
         }
@@ -173,9 +109,6 @@ pub async fn scan(
         files_total_estimate = files_total_estimate.saturating_add(1);
 
         let Some(handler) = registry.handler_for(&abs_path) else {
-            // No registered handler claimed this path. With the default
-            // registry (markdown + binary catch-all) this never fires;
-            // custom registries that omit the catch-all will see it.
             continue;
         };
         let type_id = handler.type_id();
@@ -188,9 +121,6 @@ pub async fn scan(
             }
         };
 
-        // Hash off the executor — large files would otherwise stall the
-        // runtime. Re-dispatch through the registry inside the blocking
-        // task so we don't have to make handlers `Clone`.
         let abs_for_hash = abs_path.clone();
         let registry_for_hash = registry.clone();
         let hash_result = tokio::task::spawn_blocking(move || {
@@ -218,9 +148,6 @@ pub async fn scan(
         let mtime_unix = mtime_secs(&metadata);
         let inode = inode_of(&metadata);
 
-        // UPSERT keyed on path. `created_at` is intentionally omitted from
-        // the conflict update so the original creation time survives a
-        // re-scan; everything else is overwritten with the latest values.
         let path_str = rel_path.to_string_lossy().into_owned();
         let upsert = "
             INSERT INTO files (
@@ -256,22 +183,6 @@ pub async fn scan(
             continue;
         }
 
-        // L1: refresh the `frontmatter` rows for markdown files. Other
-        // file types skip — frontmatter is a markdown-only concept.
-        // Errors are logged and ignored: the `files` row is in place,
-        // so a malformed YAML file is still tracked, just without a
-        // frontmatter index. The next scan or modify event will heal
-        // it if the file gets fixed.
-        //
-        // L3 Session J (chain 3): read the source ONCE per markdown file
-        // and materialize any pending rewrites for `path_str`, then hand
-        // the materialized text to every extractor. Otherwise scan-derived
-        // tables (frontmatter, links, tags, blocks) reflect the *old*
-        // tokens until flush — the user-visible editor view (which goes
-        // through `materialize_on_read`) would disagree with backlinks +
-        // tag listings. (`files.content_hash` is computed against the
-        // raw on-disk bytes above and intentionally untouched here — it
-        // tracks the unrewritten file.)
         if type_id == "markdown" {
             let raw_source = read_source_off_executor(&abs_path)
                 .await
@@ -287,35 +198,16 @@ pub async fn scan(
             if let Err(e) = refresh_frontmatter(&vault, &path_str, &source).await {
                 tracing::warn!(path = %abs_path.display(), error = %e, "frontmatter refresh failed");
             }
-            // L3 §5.6: defer link RESOLUTION to Pass 2; just extract +
-            // buffer here. Extraction still parses the file (the §5.5
-            // multi-parse is a separate, deferred issue).
             let extractions = extract_links_from_source(&source).await;
             if !extractions.is_empty() {
                 pending_links.push((path_str.clone(), extractions));
             }
-            // L3 Session D: refresh the `tags` rows. Same resilience
-            // policy — inline + frontmatter tags feed one table.
             if let Err(e) = refresh_tags(&vault, &path_str, &source).await {
                 tracing::warn!(path = %abs_path.display(), error = %e, "tags refresh failed");
             }
-            // L3 §2.7: block-id definitions are per-file (no resolution),
-            // so they refresh inline here alongside frontmatter + tags.
             if let Err(e) = refresh_blocks(&vault, &path_str, &source).await {
                 tracing::warn!(path = %abs_path.display(), error = %e, "blocks refresh failed");
             }
-            // L4-A: search index refresh. Same resilience policy as the
-            // others — log on error, do not abort the scan.
-            //
-            // Cancellation guard: the search refresher is the heaviest
-            // per-file refresher (parse + project + IndexWriter mutation).
-            // Skip it if cancellation is already in flight so the 100ms
-            // cancellation budget holds under parallel test load. The
-            // next launch's scan re-walks every file and upsert is
-            // idempotent (delete-by-path then add), so a file skipped
-            // mid-scan converges on the next pass — its libSQL refreshers
-            // (frontmatter / links / tags / blocks) already ran in this
-            // iteration, but the search doc will be re-projected next time.
             if !cancel.is_cancelled() {
                 let search_size_bytes = source.len() as u64;
                 if let Err(e) =
@@ -337,8 +229,6 @@ pub async fn scan(
 
         files_processed = files_processed.saturating_add(1);
 
-        // Commit and reopen once the batch fills, so the work lands on
-        // disk incrementally rather than in one transaction at the end.
         batch_count += 1;
         if batch_count >= SCAN_BATCH_SIZE {
             tx.commit().await.map_err(IndexError::from)?;
@@ -354,20 +244,12 @@ pub async fn scan(
             .await;
     }
 
-    // Commit Pass 1 so the files table is complete and visible to the
-    // resolution query below.
     tx.commit().await.map_err(IndexError::from)?;
 
-    // L4-A: final search commit so the scan's last batch is queryable.
     if let Err(e) = vault.search().commit() {
         tracing::warn!(error = %e, "search index final commit failed");
     }
 
-    // L4-B: reconcile the search index with the on-disk file set — drop
-    // docs for markdown files renamed or deleted while the app wasn't
-    // watching (no watcher event fired), which would otherwise surface
-    // stale hits. Skip under cancellation: the walk is incomplete, so
-    // `indexed_search_paths` is partial and would wrongly drop live docs.
     if !cancel.is_cancelled() {
         match vault.search().retain_paths(&indexed_search_paths) {
             Ok(removed) if removed > 0 => {
@@ -382,13 +264,6 @@ pub async fn scan(
         }
     }
 
-    // Sweep `files` rows for paths deleted while the app wasn't watching.
-    // Pass 1 stamped every on-disk file with `last_seen >= scan_started_secs`;
-    // anything still older vanished from disk and must leave the index so
-    // it stops surfacing in `list_files` / the tree. The `ON DELETE CASCADE`
-    // FKs carry each gone file's outbound rows with it. Mirrors the search
-    // reconcile above; skipped under cancellation, where the walk is
-    // incomplete and live rows would look stale.
     if !cancel.is_cancelled() {
         match conn
             .execute(
@@ -402,10 +277,6 @@ pub async fn scan(
             Err(e) => tracing::warn!(error = %e, "files sweep failed"),
         }
 
-        // Same sweep for the `folders` table: a directory deleted while
-        // the app wasn't watching keeps a row whose `last_seen` predates
-        // this scan, so drop it. Folders are tracked only so empty ones
-        // stay visible; a stale row would show a ghost folder in the tree.
         match sweep_stale_folders(vault.index(), scan_started_secs).await {
             Ok(n) if n > 0 => tracing::info!(removed = n, "scan swept rows for deleted folders"),
             Ok(_) => {}
@@ -413,9 +284,6 @@ pub async fn scan(
         }
     }
 
-    // ---- Pass 2: resolve all buffered links against the complete file
-    // set, once. O(N) build + O(1) common-case lookups. Replaces the
-    // old O(N²) per-file resolve. See docs/layer-3-spec.md §5.6.
     let known_paths = {
         let mut rows = conn
             .query("SELECT path FROM files ORDER BY path", ())
@@ -441,7 +309,7 @@ pub async fn scan(
             .filter_map(|e| {
                 let target_path = resolver.resolve(&e.target_raw);
                 if !keeps_link_row(e.from_property_ref, &target_path) {
-                    return None; // unresolved property-ref → not a link
+                    return None;
                 }
                 let (anchor_kind, anchor_value) = match e.anchor {
                     Some(Anchor::Heading { value }) => (Some("heading".to_string()), Some(value)),
@@ -462,8 +330,6 @@ pub async fn scan(
         if let Err(e) = replace_links_for_file(vault.index(), &source_path, &rows).await {
             tracing::warn!(path = %source_path, error = %e, "links resolve/write failed");
         }
-        // L3 §2.7: now that this source's resolved links are persisted,
-        // project its block-anchored ones into the block_refs table.
         if let Err(e) = refresh_block_refs_for_file(&vault, &source_path).await {
             tracing::warn!(path = %source_path, error = %e, "block_refs refresh failed");
         }
@@ -519,7 +385,6 @@ mod tests {
     use std::time::Duration;
     use tempfile::tempdir;
 
-    /// Build a vault containing `n` markdown files and `extras` (relative path → bytes).
     async fn fixture_vault(n: usize, extras: &[(&str, &[u8])]) -> (tempfile::TempDir, Vault) {
         let dir = tempdir().unwrap();
         for i in 0..n {
@@ -600,8 +465,6 @@ mod tests {
         fs::write(dir.path().join("live.md"), "alpha live note\n").unwrap();
         let vault = Vault::open(dir.path()).await.expect("open");
 
-        // Simulate a doc left behind for a file that no longer exists
-        // (e.g. renamed/deleted while the app wasn't watching).
         cubical_core_index_doc(&vault, "ghost.md", "alpha ghost note").await;
         vault.search().commit().unwrap();
         let q = SearchQuery {
@@ -616,8 +479,6 @@ mod tests {
         assert_eq!(before.len(), 1);
         assert_eq!(before[0].path, "ghost.md", "orphan present pre-scan");
 
-        // A scan walks only `live.md`; it indexes live.md and reconcile
-        // must drop the orphan `ghost.md`.
         let (tx, _rx) = mpsc::channel::<ScanProgress>(8);
         scan(vault.clone(), CancellationToken::new(), tx)
             .await
@@ -630,18 +491,10 @@ mod tests {
 
     #[tokio::test]
     async fn scan_sweeps_files_rows_for_paths_deleted_while_app_closed() {
-        // A file deleted on disk while the app was closed fires no watcher
-        // event, so its `files` row would linger in `list_files` (and the
-        // tree) forever. The post-walk sweep must drop any row not seen by
-        // this scan (its `last_seen` predates the scan). Regression guard
-        // for the "deleted file lingers in the file tree" bug.
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("live.md"), "still here\n").unwrap();
         let vault = Vault::open(dir.path()).await.expect("open");
 
-        // Seed a stale row for a path that does NOT exist on disk, with an
-        // ancient `last_seen` (a prior scan that saw it; the file has
-        // since been deleted externally).
         vault
             .index()
             .connection()
@@ -682,16 +535,12 @@ mod tests {
 
     #[tokio::test]
     async fn scan_records_directories_and_sweeps_deleted_ones() {
-        // Empty folders aren't representable in the files-derived tree, so
-        // the scan records every directory into `folders` (and sweeps rows
-        // for dirs deleted while the app wasn't watching).
         let dir = tempdir().unwrap();
         fs::create_dir_all(dir.path().join("projects/2026")).unwrap();
         fs::create_dir(dir.path().join("empty")).unwrap();
         fs::write(dir.path().join("projects/note.md"), "hi\n").unwrap();
         let vault = Vault::open(dir.path()).await.expect("open");
 
-        // Seed a stale folder row for a dir that no longer exists on disk.
         vault
             .index()
             .connection()
@@ -715,8 +564,6 @@ mod tests {
         );
     }
 
-    /// Index a doc directly into the search index (test helper for
-    /// simulating orphans).
     async fn cubical_core_index_doc(vault: &Vault, path: &str, body: &str) {
         super::super::search_refresh::refresh_search_index(vault, path, body, 0, body.len() as u64)
             .await
@@ -726,7 +573,6 @@ mod tests {
     #[tokio::test]
     async fn scan_inserts_a_row_per_file_without_modifying_content() {
         let (dir, vault) = fixture_vault(10, &[]).await;
-        // Capture file content + hashes before scan.
         let mut before: Vec<(String, String)> = Vec::new();
         for i in 0..10 {
             let p = dir.path().join(format!("note-{i:03}.md"));
@@ -739,9 +585,7 @@ mod tests {
         let count = scan(vault.clone(), cancel, tx).await.expect("scan");
         assert_eq!(count, 10);
 
-        // 10 rows in `files`.
         assert_eq!(scalar_i64(&vault, "SELECT COUNT(*) FROM files").await, 10);
-        // All `markdown` type_id.
         assert_eq!(
             scalar_i64(
                 &vault,
@@ -751,12 +595,10 @@ mod tests {
             10,
         );
 
-        // Re-hash files after scan; verify the bytes weren't touched.
         for (rel, expected_hash) in before {
             let bytes = fs::read(dir.path().join(&rel)).unwrap();
             assert_eq!(sha256_hex(&bytes), expected_hash, "{rel} byte-changed");
 
-            // And the stored hash matches.
             let conn = vault.index().connection();
             let mut rows = conn
                 .query(
@@ -789,7 +631,6 @@ mod tests {
             .await
             .expect("scan");
 
-        // 3 markdown + 1 binary = 4. Nothing from .git/, .obsidian/, node_modules/.
         assert_eq!(scalar_i64(&vault, "SELECT COUNT(*) FROM files").await, 4);
         assert_eq!(
             scalar_i64(
@@ -838,17 +679,12 @@ mod tests {
 
         let scan_handle = tokio::spawn(scan(vault.clone(), cancel.clone(), tx));
 
-        // Wait for the scan to actually start (first progress event).
         let _ = tokio::time::timeout(Duration::from_secs(2), rx.recv())
             .await
             .expect("first progress within 2s");
 
-        // Cancel and time how long the scan task takes to settle.
         let t0 = std::time::Instant::now();
         cancel.cancel();
-        // Drain remaining progress events so the scan task isn't blocked
-        // on a full channel; this also lets the task observe cancellation
-        // promptly.
         tokio::spawn(async move { while rx.recv().await.is_some() {} });
 
         let result = tokio::time::timeout(Duration::from_millis(500), scan_handle)
@@ -858,9 +694,6 @@ mod tests {
         let inner = result.expect("scan task panicked");
         match inner {
             Err(VaultError::ScanCancelled) => {}
-            // It's acceptable for the scan to have already finished if it
-            // was extremely fast; in that case we do NOT count it as a
-            // pass for cancellation responsiveness, so fail loudly.
             other => panic!("expected ScanCancelled, got {other:?}"),
         }
 
@@ -869,9 +702,6 @@ mod tests {
             "cancel-to-settle was {elapsed:?}, expected <= 100ms",
         );
 
-        // No orphan rows for un-scanned files: the count of rows in `files`
-        // is bounded by what was scanned before the cancel — i.e. less than
-        // the total of 200, but a non-negative number is acceptable.
         let row_count = scalar_i64(&vault, "SELECT COUNT(*) FROM files").await;
         assert!(
             (0..200).contains(&row_count),
@@ -884,7 +714,6 @@ mod tests {
         let (_dir, vault) = fixture_vault(5, &[]).await;
         let cancel = CancellationToken::new();
 
-        // First scan.
         let (tx, _rx) = mpsc::channel::<ScanProgress>(64);
         scan(vault.clone(), cancel.clone(), tx)
             .await
@@ -905,11 +734,8 @@ mod tests {
         };
         assert_eq!(first_created.len(), 5);
 
-        // Sleep so the second scan would write a different `now_secs` if
-        // it overwrote `created_at`. One second is the smallest unit.
         tokio::time::sleep(Duration::from_millis(1100)).await;
 
-        // Second scan — same files, same paths.
         let (tx2, _rx2) = mpsc::channel::<ScanProgress>(64);
         scan(vault.clone(), cancel, tx2).await.expect("scan2");
         assert_eq!(scalar_i64(&vault, "SELECT COUNT(*) FROM files").await, 5);
@@ -934,13 +760,6 @@ mod tests {
         );
     }
 
-    // Sanity check that libsql accepts `Option<i64>` for the inode
-    // parameter on platforms that always supply Some.
-    // -- Frontmatter wiring (L1) --------------------------------------
-
-    /// Build a vault with `files` (relative path → bytes) explicitly
-    /// listed. Useful when tests want a file with frontmatter without
-    /// going through `fixture_vault`'s template body.
     async fn fixture_vault_with(files: &[(&str, &[u8])]) -> (tempfile::TempDir, Vault) {
         let dir = tempdir().unwrap();
         for (rel, bytes) in files {
@@ -968,12 +787,10 @@ mod tests {
             .expect("scan");
 
         let conn = vault.index().connection();
-        // Three keys → three rows.
         assert_eq!(
             scalar_i64(&vault, "SELECT COUNT(*) FROM frontmatter").await,
             3
         );
-        // Spot-check the JSON-encoded value for `tags`.
         let mut rows = conn
             .query(
                 "SELECT value FROM frontmatter WHERE file_path = 'note.md' AND key = 'tags'",
@@ -997,7 +814,6 @@ mod tests {
             .await
             .expect("scan should succeed despite malformed YAML");
 
-        // The `files` row is there.
         assert_eq!(
             scalar_i64(
                 &vault,
@@ -1006,7 +822,6 @@ mod tests {
             .await,
             1
         );
-        // No frontmatter rows for this file.
         assert_eq!(
             scalar_i64(
                 &vault,
@@ -1033,7 +848,6 @@ mod tests {
             2
         );
 
-        // User edits the file — drops `status`, renames `title`.
         fs::write(&p, "---\nheading: B\n---\n").unwrap();
 
         let (tx2, _rx2) = mpsc::channel::<ScanProgress>(64);
@@ -1075,7 +889,6 @@ mod tests {
             .await
             .expect("scan");
 
-        // Only the markdown file produces frontmatter rows.
         assert_eq!(
             scalar_i64(
                 &vault,
@@ -1107,7 +920,6 @@ mod tests {
             .await
             .unwrap();
         let row = rows.next().await.unwrap().unwrap();
-        // On Unix this is Some(_); on other platforms Null. Both are valid.
         let v = row.get_value(0).unwrap();
         assert!(matches!(v, Value::Integer(_) | Value::Null));
     }
@@ -1129,7 +941,6 @@ mod tests {
             .expect("scan");
 
         let rows = tags_for_file(vault.index(), "a.md").await.expect("query");
-        // 1 inline + 2 frontmatter = 3 rows.
         assert_eq!(rows.len(), 3);
         assert!(rows
             .iter()
@@ -1146,14 +957,6 @@ mod tests {
     async fn scan_resolves_forward_references() {
         use cubical_index::links_from;
         let dir = tempdir().unwrap();
-        // Two files linking to EACH OTHER. WalkDir yields entries in
-        // unspecified order (APFS hash order, not alphabetical), so we
-        // can't assume which is visited first — but whichever it is, its
-        // link to the other is a forward reference (the target's `files`
-        // row doesn't exist yet under per-file resolution → NULL). The
-        // post-walk resolution pass sees the COMPLETE file set, so BOTH
-        // links must resolve on the first scan regardless of walk order.
-        // See docs/layer-3-spec.md §5.6.
         fs::write(dir.path().join("aaa.md"), "ref to [[zzz]]\n").unwrap();
         fs::write(dir.path().join("zzz.md"), "ref to [[aaa]]\n").unwrap();
         let vault = Vault::open(dir.path()).await.expect("open");
@@ -1173,19 +976,12 @@ mod tests {
 
     #[tokio::test]
     async fn scan_materializes_pending_rewrites_before_extracting_links() {
-        // L3 Session J (chain 3): pass-1 reads each markdown file and
-        // materializes any pending wiki-link rewrites before handing
-        // the source to the link extractor. So backlinks reflect the
-        // post-rewrite world even before the pending queue flushes.
         use cubical_index::{enqueue_pending, links_from, NewPendingRewrite, RewriteKind};
         let dir = tempdir().unwrap();
-        // On disk: a.md links to OldName via wiki-link.
         fs::write(dir.path().join("a.md"), "linked to [[OldName]]\n").unwrap();
-        // Real target file Daily.md exists so the rewrite resolves.
         fs::write(dir.path().join("Daily.md"), "body\n").unwrap();
         let vault = Vault::open(dir.path()).await.expect("open");
 
-        // Enqueue a pending wiki-link rewrite for a.md: OldName → Daily.
         enqueue_pending(
             vault.index(),
             &[NewPendingRewrite {
@@ -1206,13 +1002,10 @@ mod tests {
             .expect("scan");
 
         let rows = links_from(vault.index(), "a.md").await.expect("query");
-        // The scanned link points at the post-rewrite target — Daily.md —
-        // not OldName.
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].target_raw, "Daily");
         assert_eq!(rows[0].target_path.as_deref(), Some("Daily.md"));
 
-        // On-disk bytes untouched (materialize-on-read doesn't write).
         let on_disk = std::fs::read_to_string(dir.path().join("a.md")).unwrap();
         assert_eq!(on_disk, "linked to [[OldName]]\n");
     }
@@ -1227,8 +1020,6 @@ mod tests {
         )
         .unwrap();
         fs::write(dir.path().join("b.md"), "body\n").unwrap();
-        // c.md intentionally missing so we can prove the unresolved row
-        // still lands with target_path = NULL.
         let vault = Vault::open(dir.path()).await.expect("open");
 
         let (tx, _rx) = mpsc::channel::<ScanProgress>(64);
@@ -1237,20 +1028,14 @@ mod tests {
 
         let rows = links_from(vault.index(), "a.md").await.expect("query");
         assert_eq!(rows.len(), 2);
-        // Resolved match for b.md.
         let to_b = rows.iter().find(|r| r.target_raw == "b").expect("b row");
         assert_eq!(to_b.target_path.as_deref(), Some("b.md"));
-        // Unresolved row for missing c — kept with NULL target_path so a
-        // future scan / rename can re-resolve it.
         let to_c = rows.iter().find(|r| r.target_raw == "c").expect("c row");
         assert!(to_c.target_path.is_none());
     }
 
     #[tokio::test]
     async fn scan_populates_search_index() {
-        // L4-A: scan Pass 1 fans out into the Tantivy index alongside
-        // frontmatter/links/tags/blocks. After scan completes the final
-        // commit makes the docs queryable.
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("a.md"), "# A\n\nalpha body\n").unwrap();
         fs::write(dir.path().join("b.md"), "# B\n\nbeta body\n").unwrap();

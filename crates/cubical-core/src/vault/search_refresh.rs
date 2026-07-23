@@ -1,16 +1,6 @@
-//! Wire `cubical-search` into the scan + watcher refresher fan-out.
-//!
-//! Signature matches the L3 peers (`refresh_links`, `refresh_tags`,
-//! `refresh_blocks`): `(vault, rel, source: &str)`. The function parses
-//! the source locally via `cubical_ast::parse`, projects an `IndexDoc`,
-//! upserts it. Caller commits — either every 5000 docs during scan
-//! (see `scan.rs::SEARCH_COMMIT_EVERY`) or on the watcher's debounced
-//! cadence (Task 11).
-
 use crate::vault::Vault;
 use cubical_search::SearchError;
 
-/// Upsert one file into the Tantivy index. Does not commit.
 pub async fn refresh_search_index(
     vault: &Vault,
     rel: &str,
@@ -22,7 +12,6 @@ pub async fn refresh_search_index(
     vault.search().upsert(&doc)
 }
 
-/// Delete one path from the Tantivy index. Does not commit.
 pub async fn delete_search_index(vault: &Vault, rel: &str) -> Result<(), SearchError> {
     vault.search().delete_path(rel)
 }

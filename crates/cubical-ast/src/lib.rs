@@ -1,34 +1,4 @@
-//! `cubical-ast` — the canonical Markdown AST.
-//!
-//! This crate defines the AST data types and a `parse` entry point that
-//! turns a markdown source string into a [`Document`]. Lezer trees from
-//! the editor are normalized into the same shape on the Rust side
-//! (post-L1 session B); indexers, link resolvers, and exporters consume
-//! [`Document`] values directly.
-//!
-//! The AST is intentionally slim: only nodes Cubical itself produces.
-//! Cross-app importers (Obsidian, Logseq, Notion) are out of v1 scope,
-//! so extension nodes (math, mermaid, callouts, footnotes, tables,
-//! definition lists) are absent. Wiki-links, embeds, block IDs, and
-//! tags will be recognized in L3 — until then they pass through as
-//! plain [`Inline::Text`].
-//!
-//! See `docs/architecture/document-model.md` — "Canonical AST".
-//!
-//! ## Public surface
-//!
-//! - [`Document`], [`Block`], [`ListItem`], [`Inline`], [`Span`],
-//!   [`Frontmatter`] — the AST data types.
-//! - [`parse`] — the single entry point. Wraps `pulldown-cmark` and
-//!   layers strict YAML frontmatter detection on top.
-//! - [`split_frontmatter`] — helper that separates the frontmatter
-//!   block (if any) from the body, exposed for callers that want to
-//!   re-render the body without re-tokenizing.
-//! - [`AstError`] — error type for parsing failures. Folded into
-//!   `CubicalError` at the IPC boundary.
-
 #![forbid(unsafe_code)]
-#![warn(missing_docs)]
 
 mod error;
 pub mod frontmatter;
@@ -42,23 +12,6 @@ pub use frontmatter::{parse_frontmatter, split_frontmatter};
 pub use types::{Anchor, Block, Document, Frontmatter, Inline, ListItem, Span};
 pub use wikilink::{scan_wikilinks, TokenizedRun};
 
-/// Parse `source` into a canonical [`Document`].
-///
-/// Detects strict YAML frontmatter at byte offset 0 (an opening `---`
-/// on the very first line, no leading whitespace, paired with a closing
-/// `---` on its own line). Malformed YAML between the markers logs a
-/// `tracing::warn!` and produces [`Document::frontmatter`] = `None` —
-/// the body is parsed normally either way.
-///
-/// The body is parsed via `pulldown-cmark` and normalized into the
-/// canonical AST. Block-level spans are byte offsets into the original
-/// `source` string (frontmatter included), suitable for editor
-/// mapping at L2.
-///
-/// This function is total: it never returns an error. Future
-/// fallibility (e.g. an `AstError` for catastrophic parser misuse)
-/// would be added behind a `parse_strict`-style entry point rather
-/// than changing this signature.
 #[must_use]
 pub fn parse(source: &str) -> Document {
     let (yaml_opt, body, body_offset) = frontmatter::split_with_offset(source);
@@ -103,11 +56,6 @@ mod tests {
         assert_eq!(doc.blocks.len(), 1);
     }
 
-    /// Documents must round-trip through serde_json so the IPC layer
-    /// can ship them to the frontend. This test specifically guards
-    /// against a regression where `Inline::Text` / `Inline::Code`
-    /// were tuple variants on an internally tagged enum — a shape
-    /// `serde_json` panics on at serialization time.
     #[test]
     fn wikilink_in_paragraph_is_extracted() {
         use crate::types::{Block, Inline};
@@ -172,7 +120,6 @@ mod tests {
         let s = serde_json::to_string(&wl).expect("serialize");
         let back: Inline = serde_json::from_str(&s).expect("deserialize");
         assert_eq!(wl, back);
-        // Wire shape must be tagged with kind="wiki_link".
         assert!(s.contains("\"kind\":\"wiki_link\""));
     }
 

@@ -1,12 +1,3 @@
-//! Pure embed content extractors (L3 Session H.1, spec §9.12). One slice
-//! per call — recursion / depth cap / cycle detection live on the
-//! frontend in H.2. The handler in `cubical-app::commands::embeds`
-//! routes by anchor kind.
-
-/// Lowercase + collapse non-alphanumeric runs to `-` + trim leading/
-/// trailing `-`. Used to compare heading text to an anchor value so
-/// `"My Section!"` matches anchor `"my-section"` / `"My Section"` /
-/// `"My Section!"` — they all slugify to `"my-section"`.
 pub fn slugify(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut last_dash = false;
@@ -23,17 +14,13 @@ pub fn slugify(s: &str) -> String {
     trimmed.to_string()
 }
 
-/// Slice from the line *after* an ATX heading matching `anchor` (by
-/// slug) up to the line *before* the next heading whose level is
-/// `≤` the matched heading's. `None` if no heading matches.
 pub fn extract_section(source: &str, anchor: &str) -> Option<String> {
     let target = slugify(anchor);
     if target.is_empty() {
         return None;
     }
     let lines: Vec<&str> = source.split_inclusive('\n').collect();
-    // Find the matched heading.
-    let mut matched: Option<(usize, usize)> = None; // (line_index, level)
+    let mut matched: Option<(usize, usize)> = None;
     for (i, line) in lines.iter().enumerate() {
         if let Some((level, text)) = parse_atx_heading(line) {
             if slugify(text) == target {
@@ -43,7 +30,6 @@ pub fn extract_section(source: &str, anchor: &str) -> Option<String> {
         }
     }
     let (start_line, level) = matched?;
-    // Collect from the line AFTER the heading until next heading with level <= matched.
     let mut end_line = lines.len();
     for (j, line) in lines.iter().enumerate().skip(start_line + 1) {
         if let Some((l, _)) = parse_atx_heading(line) {
@@ -57,9 +43,6 @@ pub fn extract_section(source: &str, anchor: &str) -> Option<String> {
     Some(slice)
 }
 
-/// `(level, text_after_hashes)` if `line` is an ATX heading, else None.
-/// Strips the `#`s + the single required space. Trailing `\n` is kept
-/// on `text` because callers don't care — they slugify it.
 fn parse_atx_heading(line: &str) -> Option<(usize, &str)> {
     let trimmed = line.trim_end_matches(['\r', '\n']);
     let hashes = trimmed.chars().take_while(|c| *c == '#').count();
@@ -67,33 +50,24 @@ fn parse_atx_heading(line: &str) -> Option<(usize, &str)> {
         return None;
     }
     let rest = &trimmed[hashes..];
-    // CommonMark requires a space (or end of line) after the hashes.
     if !rest.is_empty() && !rest.starts_with(' ') {
         return None;
     }
     Some((hashes, rest.trim_start_matches(' ')))
 }
 
-/// Block (paragraph or list-item) containing `byte_offset`: walk to
-/// the nearest blank-line boundary on each side. `byte_offset` is the
-/// start of a line per `BlockRow::position_hint`'s contract. Returns
-/// the contiguous slice as a `String`.
 pub fn extract_block(source: &str, byte_offset: u64) -> String {
     let pos = byte_offset as usize;
     if pos >= source.len() {
         return String::new();
     }
-    // Find the start of the line containing `pos`.
     let line_start = source[..pos].rfind('\n').map_or(0, |i| i + 1);
-    // Walk back over preceding non-blank lines.
     let mut block_start = line_start;
     loop {
         if block_start == 0 {
             break;
         }
-        // The previous line ends at block_start - 1 (the '\n'); its
-        // start is the byte after the previous '\n' before that.
-        let prev_end = block_start - 1; // index of the '\n'
+        let prev_end = block_start - 1;
         let prev_start = source[..prev_end].rfind('\n').map_or(0, |i| i + 1);
         let prev_line = &source[prev_start..prev_end];
         if prev_line.trim().is_empty() {
@@ -101,7 +75,6 @@ pub fn extract_block(source: &str, byte_offset: u64) -> String {
         }
         block_start = prev_start;
     }
-    // Walk forward over the line containing `pos` and following non-blank lines.
     let mut block_end = line_start;
     while block_end < source.len() {
         let line_end_excl = source[block_end..]
@@ -117,12 +90,7 @@ pub fn extract_block(source: &str, byte_offset: u64) -> String {
     source[block_start..block_end].to_string()
 }
 
-/// If `source` opens with a YAML frontmatter block (`---\n…\n---\n`),
-/// return the body slice after the closer. Otherwise return `source`
-/// unchanged. Pure, borrow-returning.
 pub fn strip_frontmatter(source: &str) -> &str {
-    // Accept "---\n" or "---\r\n" as the opener; require a closing
-    // "---" on its own line. Anything else → return source unchanged.
     let after_opener = if let Some(rest) = source.strip_prefix("---\n") {
         rest
     } else if let Some(rest) = source.strip_prefix("---\r\n") {
@@ -130,14 +98,11 @@ pub fn strip_frontmatter(source: &str) -> &str {
     } else {
         return source;
     };
-    // Find the closing "---" line. Match on "\n---\n", "\n---\r\n",
-    // or "\n---" at the very end of file.
     let opener_consumed = source.len() - after_opener.len();
     for (idx, _) in after_opener.match_indices("\n---") {
-        let close_start = opener_consumed + idx; // index of the '\n' before "---"
+        let close_start = opener_consumed + idx;
         let after_close_dashes = close_start + "\n---".len();
         if after_close_dashes == source.len() {
-            // Closer is the last 3 chars; body is empty.
             return "";
         }
         let next = &source[after_close_dashes..];
@@ -147,7 +112,6 @@ pub fn strip_frontmatter(source: &str) -> &str {
         if let Some(rest) = next.strip_prefix("\r\n") {
             return rest;
         }
-        // "---" mid-line, not a closer — keep looking.
     }
     source
 }
@@ -173,7 +137,6 @@ mod tests {
     #[test]
     fn extract_section_respects_level_ceiling() {
         let src = "## A\nfoo\n# B\nbar\n";
-        // anchor "a" matches "## A" (level 2); stops at "# B" (level 1 ≤ 2).
         assert_eq!(extract_section(src, "a"), Some("foo\n".into()));
     }
 

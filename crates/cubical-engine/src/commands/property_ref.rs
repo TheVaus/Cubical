@@ -1,9 +1,3 @@
-//! Property-reference resolver (cross-file). Resolves `[[note.prop]]` to
-//! the target note's top-level frontmatter scalar, rendered to a display
-//! string. Self-refs (`[[.prop]]`) are resolved on the frontend and never
-//! reach this command. See
-//! `docs/superpowers/specs/2026-06-20-property-reference-interpolation-design.md`.
-
 use cubical_ast::parse;
 use cubical_core::vault::links::{read_source_off_executor, resolve_target};
 use cubical_core::vault::pending::materialize_on_read;
@@ -12,7 +6,6 @@ use crate::api::types::{GetPropertyRequest, GetPropertyResponse, PropertyRefKind
 use crate::error::CubicalError;
 use crate::state::AppState;
 
-/// Resolve a cross-file property reference to a display string.
 pub async fn get_property(
     state: &AppState,
     req: GetPropertyRequest,
@@ -24,7 +17,6 @@ pub async fn get_property(
     let vault = open.vault.clone();
     drop(guard);
 
-    // Snapshot files.path for resolution (mirror commands/embeds).
     let conn = vault.index().connection();
     let mut rows = conn
         .query("SELECT path FROM files ORDER BY path", ())
@@ -43,8 +35,6 @@ pub async fn get_property(
 
     let abs = vault.root().join(&target_path);
     let Some(on_disk) = read_source_off_executor(&abs).await else {
-        // Unreadable file folds into NoteUnresolved (watcher heals on the
-        // next change — same policy as get_embed).
         return Ok(GetPropertyResponse {
             kind: PropertyRefKind::NoteUnresolved,
             value: None,
@@ -76,9 +66,6 @@ pub async fn get_property(
     }
 }
 
-/// Render a frontmatter scalar to display text. Strings pass through;
-/// numbers/bools stringify; arrays of scalars join with ", "; objects and
-/// null are "not a scalar" (PropertyMissing). v1 — no typing/formatting.
 fn scalar_to_display(v: &serde_json::Value) -> Option<String> {
     use serde_json::Value;
     match v {

@@ -1,16 +1,7 @@
-//! Pure async handler for the `dataview_query` command.
-//!
-//! Parses + runs a ```query block against the named vault's index.
-//! Parse and execution failures are folded into `DataviewResult::Error`
-//! (the command still returns `Ok`) so the editor widget always renders
-//! a structured answer rather than a thrown IPC error. Only
-//! vault-not-open is a hard error.
-
 use crate::api::types::{DataviewQueryRequest, DataviewResult};
 use crate::error::CubicalError;
 use crate::state::AppState;
 
-/// Evaluate a Dataview query against the named vault.
 pub async fn dataview_query(
     state: &AppState,
     req: DataviewQueryRequest,
@@ -63,10 +54,6 @@ mod tests {
         (dir, vault, state)
     }
 
-    /// Build a vault from real `.md` files, run the REAL scan pipeline
-    /// (which populates `files` / `frontmatter` / `tags` exactly as the
-    /// app does), and register it in `AppState`. This exercises the full
-    /// stack end-to-end — the data-side of what operator smoke checks.
     async fn scanned_state(vault_id: &str, files: &[(&str, &str)]) -> (TempDir, AppState) {
         let dir = tempdir().unwrap();
         for (rel, body) in files {
@@ -74,7 +61,6 @@ mod tests {
         }
         let vault = Vault::open(dir.path()).await.expect("open");
         let (tx, mut rx) = mpsc::channel::<ScanProgress>(64);
-        // Drain progress so the sender never blocks on a full channel.
         let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
         scan(vault.clone(), CancellationToken::new(), tx)
             .await
@@ -113,8 +99,6 @@ mod tests {
 
     #[tokio::test]
     async fn end_to_end_table_from_tag_where_sort() {
-        // The real scan must populate the `tags` table from a frontmatter
-        // `tags: [project]` list for `FROM #project` to match.
         let (_d, state) = scanned_state(
             "v1",
             &[("alpha.md", ALPHA), ("beta.md", BETA), ("gamma.md", GAMMA)],
@@ -129,10 +113,8 @@ mod tests {
         match r {
             DataviewResult::Table { columns, rows } => {
                 assert_eq!(columns, vec!["status".to_string(), "due_date".to_string()]);
-                // in-progress only (alpha, gamma), sorted by due_date asc.
                 let paths: Vec<_> = rows.iter().map(|row| row.note.path.as_str()).collect();
                 assert_eq!(paths, vec!["alpha.md", "gamma.md"]);
-                // json_extract unwrapped the JSON-encoded scalars.
                 assert_eq!(
                     rows[0].cells,
                     vec!["in-progress".to_string(), "2026-07-10".to_string()]
@@ -149,7 +131,6 @@ mod tests {
             &[("alpha.md", ALPHA), ("beta.md", BETA), ("gamma.md", GAMMA)],
         )
         .await;
-        // priority >= 2 → alpha(3), gamma(2); not beta(1). Numeric compare.
         match run_query(&state, "v1", "LIST WHERE priority >= 2").await {
             DataviewResult::List { notes } => {
                 let paths: Vec<_> = notes.iter().map(|n| n.path.as_str()).collect();

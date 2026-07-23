@@ -1,16 +1,3 @@
-//! Shared context-snippet helper for the sidebar panels (Backlinks +
-//! Unlinked Mentions). Pure — no I/O, no DB. Lifted out of
-//! `commands/backlinks.rs` in L3 Session I so both panels render
-//! identical-looking context around a byte position.
-
-/// Build a single-line context snippet around `position` in `source`.
-///
-/// Width is 120 bytes, centred on `position`. Newlines collapse to
-/// spaces; runs of whitespace collapse to a single space; word
-/// boundaries are preferred for trimming. UTF-8 boundaries are
-/// respected — the helper never slices mid-codepoint.
-///
-/// Returns the empty string when `source` has no readable text.
 pub fn build_snippet(source: &str, position: u64) -> String {
     const WIDTH: usize = 120;
     const HALF: usize = WIDTH / 2;

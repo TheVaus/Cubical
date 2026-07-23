@@ -1,8 +1,3 @@
-//! Embed content extractor (L3 Session H.1, spec §9.12). Returns one
-//! slice per call — recursion / depth / cycle handling live on the
-//! frontend in H.2. The handler is the thin orchestrator; the pure
-//! extractors live in `cubical_core::vault::embeds`.
-
 use cubical_core::vault::embeds::{extract_block, extract_section, strip_frontmatter};
 use cubical_core::vault::links::{read_source_off_executor, resolve_target};
 use cubical_core::vault::pending::materialize_on_read;
@@ -13,7 +8,6 @@ use crate::commands::links::split_target_anchor;
 use crate::error::CubicalError;
 use crate::state::AppState;
 
-/// Extract the content to inline for `target_raw`. See spec §9.12.
 pub async fn get_embed(
     state: &AppState,
     req: GetEmbedRequest,
@@ -25,7 +19,6 @@ pub async fn get_embed(
     let vault = open.vault.clone();
     drop(guard);
 
-    // Snapshot files.path for resolution (mirror commands/autocomplete).
     let conn = vault.index().connection();
     let mut rows = conn
         .query("SELECT path FROM files ORDER BY path", ())
@@ -44,8 +37,6 @@ pub async fn get_embed(
         });
     };
 
-    // Read the file off the runtime; unreadable file folds into Unresolved
-    // (the watcher will heal on next change — same policy as refresh_blocks).
     let abs = vault.root().join(&target_path);
     let Some(on_disk) = read_source_off_executor(&abs).await else {
         return Ok(GetEmbedResponse {
@@ -55,10 +46,6 @@ pub async fn get_embed(
         });
     };
 
-    // L3 Session J (chain 3): materialize pending rewrites for the
-    // target file so embed bodies show the post-rename content the
-    // editor sees. Per the "Read-path integration" decision in the
-    // pending-rewrites design spec.
     let source = materialize_on_read(vault.index(), &target_path, &on_disk).await?;
 
     match anchor {
@@ -181,8 +168,6 @@ mod tests {
         std::fs::write(dir.path().join("Notes.md"), src).unwrap();
         let (vault, state) = state_with_vault_at(dir.path(), "v1").await;
         scan(&vault).await;
-        // Belt-and-suspenders: ensure the block row exists with the
-        // expected position_hint regardless of scan timing.
         replace_blocks_for_file(
             vault.index(),
             "Notes.md",
@@ -227,9 +212,6 @@ mod tests {
 
     #[tokio::test]
     async fn get_embed_materializes_pending_rewrites_in_body() {
-        // L3 Session J (chain 3): an embed body for a target with a
-        // pending wiki-link rewrite must reflect the post-rewrite text
-        // (otherwise the embed would show old tokens after a rename).
         use cubical_index::{enqueue_pending, NewPendingRewrite, RewriteKind};
         let dir = tempdir().unwrap();
         std::fs::write(dir.path().join("Notes.md"), "body referencing [[Daily]]\n").unwrap();

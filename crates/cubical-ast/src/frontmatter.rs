@@ -1,36 +1,14 @@
-//! YAML frontmatter detection and parsing.
-//!
-//! Frontmatter must sit at byte offset 0: the opening `---` is the
-//! very first line of the file, with no leading whitespace, and a
-//! matching closing `---` on its own line. Anything looser — leading
-//! blank lines, leading spaces before `---`, frontmatter inside a
-//! code fence — is *not* frontmatter; the whole source is treated as
-//! body. This is intentionally strict: external tools (Obsidian,
-//! Logseq, Hugo, Jekyll) all converge on the same shape, and being
-//! lenient here would silently reinterpret edge-case `.md` files.
-
 use crate::types::{Frontmatter, Span};
 use serde_json::Value as JsonValue;
 use serde_yaml_ng::Value as YamlValue;
 
-/// Split a source string into `(yaml_str_opt, body_str)`.
-///
-/// Public helper for callers that want to re-render the body without
-/// re-tokenizing the whole file. Returns `(None, source)` if no
-/// frontmatter is present.
 #[must_use]
 pub fn split_frontmatter(source: &str) -> (Option<&str>, &str) {
     let (yaml, body, _) = split_with_offset(source);
     (yaml, body)
 }
 
-/// Inner helper that also returns the byte offset where the body
-/// begins. Used by [`crate::parse`] so block-level spans line up with
-/// the original source.
 pub(crate) fn split_with_offset(source: &str) -> (Option<&str>, &str, usize) {
-    // Strict opener: the source must begin with exactly `---` followed
-    // by a newline (LF or CRLF). No BOM tolerance, no leading
-    // whitespace tolerance — both would conflict with external tools.
     let after_opener = if let Some(rest) = source.strip_prefix("---\n") {
         rest
     } else if let Some(rest) = source.strip_prefix("---\r\n") {
@@ -39,38 +17,25 @@ pub(crate) fn split_with_offset(source: &str) -> (Option<&str>, &str, usize) {
         return (None, source, 0);
     };
 
-    // Walk lines. The closing `---` must be on its own line (just
-    // `---` with optional trailing CR), and must not be inside a
-    // fenced code block within the YAML region — but YAML doesn't
-    // syntactically have fenced code blocks, so a literal `---` on
-    // its own line in the YAML region is unambiguously the closer.
-    //
-    // Track line offsets manually rather than reaching for
-    // `str::lines()`, since we need to know where the line ended in
-    // the original source so we can return correct slices.
     let opener_len = source.len() - after_opener.len();
     let mut cursor = opener_len;
     let bytes = source.as_bytes();
     let mut line_start = cursor;
 
     while cursor <= bytes.len() {
-        // Find end of this line.
         let line_end = bytes[cursor..]
             .iter()
             .position(|&b| b == b'\n')
             .map(|i| cursor + i)
             .unwrap_or(bytes.len());
 
-        // Slice without the trailing CR (if any) so `---\r` matches.
         let mut line = &source[line_start..line_end];
         if let Some(stripped) = line.strip_suffix('\r') {
             line = stripped;
         }
 
         if line == "---" {
-            // YAML body is everything between the opener and this line.
             let yaml = &source[opener_len..line_start];
-            // Body begins after the closing line's terminating `\n`.
             let body_start = if line_end < bytes.len() {
                 line_end + 1
             } else {
@@ -81,7 +46,6 @@ pub(crate) fn split_with_offset(source: &str) -> (Option<&str>, &str, usize) {
         }
 
         if line_end == bytes.len() {
-            // Hit EOF without finding a closer.
             return (None, source, 0);
         }
         cursor = line_end + 1;
@@ -91,13 +55,6 @@ pub(crate) fn split_with_offset(source: &str) -> (Option<&str>, &str, usize) {
     (None, source, 0)
 }
 
-/// Parse a YAML frontmatter region into a [`Frontmatter`].
-///
-/// Returns `Ok(None)` when the YAML parses to a non-mapping value
-/// (e.g. a bare scalar or list at the top level), since Cubical only
-/// recognizes mapping-shaped frontmatter. Returns `Err(_)` only for
-/// hard syntax errors; the caller logs and degrades to "no
-/// frontmatter."
 pub(crate) fn parse_yaml(yaml_str: &str) -> Result<Option<Frontmatter>, serde_yaml_ng::Error> {
     let value: YamlValue = match yaml_str.trim().is_empty() {
         true => return Ok(None),
@@ -111,27 +68,17 @@ pub(crate) fn parse_yaml(yaml_str: &str) -> Result<Option<Frontmatter>, serde_ya
     for (k, v) in mapping {
         let key = match k {
             YamlValue::String(s) => s,
-            // Non-string keys (bool, number) get stringified for
-            // libSQL storage; this matches Obsidian/Hugo behavior.
             other => yaml_value_to_string_key(&other),
         };
         entries.push((key, yaml_value_to_json(v)));
     }
 
-    // The span is filled in by the caller, which knows the byte
-    // offsets of the surrounding `---` lines. We default to the
-    // YAML-text length so this function is self-contained for
-    // unit testing; `parse()` overwrites it with the absolute span.
     Ok(Some(Frontmatter {
         entries,
         span: Span::new(0, 0),
     }))
 }
 
-/// Compute the absolute span of a frontmatter block within the
-/// original source — `[0, body_offset)` — and return a [`Frontmatter`]
-/// stamped with it. `parse_yaml` does not know the absolute offsets;
-/// this helper is the seam where they are applied.
 pub(crate) fn parse_with_span(
     yaml_str: &str,
     body_offset: usize,
@@ -148,9 +95,6 @@ fn yaml_value_to_json(v: YamlValue) -> serde_json::Value {
         YamlValue::Null => serde_json::Value::Null,
         YamlValue::Bool(b) => serde_json::Value::Bool(b),
         YamlValue::Number(n) => {
-            // serde_yaml_ng's Number can be int or float. Try the
-            // narrower types first so JSON storage stays exact for
-            // integer-shaped frontmatter (e.g. `version: 3`).
             if let Some(i) = n.as_i64() {
                 serde_json::Value::from(i)
             } else if let Some(u) = n.as_u64() {
@@ -188,20 +132,10 @@ fn yaml_value_to_string_key(v: &YamlValue) -> String {
         YamlValue::Bool(b) => b.to_string(),
         YamlValue::Number(n) => n.to_string(),
         YamlValue::String(s) => s.clone(),
-        // Sequences and mappings as keys are pathological — fall back
-        // to YAML serialization. Loss of fidelity here is acceptable.
         other => serde_yaml_ng::to_string(other).unwrap_or_default(),
     }
 }
 
-/// Convenience: split + parse a `source` string into a [`Frontmatter`].
-///
-/// Returns `None` when the source has no strict frontmatter block, when
-/// the YAML parses to a non-mapping top-level value, or when the YAML
-/// is malformed (errors are swallowed here — callers who need the raw
-/// `serde_yaml_ng::Error` should use [`split_frontmatter`] + the lower-
-/// level helpers). Used by `cubical-search` to project frontmatter into
-/// the search schema without re-implementing the split/parse dance.
 #[must_use]
 pub fn parse_frontmatter(source: &str) -> Option<Frontmatter> {
     let (yaml_opt, _body, body_offset) = split_with_offset(source);
@@ -210,8 +144,6 @@ pub fn parse_frontmatter(source: &str) -> Option<Frontmatter> {
 }
 
 impl Frontmatter {
-    /// Lookup a scalar string value by key. Returns `None` if the key
-    /// is missing or the value is not a JSON string scalar.
     #[must_use]
     pub fn get_string(&self, key: &str) -> Option<&str> {
         self.entries
@@ -220,10 +152,6 @@ impl Frontmatter {
             .and_then(|(_, v)| v.as_str())
     }
 
-    /// Lookup a list of string scalars by key. Returns an empty `Vec`
-    /// if the key is missing, the value is not a JSON array, or no
-    /// element is a string. Non-string elements inside an otherwise
-    /// string list are skipped silently.
     #[must_use]
     pub fn get_string_list(&self, key: &str) -> Vec<&str> {
         let Some((_, value)) = self.entries.iter().find(|(k, _)| k == key) else {
@@ -235,13 +163,6 @@ impl Frontmatter {
         items.iter().filter_map(|v| v.as_str()).collect()
     }
 
-    /// Walk the frontmatter as a flat key/value list of stringified
-    /// scalars. Nested maps join keys with `.`; sequences expand to
-    /// repeated `(key, value)` pairs (the key is reused unchanged so
-    /// callers that want indexed keys can recover position from order).
-    /// Booleans render as `"true"`/`"false"`; numbers via `Display`;
-    /// nulls are skipped. Used by `cubical-search`'s frontmatter field
-    /// projector.
     #[must_use]
     pub fn flattened_scalars(&self) -> Vec<(String, String)> {
         let mut out: Vec<(String, String)> = Vec::new();
@@ -309,7 +230,6 @@ mod tests {
 
     #[test]
     fn split_rejects_leading_whitespace_before_opener() {
-        // A space, tab, or blank line before `---` disqualifies it.
         let cases = [
             " ---\ntitle: x\n---\nbody\n",
             "\t---\ntitle: x\n---\nbody\n",
@@ -332,9 +252,6 @@ mod tests {
 
     #[test]
     fn split_does_not_treat_dashes_inside_a_code_fence_as_closer() {
-        // `---` inside a fenced code block in the *body* is fine — the
-        // YAML region above closes properly. Verify the closer is the
-        // first standalone `---`, and the body is left intact.
         let src = "---\ntitle: Hello\n---\n\n```\n---\n```\n";
         let (yaml, body) = split_frontmatter(src);
         assert_eq!(yaml.unwrap(), "title: Hello\n");
@@ -395,7 +312,6 @@ mod tests {
     #[test]
     fn parse_frontmatter_returns_none_for_missing_or_malformed() {
         assert!(parse_frontmatter("# just body\n").is_none());
-        // Malformed YAML between the markers degrades to None.
         assert!(parse_frontmatter("---\ntitle: : :\n  - bad\n---\n").is_none());
     }
 
@@ -416,7 +332,6 @@ mod tests {
             .expect("parse")
             .expect("some");
         assert_eq!(fm.get_string_list("tags"), vec!["a", "b", "c"]);
-        // Non-string elements are skipped silently.
         assert_eq!(fm.get_string_list("mixed"), vec!["a"]);
         assert!(fm.get_string_list("scalar").is_empty());
         assert!(fm.get_string_list("missing").is_empty());
@@ -428,7 +343,6 @@ mod tests {
             "title: T\ntags: [a, b]\nready: true\ncount: 3\nmeta:\n  author: jane\n  pub: false\n";
         let fm = parse_yaml(yaml).expect("parse").expect("some");
         let flat = fm.flattened_scalars();
-        // Order preserves source order; sequences expand under the same key.
         assert_eq!(
             flat,
             vec![

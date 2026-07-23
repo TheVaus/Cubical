@@ -1,30 +1,15 @@
-//! Compile a [`Query`] into a parameterized SQL string.
-//!
-//! `frontmatter.value` is JSON-encoded TEXT, so every value comparison
-//! and projection goes through `json_extract(value,'$')`, which unwraps
-//! to the native SQLite scalar. All literals/keys are bound parameters —
-//! never interpolated — so a query block cannot inject SQL.
-
 use crate::ast::{Command, Op, Query, SortDir, Source, Value};
 
-/// A bound SQL parameter, kept driver-agnostic so the planner stays
-/// pure and unit-testable; `exec` converts these to `libsql::Value`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SqlParam {
-    /// A text parameter.
     Text(String),
-    /// A real (floating-point) parameter.
     Real(f64),
-    /// An integer parameter (also used for booleans: 1/0).
     Int(i64),
 }
 
-/// A compiled query: SQL plus its positional parameters.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Plan {
-    /// The SQL text with `?` placeholders.
     pub sql: String,
-    /// Positional parameters, in placeholder order.
     pub params: Vec<SqlParam>,
 }
 
@@ -47,7 +32,6 @@ fn value_param(v: &Value) -> SqlParam {
     }
 }
 
-/// Escape LIKE-special bytes so a folder/tag literal is a safe prefix.
 fn escape_like(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for ch in s.chars() {
@@ -59,12 +43,10 @@ fn escape_like(s: &str) -> String {
     out
 }
 
-/// Compile a query into SQL + parameters.
 #[must_use]
 pub fn plan(q: &Query) -> Plan {
     let mut params: Vec<SqlParam> = Vec::new();
 
-    // SELECT clause.
     let select = match &q.command {
         Command::Count => "SELECT COUNT(*)".to_string(),
         Command::List => "SELECT files.path".to_string(),
@@ -82,7 +64,6 @@ pub fn plan(q: &Query) -> Plan {
         }
     };
 
-    // WHERE clause: FROM source + conds, AND-joined.
     let mut wheres: Vec<String> = Vec::new();
     match &q.source {
         Some(Source::Tag(t)) => {
@@ -118,7 +99,6 @@ pub fn plan(q: &Query) -> Plan {
         sql.push_str(&wheres.join(" AND "));
     }
 
-    // ORDER BY (skipped for COUNT).
     if !matches!(q.command, Command::Count) {
         match &q.sort {
             Some(sort) => {
@@ -126,7 +106,6 @@ pub fn plan(q: &Query) -> Plan {
                     SortDir::Asc => "ASC",
                     SortDir::Desc => "DESC",
                 };
-                // Present keys before missing ones, then by value, then path.
                 sql.push_str(
                     " ORDER BY (SELECT json_extract(value,'$') FROM frontmatter \
                      WHERE file_path = files.path AND key = ?) IS NULL, \

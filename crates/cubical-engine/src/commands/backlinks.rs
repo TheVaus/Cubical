@@ -1,13 +1,3 @@
-//! Pure async command handler for `get_backlinks`.
-//!
-//! Reads `links` rows pointing at the target path, joins each row to
-//! a short single-line snippet drawn from the source file's text, and
-//! returns the result. The snippet helper is a pure function tested
-//! in isolation; the handler itself is the only piece that touches
-//! disk + libSQL.
-//!
-//! See `docs/layer-3-spec.md` §2.3 and §3.1.
-
 use cubical_core::vault::pending::materialize_on_read;
 use cubical_index::backlinks_for;
 
@@ -16,25 +6,10 @@ use crate::commands::snippet::build_snippet;
 use crate::error::CubicalError;
 use crate::state::AppState;
 
-/// List every backlink for `path` — every link row whose
-/// `target_path` resolves to it — with a single-line context snippet
-/// drawn from each source file.
-///
-/// Errors only when the vault is not open. A source file that has
-/// gone missing on disk (e.g. deleted between extraction and the
-/// query) yields an empty `context`; the row still appears so the
-/// panel surfaces the stale link.
 pub async fn get_backlinks(
     state: &AppState,
     req: GetBacklinksRequest,
 ) -> Result<GetBacklinksResponse, CubicalError> {
-    // Clone the vault handle out from under the read lock, then drop the
-    // guard: the per-source loop below reads files + queries pending
-    // rewrites, and must NOT hold the vaults lock across those awaits.
-    // (It also must not block the async runtime with sync file I/O — the
-    // reads go through `spawn_blocking`. A file with many backlinks would
-    // otherwise interleave blocking reads with `materialize_on_read`
-    // awaits and could stall under concurrent watcher activity.)
     let vault = {
         let guard = state.vaults().read().await;
         guard
@@ -54,12 +29,6 @@ pub async fn get_backlinks(
             .map_err(|e| CubicalError::Io(format!("backlink read join error: {e}")))?;
         let context = match read {
             Ok(raw) => {
-                // Materialize pending rename rewrites before snipping:
-                // the link `position` was extracted against the
-                // materialized view, and an unflushed referrer still
-                // holds the OLD link text on disk. Without this the
-                // snippet shows the stale name (and can be offset-
-                // misaligned when the rewrite changes the token length).
                 let text = materialize_on_read(vault.index(), &row.source_path, &raw)
                     .await
                     .unwrap_or(raw);
@@ -88,8 +57,6 @@ pub async fn get_backlinks(
 mod tests {
     use super::*;
 
-    // -- End-to-end get_backlinks tests ---------------------------------
-
     use crate::api::types::GetBacklinksRequest;
     use crate::error::CubicalError;
     use crate::state::{AppState, OpenVault, ScanStatusBackend};
@@ -115,9 +82,6 @@ mod tests {
         (dir, vault, state)
     }
 
-    /// Write a markdown file under the vault root *and* seed its
-    /// `files` row. The handler reads the file from disk for the
-    /// snippet, so both halves must exist.
     async fn seed_md(vault: &Vault, rel: &str, body: &str) {
         let abs = vault.root().join(rel);
         if let Some(parent) = abs.parent() {
@@ -169,18 +133,9 @@ mod tests {
 
     #[tokio::test]
     async fn get_backlinks_snippet_reflects_pending_rewrites() {
-        // A referrer whose on-disk text still holds the OLD wiki-link
-        // (a pending rename rewrite hasn't flushed yet) must surface a
-        // snippet showing the CURRENT name, not the stale one — and the
-        // link `position` was extracted against the materialized text,
-        // so the snippet must be built from the materialized text too.
-        // Regression guard for "backlinks point to the old file name".
         use cubical_index::{enqueue_pending, NewPendingRewrite, RewriteKind};
         let (_dir, vault, state) = fresh_state_with_vault("v1").await;
         seed_md(&vault, "Note.md", "target\n").await;
-        // Ref.md's disk still says [[a]]; the index link was extracted
-        // from the materialized view "see [[Journal]]" (so its position
-        // points into THAT text), and a pending rewrite a→Journal exists.
         seed_md(&vault, "Ref.md", "see [[a]]\n").await;
         let materialized = "see [[Journal]]\n";
         let pos = materialized.find("[[").unwrap() as u64;
@@ -284,8 +239,6 @@ mod tests {
     #[tokio::test]
     async fn get_backlinks_missing_source_file_returns_empty_context_not_error() {
         let (_dir, vault, state) = fresh_state_with_vault("v1").await;
-        // Seed the index row but NOT the disk file — simulates a
-        // file deleted between extraction and the panel query.
         vault
             .index()
             .connection()

@@ -1,41 +1,9 @@
-//! Pure inline-tag tokenizer. Scans an `Inline::Text` value for `#tag`
-//! runs (incl. nested `#parent/child`) and yields a sequence of
-//! `TokenizedRun`s.
-//!
-//! Grammar mirrors the wiki-link tokenizer's shape (`wikilink.rs`) so
-//! both halves of the inline-token split pass agree on `Text` / token /
-//! `Text` boundaries. Mirrored byte-for-byte in `ui/src/ast/tag.ts`;
-//! the L1 parity harness extends to tag fixtures so the two stay in
-//! lockstep.
-//!
-//! Word-boundary rule: a `#` only opens a tag when it sits at the very
-//! start of the text run or directly follows an ASCII whitespace byte
-//! (space, tab, newline). This is the load-bearing rule that keeps
-//! `prefix#tag` from being a tag and lets `text #tag` be one.
-//!
-//! Tag-body rule: after the `#`, the first byte must be ASCII letter or
-//! `_` (no leading digit — `#123` is just a hash followed by a number,
-//! not a tag). Subsequent body bytes may be `[a-zA-Z0-9_-]`; nesting is
-//! a single `/` followed by a non-empty segment of the same body
-//! alphabet. Trailing `/` is trimmed (treated as text from the slash on).
-
-/// One run produced by [`scan_tags`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenizedRun {
-    /// Plain text between (or around) tags.
     Text(String),
-    /// A successfully parsed tag. `path` is the body without the leading
-    /// `#`, e.g. `"todo"` or `"project/cubical"`.
-    Tag {
-        /// Tag body with the leading `#` stripped, including any nested
-        /// `/`-separated segments.
-        path: String,
-    },
+    Tag { path: String },
 }
 
-/// Scan a text run for `#tag` / `#nested/tag` occurrences. Always
-/// returns at least one element when `input` is non-empty (a single
-/// `Text` if no tags are found). An empty input returns an empty `Vec`.
 pub fn scan_tags(input: &str) -> Vec<TokenizedRun> {
     if input.is_empty() {
         return Vec::new();
@@ -49,7 +17,6 @@ pub fn scan_tags(input: &str) -> Vec<TokenizedRun> {
             i += 1;
             continue;
         }
-        // Word-boundary: must be at run-start or after ASCII whitespace.
         if i > 0 && !is_ascii_ws(bytes[i - 1]) {
             i += 1;
             continue;
@@ -76,9 +43,6 @@ pub fn scan_tags(input: &str) -> Vec<TokenizedRun> {
     out
 }
 
-/// Walk forward from `start` (the byte right after the `#`). Returns
-/// the exclusive end byte of a valid tag body, or `None` if the body
-/// is empty / starts with an invalid character / is a bare digit run.
 fn parse_body(bytes: &[u8], start: usize) -> Option<usize> {
     if start >= bytes.len() {
         return None;
@@ -93,9 +57,6 @@ fn parse_body(bytes: &[u8], start: usize) -> Option<usize> {
         if is_body_cont(b) {
             i += 1;
         } else if b == b'/' {
-            // Nested segment: `/` must be followed by at least one
-            // body-continuation byte. If not, stop at the slash (it
-            // and what follows become text again).
             if i + 1 < bytes.len() && is_body_cont(bytes[i + 1]) {
                 i += 2;
                 while i < bytes.len() && is_body_cont(bytes[i]) {
@@ -115,16 +76,10 @@ fn is_ascii_ws(b: u8) -> bool {
     matches!(b, b' ' | b'\t' | b'\n' | b'\r')
 }
 
-/// First byte of a tag body: ASCII letter or underscore. Digits are
-/// rejected so `#123` doesn't parse as a tag (Obsidian / Bear / Logseq
-/// all converge on "tags are not pure numbers").
 fn is_body_start(b: u8) -> bool {
     matches!(b, b'A'..=b'Z' | b'a'..=b'z' | b'_')
 }
 
-/// Continuation byte of a tag body / segment: ASCII alphanumeric,
-/// underscore, or hyphen. The `/` nesting separator is handled
-/// explicitly in [`parse_body`].
 fn is_body_cont(b: u8) -> bool {
     matches!(b, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'_' | b'-')
 }
@@ -239,8 +194,6 @@ mod tests {
 
     #[test]
     fn double_hash_is_not_a_tag() {
-        // `##foo` — the first `#` sees `#` (not body-start), the second
-        // `#` sees a preceding non-whitespace byte (the first `#`).
         assert_eq!(scan_tags("##foo"), vec![text("##foo")]);
     }
 }
