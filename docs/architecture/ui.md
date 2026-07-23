@@ -18,7 +18,7 @@
 - `#`: in-editor tag auto-complete (when typed at word boundary outside code blocks).
 - Drag-and-drop: dropping an asset into the editor creates an inline link and triggers the deduplication pipeline.
 
-App-level and editor keyboard shortcuts are defined in one place — the command/keymap registry (`ui/src/core/commands.ts`, L5 substrate). It owns the command types, the static binding table, and key matching; the App-level `keydown` and the CodeMirror keymap are both generated from it (single source of truth). Bindings are static in v1 — no user remapping.
+App-level and editor keyboard shortcuts are defined in one place — the command/keymap registry (`ui/src/core/commands.ts`, L5 substrate). It owns the command types, the default binding table, and key matching; the App-level `keydown` and the CodeMirror keymap are both generated from it (single source of truth). Users rebind from Settings → Shortcuts: the defaults are the extension point, and only the diff is persisted per-vault as `shortcuts.overrides`. The registry stays pure — it imports nothing from any feature, and the adapters inject the `run` closures.
 
 ### 11.3 Live Preview
 

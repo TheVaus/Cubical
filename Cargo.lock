@@ -731,7 +731,6 @@ dependencies = [
  "cubical-index",
  "cubical-query",
  "cubical-search",
- "cubical-sync",
  "libsql",
  "serde",
  "serde_json",

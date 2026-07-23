@@ -13,7 +13,6 @@ cubical-core   = { path = "../cubical-core" }
 cubical-ast    = { path = "../cubical-ast" }
 cubical-index  = { path = "../cubical-index" }
 cubical-search = { path = "../cubical-search" }
-cubical-sync   = { path = "../cubical-sync" }
 cubical-query  = { path = "../cubical-query" }
 
 # Database — From<libsql::Error> on CubicalError + libsql::params! in handlers.

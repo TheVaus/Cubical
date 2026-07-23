@@ -112,6 +112,7 @@ the correct outcome anyway.
 ### Benchmark driver
 
 `cargo run --release -p cubical-search --example bench` issues a fixed query mix
-and reports p50/p99/mean latency. Best-effort: it exits cleanly when the
-sandbox index isn't present on this machine. Point it elsewhere with
-`CUBICAL_SEARCH_BENCH_VAULT=<absolute-path>`.
+and reports p50/p99/mean latency. It requires
+`CUBICAL_SEARCH_BENCH_VAULT=<absolute-vault-path>` — there is deliberately no
+default, so the driver never depends on one machine's directory layout. Without
+it (or without a built index at that path) it prints what to set and exits 0.

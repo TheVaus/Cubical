@@ -38,6 +38,13 @@ pub(crate) async fn open_index_with_migrations(
 
     run_migrations(&conn, migrations).await?;
 
+    // Best-effort: a prune failure must never block opening the vault.
+    if let Err(e) =
+        crate::audit::prune_audit_log_conn(&conn, crate::audit::AUDIT_LOG_MAX_ROWS).await
+    {
+        tracing::warn!(error = %e, "audit_log prune on open failed");
+    }
+
     Ok(IndexConn { _db: db, conn })
 }
 

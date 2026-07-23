@@ -66,6 +66,38 @@ Tag grammar — the load-bearing rules:
 - **Nesting.** A single `/` followed by a non-empty segment of the same
   alphabet. A trailing `/` is trimmed (text from the slash onward).
 
+## Where the two normalizers disagree (and how parity is forced)
+
+Rust parses with `pulldown-cmark`; the editor parses with Lezer. They differ in
+ways the TS normalizer has to actively correct, or parity breaks:
+
+- **Wiki-links are a Lezer mis-parse.** Lezer's markdown grammar reads `[[X]]`
+  as `[` + `Link(dest="")` + `]`, and `![[X]]` as an `Image` wrapping such a
+  Link — reference/shortcut parses with no definition in scope.
+  `pulldown-cmark` emits the same input as **plain text**. So the TS side must
+  first **re-flatten empty-dest Link/Image nodes back to raw bracketed text**,
+  and only then scan for wiki-links. Skip that step and every wiki-link fixture
+  diverges.
+- **Block spans end differently.** Lezer stops at the last non-newline
+  character; `pulldown-cmark` includes the trailing newline. The TS side
+  extends `to` by exactly one `\n` (LF or CRLF) for headings, paragraphs,
+  blockquotes and thematic breaks — **not** for code blocks, where the two
+  already agree at the closing fence.
+- **List items swallow trailing blank lines.** `pulldown-cmark` extends a list
+  item's span through every blank line separating it from the next item (or
+  from end of source), so the TS side skips any run of consecutive newlines
+  after Lezer's `to`.
+- **Text chunking differs.** `pulldown-cmark` fires one text event per chunk
+  and joins them; the TS side coalesces adjacent text runs to match, folding
+  soft line breaks to a single space.
+
+Unrecognised nodes are silently skipped on both sides — that is what keeps the
+slim-AST rule from turning unsupported syntax into an error.
+
+The TS mirror of the AST types is the **wire-shape contract**: a discriminated
+union keyed on `kind` with `snake_case` tags, matching the Rust serde
+representation. Change one side and the other in the **same commit**.
+
 ## Cross-language parity harness
 
 `crates/cubical-ast/tests/parity_fixtures.rs` owns the ground truth: parsing

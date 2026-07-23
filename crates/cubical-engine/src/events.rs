@@ -459,7 +459,6 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) -> O
         }
     };
 
-    // TODO(L0+): auto-prune audit_log to 10000 rows; it grows unbounded until then.
     let (message, detail) = audit_payload_for(ev);
     if let Err(e) = conn
         .execute(
@@ -485,6 +484,11 @@ pub(crate) async fn apply_watch_events_batch(
     }
     if let Err(e) = vault.search().commit() {
         tracing::warn!(error = %e, "watcher: batch search commit failed");
+    }
+    if let Err(e) =
+        cubical_index::prune_audit_log(vault.index(), cubical_index::AUDIT_LOG_MAX_ROWS).await
+    {
+        tracing::warn!(error = %e, "watcher: audit_log prune failed");
     }
     hashes
 }

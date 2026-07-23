@@ -45,3 +45,8 @@ architecture doc or a spec, these notes link to it rather than restating it.
   from the `.md` files — with exactly one exception, the pending-rewrites
   queue, which is why the durable rename journal exists (see
   [`vault-core.md`](vault-core.md)).
+- **`cubical-sync` is an empty placeholder.** It has no public items until the
+  `CrdtBackend` trait + Loro land at L7
+  ([`../architecture/planned.md`](../architecture/planned.md)). Nothing depends
+  on it — a dependency on it would be dead weight, so don't add one back until
+  the crate actually exports something.

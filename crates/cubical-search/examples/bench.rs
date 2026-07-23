@@ -223,12 +223,12 @@ fn percentile(sorted_ms: &[f64], pct: f64) -> f64 {
 }
 
 fn main() {
-    let vault_dir = std::env::var("CUBICAL_SEARCH_BENCH_VAULT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            let home = std::env::var("HOME").unwrap_or_default();
-            PathBuf::from(home).join("Developer/sandbox/cubical-cancel-test")
-        });
+    let Ok(vault_dir) = std::env::var("CUBICAL_SEARCH_BENCH_VAULT").map(PathBuf::from) else {
+        println!(
+            "set CUBICAL_SEARCH_BENCH_VAULT=<absolute-vault-path> to run this benchmark — skipping"
+        );
+        return;
+    };
     let search_dir = vault_dir.join(".cubical/search");
 
     if !search_dir.exists() {

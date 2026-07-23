@@ -108,14 +108,44 @@ An entry is pruned once no referrer text still names `from` (the rewrites baked
 into the `.md` files) or once `to` itself vanishes. Best-effort: errors are
 logged and swallowed so a bad journal can never wedge vault open.
 
-## Known debt
+## Audit log retention
 
-- **`audit_log` grows unbounded.** The watcher writes a row per event; the
-  spec'd auto-prune to a row ceiling was never implemented. Marked with a
-  `TODO(L0+)` at the insert site in `events.rs`.
-- The watcher dispatcher deliberately does **not** commit the search index per
-  event — it batches one commit per drained burst. Don't "fix" that by adding a
-  per-event commit.
+`audit_log` is capped at the newest `AUDIT_LOG_MAX_ROWS` (10 000) rows, per
+layer-0-spec §7. `cubical_index::prune_audit_log` is called from two places,
+both **best-effort** — a prune failure is logged and never blocks the caller:
+
+- `open_index`, so growth is bounded across sessions;
+- the watcher's per-burst batch, so one long-running session stays bounded too.
+
+The prune is cheap enough to call per burst because it short-circuits on an
+O(1) guard: ids are unique and increasing, so when `MAX(id) - MIN(id)` is under
+the cap the table cannot exceed it and the delete is skipped entirely.
+
+## Batching (a fixed perf cliff — don't undo it)
+
+The watcher dispatcher deliberately does **not** commit the search index per
+event. It applies a drained burst to the index and then commits Tantivy **once**
+for the whole batch.
+
+This is not a micro-optimisation. A bulk rewrite — a rename flushing pending
+rewrites across thousands of backlinks — fires one watch event per file. A
+commit per event means O(n) segment merges, fsyncs and GC, which turned a large
+flush into a multi-minute hang. One commit per burst makes it O(1) commits
+instead of O(events). A regression test guards it.
+
+The same "caller commits" contract is what the scan path and the search
+refresher already follow. Don't add a per-event commit back.
+
+## State handles
+
+`AppState` is plain Rust with no Tauri import; the shell manages it and pure
+handlers take `&AppState`.
+
+The vault map is `Arc<RwLock<…>>` rather than a bare `RwLock` specifically so
+background tasks (the scan and watcher dispatchers) can hold a **stable handle
+across `await` points**. An open vault stores its cancellation token but not
+the dispatcher's join handle — the dispatcher detaches once started, and
+cancelling is enough to bring it down responsively.
 
 ## Settings routing
 
