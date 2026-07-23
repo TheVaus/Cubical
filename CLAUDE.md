@@ -28,6 +28,7 @@ For non-features explicitly cut from scope, see [`docs/architecture/constraints.
 - Code must be maintainable and production-ready — no shortcuts that defer cleanup to the next session.
 - Follow SRP: each module, function, and component owns one concern. Split when a unit starts serving two masters.
 - Respect logical boundaries — don't reach across layers or domains; route through the established IPC/API surface.
+- **Don't write comments — write docs.** No explanatory comments in source, doc-comments (`///`, `//!`, JSDoc) included; a brief one-liner is the most that's allowed. Rationale, invariants and "why it's like this" belong in [`docs/implementation/`](docs/implementation/) (one file per domain), or in `architecture/` when the decision is locked. When a change needs explaining, update the owning doc in the same commit — never leave the explanation in the code. Full rule + the functional pragmas that must never be stripped: [`docs/conventions.md`](docs/conventions.md) → Comments.
 
 ---
 
