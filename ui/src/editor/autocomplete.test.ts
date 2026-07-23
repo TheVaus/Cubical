@@ -66,8 +66,6 @@ describe("linkInsertion", () => {
   });
 });
 
-// --- Source integration (headless: EditorState + CompletionContext) -------
-
 const fakeProvider = (
   links: { path: string; title: string }[],
   tags: string[],
@@ -99,7 +97,7 @@ describe("linkCompletionSource", () => {
       fakeProvider([{ path: "a.md", title: "a" }], []),
     );
     const doc = "```\n[[a\n```\n";
-    const res = await src(ctxAt(doc, 6)); // inside the fence, after [[
+    const res = await src(ctxAt(doc, 6));
     expect(res).toBeNull();
   });
 });
@@ -114,10 +112,8 @@ describe("tagCompletionSource", () => {
 
   it("is suppressed inside inline code", async () => {
     const src = tagCompletionSource(fakeProvider([], ["project"]));
-    // `#pr` is preceded by a space INSIDE the code span, so trigger
-    // detection succeeds (word boundary) and gating is what rejects it.
     const doc = "a `x #pr` b";
-    const res = await src(ctxAt(doc, 8)); // caret after `r`, inside InlineCode
+    const res = await src(ctxAt(doc, 8));
     expect(res).toBeNull();
   });
 });
@@ -134,7 +130,6 @@ describe("detectBlockTrigger", () => {
   });
 
   it("accepts a nested path target", () => {
-    // "[[a/b#^_x-1" — prefix "_x-1" (4 chars) → from = pos - 4 = 7.
     const got = detectBlockTrigger("[[a/b#^_x-1", 11);
     expect(got).toEqual({ target: "a/b", from: 7 });
   });

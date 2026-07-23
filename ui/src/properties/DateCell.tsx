@@ -5,17 +5,6 @@ import TextInput from "@ds/components/forms/TextInput/TextInput";
 
 import { getDateFormat, validateDate } from "./dateFormats";
 
-/**
- * Date-valued frontmatter cell (spec §4.3). Renders per the resolved
- * `format`'s widget:
- *  - `date`     → native `<input type=date>` (YYYY-MM-DD).
- *  - `datetime` → native `<input type=datetime-local>`; the wire uses a
- *                 `T` separator, the stored value a space (`YYYY-MM-DD HH:MM`).
- *  - `number`   → year input (commits a number).
- *  - `text`     → text input validated against the format on commit
- *                 (invalid → reverts to the last committed value).
- * The committed value is written verbatim in the chosen format.
- */
 export interface DateCellProps {
   value: string | number;
   format: string;
@@ -40,7 +29,6 @@ const DateCell: Component<DateCellProps> = (props) => {
   const def = () => getDateFormat(props.format);
   const widget = () => def()?.widget ?? "text";
 
-  // `datetime-local` uses `T`; the stored value uses a space separator.
   const toInput = (stored: string): string => stored.replace(" ", "T");
   const fromInput = (input: string): string => input.replace("T", " ");
 

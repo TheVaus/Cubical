@@ -1,6 +1,3 @@
-// Icon artwork vendored from Lucide (ISC) — see ./LUCIDE-LICENSE.
-// Source: lucide-static@1.25.0, icons/<slug>.svg, inner markup only.
-// To update: re-copy from the pinned package. Do not hand-edit path data.
 export type IconName =
   | "plus" | "folder-plus" | "info" | "chevron-right" | "chevron-down"
   | "close" | "edit" | "settings" | "warning" | "sun" | "moon" | "link"
@@ -8,13 +5,11 @@ export type IconName =
   | "hash" | "command";
 
 export const ICONS: Record<IconName, string> = {
-  // shown verbatim (copy template):
   "plus": `<path d="M5 12h14"/><path d="M12 5v14"/>`,
   "chevron-right": `<path d="m9 18 6-6-6-6"/>`,
   "chevron-down": `<path d="m6 9 6 6 6-6"/>`,
   "close": `<path d="M18 6 6 18"/><path d="m6 6 12 12"/>`,
   "hash": `<line x1="4" x2="20" y1="9" y2="9"/><line x1="4" x2="20" y1="15" y2="15"/><line x1="10" x2="8" y1="3" y2="21"/><line x1="16" x2="14" y1="3" y2="21"/>`,
-  // copied from node_modules/lucide-static/icons/<slug>.svg (inner markup):
   "folder-plus": `<path d="M12 10v6"/><path d="M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>`,
   "info": `<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>`,
   "edit": `<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>`,

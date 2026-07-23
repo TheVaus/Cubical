@@ -16,14 +16,6 @@ import {
   type BacklinksViewState,
 } from "./backlinksState";
 
-/**
- * Props for the Backlinks panel.
- *
- * `vaultId` + `path` drive the fetch. `refreshSignal` is a tick the
- * parent increments to force a refetch (used by the
- * `vault:file-changed` debounce in `App.tsx`). `onRowClick` reuses
- * the parent's existing file-open flow.
- */
 export interface BacklinksProps {
   vaultId: string | null;
   path: string | null;
@@ -34,21 +26,10 @@ export interface BacklinksProps {
 const Backlinks: Component<BacklinksProps> = (props) => {
   const [state, setState] = createSignal<BacklinksViewState>({ kind: "idle" });
 
-  // Refetch whenever vault, path, or the refresh signal changes.
-  // We capture the in-flight token in a closure so a late response
-  // from a previous fetch never overwrites a newer one's state.
-  //
-  // Critical: every `state()` read goes through `untrack` so the effect
-  // does NOT subscribe to its own writes. `reduceBacklinksState` always
-  // returns a fresh object reference, so a tracked read here would form
-  // a self-trigger loop (synchronously: blow the JS stack; once a file
-  // is selected: spin on `fetch:start`, never reaching `loaded` because
-  // each iteration's token supersedes the previous fetch's `.then`).
   let token = 0;
   createEffect(() => {
     const vid = props.vaultId;
     const p = props.path;
-    // Read so the effect tracks it; value itself is unused.
     void props.refreshSignal;
 
     if (!vid || !p) {

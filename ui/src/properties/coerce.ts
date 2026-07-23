@@ -1,17 +1,5 @@
-/**
- * Best-effort type coercion for the Properties type-override menu
- * (L2 Session F, spec §2.4 — brainstorming decision (b)).
- *
- * `coerceValue` always produces a *valid* value of the target kind, so
- * the rendered cell-kind and its value never disagree. When the
- * conversion discards information it sets `lossy: true`; the Properties
- * row then shows a non-dismissable warning chip preserving the original
- * so the user can revert. Nothing is silently destroyed.
- */
-
 import type { CellKind } from "./inferType";
 
-/** Outcome of a coercion: the new value plus whether information was lost. */
 export interface Coercion {
   value: unknown;
   lossy: boolean;
@@ -21,12 +9,6 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const TRUTHY = new Set(["true", "yes", "1", "on"]);
 const FALSY = new Set(["false", "no", "0", "off", ""]);
 
-/**
- * Coerce `value` into the target cell `kind`. `currency` is a float;
- * `enum` is left untouched here (its value-set coercion needs the allowed
- * values, handled in `Properties.changeType`); `date` cross-format
- * conversion is likewise handled by `dateFormats.convertDate`.
- */
 export function coerceValue(value: unknown, kind: CellKind): Coercion {
   switch (kind) {
     case "string":
@@ -42,7 +24,6 @@ export function coerceValue(value: unknown, kind: CellKind): Coercion {
       return toDateValue(value);
     case "enum":
     case "raw":
-      // Not coerced here; the value is left untouched.
       return { value, lossy: false };
     case "list-of-strings":
       return toListValue(value);

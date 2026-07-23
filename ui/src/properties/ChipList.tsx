@@ -11,33 +11,10 @@ import IconButton from "@ds/components/forms/IconButton/IconButton";
 import TextInput from "@ds/components/forms/TextInput/TextInput";
 import Tag from "@ds/components/data/Tag/Tag";
 
-/**
- * Shared chip-row primitive behind `StringListCell` (spec §4.4). Renders
- * a string array as removable chips with click-to-edit text and a
- * trailing `+` add affordance.
- *
- * Tag styling is **per item**: a chip whose stored string starts with `#`
- * renders accent-colored (mono). The `#` is part of the stored value, not
- * added by the renderer. When `onChipClick` is supplied, clicking a
- * `#`-chip navigates (the `#` is stripped for the lookup) and editing
- * moves to a `✎` button; plain chips always click-to-edit.
- *
- * While any chip is being edited, incoming `value` prop changes are
- * ignored so an `onAstChange` refresh cannot clobber the edit.
- *
- * The non-editing chip pill is the `@ds Tag` component (Task S4) — it
- * hosts the label plus optional edit/remove affordances in one pill.
- */
 export interface ChipListProps {
   value: string[];
   onCommit: (next: string[]) => void;
-  /**
-   * When true, every item is a tag chip regardless of a `#` prefix (the
-   * special `tags` property). Items without a `#` are shown with one
-   * (display only — the stored value is unchanged).
-   */
   allTags?: boolean;
-  /** Optional navigation handler for tag chips (tag pages). */
   onChipClick?: (chip: string) => void;
 }
 
@@ -49,14 +26,8 @@ const ChipList: Component<ChipListProps> = (props) => {
   const [chips, setChips] = createSignal<string[]>([...props.value]);
   const [editing, setEditing] = createSignal(-1);
   const [draft, setDraft] = createSignal("");
-  // Shared across chip rows: only one chip can be `editing()` at a time,
-  // so a single ref var (set on mount of whichever row is in edit mode)
-  // is enough — same pattern as the single-input cells (StringCell etc).
   let editInput!: HTMLInputElement;
 
-  // Adopt external value changes only — must NOT re-run on `editing`
-  // alone, or blurring a chip edit would revert the local chips to
-  // stale props during the 150ms AST-tick window.
   createEffect(
     on(
       () => props.value,
@@ -115,8 +86,6 @@ const ChipList: Component<ChipListProps> = (props) => {
         {(chip, i) => {
           const tag = () => (props.allTags ?? false) || chip.startsWith("#");
           const navigable = () => tag() && props.onChipClick !== undefined;
-          // Display a leading `#` for a tags-property item that lacks one;
-          // the stored value stays bare.
           const display = () =>
             tag() && !chip.startsWith("#") ? `#${chip}` : chip;
           return (

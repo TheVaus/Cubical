@@ -137,12 +137,10 @@ describe("renderEmbedBody", () => {
       chain: [],
     });
     const body = frag.querySelector(".cm-md-embed-body")!;
-    // Nested embed renders as its own sub-fragment alongside surrounding
-    // text. The DOM contains the inner content somewhere inside.
     expect(body.textContent).toContain("before");
     expect(body.textContent).toContain("after");
     expect(body.textContent).toContain("INNER");
-    expect(fetched).toEqual([]); // both cached, none kicked
+    expect(fetched).toEqual([]);
   });
 
   it("leaves a non-embed `[[…]]` (no leading `!`) as plain text inside content", () => {
@@ -180,8 +178,6 @@ describe("renderEmbedBody", () => {
       targetRaw: "A",
       chain: ["host.md"],
     });
-    // The inner `![[A]]` would put A.md in the chain twice — render
-    // the cycle link.
     const cycleLink = frag.querySelector(".cm-md-embed-link-cycle");
     expect(cycleLink).not.toBeNull();
     expect(cycleLink!.textContent).toBe("![[A]]");

@@ -1,16 +1,5 @@
-/**
- * Pure TS wiki-link tokenizer — behavioural mirror of
- * `crates/cubical-ast/src/wikilink.rs::scan_wikilinks`.
- *
- * Scans an `Inline::Text` value for `[[…]]` / `![[…]]` runs and yields a
- * sequence of `TokenizedRun`s. Grammar is locked by the L1 parity
- * harness fixtures; both languages must produce identical output for
- * every fixture string.
- */
-
 import type { Anchor } from "./types";
 
-/** One run produced by {@link scanWikilinks}. */
 export type TokenizedRun =
   | { kind: "text"; value: string }
   | {
@@ -22,10 +11,6 @@ export type TokenizedRun =
     }
   | { kind: "property_ref"; note: string | null; property: string };
 
-/**
- * Scan a text run for `[[…]]` and `![[…]]`. Returns an empty array for
- * an empty input; otherwise always at least one element.
- */
 export function scanWikilinks(input: string): TokenizedRun[] {
   if (input.length === 0) return [];
   const out: TokenizedRun[] = [];
@@ -46,7 +31,6 @@ export function scanWikilinks(input: string): TokenizedRun[] {
       cursor = close + 2;
       i = cursor;
     } else {
-      // Unparseable body (empty target); skip the `[[` and keep going.
       i = open.contentStart;
     }
   }
@@ -57,18 +41,15 @@ export function scanWikilinks(input: string): TokenizedRun[] {
 }
 
 interface Opener {
-  /** Byte index of the `!` (embed) or first `[` (plain). */
   openerPos: number;
-  /** Byte index where the body starts (after `[[` or `![[`). */
   contentStart: number;
-  /** Whether the link was prefixed with `!`. */
   embed: boolean;
 }
 
 function findOpen(input: string, start: number): Opener | null {
   for (let i = start; i + 1 < input.length; i++) {
     if (input.charCodeAt(i) === 0x5b && input.charCodeAt(i + 1) === 0x5b) {
-      if (i > 0 && input.charCodeAt(i - 1) === 0x21 /* ! */) {
+      if (i > 0 && input.charCodeAt(i - 1) === 0x21 ) {
         return { openerPos: i - 1, contentStart: i + 2, embed: true };
       }
       return { openerPos: i, contentStart: i + 2, embed: false };
@@ -114,8 +95,6 @@ function parseBody(body: string, embed: boolean): TokenizedRun | null {
   }
   const target = targetRaw.trim();
   if (target.length === 0) return null;
-  // Property-ref branch: a dotted target with no anchor is a frontmatter
-  // reference, not a navigational link. Split at the FIRST dot.
   if (anchor === null) {
     const dot = target.indexOf(".");
     if (dot >= 0) {

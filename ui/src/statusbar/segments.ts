@@ -1,14 +1,9 @@
 import type { BooleanSettingKey } from "../settings/corePlugins";
 
-/** Master on/off key. When false, the whole footer is unmounted. */
 export const STATUSBAR_ENABLED_KEY = "statusbar.enabled" as const;
 
-/** All statusbar booleans default to visible/on, so an upgraded vault with
- *  no `statusbar.*` keys looks identical to before. */
 export const STATUSBAR_DEFAULT = true;
 
-/** One configurable status-bar segment (the always-on system alerts —
- *  scanning, broken refs, pending rewrites — are deliberately not here). */
 export interface StatusbarSegment {
   id: "vault_path" | "file_path" | "word_count" | "block_count";
   name: string;
@@ -49,7 +44,6 @@ export const BLOCK_COUNT_SEGMENT: StatusbarSegment = {
   defaultVisible: true,
 };
 
-/** Settings-tab display order; also the array consumed by the master toggle. */
 export const STATUSBAR_SEGMENTS: StatusbarSegment[] = [
   VAULT_PATH_SEGMENT,
   FILE_PATH_SEGMENT,
@@ -57,7 +51,6 @@ export const STATUSBAR_SEGMENTS: StatusbarSegment[] = [
   BLOCK_COUNT_SEGMENT,
 ];
 
-/** Resolve a segment's visibility: the stored value, else its default. */
 export function segmentVisible(
   state: Record<string, boolean>,
   seg: StatusbarSegment,

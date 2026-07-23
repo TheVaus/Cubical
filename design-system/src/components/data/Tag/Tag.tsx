@@ -5,19 +5,12 @@ import Icon from '../../graphics/Icon/Icon';
 import './Tag.css';
 
 export interface TagProps {
-  /** Rendered verbatim — no auto "#" prefix. */
   label: string;
-  /** True → mono font + accent color pill (the "tag" look); false → body font + fg. */
   tag?: boolean;
-  /** When set, the label is a `<button>` (navigate/edit); else static text. */
   onClick?: () => void;
-  /** title/aria-label for the label button. */
   clickTitle?: string;
-  /** When set, renders a trailing edit IconButton. */
   onEdit?: (() => void) | undefined;
-  /** When set, renders a trailing remove IconButton. */
   onRemove?: () => void;
-  /** aria-label for remove (default `Remove ${label}`). */
   removeTitle?: string;
   class?: string;
   style?: JSX.CSSProperties | string;

@@ -4,12 +4,6 @@ import TextInput from "@ds/components/forms/TextInput/TextInput";
 
 import { formatCurrency, parseCurrencyInput } from "./format";
 
-/**
- * Currency-valued frontmatter cell (spec §4.1). Stores a BARE number in
- * the YAML; the symbol and formatting are display-only and driven by the
- * `currency` code (usd/nis/eur). While focused the raw number is shown
- * for editing; blurred, it renders formatted.
- */
 export interface CurrencyCellProps {
   value: number;
   currency: string;

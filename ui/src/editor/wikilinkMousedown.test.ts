@@ -1,15 +1,3 @@
-/**
- * Regression coverage for the wiki-link click interceptor.
- *
- * Three production attempts (`click` → `mousedown` → `mousedown + async
- * resolver`) all routed wiki-link clicks via `EditorView.posAtDOM(target)`
- * + a Lezer tree scan; all three reliably worked in Chromium but failed
- * inside the production WKWebView. The current implementation in
- * `Editor.tsx` swapped that for DOM-based detection
- * (`target.closest('.cm-md-wikilink')`) at the *capture* phase on
- * `view.contentDOM`. This file pins that behaviour so we don't
- * regress to "wiki-link clicks just move the caret in Tauri".
- */
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -18,12 +6,6 @@ import {
   type WikiLinkMousedownEvent,
 } from "./wikilinkMousedown";
 
-/**
- * Minimal Node/Element fakes — vitest runs in a node environment with
- * no DOM, so we don't have a real Element or Text class. These fakes
- * are just enough for `instanceof Element` / `instanceof Node` checks
- * plus a working `closest(selector)` lookup.
- */
 class FakeElement {
   parentNode: FakeElement | null = null;
   parentElement: FakeElement | null = null;
@@ -56,11 +38,6 @@ class FakeTextNode {
   }
 }
 
-// Make `instanceof Element` / `instanceof Node` work for our fakes by
-// patching the globals. Restore is not strictly needed because vitest
-// gives each test file its own module scope, but we keep originals so
-// jsdom-equipped projects don't get surprised if they ever inherit
-// these tests.
 const origElement = (globalThis as { Element?: unknown }).Element;
 const origNode = (globalThis as { Node?: unknown }).Node;
 (globalThis as { Element: unknown }).Element = FakeElement;
@@ -69,7 +46,6 @@ const origNode = (globalThis as { Node?: unknown }).Node;
     return instance instanceof FakeElement || instance instanceof FakeTextNode;
   }
 });
-// Restore on teardown so we don't leak into sibling test files.
 import { afterAll } from "vitest";
 afterAll(() => {
   if (origElement !== undefined) {
@@ -157,11 +133,6 @@ describe("maybeInterceptWikiLinkMousedown", () => {
   );
 
   it("does NOT preventDefault if onWikiLinkHit returns false (e.g. no resolver yet, no Lezer node at coords)", () => {
-    // Even though the DOM target IS a wiki-link span, the production
-    // hit-callback may decline (no resolver bound, posAtCoords returned
-    // null, no WikiLink node at the resolved position). In that case we
-    // must not eat the caret-move — the user's normal click behaviour
-    // should still run.
     const event = mkEvent();
     const handled = maybeInterceptWikiLinkMousedown(event, {
       findWikiLinkSpan: () => ({}) as unknown as Element,
@@ -194,12 +165,6 @@ describe("closestWikiLinkSpan", () => {
   });
 
   it("returns the span when target is a Text node inside the span (WebKit dispatch shape)", () => {
-    // Regression: this is the case that broke the L3 Session B click
-    // handler in production WKWebView. In the user's real Tauri app,
-    // event.target for a click on the visible "NoteB" text was the
-    // Text node inside `<span class="cm-md-wikilink">NoteB</span>`,
-    // not the span itself. `closest()` is only defined on Element, so
-    // the previous code silently bailed and the caret moved.
     const span = new FakeElement(["cm-md-wikilink"]);
     const text = new FakeTextNode(span);
     const got = closestWikiLinkSpan(text as unknown as EventTarget);

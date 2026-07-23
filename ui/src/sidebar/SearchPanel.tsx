@@ -33,43 +33,16 @@ import { formatRelativeTime } from "./relativeTime";
 import { isSearchNavKey, nextSearchNavIndex } from "./searchNav";
 import { errorMessage } from "../errorMessage";
 
-/**
- * L4-B search surface for the left column. A persistent search bar sits
- * above the file tree (passed as `children`); a filter popover to the
- * right of the bar holds the sort + scope controls. Once the query
- * reaches `MIN_QUERY_LEN` characters the file tree is replaced by a
- * `<mark>`-highlighted result list (debounced into the L4-A `search`
- * IPC); below that threshold the file tree shows. Results are grouped by
- * file (Obsidian-core-search style): each hit is a collapsible group
- * with its title, a match-count badge, and one snippet card per matched
- * field. A polled `search_index_status` banner appears above results
- * while the index is still building. The column width is fixed by the
- * parent — every text surface here truncates (`min-width: 0` + ellipsis,
- * snippets wrap) so a long path or title never widens the sidebar.
- *
- * The result list is capped at `PAGE_LIMIT` files and rendered directly
- * (not windowed): variable-height collapsible groups don't fit the
- * fixed-row virtualisation L4-B shipped, and 50 groups of a few cards is
- * a small DOM. Per-occurrence cards (one field hit several times) and
- * windowed grouped scrolling are deferred to the L4-A search revisit.
- */
 export interface SearchPanelProps {
   vaultId: string | null;
   onNavigate: (path: string) => void;
-  /** The file tree, shown when the query is below the search threshold. */
   children: JSX.Element;
-  /**
-   * Monotonic counter bumped by the parent when vault content changes.
-   * The active query re-runs on each change so an edit that now matches
-   * (or no longer matches) is reflected without re-typing.
-   */
   refreshSignal: number;
 }
 
 const DEBOUNCE_MS = 200;
 const PAGE_LIMIT = 50;
 const STATUS_POLL_MS = 500;
-/** Minimum characters before a search fires; below this the tree shows. */
 const MIN_QUERY_LEN = 3;
 
 const SORTS: { id: SortMode; label: string }[] = [
@@ -90,30 +63,19 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
   const [sort, setSort] = createSignal<SortMode>("relevance");
   const [scope, setScope] = createSignal<ScopeKind>("default");
   const [hits, setHits] = createSignal<SearchHit[]>([]);
-  // Size of the top-K window the backend pulled (min(matches, limit)) —
-  // a "are there more?" hint, never a true total (see SearchResponse).
   const [total, setTotal] = createSignal(0);
   const [error, setError] = createSignal<string | null>(null);
   const [status, setStatus] = createSignal<IndexStatus | null>(null);
   const [showFilters, setShowFilters] = createSignal(false);
 
-  /** True once the query is long enough to search (drives tree↔results). */
   const isSearching = () => queryText().trim().length >= MIN_QUERY_LEN;
-  /** Non-default sort/scope → badge the filter button. */
   const filtersActive = () => sort() !== "relevance" || scope() !== "default";
 
-  // `<For>` reconciles by object reference — `buildStableFileGroups`
-  // reuses a previous group's reference whenever its content is
-  // unchanged, so a refresh triggered by an unrelated file change (e.g.
-  // the open file's own autosave) doesn't tear down and remount every
-  // visible result.
   let prevGroups: FileGroup[] = [];
   const groups = createMemo(() => {
     prevGroups = buildStableFileGroups(prevGroups, hits());
     return prevGroups;
   });
-  // Collapsed file paths. Groups default to expanded (like the
-  // screenshot); a path is added here only when the user collapses it.
   const [collapsed, setCollapsed] = createSignal<Set<string>>(new Set());
   const toggleCollapsed = (path: string) =>
     setCollapsed((prev) => {
@@ -123,15 +85,9 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
       return next;
     });
 
-  // Roving keyboard focus over the file groups (chip task_bd4e47f4): the
-  // result rows were previously mouse-only. `focusedIdx` is -1 when nothing
-  // is focused yet, in which case the first row is the lone tab stop so the
-  // list is Tab-reachable; arrow keys then move focus within. Native
-  // <button> semantics handle Enter/Space → open, so no key handling there.
   const [focusedIdx, setFocusedIdx] = createSignal(-1);
   let rowEls: (HTMLButtonElement | null)[] = [];
   const tabStopIdx = () => (focusedIdx() === -1 ? 0 : focusedIdx());
-  // A fresh result set starts with nothing focused.
   createEffect(() => {
     groups();
     setFocusedIdx(-1);
@@ -172,8 +128,6 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
     const id = props.vaultId;
     const text = queryText().trim();
     if (!id) return;
-    // Below the threshold we show the file tree, not results — clear any
-    // stale hits and issue no IPC (comment: ≥3 chars to search).
     if (text.length < MIN_QUERY_LEN) {
       setHits([]);
       setTotal(0);
@@ -194,12 +148,10 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
       setHits(resp.hits);
       setTotal(resp.total_estimated);
       setError(null);
-      // A new result set starts fully expanded.
       setCollapsed(new Set<string>());
       if (resp.still_indexing) ensurePolling();
     } catch (e) {
       setError(errorMessage(e));
-      // Keep prior hits visible rather than flashing empty.
     }
   };
 
@@ -211,8 +163,6 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
   };
 
   let inputEl: HTMLInputElement | undefined;
-  // Clear button: empty the query immediately (no debounce), drop any
-  // results, and refocus the input so the user can keep typing.
   const onClear = () => {
     debouncedQuery.cancel();
     setQueryText("");
@@ -232,9 +182,6 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
     void runQuery();
   };
 
-  // Re-run the active query when the parent signals a vault content
-  // change. `defer: true` skips the initial run (nothing to refresh yet);
-  // only re-query while actually searching (≥ MIN_QUERY_LEN).
   createEffect(
     on(
       () => props.refreshSignal,
@@ -274,7 +221,6 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
         gap: "var(--space-2)",
       }}
     >
-      {/* Search bar + filter popover trigger. */}
       <div style={{ position: "relative", "min-width": 0 }}>
         <div
           style={{
@@ -284,7 +230,6 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
             "min-width": 0,
           }}
         >
-          {/* Input + inline clear (X) button on its right edge. */}
           <div style={{ position: "relative", flex: 1, "min-width": 0 }}>
             <TextInput
               ref={(el) => (inputEl = el)}
@@ -296,7 +241,6 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
                 width: "100%",
                 "min-width": 0,
                 "box-sizing": "border-box",
-                // Extra right padding leaves room for the clear button.
                 padding:
                   "0 calc(var(--space-3) + 2.25rem) 0 var(--space-3)",
               }}
@@ -350,7 +294,6 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
         </div>
 
         <Show when={showFilters()}>
-          {/* Click-away backdrop (mirrors App.tsx's context-menu pattern). */}
           <div
             onClick={() => setShowFilters(false)}
             style={{
@@ -411,9 +354,6 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
         </Show>
       </div>
 
-      {/* The file tree stays mounted; search results render as an opaque
-          LAYER above it — preserving the tree's scroll position + expanded
-          folders, with no unmount/reflow when a query comes and goes. */}
       <div
         style={{
           position: "relative",
@@ -466,7 +406,6 @@ const SearchPanel: Component<SearchPanelProps> = (props) => {
             </div>
           </Show>
 
-          {/* Result-count line, mirrors the screenshot's "N results". */}
           <Show when={hits().length > 0}>
             <div
               style={{
@@ -551,19 +490,11 @@ const FilterGroup: Component<{ label: string; children: JSX.Element }> = (
   </div>
 );
 
-/**
- * One file's result group: a collapsible header (title + recency + a
- * match-count badge) over its snippet cards. The chevron toggles
- * collapse; the title and each card open the file.
- */
 const FileGroupView: Component<{
   group: FileGroup;
   collapsed: boolean;
-  /** True when this row's title button is the list's single tab stop. */
   tabStop: boolean;
-  /** Registers the title button so the parent can move focus to it. */
   registerRef: (el: HTMLButtonElement | null) => void;
-  /** Fired when the title button gains focus (e.g. via Tab or click). */
   onFocus: () => void;
   onToggle: () => void;
   onOpen: () => void;
@@ -597,13 +528,6 @@ const FileGroupView: Component<{
           <path d="M1 3l4 4 4-4z" />
         </svg>
       </IconButton>
-      {/* Left as a raw <button>, not @ds Button: this is a roving-tabindex
-          list-row title (registerRef/tabStop/onFocus wire it into the
-          result list's keyboard nav) that must flex/truncate flush with its
-          siblings. Button's fixed height + centered/padded box model would
-          have to be neutralized almost entirely to fit that row, which
-          defeats the point of using the DS primitive — so the bespoke
-          element stays, unchanged. */}
       <button
         type="button"
         ref={props.registerRef}
@@ -665,7 +589,6 @@ const FileGroupView: Component<{
   </div>
 );
 
-/** One snippet card inside a file group; clicking it opens the file. */
 const SnippetCard: Component<{ card: ResultCard; onClick: () => void }> = (
   props,
 ) => (

@@ -53,7 +53,6 @@ describe("parseTypeToken", () => {
       kind: "date",
       format: "YYYY-MM-DD HH:MM",
     });
-    // Unknown date format is still a date; format dropped.
     expect(parseTypeToken(" type:date:WUT")).toEqual({ kind: "date" });
   });
 
@@ -77,21 +76,17 @@ describe("isTypeComment", () => {
 
 describe("typeToToken", () => {
   it("emits canonical tokens; omits the default currency code", () => {
-    // currencyDefault is "usd" by default.
     expect(typeToToken({ kind: "currency", currency: "nis" })).toBe(
       "float/currency/nis",
     );
-    // A currency matching the default is written bare.
     expect(typeToToken({ kind: "currency", currency: "usd" })).toBe(
       "float/currency",
     );
     expect(typeToToken({ kind: "currency" })).toBe("float/currency");
-    // A non-default currencyDefault flips which one is bare.
     expect(typeToToken({ kind: "currency", currency: "nis" }, "nis")).toBe(
       "float/currency",
     );
     expect(typeToToken({ kind: "enum", values: ["a", "b"] })).toBe("enum(a,b)");
-    // Dates always write their format inline (no default omission).
     expect(typeToToken({ kind: "date" })).toBe("date");
     expect(typeToToken({ kind: "date", format: ISO })).toBe("date:YYYY-MM-DD");
     expect(typeToToken({ kind: "date", format: "DD-MM-YY" })).toBe(

@@ -5,14 +5,6 @@ import Select from "@ds/components/forms/Select/Select";
 import TextInput from "@ds/components/forms/TextInput/TextInput";
 import Icon from "@ds/components/graphics/Icon/Icon";
 
-/**
- * Enum-valued frontmatter cell (spec §4.2). Two modes:
- *  - **pick**: a `<select>` over the allowed `values`; choosing one
- *    commits it verbatim (numeric-looking values store as numbers).
- *  - **edit**: a comma-separated text input that redefines the allowed
- *    set (`onSetValues`). Shown automatically when no values exist yet,
- *    or via the `✎` affordance.
- */
 export interface EnumCellProps {
   value: unknown;
   values: string[];
@@ -20,7 +12,6 @@ export interface EnumCellProps {
   onSetValues: (values: string[]) => void;
 }
 
-/** A value token stores as a number when it looks numeric, else a string. */
 function toStored(token: string): string | number {
   const t = token.trim();
   if (t !== "" && Number.isFinite(Number(t))) return Number(t);

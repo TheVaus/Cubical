@@ -22,7 +22,6 @@ function evt(over: Partial<DataviewMousedownEvent> = {}): DataviewMousedownEvent
   };
 }
 
-/** Default opts: no link, no frame, nothing handles — override per test. */
 function opts(
   over: Partial<DataviewMousedownHandlerOptions> = {},
 ): DataviewMousedownHandlerOptions {
@@ -143,7 +142,7 @@ describe("closestDataviewLink", () => {
     a.className = "cq-dataview-link";
     a.textContent = "Mobile App";
     document.body.appendChild(a);
-    const textNode = a.firstChild!; // a Text node, like WKWebView dispatches
+    const textNode = a.firstChild!;
     expect(closestDataviewLink(textNode)).toBe(a);
     a.remove();
   });

@@ -35,7 +35,7 @@ describe("layoutDocument", () => {
     expect(layoutWithLines).toHaveBeenCalledWith({ prepared: true }, 96, 4);
     expect(out).toEqual({
       lines: [{ text: "one" }, { text: "two" }],
-      contentHeight: 8, // lineCount(2) * lineHeight(4)
+      contentHeight: 8,
     });
   });
 

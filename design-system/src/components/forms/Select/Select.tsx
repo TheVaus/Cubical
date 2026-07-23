@@ -5,23 +5,18 @@ import './Select.css';
 
 export interface SelectOption {
   value: string;
-  /** Defaults to `value` when omitted. */
   label?: string;
 }
 
 export interface SelectProps {
   options: SelectOption[];
   value: string;
-  /** DS convention: the option's value string, not the change event. */
   onChange: (value: string) => void;
-  /** Compact sizing to match TextInput sm (e.g. inline property cells). Defaults to 'md'. */
   size?: 'sm' | 'md';
   ariaLabel?: string;
   disabled?: boolean;
-  /** width: 100% on the wrapper and the select. */
   fullWidth?: boolean;
   class?: string;
-  /** Escape hatch for instance-specific layout overrides (token-driven values only). */
   style?: JSX.CSSProperties | string;
 }
 

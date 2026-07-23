@@ -14,10 +14,8 @@ import {
 
 const WIDTH = 96;
 const RELAYOUT_MS = 200;
-/** Measurement/draw font size (px); line *advance* is the scale-to-fit height. */
 const FONT_PX = 2;
 
-/** Read minimap colors from the CM theme tokens currently on <html>. */
 function readColors(): MinimapColors {
   const cs = getComputedStyle(document.documentElement);
   const tok = (n: string, fallback: string) =>
@@ -29,21 +27,12 @@ function readColors(): MinimapColors {
   };
 }
 
-/** Minimap font: small, mono, matching the editor family. */
 function readFont(): string {
   const cs = getComputedStyle(document.documentElement);
   const family = cs.getPropertyValue("--font-mono").trim() || "monospace";
   return `${FONT_PX}px ${family}`;
 }
 
-/**
- * The element that actually scrolls the document. CodeMirror no longer
- * scrolls internally (`cm-theme.ts` sets the scroller `overflow: visible`
- * so the editor grows and the *page* container scrolls); the minimap must
- * read scroll geometry from that page container, not `view.scrollDOM`.
- * Walks up to the nearest scrollable ancestor, falling back to the start
- * element if none is found.
- */
 function scrollViewportOf(el: HTMLElement): HTMLElement {
   for (let cur = el.parentElement; cur; cur = cur.parentElement) {
     const oy = getComputedStyle(cur).overflowY;
@@ -52,17 +41,6 @@ function scrollViewportOf(el: HTMLElement): HTMLElement {
   return el;
 }
 
-/**
- * Read-only document minimap. A canvas companion *beside* CodeMirror — it
- * reads `view` doc state plus the page scroll viewport's geometry and drives
- * that viewport's `scrollTop`; it never dispatches a document change (the
- * "Solid stays out of CM editing" contract in `Editor.tsx`). See
- * `docs/superpowers/specs/2026-06-28-pretext-minimap-design.md`.
- *
- * Doc changes drive a debounced relayout (Pretext) via an appended CM
- * `updateListener`; scrolls drive a cheap rAF-throttled repaint (the indicator
- * moves, the layout is reused). Both are torn down on cleanup.
- */
 const Minimap: Component<{
   view: EditorView;
   resolvedTheme: ResolvedTheme;
@@ -72,15 +50,12 @@ const Minimap: Component<{
   let rafPending = false;
   let disposed = false;
 
-  // Last computed layout, reused on scroll-only repaints.
   let layout: { lines: { text: string }[]; contentHeight: number } = {
     lines: [],
     contentHeight: 0,
   };
   let lineHeight = 1;
 
-  // The page scroll viewport (resolved in onMount); defaults to the CM
-  // scroller so any pre-mount read is still safe.
   let scrollEl: HTMLElement = props.view.scrollDOM;
 
   const stripHeight = () => scrollEl.clientHeight;
@@ -100,9 +75,6 @@ const Minimap: Component<{
     if (canvas.width !== WIDTH * dpr || canvas.height !== h * dpr) {
       canvas.width = WIDTH * dpr;
       canvas.height = h * dpr;
-      // The editor grows to its content height, so the strip can't size to
-      // it via CSS `height: 100%` — pin the sticky canvas to the *viewport*
-      // height we just measured.
       canvas.style.height = `${h}px`;
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -148,16 +120,12 @@ const Minimap: Component<{
   const onScroll = () => schedulePaint();
 
   onMount(() => {
-    // Doc changes → debounced relayout. Appended (not initial config) because
-    // the minimap mounts after the EditorView; the `disposed` guard makes the
-    // callback inert after cleanup.
     const listener = EditorView.updateListener.of((u) => {
       if (disposed) return;
       if (u.docChanged) scheduleRelayout();
     });
     props.view.dispatch({ effects: StateEffect.appendConfig.of(listener) });
 
-    // CM no longer scrolls itself; track the page scroll viewport instead.
     scrollEl = scrollViewportOf(props.view.scrollDOM);
     scrollEl.addEventListener("scroll", onScroll, { passive: true });
     const ro = new ResizeObserver(() => scheduleRelayout());
@@ -173,7 +141,6 @@ const Minimap: Component<{
     });
   });
 
-  // Pointer drag → scroll the editor.
   let dragging = false;
   const scrollToEvent = (clientY: number) => {
     const rect = canvas.getBoundingClientRect();
@@ -193,7 +160,6 @@ const Minimap: Component<{
     canvas.releasePointerCapture(e.pointerId);
   };
 
-  // Repaint when the theme flips; colors are re-read fresh inside paint().
   createEffect(
     on(
       () => props.resolvedTheme,
@@ -207,9 +173,6 @@ const Minimap: Component<{
       ref={canvas}
       style={{
         width: `${WIDTH}px`,
-        // Height is set in JS to the scroll viewport's height; sticky keeps
-        // the strip pinned beside the visible text as the page scrolls,
-        // and flex-start stops it stretching to the (tall) editor content.
         "align-self": "flex-start",
         position: "sticky",
         top: "0",

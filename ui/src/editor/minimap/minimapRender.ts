@@ -10,11 +10,6 @@ export interface DrawOpts {
   font: string;
 }
 
-/**
- * Paint the minimap: background, one row of tiny text per laid-out line,
- * then the translucent viewport indicator. Pure aside from the ctx writes;
- * no DOM lookups, no Pretext.
- */
 export function drawMinimap(
   ctx: CanvasRenderingContext2D,
   opts: DrawOpts,

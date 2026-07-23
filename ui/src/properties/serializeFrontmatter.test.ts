@@ -11,7 +11,6 @@ import { parseTypeComments, type PropertyType } from "./typeComments";
 
 const ISO = "YYYY-MM-DD";
 
-/** Serialize → split → parse, returning the re-parsed entries. */
 function roundTrip(entries: FrontmatterEntry[]): FrontmatterEntry[] {
   const block = serializeFrontmatter(entries);
   const split = splitFrontmatter(block);
@@ -92,7 +91,6 @@ describe("parse → edit → serialize → re-parse round-trip", () => {
     const parsed = parseFrontmatterYaml(split.yaml, split.span);
     if (!parsed) throw new Error("fixture failed to parse");
 
-    // Edit: change `title`, leave the rest untouched.
     const edited = parsed.entries.map(
       ([k, v]): FrontmatterEntry => (k === "title" ? [k, "bar"] : [k, v]),
     );

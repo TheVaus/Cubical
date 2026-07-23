@@ -9,15 +9,12 @@ import { colorSourceStyle, colorSourceHighlight } from "./colorSource";
 import { wikilinkExtension } from "./wikilink";
 import { tagExtension } from "./tag";
 
-/** Mount a real CodeMirror view with the raw-source coloring installed. */
 function makeColoredView(doc: string): EditorView {
   const host = document.createElement("div");
   return new EditorView({
     parent: host,
     state: EditorState.create({
       doc,
-      // Cursor at end so no token is on the active line (irrelevant here —
-      // coloring has no cursor-reveal behavior — but mirrors sibling tests).
       selection: { anchor: doc.length },
       extensions: [
         markdown({ extensions: [wikilinkExtension, tagExtension] }),
@@ -27,13 +24,6 @@ function makeColoredView(doc: string): EditorView {
   });
 }
 
-/**
- * The colorized-raw-source HighlightStyle paints rendered-mode colors onto
- * the raw markup without hiding or replacing anything (that "no rendering"
- * guarantee is structural — a HighlightStyle can only set `color`). These
- * tests pin the tag→color contract: which tokens get tinted, with which
- * token, and which tokens are deliberately left alone.
- */
 describe("colorSourceStyle", () => {
   it("assigns a highlight class to wiki-link / markdown-link tokens (t.link)", () => {
     expect(colorSourceStyle.style([t.link])).toBeTruthy();
@@ -62,7 +52,6 @@ describe("colorSourceHighlight (mounted)", () => {
     try {
       const span = view.contentDOM.querySelector(`.${linkClass}`);
       expect(span).not.toBeNull();
-      // No rendering: the literal markup stays in the text, brackets intact.
       expect(span?.textContent).toBe("[[Foo]]");
       expect(view.state.doc.toString()).toBe("[[Foo]]\n");
     } finally {

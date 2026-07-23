@@ -88,7 +88,6 @@ describe("reprefixNestedPath", () => {
   });
 
   it("doesn't false-positive on a sibling folder with a shared prefix", () => {
-    // "projects-archive" must not be treated as nested under "projects".
     expect(
       reprefixNestedPath("projects-archive/a.md", "projects", "work"),
     ).toBeNull();

@@ -41,10 +41,8 @@ describe("drawMinimap", () => {
     });
     expect(ctx.clearRect).toHaveBeenCalledTimes(1);
     expect(ctx.fillText).toHaveBeenCalledTimes(3);
-    // line 0 at y=0, line 2 at y=8 (i * lineHeight)
     expect(ctx.fillText).toHaveBeenNthCalledWith(1, "alpha", 0, 0);
     expect(ctx.fillText).toHaveBeenNthCalledWith(3, "gamma", 0, 8);
-    // background fillRect + indicator fillRect = at least 2 rects
     expect(ctx.fillRect.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 

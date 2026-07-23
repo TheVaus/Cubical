@@ -11,20 +11,7 @@ export interface SegmentedOption {
 export interface SegmentedControlProps {
   options: SegmentedOption[];
   value: string;
-  /**
-   * Visual style. 'tabs' (default) is the underline-tab look for switching
-   * views; 'pill' is a bordered chip group for compact inline settings.
-   */
   variant?: 'tabs' | 'pill';
-  /**
-   * ARIA role pairing. 'tablist' (default) keeps the existing tabs
-   * semantics (`role="tab"` + `aria-selected` per option) byte-for-byte
-   * unchanged, for switching between views/panels. 'radiogroup' is for a
-   * segmented control standing in for a plain choice (e.g. an Off/On
-   * setting) with no associated tabpanel — options get `role="radio"` +
-   * `aria-checked` instead. Does not add roving-tabindex/arrow-key
-   * navigation for either role.
-   */
   role?: 'tablist' | 'radiogroup';
   onChange: (value: string) => void;
 }

@@ -24,7 +24,7 @@ describe("matchText", () => {
 
 describe("fuzzyMatch", () => {
   it("matches a case-insensitive subsequence and returns indices", () => {
-    expect(fuzzyMatch("rk", "Red King")).toEqual([0, 4]); // R..K
+    expect(fuzzyMatch("rk", "Red King")).toEqual([0, 4]);
   });
   it("returns the earliest greedy indices", () => {
     expect(fuzzyMatch("re", "Red King")).toEqual([0, 1]);
@@ -71,11 +71,11 @@ describe("rankItems", () => {
   it("excludes non-matches and ranks the exact match first", () => {
     const r = rankItems("red", items, 50);
     expect(r.map((x) => matchText(x.item))).not.toContain("Blue");
-    expect(matchText(r[0]!.item)).toBe("red"); // exact match wins
+    expect(matchText(r[0]!.item)).toBe("red");
   });
   it("breaks ties: shorter target, then note before tag, then alpha", () => {
     const r = rankItems("re", [tag("re"), note("re")], 50);
-    expect(r[0]!.item.kind).toBe("note"); // equal score+len → note first
+    expect(r[0]!.item.kind).toBe("note");
   });
   it("caps results at the limit", () => {
     const many: OmniItem[] = Array.from({ length: 10 }, (_, i) =>
@@ -111,8 +111,6 @@ describe("rankItems typo tolerance", () => {
     expect(r.map((x) => matchText(x.item))).not.toContain("Blue");
   });
   it("ranks clean subsequence matches above typo'd ones", () => {
-    // "rich" is a subsequence of "rich_note"; for "ricj_note" it is not
-    // (no 'h'/'j' alignment) → fuzzy. Subsequence must win.
     const r = rankItems("rich", [note("ricj_note"), note("rich_note")], 50);
     expect(matchText(r[0]!.item)).toBe("rich_note");
   });
@@ -126,8 +124,6 @@ describe("rankItems typo tolerance", () => {
 
 describe("command-kind ranking", () => {
   it("ranks note < tag < command when score and length tie", () => {
-    // All three share the same matchable text so score/length tie and the
-    // kind tie-break decides order.
     const items: OmniItem[] = [
       { kind: "command", id: "x.toggle", title: "abc" },
       { kind: "tag", tag: "abc" },

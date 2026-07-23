@@ -1,39 +1,3 @@
-/**
- * Per-vault wiki-link resolution cache (L3 Session B, spec §2.2;
- * extended in L4-A-fix Contract 4a).
- *
- * A small in-memory store over the L3 Session A `resolve_link` IPC.
- * Each editor session is given one resolver bound to the open vault;
- * the resolver caches answers keyed on the wiki-link target string (as
- * written in the source, including any `#anchor`), dedupes concurrent
- * fetches, and notifies subscribers when the cache changes.
- *
- * Subscribers are the decoration plugin (to trigger a rebuild when a
- * fetch completes or the cache is invalidated). The click handler
- * reads from the cache synchronously via `get()`.
- *
- * Failures cache a `{ target_path: null, anchor: null }` result so a
- * failing target does not re-enter the IPC on every rebuild. The cache
- * is fully cleared on `invalidate()` — called by `App.tsx` whenever a
- * `vault:file-changed` event lands so a freshly-created target flips
- * from "unresolved" to "resolved" without a reload.
- *
- * **Contract 4a (L4-A-fix) additions.**
- *   - `debug()` returns a snapshot of cache + in-flight + last-fetch
- *     timestamps + last-error map for diagnostic.
- *   - `onEvent` emits granular events (`fetch-started`,
- *     `fetch-settled`, `fetch-errored`, `invalidate`, `abort`) so the
- *     operator + future dev panels can trace async behavior.
- *   - `abort()` cancels in-flight fetches at the cache-write side
- *     (the underlying IPC keeps running on the Rust side; the
- *     response is discarded). Used at vault swap; lays the pattern
- *     for L6 plugin sandbox async cancellation.
- *
- * The observability types (`ResolverDebugState`, `ResolverEvent`) are
- * single-sourced in `embedResolver.ts` and re-used here so both
- * resolvers expose a symmetric interface.
- */
-
 import type { ResolverDebugState, ResolverEvent } from "./embedResolver";
 import {
   resolveLink as defaultResolveLink,
@@ -47,33 +11,16 @@ export interface WikiLinkResolution {
 }
 
 export interface WikiLinkResolver {
-  /** Sync lookup. Returns `undefined` for targets not yet fetched. */
   get(targetRaw: string): WikiLinkResolution | undefined;
-  /** Kick off (or skip if already pending/cached) an async fetch. */
   fetch(targetRaw: string): void;
-  /**
-   * Awaitable lookup. Resolves to the cached entry, kicking off a fetch
-   * first if the cache is cold and awaiting any in-flight fetch.
-   * Used by the click router so a first-click on a not-yet-resolved
-   * wiki-link still navigates (rather than being thrown away pending).
-   */
   resolve(targetRaw: string): Promise<WikiLinkResolution>;
-  /** Drop the entire cache and notify subscribers. */
   invalidate(): void;
-  /** Subscribe to cache-change notifications. Returns unsubscribe. */
   onUpdate(handler: () => void): () => void;
-  /** Snapshot of resolver state (Contract 4a). */
   debug(): ResolverDebugState;
-  /** Subscribe to granular resolver events (Contract 4a). */
   onEvent(handler: (e: ResolverEvent) => void): () => void;
-  /** Abort in-flight fetches; cache + subscribers untouched (Contract 4a). */
   abort(): void;
 }
 
-/**
- * Build a resolver bound to one vault. `ipc` is injected so tests can
- * stub it; production callers pass `resolveLink` from `api/ipc.ts`.
- */
 export function createWikiLinkResolver(
   vaultId: string,
   ipc: (
@@ -121,7 +68,6 @@ export function createWikiLinkResolver(
         })
         .catch((err: unknown) => {
           if (handle.aborted) return;
-          // Cache the failure as "unresolved" so we don't re-fire.
           cache.set(targetRaw, { target_path: null, anchor: null });
           const msg = err instanceof Error ? err.message : String(err);
           lastError.set(targetRaw, msg);
@@ -142,11 +88,6 @@ export function createWikiLinkResolver(
     resolve(targetRaw) {
       const hit = cache.get(targetRaw);
       if (hit !== undefined) return Promise.resolve(hit);
-      // Kick the fetch if not already in flight, then await the next
-      // notify carrying our entry. `invalidate()` can land between
-      // notifies — the subscriber simply keeps waiting until the
-      // entry appears (the in-flight fetch, or the next one if we
-      // were invalidated mid-flight, will fill it).
       resolver.fetch(targetRaw);
       return new Promise((resolveFn) => {
         const unsub = resolver.onUpdate(() => {
@@ -155,8 +96,6 @@ export function createWikiLinkResolver(
             unsub();
             resolveFn(got);
           } else if (!inFlight.has(targetRaw)) {
-            // Cache miss AND no fetch in flight (an `invalidate()`
-            // cleared us). Kick a fresh one and keep waiting.
             resolver.fetch(targetRaw);
           }
         });
@@ -165,8 +104,6 @@ export function createWikiLinkResolver(
     invalidate() {
       cache.clear();
       lastError.clear();
-      // Don't clear inFlight — those promises will overwrite stale
-      // entries when they resolve, which is harmless.
       emit({ kind: "invalidate", at: Date.now() });
       notify();
     },

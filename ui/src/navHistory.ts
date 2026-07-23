@@ -1,10 +1,3 @@
-/**
- * Pure back/forward navigation history for the editor (session-scoped,
- * not persisted). A list-with-a-cursor: `stack` is the visited paths in
- * order, `index` points at the current one. Dependency-free so it
- * unit-tests without the app harness (conventions §tests).
- */
-
 export interface NavState {
   stack: string[];
   index: number;
@@ -26,12 +19,6 @@ export function canForward(s: NavState): boolean {
   return s.index < s.stack.length - 1;
 }
 
-/**
- * Record a visit to `path`. A push identical to the current entry is a
- * no-op (avoids dupe entries when re-opening the same file). Any forward
- * entries are dropped — the standard browser-history "new branch"
- * behaviour after going back.
- */
 export function navPush(s: NavState, path: string): NavState {
   if (navCurrent(s) === path) return s;
   const stack = s.stack.slice(0, s.index + 1);

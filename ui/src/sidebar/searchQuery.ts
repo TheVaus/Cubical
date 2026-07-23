@@ -1,18 +1,5 @@
 import type { FieldScope, SearchQuery, SortMode } from "../api/ipc";
 
-/**
- * Map the search panel's chip state into the wire `SearchQuery`.
- *
- * `fuzzy` is ON: a single-term, ≥4-char query gets an edit-distance-1
- * clause spanning ALL scope fields, OR'd with the exact + prefix query
- * (see cubical-search query.rs `build_fuzzy_query` /
- * `single_term_fuzzy_spans_all_fields`), so typos like `ricj` → `rich`
- * still match. This used to be OFF because L4-A's fuzzy was `title`-only
- * and discarded the multi-field query; that limitation was fixed in the
- * L4-A revisit (task_256abd1c). The `tags` scope reinterprets the query
- * box as whitespace-separated tag names (AND-matched, lowercased
- * backend-side).
- */
 export type ScopeKind = FieldScope["kind"];
 
 export interface QueryInput {

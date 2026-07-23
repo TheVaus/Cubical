@@ -190,8 +190,6 @@ describe("countFilesUnderFolder", () => {
   });
 
   it("counts files nested in subfolders, regardless of collapse state", () => {
-    // countFilesUnderFolder walks the nested tree, not the flattened
-    // collapse-aware row list — a collapsed subfolder must not undercount.
     const root = buildFileTree([
       md("projects/a.md"),
       md("projects/deep/b.md"),

@@ -1,9 +1,3 @@
-/**
- * Compact relative-time label for search result cards, e.g. "5m ago",
- * "3h ago", "2d ago", "2mo ago", "2y ago". Input is unix *seconds*
- * (matching `SearchHit.mtime_secs`); `nowMs` defaults to the wall clock
- * and is injectable for tests. Future timestamps clamp to "just now".
- */
 const MINUTE = 60;
 const HOUR = 3600;
 const DAY = 86400;

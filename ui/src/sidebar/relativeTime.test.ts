@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { formatRelativeTime } from "./relativeTime";
 
-// Fixed "now": 2026-06-07T00:00:00Z = 1780790400 unix seconds.
 const NOW_MS = 1780790400 * 1000;
 
 describe("formatRelativeTime", () => {

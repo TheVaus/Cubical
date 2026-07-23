@@ -180,8 +180,6 @@ describe("propertyRefExtension", () => {
   });
 
   it("does not materialize the whole document when there's no self-ref to resolve", () => {
-    // Only a cross-note ref — `selfValue` (which needs the full doc text
-    // to find this note's own frontmatter) is never reached.
     const resolver = stubResolver({
       "Gandalf age": { kind: "resolved", value: "2019" },
     });

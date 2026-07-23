@@ -39,7 +39,6 @@ describe("toastState", () => {
     showToast("Hello world");
     dismissToast();
     expect(currentToast()).toBeNull();
-    // A stale timer must not later re-trigger and stomp on a new message.
     vi.advanceTimersByTime(TOAST_AUTO_DISMISS_MS + 1);
     expect(currentToast()).toBeNull();
   });
@@ -49,10 +48,8 @@ describe("toastState", () => {
     vi.advanceTimersByTime(TOAST_AUTO_DISMISS_MS - 1000);
     showToast("Second");
     expect(currentToast()).toBe("Second");
-    // If the first timer had survived, this would have cleared "Second".
     vi.advanceTimersByTime(1000);
     expect(currentToast()).toBe("Second");
-    // The fresh dismiss window is still ticking.
     vi.advanceTimersByTime(TOAST_AUTO_DISMISS_MS - 1001);
     expect(currentToast()).toBe("Second");
     vi.advanceTimersByTime(1);

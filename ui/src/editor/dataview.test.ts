@@ -11,10 +11,8 @@ import {
 } from "./dataview";
 import type { DataviewResult } from "../api/ipc";
 
-/** Flush the full promise chain (then → catch → finally) + timers. */
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
-/** A minimal runner stub for decoration tests (never fetches). */
 function stubRunner(): DataviewRunner {
   return {
     get: () => undefined,
@@ -26,7 +24,6 @@ function stubRunner(): DataviewRunner {
   };
 }
 
-/** Count the decoration ranges in a set. */
 function countRanges(set: DecorationSet): number {
   let n = 0;
   set.between(0, 1e9, () => {
@@ -52,7 +49,6 @@ describe("dataviewExtension", () => {
 });
 
 describe("dataviewBlockField detection", () => {
-  // Cursor on line 1 ("text"), outside the block → widget emitted.
   const doc = "text\n\n```query\nLIST\n```\n";
 
   it("replaces a ```query fenced block with a widget", () => {
@@ -88,7 +84,7 @@ describe("createDataviewRunner", () => {
 
     expect(runner.get("COUNT")).toBeUndefined();
     runner.fetch("COUNT");
-    runner.fetch("COUNT"); // in-flight dedupe
+    runner.fetch("COUNT");
     await flush();
 
     expect(ipc).toHaveBeenCalledTimes(1);
@@ -129,10 +125,8 @@ describe("createDataviewRunner", () => {
 
     ipc.mockResolvedValue({ kind: "count", count: 5 });
     runner.invalidate();
-    // Stale value is still shown synchronously — never flashes to undefined.
     expect(runner.get("COUNT")).toEqual(count3);
     await flush();
-    // New value swapped in once the background refetch settles.
     expect(runner.get("COUNT")).toEqual({ kind: "count", count: 5 });
   });
 

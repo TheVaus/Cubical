@@ -146,36 +146,11 @@ import {
 import { toggleInfo, type InfoId } from "./settings/settingsInfo";
 import { VaultSwitcher } from "./VaultSwitcher";
 
-/**
- * L2 Session A surface.
- *
- * Adds the editor's write-path on top of the L1 file list. The state
- * that matters for autosave + conflict detection lives here in App so
- * the buffer-the-user-is-leaving can be flushed *before* the new file
- * loads (per L2 spec §2.1 flush-on-file-change semantics).
- *
- * Per-file state:
- * - `seenHash`     — hash of the file as of the last read or own-write.
- * - `lastWrittenHash` — hash of the most recent successful write.
- *                       Used to drop the watcher's own-write echo
- *                       before any external-edit logic runs (§2.8).
- *
- * The 300ms autosave timer is a single ambient handle (the L2 surface
- * only ever has one buffer open). Flush triggers: idle debounce, blur,
- * file selection change, app quit.
- */
 const AUTOSAVE_DEBOUNCE_MS = 300;
 
-/**
- * File-list virtualization. A vault can hold tens of thousands of
- * files; rendering one DOM node each freezes the webview. The list
- * renders only the rows in the viewport (plus `FILE_LIST_OVERSCAN`
- * rows of margin), every row a fixed `FILE_ROW_HEIGHT` px tall.
- */
 const FILE_ROW_HEIGHT = 32;
 const FILE_LIST_OVERSCAN = 8;
 
-/** Header theme button cycle order (spec §2.5 / DoD §6). */
 const THEME_ICON: Record<ThemeMode, IconName> = {
   system: "settings",
   light: "sun",
@@ -191,7 +166,6 @@ type SettingsTab =
   | "vault"
   | "shortcuts";
 
-/** Settings nav items, in display order. Feeds `TwoPaneModal`'s `items`. */
 const SETTINGS_TABS: { id: SettingsTab; icon: IconName; label: string }[] = [
   { id: "appearance", icon: "palette", label: "Appearance" },
   { id: "editor", icon: "file-text", label: "Editor" },
@@ -203,8 +177,6 @@ const SETTINGS_TABS: { id: SettingsTab; icon: IconName; label: string }[] = [
 ];
 
 const App: Component = () => {
-  // Core substrate: the open vault's session identity. Features read
-  // `vaultId` from here; this holder knows nothing about them.
   const {
     vaultId,
     setVaultId,
@@ -221,11 +193,7 @@ const App: Component = () => {
   const [folders, setFolders] = createSignal<string[]>([]);
   const [error, setError] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal(false);
-  // True from first paint until launch has decided whether to auto-open the
-  // last vault. Suppresses the empty-vault landing during that window so it
-  // doesn't flash on screen before the auto-opened vault appears.
   const [booting, setBooting] = createSignal(true);
-  // Machine-local recent-vaults list (populated from the app-config store).
   const [recentVaults, setRecentVaults] = createSignal<RecentVault[]>([]);
   const refreshRecentVaults = async () => {
     try {
@@ -240,27 +208,14 @@ const App: Component = () => {
   const [selectedContent, setSelectedContent] = createSignal<string | null>(
     null,
   );
-  // Parsed frontmatter from the latest AST tick, fed to the Properties
-  // UI (L2 Session F). Reset on file selection so a freshly opened doc
-  // never briefly shows the previous file's rows before the first tick.
   const [propertiesFrontmatter, setPropertiesFrontmatter] =
     createSignal<Frontmatter | null>(null);
 
-  // UI rework: live document stats shown in the status bar. Block count
-  // comes from the canonical AST; word count from the current buffer text.
   const [blockCount, setBlockCount] = createSignal(0);
   const [wordCount, setWordCount] = createSignal(0);
 
-  // File-list virtualization state. `scrollTop`/`viewportHeight` track
-  // the scroll container; `fileWindow` derives the slice of rows to
-  // mount, and `visibleFiles` is that slice. Only ~viewport-many rows
-  // are ever in the DOM, so a 30k-file vault stays responsive.
   const [scrollTop, setScrollTop] = createSignal(0);
   const [viewportHeight, setViewportHeight] = createSignal(600);
-  // UI rework: folder tree. `collapsedFolders` is the set of collapsed
-  // folder paths; `treeRows` flattens the *visible* rows (folders + files
-  // in expanded folders), virtualized exactly like the old flat list so a
-  // 30k-file vault stays responsive — only the windowed slice is mounted.
   const [collapsedFolders, setCollapsedFolders] = createSignal<Set<string>>(
     new Set(),
   );
@@ -271,10 +226,6 @@ const App: Component = () => {
       else next.add(path);
       return next;
     });
-  // `<For>` reconciles by object reference — `buildStableTreeRows` reuses
-  // the previous row's reference whenever its content is unchanged, so a
-  // vault-file-changed refresh (e.g. the open file's own autosave) doesn't
-  // tear down and remount unrelated sidebar rows.
   let prevTreeRows: FlatRow[] = [];
   const treeRows = createMemo<FlatRow[]>(() => {
     prevTreeRows = buildStableTreeRows(
@@ -298,38 +249,19 @@ const App: Component = () => {
     treeRows().slice(fileWindow().startIndex, fileWindow().endIndex),
   );
 
-  // Theme state. `themeMode` is the user's preference (persisted per
-  // vault as `appearance.theme_mode`); `resolvedTheme` is the concrete
-  // light/dark applied to `<html>` and handed to the editor. The
-  // initial `applyTheme` runs at render so the app honors the OS
-  // preference from first paint, before any vault is open.
   const [themeMode, setThemeMode] = createSignal<ThemeMode>("system");
   const [resolvedTheme, setResolvedTheme] = createSignal<ResolvedTheme>(
     applyTheme("system"),
   );
 
-  // Raw-source state (spec §2.3). `rawDefault` is the app-level
-  // `editor.raw_source_default` setting, seeded on vault open; absent
-  // → `false` (Live Preview out of the box). `rawOverride` is the
-  // per-doc transient choice — `null` means "defer to the default" and
-  // it resets to `null` on every file-selection change. `effectiveRaw`
-  // collapses the two into the boolean the editor acts on.
   const [rawDefault, setRawDefault] = createSignal(false);
   const [rawOverride, setRawOverride] = createSignal<boolean | null>(null);
-  // `editor.minimap_enabled` — read-only Pretext minimap strip; seeded on
-  // vault open, absent → `false` (opt-in companion surface).
   const [minimapEnabled, setMinimapEnabled] = createSignal(false);
-  // `editor.colorize_raw_source` — when on, Raw Source mode paints
-  // rendered-mode colors (wiki-links / links / tags → accent) onto the raw
-  // markup without hiding or rendering anything. Seeded on vault open,
-  // absent → `false`. Inert under Live Preview.
   const [colorizeSource, setColorizeSource] = createSignal(false);
   const effectiveRaw = createMemo(() =>
     resolveRawState(rawOverride(), rawDefault()),
   );
 
-  // `wikilinks.rewrite_broken_links_on_rename` — repair broken links that
-  // name a renamed file. Default on; seeded on vault open.
   const [rewriteBrokenLinks, setRewriteBrokenLinks] = createSignal(true);
   const setRewriteBrokenLinksValue = (val: boolean) => {
     setRewriteBrokenLinks(val);
@@ -340,97 +272,46 @@ const App: Component = () => {
     );
   };
 
-  // Typed-properties feature flag + default date format, seeded on vault
-  // open. Absent → disabled / "YYYY-MM-DD".
   const [typedProps, setTypedProps] = createSignal(false);
   const [dateDefault, setDateDefault] = createSignal("YYYY-MM-DD");
   const [currencyDefault, setCurrencyDefault] = createSignal("usd");
   const [tagsKeyAsTags, setTagsKeyAsTags] = createSignal(true);
 
-  // Conflict banner state — surfaces when an external edit lands on a
-  // dirty buffer (spec §2.7). `externalHash` holds the most recent
-  // unfamiliar hash so "Keep my edits" knows what's being overwritten.
   const [conflictExternalHash, setConflictExternalHash] = createSignal<
     string | null
   >(null);
 
-  // L3 Session B: per-vault wiki-link resolver (`null` when no vault
-  // is open). Reset on vault open; invalidated on every
-  // `vault:file-changed` so a freshly-created target flips from
-  // "unresolved" to "resolved" without a reload.
   const [wikilinkResolver, setWikilinkResolver] =
     createSignal<WikiLinkResolver | null>(null);
 
-  // L3 Session H.2 — per-vault embed resolver (mirrors wikilinkResolver
-  // lifecycle). Created in `handleOpen`, cleared in close, invalidated
-  // on every `vault:file-changed` so a freshly-resolvable embed flips
-  // from "Couldn't resolve" to its content without a reload.
   const [embedResolver, setEmbedResolver] =
     createSignal<EmbedResolver | null>(null);
 
-  // Per-vault cross-file property resolver for `[[note.prop]]`. Invalidated
-  // on every `vault:file-changed` so an edited frontmatter value flips to
-  // its new value without a reload.
   const [propertyResolver, setPropertyResolver] =
     createSignal<PropertyResolver | null>(null);
 
-  // L4-D — per-vault dataview runner for ```query blocks (mirrors the
-  // embed resolver lifecycle). Created in `handleOpen`, cleared on close,
-  // invalidated on vault content change so results re-evaluate.
   const [dataviewRunner, setDataviewRunner] =
     createSignal<DataviewRunner | null>(null);
 
-  // L3 Session F: per-vault autocomplete provider (`null` when no vault
-  // is open). Parallels `wikilinkResolver` — reset on vault open,
-  // cleared on vault close.
   const [autocompleteProvider, setAutocompleteProvider] =
     createSignal<AutocompleteProvider | null>(null);
 
-  // L3 Session B: pending "create this note?" offer raised by a click
-  // on an unresolved wiki-link. `null` = no offer up.
   const [createOffer, setCreateOffer] = createSignal<{ path: string } | null>(
     null,
   );
 
-  // L3 Session E: the first non-file view in the app. `view` discriminates
-  // between the editor pane and the virtual tag page; the file list and
-  // sidebar persist across both. `tagRefreshTick` lets `vault:file-changed`
-  // re-query the tag listing (a new file with the tag should appear).
-  //
-  // Selecting a file always switches back to `{ kind: "file" }` — the
-  // user clicking a row in the file list expects the editor, not the
-  // tag page they were just on.
   type View = { kind: "file" } | { kind: "tag"; tagPath: string };
   const [view, setView] = createSignal<View>({ kind: "file" });
   const [tagRefreshTick, setTagRefreshTick] = createSignal(0);
 
-  // L3 Session C: right-sidebar shell state + backlinks refresh tick.
-  // `rightSidebarCollapsed` mirrors the `ui.right_sidebar_collapsed`
-  // vault-local setting (seeded on vault open, persisted on toggle).
-  // `rightSidebarRefreshTick` is a monotonic counter that the Backlinks
-  // and Unlinked Mentions panels watch — every `vault:file-changed`
-  // event bumps it after a 200ms debounce so the panels refetch
-  // without polling. (Renamed in Session I — the same tick now drives
-  // both panels.)
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = createSignal(false);
-  // UI rework: the left sidebar (search + file tree) is a floating layer
-  // that slides off-screen on collapse without reflowing the editor.
   const [leftCollapsed, setLeftCollapsed] = createSignal(false);
   const toggleLeftSidebar = () => setLeftCollapsed((v) => !v);
-  // Session-scoped editor navigation history (#4). Reactive wrapper over
-  // the pure navHistory reducer so the topbar ‹ › buttons re-evaluate.
   const [navState, setNavState] = createSignal<NavState>(emptyNav);
   const navCanBack = createMemo(() => canBack(navState()));
   const navCanForward = createMemo(() => canForward(navState()));
-  // UI rework: Settings modal (theme + editor/vault prefs live here now).
   const [settingsOpen, setSettingsOpen] = createSignal(false);
-  // Minimal in-app vault-switcher popover (#3) — no persistence yet.
   const [vaultSwitcherOpen, setVaultSwitcherOpen] = createSignal(false);
-  // `shortcuts.overrides` — command id → key spec, only for commands the
-  // user has rebound from default. Seeded on vault open, absent → `{}`
-  // (every command at its factory default). `effectiveBindings` is what
-  // both the global keydown handler and the editor's CM6 keymap actually
-  // resolve against.
   const [shortcutOverrides, setShortcutOverrides] = createSignal<
     Record<string, string>
   >({});
@@ -442,13 +323,9 @@ const App: Component = () => {
     resolveBindings(shortcutOverrides()),
   );
   const [settingsTab, setSettingsTab] = createSignal<SettingsTab>("appearance");
-  // Which complex setting's info popover is open (`null` = none). One at a
-  // time; toggling the same `ⓘ` closes it (spec §State).
   const [openInfo, setOpenInfo] = createSignal<InfoId | null>(null);
   const flipInfo = (id: InfoId) => setOpenInfo((cur) => toggleInfo(cur, id));
   const [corePlugins, setCorePlugins] = createSignal<Record<string, boolean>>({});
-  // Configurable status bar: master enable + per-item visibility, keyed by
-  // full setting key (e.g. "statusbar.show_word_count"). Seeded on vault open.
   const [statusbarConfig, setStatusbarConfig] = createSignal<
     Record<string, boolean>
   >({});
@@ -460,13 +337,6 @@ const App: Component = () => {
   let rightSidebarRefreshTimer: ReturnType<typeof setTimeout> | undefined;
   const RIGHT_SIDEBAR_REFRESH_DEBOUNCE_MS = 200;
 
-  // L4-B: a monotonic counter the SearchPanel watches to re-run its
-  // active query when vault content changes (an edit may now match, or
-  // no longer match, the live query). Bumped — debounced — on any
-  // `vault:file-changed` and after the open file's own autosave (whose
-  // file-changed event is suppressed as an own-write). The search index
-  // is already committed by the watcher before the event fires, so the
-  // re-query sees fresh results.
   const [searchRefreshTick, setSearchRefreshTick] = createSignal(0);
   let searchRefreshTimer: ReturnType<typeof setTimeout> | undefined;
   const SEARCH_REFRESH_DEBOUNCE_MS = 250;
@@ -478,18 +348,15 @@ const App: Component = () => {
     }, SEARCH_REFRESH_DEBOUNCE_MS);
   };
 
-  // ── L4-C Omni-Bar (Cmd/Ctrl+K quick switcher over notes + tags) ─────
   const [omniOpen, setOmniOpen] = createSignal(false);
   const [vaultTags, setVaultTags] = createSignal<string[]>([]);
   const [tagsLoaded, setTagsLoaded] = createSignal(false);
 
-  /** Filename stem (no dir, no `.md`) — a note's display title. */
   const fileStem = (path: string) => {
     const base = path.split("/").pop() ?? path;
     return base.endsWith(".md") ? base.slice(0, -3) : base;
   };
 
-  /** Lazily load the full vault tag set for the Omni-Bar (cached). */
   const ensureTagsLoaded = async () => {
     const id = vaultId();
     if (!id || tagsLoaded()) return;
@@ -503,13 +370,11 @@ const App: Component = () => {
       setTagsLoaded(true);
     }
   };
-  // Invalidate the tag cache on vault content change (next open re-fetches).
   createEffect(
     on(
       () => searchRefreshTick(),
       () => {
         setTagsLoaded(false);
-        // L4-D: vault content changed — re-evaluate ```query blocks.
         dataviewRunner()?.invalidate();
       },
       { defer: true },
@@ -540,26 +405,18 @@ const App: Component = () => {
       })),
   );
 
-  // L3 Session I: which right-sidebar panel is currently rendered.
-  // Persisted as `ui.right_sidebar_panel` (default `backlinks`).
   type RightSidebarPanel = "backlinks" | "unlinked_mentions";
   const [rightSidebarPanel, setRightSidebarPanel] =
     createSignal<RightSidebarPanel>("backlinks");
 
-  // L3 Session G: broken block refs surfaced in the footer status bar.
   const [brokenBlockRefs, setBrokenBlockRefs] = createSignal<BrokenBlockRef[]>(
     [],
   );
   let brokenBlockRefsTimer: ReturnType<typeof setTimeout> | undefined;
 
-  // L3 Session J.2 — pending-rewrites count (driven by
-  // `vault:pending-rewrites-changed`) + the right-click rename gesture
-  // state. `contextMenu` is the floating menu anchored to a file row;
-  // `renamingPath` is the row currently swapped for an inline input.
   const [pendingRewritesCount, setPendingRewritesCount] = createSignal(0);
   const [contextMenu, setContextMenu] = createSignal<{
     kind: "file" | "folder" | "empty";
-    /** Right-clicked row's path; `""` for `kind === "empty"`. */
     path: string;
     x: number;
     y: number;
@@ -572,13 +429,8 @@ const App: Component = () => {
   const [deleteInFlight, setDeleteInFlight] = createSignal(false);
   const [renamingPath, setRenamingPath] = createSignal<string | null>(null);
 
-  // Per-file hash bookkeeping. Non-reactive (signals are overkill here
-  // and would cause spurious re-renders when only the bookkeeping
-  // changes). The active file's hashes are read directly from these
-  // when needed.
   let seenHash: string | null = null;
   let lastWrittenHash: string | null = null;
-  // Tracks whether the buffer has unsaved changes vs. seenHash.
   let dirty = false;
 
   let editorApi: EditorApi | undefined;
@@ -620,11 +472,6 @@ const App: Component = () => {
     }, wait);
   };
 
-  /**
-   * Run the actual write. Resets `dirty` only if no new keystrokes
-   * landed during the write (the editor remains the source of truth
-   * for whether the buffer matches what we just persisted).
-   */
   const performWrite = async (): Promise<void> => {
     const id = vaultId();
     const path = selectedPath();
@@ -640,16 +487,9 @@ const App: Component = () => {
       const resp = await writeFileText(req);
       lastWrittenHash = resp.new_content_hash;
       seenHash = resp.new_content_hash;
-      // Only clear `dirty` if the buffer matches what we wrote. If a
-      // keystroke landed mid-write, the buffer diverged and we still
-      // owe another flush.
       if (editorApi.getContent() === content) {
         dirty = false;
       }
-      // L4-B: the watcher commits this own-write to the search index but
-      // suppresses its file-changed event, so refresh the search panel
-      // here — editing the open file may change what the active query
-      // matches.
       scheduleSearchRefresh();
     } catch (e) {
       const message = errorMessage(e);
@@ -657,16 +497,12 @@ const App: Component = () => {
     }
   };
 
-  /** Trigger a write now, queuing serially so two flushes don't race. */
   const flushAutosave = async (): Promise<void> => {
     if (autosaveTimer !== undefined) {
       clearTimeout(autosaveTimer);
       autosaveTimer = undefined;
     }
-    // If nothing is pending and the buffer is clean, no-op.
     if (!dirty && pendingWrite === null) return;
-    // Chain after any in-flight write so the second flush sees the
-    // first's hash update.
     const prior = pendingWrite ?? Promise.resolve();
     const next = prior.then(performWrite);
     pendingWrite = next;
@@ -677,13 +513,6 @@ const App: Component = () => {
     }
   };
 
-  /**
-   * "Copy block reference" gesture (L3 Session G). Flush the buffer so
-   * disk bytes match the cursor offset, mint/reuse a `^id` at that line
-   * via the backend (the sole minter), and copy the `[[path#^id]]` link.
-   * The backend's disk write rides the silent-reload path to bring the
-   * `^id` into the clean buffer — no conflict banner.
-   */
   const handleCopyBlockRef = async (byteOffset: number): Promise<void> => {
     const id = vaultId();
     const path = selectedPath();
@@ -706,7 +535,6 @@ const App: Component = () => {
 
   const scheduleAutosave = () => {
     if (conflictExternalHash() !== null) {
-      // Banner is up — autosave is paused until the user resolves.
       return;
     }
     if (autosaveTimer !== undefined) clearTimeout(autosaveTimer);
@@ -716,13 +544,6 @@ const App: Component = () => {
     }, AUTOSAVE_DEBOUNCE_MS);
   };
 
-  /**
-   * Bump the right-sidebar refresh tick after a 200ms debounce. Called
-   * from the `vault:file-changed` listener — any vault file change
-   * may have created or removed a link pointing at the open note
-   * (Backlinks) or added/removed a plain-text mention (Unlinked
-   * Mentions). Same tick fans out to both panels.
-   */
   const scheduleRightSidebarRefresh = () => {
     if (rightSidebarRefreshTimer !== undefined) {
       clearTimeout(rightSidebarRefreshTimer);
@@ -733,10 +554,6 @@ const App: Component = () => {
     }, RIGHT_SIDEBAR_REFRESH_DEBOUNCE_MS);
   };
 
-  /**
-   * Re-query the vault's broken block refs (L3 Session G). A transient
-   * IPC error keeps the prior value rather than flickering to empty.
-   */
   const refreshBrokenBlockRefs = async (): Promise<void> => {
     const id = vaultId();
     if (!id) return;
@@ -748,7 +565,6 @@ const App: Component = () => {
     }
   };
 
-  /** Debounced `refreshBrokenBlockRefs` for the file-changed firehose. */
   const scheduleBrokenBlockRefsRefresh = () => {
     if (brokenBlockRefsTimer !== undefined) {
       clearTimeout(brokenBlockRefsTimer);
@@ -759,12 +575,6 @@ const App: Component = () => {
     }, RIGHT_SIDEBAR_REFRESH_DEBOUNCE_MS);
   };
 
-  /**
-   * L3 Session J.2 — commit a file rename. Validates locally first
-   * (empty / same-path are caught client-side) and surfaces backend
-   * rejections (existing destination, vault not open) through the
-   * shared toast surface.
-   */
   const handleRenameCommit = async (
     fromPath: string,
     rawTarget: string,
@@ -791,9 +601,6 @@ const App: Component = () => {
       } else {
         await renameFile({ vault_id: id, from_path: fromPath, to_path: target });
       }
-      // Follow the open buffer if it was the renamed file itself, or
-      // was nested under the renamed folder — without this, autosave
-      // would write back to a path that no longer exists.
       if (isFolder) {
         const sel = selectedPath();
         if (sel !== null) {
@@ -805,12 +612,6 @@ const App: Component = () => {
       } else if (selectedPath() === fromPath) {
         setSelectedPath(target);
       }
-      // Neither rename_file nor rename_folder emits `vault:file-changed`
-      // — that only arrives later (and debounced) from the watcher's
-      // disk-move echo. Proactively do the same invalidation a
-      // file-change does so every open view reflects the rename
-      // immediately instead of resolving stale wiki-link targets /
-      // showing the old name in the tree and backlinks panel.
       wikilinkResolver()?.invalidate();
       embedResolver()?.invalidate();
       propertyResolver()?.invalidate();
@@ -823,13 +624,6 @@ const App: Component = () => {
     }
   };
 
-  /**
-   * UI rework: commit an edit of the Obsidian-style filename title.
-   * The title shows the basename stem (no dir, no `.md`); editing it
-   * renames the file. We reconstruct `<dir>/<stem>.md` and defer to the
-   * same rename pipeline the file-list uses — the filename *is* the
-   * title, so nothing (no `# H1`) is ever written into the document.
-   */
   const commitTitleRename = (fromPath: string, newStem: string) => {
     const stem = newStem.trim();
     if (!stem) return;
@@ -840,7 +634,6 @@ const App: Component = () => {
     void handleRenameCommit(fromPath, target);
   };
 
-  /** Tree inline-rename: keep the file's folder, swap its basename. */
   const renameTarget = (fromPath: string, basename: string) => {
     const i = fromPath.lastIndexOf("/");
     const dir = i >= 0 ? fromPath.slice(0, i + 1) : "";
@@ -860,33 +653,16 @@ const App: Component = () => {
     setWordCount(trimmed ? trimmed.split(/\s+/).length : 0);
   };
 
-  /**
-   * Set the theme mode directly (from Settings ▸ Appearance), apply it,
-   * and persist to the open vault. With no vault open the change is
-   * in-memory only — `appearance.theme_mode` is vault-local.
-   */
   const setTheme = (mode: ThemeMode) => {
     setThemeMode(mode);
     setResolvedTheme(applyTheme(mode));
     persistSetting(vaultId(), "appearance.theme_mode", mode);
   };
 
-  /**
-   * Flip the raw-source state for the current document only (naked
-   * `</>` click, or the `Cmd/Ctrl+E` keybind). Sets the per-doc
-   * override against the *current* effective state — no setting is
-   * written.
-   */
   const toggleRawSource = () => {
     setRawOverride(!effectiveRaw());
   };
 
-  /**
-   * Promote the current effective state to the app-level default
-   * (`Shift`-click on `</>`). Persists `editor.raw_source_default` and
-   * clears the per-doc override so the new default takes effect
-   * immediately for the open document.
-   */
   const setRawAsDefault = () => {
     const next = !effectiveRaw();
     setRawDefault(next);
@@ -894,50 +670,42 @@ const App: Component = () => {
     persistSetting(vaultId(), "editor.raw_source_default", next);
   };
 
-  /** Set the raw-source default explicitly (from Settings ▸ Editor). */
   const setRawDefaultValue = (val: boolean) => {
     setRawDefault(val);
     setRawOverride(null);
     persistSetting(vaultId(), "editor.raw_source_default", val);
   };
 
-  /** Set the minimap-enabled flag (from Settings ▸ Editor). */
   const setMinimapEnabledValue = (val: boolean) => {
     setMinimapEnabled(val);
     persistSetting(vaultId(), "editor.minimap_enabled", val);
   };
 
-  /** Set the colorize-raw-source flag (from Settings ▸ Editor). */
   const setColorizeSourceValue = (val: boolean) => {
     setColorizeSource(val);
     persistSetting(vaultId(), "editor.colorize_raw_source", val);
   };
 
-  /** Set the typed-properties flag (from Settings ▸ Editor). */
   const setTypedPropsValue = (val: boolean) => {
     setTypedProps(val);
     persistSetting(vaultId(), "properties.typed_enabled", val);
   };
 
-  /** Set the default date format (from Settings ▸ Editor). */
   const setDateDefaultValue = (val: string) => {
     setDateDefault(val);
     persistSetting(vaultId(), "properties.date_format_default", val);
   };
 
-  /** Set the default currency (from Settings ▸ Editor). */
   const setCurrencyDefaultValue = (val: string) => {
     setCurrencyDefault(val);
     persistSetting(vaultId(), "properties.default_currency", val);
   };
 
-  /** Toggle rendering the `tags` property as tag chips (Settings ▸ Editor). */
   const setTagsKeyAsTagsValue = (val: boolean) => {
     setTagsKeyAsTags(val);
     persistSetting(vaultId(), "properties.tags_key_as_tags", val);
   };
 
-  /** Set a core plugin's on/off state and persist to vault settings. */
   const setCorePlugin = (
     id: string,
     settingKey: BooleanSettingKey,
@@ -949,7 +717,6 @@ const App: Component = () => {
     persistSetting(v, settingKey, value);
   };
 
-  /** Set a status-bar setting (master or a segment) and persist to the vault. */
   const setStatusbarSetting = (key: BooleanSettingKey, value: boolean) => {
     const v = vaultId();
     if (!v) return;
@@ -957,29 +724,18 @@ const App: Component = () => {
     persistSetting(v, key, value);
   };
 
-  /** Run an omni-bar command by id. */
   const handleRunCommand = (id: string) => {
     if (id === "statusbar.toggle") {
       setStatusbarSetting(STATUSBAR_ENABLED_KEY, !statusbarEnabled());
     }
   };
 
-  /**
-   * Toggle the right sidebar collapsed/expanded and persist the new
-   * value to the vault. With no vault open the change is in-memory
-   * only (the setting is vault-local — nowhere to persist yet).
-   */
   const toggleRightSidebar = () => {
     const next = !rightSidebarCollapsed();
     setRightSidebarCollapsed(next);
     persistSetting(vaultId(), "ui.right_sidebar_collapsed", next);
   };
 
-  /**
-   * L3 Session I — pick which right-sidebar panel to render. Persists
-   * the choice as `ui.right_sidebar_panel` so the user's preference
-   * sticks across sessions for this vault.
-   */
   const handleRightSidebarSegmentChange = (id: string) => {
     if (id !== "backlinks" && id !== "unlinked_mentions") return;
     setRightSidebarPanel(id);
@@ -994,48 +750,23 @@ const App: Component = () => {
     if (file.type_id !== "markdown") return;
     const id = vaultId();
     if (!id) return;
-    // Picking a file always exits the tag view back to the editor —
-    // even when the file is already selected. The user's expectation
-    // when they click a file row is "show me that file", regardless
-    // of where they were before.
     setView({ kind: "file" });
-    // Selecting the same file again is a no-op; don't flush and reload
-    // a buffer that's already in front of the user.
     if (selectedPath() === file.path) return;
 
-    // Flush the *previous* file's pending write before swapping. Per
-    // §2.1: "the previous file's pending write is awaited before the
-    // new file is read."
     await flushAutosave();
 
     setError(null);
     setConflictExternalHash(null);
     setSelectedPath(file.path);
     if (!opts?.fromHistory) setNavState((s) => navPush(s, file.path));
-    // Per §2.3: the per-doc raw override is transient — a freshly
-    // opened file starts from the current app default.
     setRawOverride(null);
     setPropertiesFrontmatter(null);
-    // Reset per-file hash bookkeeping. seenHash will be repopulated
-    // below once the read response gets us a hash to anchor on. When the
-    // caller already knows the on-disk hash (e.g. a file it just created),
-    // seed both here instead — otherwise the watcher's `Created` echo for
-    // that write races in as an unrecognized "external edit" (bug: false
-    // "changed outside Cubical" banner right after create).
     seenHash = knownHash ?? null;
     lastWrittenHash = knownHash ?? null;
     dirty = false;
     try {
       const resp = await readFileText({ vault_id: id, path: file.path });
       setSelectedContent(resp.content);
-      // The watcher will eventually report a hash for this path via
-      // its event payload; until then, we anchor seenHash against the
-      // current `files.content_hash` indirectly: we wait for the first
-      // hash-bearing `vault:file-changed` for this file, or for our
-      // own next write. In practice the editor only needs seenHash to
-      // be *non-null* for autosave to gate sensibly — and we get that
-      // from our first write response. Until then, autosave omits the
-      // expected_seen_hash (advisory in L2 §3.1).
     } catch (e) {
       const message = errorMessage(e);
       setError(message);
@@ -1043,13 +774,6 @@ const App: Component = () => {
     }
   };
 
-  /**
-   * Editor back/forward navigation (#4). Moves the history cursor first,
-   * then opens whatever it now points at via `handleSelectFile`'s
-   * `fromHistory` opt-out so the move doesn't re-push itself. Falls back
-   * to a synthetic `FileEntry` when the path isn't in the currently
-   * loaded `files()` list (e.g. it scrolled out of a filtered view).
-   */
   const navigateToHistoryPath = (path: string) => {
     const existing = files().find((f) => f.path === path);
     const file: FileEntry = existing ?? {
@@ -1094,23 +818,10 @@ const App: Component = () => {
   };
 
   const keepMyEdits = () => {
-    // Resume autosave. The next write's `expected_seen_hash` carries
-    // whatever `seenHash` we last knew about; the Rust handler will
-    // detect the mismatch vs. the file's current hash and write the
-    // `external_edit_override` audit_log row.
     setConflictExternalHash(null);
     scheduleAutosave();
   };
 
-  // ---------------------------------------------------------------------
-  // L3 Session B — wiki-link navigation + create-offer handlers.
-  // ---------------------------------------------------------------------
-
-  /**
-   * Open the resolved target file. If the wiki-link carried a heading
-   * anchor, scroll the editor to the matching heading after the file
-   * has loaded. Block anchors are Session G territory — log + no-op.
-   */
   const handleNavigateWikilink = async (
     path: string,
     anchor: ResolvedAnchor | null,
@@ -1118,10 +829,6 @@ const App: Component = () => {
   ) => {
     const id = vaultId();
     if (!id) return;
-    // Reuse the existing selection plumbing so autosave/seenHash/etc.
-    // stay correct. If the target is outside the rendered list window,
-    // fabricate a minimal FileEntry — handleSelectFile reads only
-    // `path` + `type_id`.
     const existing = files().find((f) => f.path === path);
     const file = existing ?? {
       path,
@@ -1129,10 +836,6 @@ const App: Component = () => {
       size_bytes: 0,
       mtime_unix: 0,
     };
-    // Same file already in front → its buffer is loaded, so scroll
-    // immediately (and report a missing anchor). A different file loads
-    // its content via a deferred effect, so queue the scroll to run when
-    // that content lands rather than racing it.
     const alreadyOpen = selectedPath() === path;
     if (anchor !== null && !alreadyOpen) {
       editorApi?.requestAnchorScroll(anchor);
@@ -1147,7 +850,6 @@ const App: Component = () => {
     }
   };
 
-  /** Surface a transient "anchor not found" toast. */
   const notifyAnchorNotFound = (anchor: ResolvedAnchor) => {
     const what = anchor.kind === "heading" ? "Heading" : "Block";
     showToast(`${what} "${anchor.value}" not found in the linked note`);
@@ -1157,18 +859,11 @@ const App: Component = () => {
     setCreateOffer({ path });
   };
 
-  /**
-   * L3 Session E — open the virtual tag page for `tagPath`. Flushes
-   * the pending autosave before swapping the view so we don't leave
-   * the buffer-the-user-is-leaving with unsaved edits (same contract
-   * as `handleSelectFile`).
-   */
   const handleNavigateTag = async (tagPath: string) => {
     await flushAutosave();
     setView({ kind: "tag", tagPath });
   };
 
-  /** Exit the tag view back to the editor pane, with no file change. */
   const handleExitTagView = () => {
     setView({ kind: "file" });
   };
@@ -1183,12 +878,7 @@ const App: Component = () => {
     if (!offer || !id) return;
     setCreateOffer(null);
     try {
-      // `write_file_text` only writes files that already exist; a
-      // not-yet-created wiki-link target needs the dedicated create
-      // path (which inserts the files row + writes empty bytes).
       const resp = await createFileAtPath({ vault_id: id, path: offer.path });
-      // The newly-created file also lands via `vault:file-changed`,
-      // which invalidates the resolver. Navigate immediately.
       await handleNavigateWikilink(offer.path, null, resp.content_hash);
     } catch (e) {
       const message = errorMessage(e);
@@ -1196,9 +886,6 @@ const App: Component = () => {
     }
   };
 
-  // Create a fresh "Untitled" note at the vault root and open it; the
-  // user renames it via the editable title. Naming + collision handling
-  // happen backend-side.
   const handleNewFile = async () => {
     const id = vaultId();
     if (!id) return;
@@ -1211,8 +898,6 @@ const App: Component = () => {
     }
   };
 
-  // Create a fresh "Untitled Folder" at the vault root. It renders empty
-  // (tracked in the folders index) so the user can drop notes into it.
   const handleNewFolder = async () => {
     const id = vaultId();
     if (!id) return;
@@ -1224,12 +909,6 @@ const App: Component = () => {
     }
   };
 
-  /**
-   * Context-menu "New File" — scoped to `parentDir` (a right-clicked
-   * folder's path, or `""` for empty-space/root). Unlike the toolbar's
-   * `handleNewFile`, this doesn't navigate to the new file — it enters
-   * inline rename mode so the user names it in one motion.
-   */
   const handleContextMenuNewFile = async (parentDir: string) => {
     const id = vaultId();
     if (!id) return;
@@ -1242,12 +921,6 @@ const App: Component = () => {
     }
   };
 
-  /**
-   * Context-menu "New Folder" — scoped to `parentDir`. Folders can't be
-   * renamed yet (no backend support — spec's "Folder rename is out of
-   * scope"), so this just creates it and lets the tree refresh show it,
-   * matching the toolbar button's existing behavior.
-   */
   const handleContextMenuNewFolder = async (parentDir: string) => {
     const id = vaultId();
     if (!id) return;
@@ -1259,7 +932,6 @@ const App: Component = () => {
     }
   };
 
-  /** Open the delete-confirm dialog for a right-clicked row. */
   const handleRequestDelete = (path: string, kind: "file" | "folder") => {
     const fileCount =
       kind === "folder"
@@ -1268,11 +940,6 @@ const App: Component = () => {
     setDeleteTarget({ path, kind, fileCount });
   };
 
-  /**
-   * DS `Menu` items for the file-tree context menu, derived from the
-   * right-clicked target's `kind`. Each `onSelect` dismisses the menu and
-   * fires the same handler the old inline buttons did.
-   */
   const buildContextMenuItems = (menu: {
     kind: "file" | "folder" | "empty";
     path: string;
@@ -1319,7 +986,6 @@ const App: Component = () => {
     return items;
   };
 
-  /** Confirm-dialog "Delete" — moves the target to the OS trash. */
   const handleConfirmDelete = async () => {
     const id = vaultId();
     const target = deleteTarget();
@@ -1358,12 +1024,6 @@ const App: Component = () => {
       if (p.vault_id !== vaultId()) return;
       scheduleRefresh();
 
-      // L4-A-fix.1: skip resolver invalidation on the open file's own
-      // autosave echo. An own write can't have changed another file's
-      // content, so cached embed / wiki-link resolutions stay valid;
-      // invalidating here would only thrash embed-card height and jump
-      // the viewport (layer-4-spec §9.2). Other-file changes and
-      // genuine external edits to the open file still invalidate.
       const ownWrite = isOwnWriteEcho({
         changedPath: p.path,
         selectedPath: selectedPath(),
@@ -1371,67 +1031,35 @@ const App: Component = () => {
         lastWrittenHash,
       });
       if (!ownWrite) {
-        // L3 Session B: a change may have created or removed a wiki-link
-        // target — re-resolve on the next decoration rebuild.
         wikilinkResolver()?.invalidate();
-        // L3 Session H.2: a change may have altered embed targets or
-        // their contents — re-fetch on the next widget rebuild.
         embedResolver()?.invalidate();
-        // Property refs: a change may have altered a referenced note's
-        // frontmatter — re-resolve on the next widget rebuild.
         propertyResolver()?.invalidate();
-        // L4-D: a change may have altered frontmatter/tags a ```query
-        // block projects — re-evaluate on the next widget rebuild.
         dataviewRunner()?.invalidate();
       }
 
-      // L3 Sessions C + I: any vault file change may have added/removed
-      // a link pointing at the open note (Backlinks) or a plain-text
-      // mention (Unlinked Mentions). Bump the right-sidebar tick after
-      // a 200ms debounce so both panels refetch.
       scheduleRightSidebarRefresh();
 
-      // L4-B: the change may now match (or stop matching) the active
-      // search query — re-run it (debounced).
       scheduleSearchRefresh();
 
-      // L3 Session G: a change may have created or healed a broken
-      // block ref anywhere in the vault.
       scheduleBrokenBlockRefsRefresh();
 
-      // L3 Session E: any vault file change may have added/removed a
-      // file carrying the currently-open tag. Refresh on every change
-      // when the tag view is up; no debounce — `vault:file-changed`
-      // fires once per write and `refreshFileList` already debounces
-      // the more expensive file-list query.
       if (view().kind === "tag") {
         setTagRefreshTick((n) => n + 1);
       }
 
-      // L2 §2.7 + §2.8: external-edit detection vs. own-write
-      // suppression. Only relevant when the changed file is the one
-      // currently open in the editor and a hash is present on the
-      // payload (created/modified events).
       if (p.path !== selectedPath()) return;
       const incoming = p.new_content_hash;
       if (!incoming) return;
 
-      // Own-write suppression first — drop the round-trip echo before
-      // any conflict logic runs.
       if (incoming === lastWrittenHash) return;
 
-      // External edit. Branch on dirty state per §2.7.5: clean buffer
-      // → silent reload; dirty buffer → conflict banner.
       if (dirty || conflictExternalHash() !== null) {
         setConflictExternalHash(incoming);
-        // Cancel any pending debounce — autosave is paused until the
-        // user resolves the conflict.
         if (autosaveTimer !== undefined) {
           clearTimeout(autosaveTimer);
           autosaveTimer = undefined;
         }
       } else {
-        // Clean buffer: silently re-read so the editor reflects disk.
         const id = vaultId();
         const path = selectedPath();
         if (!id || !path) return;
@@ -1463,23 +1091,16 @@ const App: Component = () => {
       );
     });
 
-    // App-quit / window-close flush (best effort, §2.1 flush triggers).
-    // `beforeunload` is the only synchronous hook the webview exposes;
-    // we kick the autosave and let the in-flight IPC race the close.
     const onBeforeUnload = () => {
       if (autosaveTimer !== undefined) {
         clearTimeout(autosaveTimer);
         autosaveTimer = undefined;
       }
-      // No await available — fire-and-forget. The IPC will be queued
-      // even if the webview tears down mid-flight.
       if (dirty) void performWrite();
     };
     window.addEventListener("beforeunload", onBeforeUnload);
     onCleanup(() => window.removeEventListener("beforeunload", onBeforeUnload));
 
-    // Global shortcuts run through the core command registry. Commands are
-    // built from App closures here (the substrate stays feature-agnostic).
     const globalCommands: Record<string, Command> = {
       "omnibar.toggle": {
         id: "omnibar.toggle",
@@ -1524,21 +1145,14 @@ const App: Component = () => {
     window.addEventListener("keydown", onGlobalKey);
     onCleanup(() => window.removeEventListener("keydown", onGlobalKey));
 
-    // Re-resolve the theme when the OS appearance changes — but only
-    // while the user is in `system` mode (an explicit light/dark
-    // choice ignores the OS).
     const unwatchTheme = watchSystemTheme(() => {
       if (themeMode() === "system") setResolvedTheme(applyTheme("system"));
     });
     onCleanup(unwatchTheme);
 
-    // Recent vaults + auto-open the last one. Do this after the scan
-    // listeners are wired so the auto-opened vault's progress events land.
     await refreshRecentVaults();
     const top = recentVaults()[0];
     if (top && top.exists) {
-      // Awaited (not fire-and-forget) so `booting` stays true until the vault
-      // is open — otherwise the landing paints for a frame before it appears.
       await openVaultByPath(top.path);
     }
     setBooting(false);
@@ -1557,17 +1171,10 @@ const App: Component = () => {
     if (searchRefreshTimer !== undefined) clearTimeout(searchRefreshTimer);
   });
 
-  /**
-   * Open the vault at `path`: reset prior UI state, open it via IPC, and
-   * seed this vault's settings. Owns busy + error handling. Shared by the
-   * folder-picker (`handleOpen`), the recent-vaults list, and launch
-   * auto-open.
-   */
   const openVaultByPath = async (path: string) => {
     setError(null);
     setBusy(true);
     try {
-      // Reset any prior vault's UI state before the new one fires events.
       setFiles([]);
       setFolders([]);
       setFilesProcessed(0);
@@ -1616,8 +1223,6 @@ const App: Component = () => {
       setAutocompleteProvider(createAutocompleteProvider(resp.vault_id));
       scheduleRefresh();
 
-      // Apply this vault's stored theme preference, if any. Absent
-      // key → keep the current (OS-default `system`) mode.
       try {
         const stored = await getSetting(resp.vault_id, "appearance.theme_mode");
         if (stored !== null) {
@@ -1628,8 +1233,6 @@ const App: Component = () => {
         console.error("loading theme_mode failed", e);
       }
 
-      // Seed the raw-source default from this vault's settings. Absent
-      // key → `false` (Live Preview is the out-of-the-box experience).
       await seedSetting(
         resp.vault_id,
         "editor.raw_source_default",
@@ -1637,7 +1240,6 @@ const App: Component = () => {
         setRawDefault,
       );
 
-      // Seed the minimap flag. Absent → off (opt-in companion surface).
       await seedSetting(
         resp.vault_id,
         "editor.minimap_enabled",
@@ -1645,7 +1247,6 @@ const App: Component = () => {
         setMinimapEnabled,
       );
 
-      // Seed the colorize-raw-source flag. Absent → off (opt-in).
       await seedSetting(
         resp.vault_id,
         "editor.colorize_raw_source",
@@ -1653,10 +1254,6 @@ const App: Component = () => {
         setColorizeSource,
       );
 
-      // Seed typed-properties flag + default date format (absent → off / ISO).
-      // Off by default: inline `# type:` comments are slated for replacement
-      // by a vault-level type registry (see the future-work spec), so we
-      // don't write app metadata into `.md` files until a user opts in.
       await seedSetting(
         resp.vault_id,
         "wikilinks.rewrite_broken_links_on_rename",
@@ -1688,7 +1285,6 @@ const App: Component = () => {
         setTagsKeyAsTags,
       );
 
-      // Load each core plugin's enablement (absent ⇒ default).
       {
         const enab: Record<string, boolean> = {};
         for (const p of CORE_PLUGINS) {
@@ -1703,7 +1299,6 @@ const App: Component = () => {
         setCorePlugins(enab);
       }
 
-      // Seed status-bar config (master + each segment). Absent ⇒ default (on).
       {
         const cfg: Record<string, boolean> = {};
         const keys: BooleanSettingKey[] = [
@@ -1721,10 +1316,6 @@ const App: Component = () => {
         setStatusbarConfig(cfg);
       }
 
-      // Seed the right-sidebar collapsed state from this vault's
-      // settings. Absent key → expanded (false). The shell is the
-      // primary surface for backlinks/mentions; default-open is the
-      // right out-of-the-box experience.
       await seedSetting(
         resp.vault_id,
         "ui.right_sidebar_collapsed",
@@ -1732,9 +1323,6 @@ const App: Component = () => {
         setRightSidebarCollapsed,
       );
 
-      // L3 Session I: seed which right-sidebar panel is selected.
-      // Absent key → `backlinks` (the reset default above), so seeding the
-      // fallback is a no-op — preserving the Session C default.
       await seedSetting(
         resp.vault_id,
         "ui.right_sidebar_panel",
@@ -1764,7 +1352,6 @@ const App: Component = () => {
     await openVaultByPath(picked);
   };
 
-  /** Off/On settings toggle as a two-option @ds pill SegmentedControl. */
   const OnOffControl = (props: {
     value: boolean;
     onChange: (v: boolean) => void;
@@ -1781,7 +1368,6 @@ const App: Component = () => {
     />
   );
 
-  /** `ⓘ` button + its popover, anchored inside a `.set-row__control`. */
   const InfoButton = (props: { id: InfoId; children: JSX.Element }) => (
     <>
       <button
@@ -1891,9 +1477,6 @@ const App: Component = () => {
       <Show
         when={vaultId()}
         fallback={
-          // While `booting`, render nothing rather than the landing — on a
-          // launch that auto-opens the last vault, the landing would
-          // otherwise flash for a frame before the vault appears.
           <Show when={!booting()}>
             <div class="empty-vault">
               <p>Pick a folder to open it as a vault.</p>
@@ -2002,8 +1585,6 @@ const App: Component = () => {
                   </div>
                 }
               >
-                {/* Spacer sized to the full list so the scrollbar is
-                    accurate; only the windowed slice is mounted. */}
                 <div
                   style={{
                     height: `${fileWindow().totalHeight}px`,
@@ -2956,7 +2537,6 @@ topics:         # type:list
 
       <Show when={vaultId() && statusbarEnabled()}>
         <footer class="statusbar">
-          {/* left: vault dir + system status (alerts always render when active) */}
           {(() => {
             const vaultVis = () => segVisible(VAULT_PATH_SEGMENT);
             const scanVis = () => scanStatus() === "in_progress";
@@ -3012,7 +2592,6 @@ topics:         # type:list
             );
           })()}
 
-          {/* middle: current file info */}
           <Show when={view().kind === "file" && !!selectedPath()}>
             {(() => {
               const wordVis = () => segVisible(WORD_COUNT_SEGMENT);
@@ -3034,7 +2613,6 @@ topics:         # type:list
             })()}
           </Show>
 
-          {/* right: current file dir (vault-relative path) */}
           <span class="statusbar__group statusbar__group--file">
             <Show
               when={

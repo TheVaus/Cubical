@@ -3,12 +3,6 @@ import type {
   RecentRenameOp,
 } from "../api/ipc";
 
-/**
- * Pure state machine for the L3 Session J.2 pending-rewrites popover.
- * The Solid component is a thin shell around this — keeping the data
- * shape out of JSX lets us unit-test it under vitest's node env, same
- * pattern as `sidebar/backlinksState.ts`.
- */
 export type PendingRewritesPopoverState =
   | { kind: "closed" }
   | { kind: "loading" }
@@ -54,12 +48,10 @@ export function reducePendingRewritesPopover(
   }
 }
 
-/** Stable key for a rename-op row in the popover. */
 export function renameOpKey(op: RecentRenameOp): string {
   return `op-${op.rename_op_id}`;
 }
 
-/** Stable key for a breakdown row in the popover. */
 export function breakdownKey(row: PendingRewriteBreakdownRow): string {
   return `bd-${row.target_file}`;
 }

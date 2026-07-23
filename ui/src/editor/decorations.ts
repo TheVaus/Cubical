@@ -1,38 +1,3 @@
-/**
- * Live Preview decorations — L2 Session B (spec §2.2).
- *
- * A CodeMirror 6 `ViewPlugin` that makes the markdown buffer read like
- * a document: headings scale, emphasis renders, code blocks get a
- * surface, marker tokens are hidden — revealed (muted) so the raw
- * source stays directly editable when the cursor reaches them. Reveal
- * has two modes (see {@link CursorState}): line-level markers (`#`,
- * fenced backticks, `>`, list dashes) reveal whenever the cursor shares
- * their line; inline tokens (`*`, backticks, link brackets + url,
- * `[[…]]`, `#tag`, `^id`) reveal only while the cursor actually touches
- * the token — being elsewhere on the same line is not enough.
- *
- * Decoration source is **Lezer exclusively** (`syntaxTree(state)`).
- * This is the L2 §5 deviation #2: decorations need byte-precise marker
- * token positions, which the canonical Rust-mirrored AST deliberately
- * abstracts away. The canonical-AST path (`onAstChange`) is unaffected;
- * decorations are a parallel consumer.
- *
- * `collectDecorations` is the pure, view-independent core (unit-tested
- * in `decorations.test.ts`). The `ViewPlugin` is a thin wrapper that
- * recomputes the entry list on every relevant update and turns it into
- * a `DecorationSet`.
- *
- * One decoration — hiding a top-of-file YAML frontmatter block — is the
- * exception: it is a *block* decoration, which CodeMirror forbids from
- * a `ViewPlugin`, so it is supplied by a separate `StateField`
- * (`frontmatterHideField`). It is also not Lezer-sourced — the markdown
- * grammar does not model frontmatter — so `findFrontmatter` scans the
- * document directly.
- *
- * Out of scope (left raw, no decoration — L3+ territory): tables,
- * images, HTML blocks, thematic breaks, task-list checkboxes, math,
- * callouts, wiki-links `[[…]]`, embeds `![[…]]`, block IDs, tags.
- */
 import {
   Decoration,
   EditorView,
@@ -55,7 +20,6 @@ import { type SyntaxNode, type Tree } from "@lezer/common";
 import { scanWikilinks, type TokenizedRun } from "../ast/wikilink";
 import type { WikiLinkResolution } from "./wikilinkResolver";
 
-/** A decoration the plugin should apply, as flat positional data. */
 export type DecoKind =
   | "line-h1"
   | "line-h2"
@@ -77,25 +41,11 @@ export type DecoKind =
   | "hide"
   | "bullet";
 
-/**
- * Per-editor wiki-link resolver supplied via {@link wikilinkResolverFacet}.
- * `null` when no vault is open (everything renders as resolved-style).
- *
- * The decoration plugin reads `get` for sync lookup and calls `fetch`
- * for cache misses; both are pure functions on the resolver object. We
- * pass only what the plugin needs — not the whole `WikiLinkResolver`
- * interface — so test stubs stay minimal.
- */
 export interface WikiLinkResolverFacetValue {
   get(targetRaw: string): WikiLinkResolution | undefined;
   fetch(targetRaw: string): void;
 }
 
-/**
- * Facet that supplies the per-editor wiki-link resolver to extensions.
- * `Editor.tsx` writes the current resolver into a Compartment that
- * `.reconfigure`s this facet whenever the vault changes.
- */
 export const wikilinkResolverFacet = Facet.define<
   WikiLinkResolverFacetValue | null,
   WikiLinkResolverFacetValue | null
@@ -103,38 +53,20 @@ export const wikilinkResolverFacet = Facet.define<
   combine: (values) => values[0] ?? null,
 });
 
-/**
- * StateEffect dispatched by `Editor.tsx` whenever the resolver's cache
- * changes (a fetch completed or an `invalidate()` was called). The
- * decoration plugin watches transactions for this effect and rebuilds.
- */
 export const wikilinkResolverUpdated = StateEffect.define<null>();
 
 export interface DecoEntry {
-  /** Document offset where the decoration starts. */
   from: number;
-  /** Document offset where it ends (== `from` for line decorations). */
   to: number;
   kind: DecoKind;
 }
 
-/**
- * The main selection, as the reveal logic needs it.
- *
- * `head` anchors the active-line highlight and the line-based reveal of
- * line-level constructs (headings, fences, blockquotes, bullets). The
- * `[from, to]` range (collapsed `head..head` when there is no
- * selection) drives inline-token reveal: an inline token shows its raw
- * source when this range overlaps it (boundary-inclusive — a caret
- * sitting immediately before or after the token counts as touching).
- */
 export interface CursorState {
   head: number;
   from: number;
   to: number;
 }
 
-/** True when the selection overlaps `[from, to]` (boundary-inclusive). */
 function cursorTouches(
   cursor: CursorState,
   from: number,
@@ -143,30 +75,13 @@ function cursorTouches(
   return cursor.from <= to && cursor.to >= from;
 }
 
-/** A marker token — hidden until the cursor reaches it, then muted. */
 interface Marker {
   from: number;
   to: number;
-  /** Bullet-list dashes render as a `•` glyph rather than vanishing. */
   bullet: boolean;
-  /**
-   * Reveal mode. With a token range, the marker reveals only while the
-   * cursor *touches* that range — inline tokens (emphasis, inline code,
-   * inline-link punctuation). When `null`, it reveals line-based: muted
-   * whenever the cursor shares its line — line-level constructs (heading
-   * `#`, fenced backticks, quote `>`, bullet dash).
-   */
   token: { from: number; to: number } | null;
 }
 
-/**
- * Locate a YAML frontmatter block at the very top of the document.
- * Matches the byte-for-byte rules of `ui/src/ast/frontmatter.ts` (and
- * the Rust side): opener `---` on line 1, closer `---` on its own
- * line. Returns the range from document start through the closer
- * line's end — fed straight to a block-replace decoration, which
- * collapses those lines cleanly with no leftover blank line.
- */
 export function findFrontmatter(
   doc: Text,
 ): { from: number; to: number } | null {
@@ -175,23 +90,14 @@ export function findFrontmatter(
   for (let ln = 2; ln <= doc.lines; ln++) {
     const line = doc.line(ln);
     if (line.text === "---") {
-      // End at the closer line's own end: its trailing newline, or the
-      // document end when the closer is the last line (`line.to` gives
-      // both). The range must NOT extend to the next line's start — a
-      // `block: true` replace decoration whose `to` coincides with a
-      // line start makes CodeMirror drop that line's `Decoration.line`,
-      // which would strip the decoration off a heading / code block /
-      // blockquote sitting immediately after the frontmatter.
       return { from: 0, to: line.to };
     }
   }
   return null;
 }
 
-/** Trailing block id on a line: `^id` preceded by start-or-whitespace. */
 const TRAILING_BLOCK_ID = /(^|\s)\^([A-Za-z_][A-Za-z0-9_-]*)\s*$/;
 
-/** True when `pos` resolves inside a fenced/inline code construct. */
 function isInsideCode(tree: Tree, pos: number): boolean {
   let node: SyntaxNode | null = tree.resolveInner(pos, -1);
   while (node) {
@@ -209,14 +115,6 @@ function isInsideCode(tree: Tree, pos: number): boolean {
   return false;
 }
 
-/**
- * Scan every line for a trailing `^block-id` token (spec §2.7 grammar),
- * revealing the id raw while the cursor touches it (like every inline
- * token) and skipping any id inside fenced/inline code. Returns
- * `mark-blockid` entries. Pure; the markdown grammar has no `^id` node,
- * so this is a direct doc scan in the `findFrontmatter` tradition
- * rather than a Lezer walk.
- */
 export function findBlockIds(
   doc: Text,
   tree: Tree,
@@ -229,13 +127,9 @@ export function findBlockIds(
     if (!m) continue;
     const lead = m[1] ?? "";
     const id = m[2] ?? "";
-    // `lead` is the leading "" or single whitespace char; the caret
-    // sits right after it. `1 + id.length` covers "^" + the id.
     const caretRel = m.index + lead.length;
     const from = line.from + caretRel;
     const to = from + 1 + id.length;
-    // Revealed raw while the cursor touches the id; sharing the line is
-    // not enough.
     if (cursorTouches(cursor, from, to)) continue;
     if (isInsideCode(tree, from)) continue;
     out.push({ from, to, kind: "mark-blockid" });
@@ -243,7 +137,6 @@ export function findBlockIds(
   return out;
 }
 
-/** Advance past run-of-spaces immediately after `from`, within its line. */
 function extendSpaces(doc: Text, from: number): number {
   const line = doc.lineAt(from);
   let p = from;
@@ -251,11 +144,6 @@ function extendSpaces(doc: Text, from: number): number {
   return p;
 }
 
-/**
- * Wiki-link cache key: the wiki-link target as written including any
- * `#anchor`. Matches the `target_raw` input shape that the
- * `resolve_link` IPC accepts.
- */
 function resolverKey(
   tok: Extract<TokenizedRun, { kind: "wiki_link" }>,
 ): string {
@@ -264,17 +152,6 @@ function resolverKey(
   return `${tok.target}${prefix}${tok.anchor.value}`;
 }
 
-/**
- * Walk the Lezer tree and produce the decoration entry list for the
- * given cursor state. Pure: no `EditorView`, no DOM — directly testable
- * against a parsed tree. Line-level markers reveal on the cursor's line;
- * inline tokens reveal only while the cursor touches them (see
- * {@link CursorState}).
- *
- * `resolverLookup`, when supplied, supplies wiki-link resolution
- * status per target. A return of `undefined` means "not yet checked"
- * and paints as resolved-style pending the next rebuild.
- */
 export function collectDecorations(
   tree: Tree,
   doc: Text,
@@ -360,7 +237,6 @@ export function collectDecorations(
           visible.push({ from: line.from, to: line.from, kind: "line-code" });
         }
         if (name === "FencedCode") {
-          // Hide the whole fence line (backticks + any info string).
           for (const cm of node.node.getChildren("CodeMark")) {
             const line = doc.lineAt(cm.from);
             markers.push({
@@ -384,9 +260,6 @@ export function collectDecorations(
         return;
       }
 
-      // Continuation-line `>` markers are not direct children of the
-      // Blockquote node, so they are matched on their own — `QuoteMark`
-      // only ever appears inside a blockquote.
       if (name === "QuoteMark") {
         markers.push({
           from: node.from,
@@ -398,8 +271,6 @@ export function collectDecorations(
       }
 
       if (name === "ListItem") {
-        // Bullet lists swap the dash for a glyph; ordered lists keep
-        // their numerals (the number carries the sequence).
         const parent = node.node.parent;
         if (parent && parent.name === "BulletList") {
           const lm = node.node.getChild("ListMark");
@@ -416,9 +287,6 @@ export function collectDecorations(
       }
 
       if (name === "Link") {
-        // Only inline links `[text](url)` — a Link with a `URL` child.
-        // Reference / shortcut links have no URL child; wiki-links
-        // `[[…]]` never parse as Link at all. Both stay raw.
         const url = node.node.getChild("URL");
         if (!url) return;
         const linkMarks = node.node.getChildren("LinkMark");
@@ -471,9 +339,6 @@ export function collectDecorations(
 
         const revealed = cursorTouches(cursor, node.from, node.to);
         if (revealed) {
-          // Reveal the whole token muted — mirrors how Link / Emphasis
-          // behave when the cursor touches them. Exact sub-range styling
-          // is an implementation detail when editing is in progress.
           visible.push({
             from: node.from,
             to: node.to,
@@ -482,39 +347,27 @@ export function collectDecorations(
           return;
         }
 
-        const openerLen = tok.embed ? 3 : 2; // "![[" or "[["
-        const closerLen = 2; // "]]"
+        const openerLen = tok.embed ? 3 : 2;
+        const closerLen = 2;
         const contentEnd = node.to - closerLen;
 
-        // Visible range inside the body: display takes precedence over
-        // target. Find boundaries within the absolute byte offsets.
         let visibleFrom: number;
         let visibleTo: number;
         if (tok.display !== null) {
-          // `display` sits after the body's `|`. The pipe lives inside
-          // `[[…]]` past the opener; locate it in absolute coords.
           const pipeRel = raw.indexOf("|", openerLen);
           visibleFrom = node.from + pipeRel + 1;
           visibleTo = contentEnd;
         } else {
-          // No display — visible range is the target. Walk from the
-          // body start to the first `#` (anchor) or `|` (which can't
-          // appear here without a display branch).
           let i = node.from + openerLen;
           while (i < contentEnd) {
             const ch = raw.charCodeAt(i - node.from);
-            if (ch === 0x23 /* # */ || ch === 0x7c /* | */) break;
+            if (ch === 0x23  || ch === 0x7c ) break;
             i++;
           }
           visibleFrom = node.from + openerLen;
           visibleTo = i;
         }
 
-        // Off-cursor: hide everything except the visible range; mark
-        // the visible range as resolved / unresolved. Embed tokens
-        // `![[…]]` get a separate atomic block-replace widget from
-        // `embedBlockField` (L4-A-fix Contract 2); the legacy `⎘`
-        // indicator that used to live here has retired.
         if (visibleFrom > node.from) {
           visible.push({ from: node.from, to: visibleFrom, kind: "hide" });
         }
@@ -549,7 +402,6 @@ export function collectDecorations(
   return out;
 }
 
-/** `•` glyph standing in for a hidden bullet-list dash. */
 class BulletWidget extends WidgetType {
   override toDOM(): HTMLElement {
     const span = document.createElement("span");
@@ -582,7 +434,6 @@ const hideDeco = Decoration.replace({});
 const hideBlockDeco = Decoration.replace({ block: true });
 const bulletDeco = Decoration.replace({ widget: new BulletWidget() });
 
-/** Turn the flat entry list into a sorted CM6 `DecorationSet`. */
 function buildDecorationSet(entries: DecoEntry[]): DecorationSet {
   const ranges: Range<Decoration>[] = [];
   for (const e of entries) {
@@ -656,13 +507,6 @@ function buildFor(view: EditorView): DecorationSet {
   return buildDecorationSet([...entries, ...blockIds]);
 }
 
-/**
- * Walk the tree and ask the resolver to fetch any uncached targets.
- * The plugin runs this after every rebuild; the resolver dedupes
- * concurrent fetches and notifies via `wikilinkResolverUpdated` when
- * results arrive (which triggers another rebuild that will then paint
- * unresolved warnings).
- */
 function kickResolverFetches(view: EditorView): void {
   const resolver = view.state.facet(wikilinkResolverFacet);
   if (!resolver) return;
@@ -699,7 +543,6 @@ const livePreviewPlugin = ViewPlugin.fromClass(
         update.docChanged ||
         update.viewportChanged ||
         update.selectionSet ||
-        // Async Lezer parsing can finish after the doc settled.
         syntaxTree(update.startState) !== syntaxTree(update.state) ||
         resolverChanged
       ) {
@@ -711,26 +554,12 @@ const livePreviewPlugin = ViewPlugin.fromClass(
   { decorations: (plugin) => plugin.decorations },
 );
 
-/**
- * Build the block-replace decoration that hides a top-of-file YAML
- * frontmatter block. Empty set when the document has none.
- */
 function frontmatterHideSet(doc: Text): DecorationSet {
   const fm = findFrontmatter(doc);
   if (!fm) return Decoration.none;
   return Decoration.set([hideBlockDeco.range(fm.from, fm.to)]);
 }
 
-/**
- * Frontmatter hiding lives in a `StateField`, NOT the `ViewPlugin`:
- * CodeMirror rejects block decorations supplied by plugins ("Block
- * decorations may not be specified via plugins") because they change
- * the document layout, which is derived from `EditorState` before
- * plugins run. Kept inside the `livePreviewDecorations` bundle so the
- * raw-source compartment swap reveals the YAML along with everything
- * else. Detected outside the Lezer walk because the markdown grammar
- * reads a YAML preamble as `thematic break + text + thematic break`.
- */
 const frontmatterHideField = StateField.define<DecorationSet>({
   create: (state) => frontmatterHideSet(state.doc),
   update: (deco, tr) => (tr.docChanged ? frontmatterHideSet(tr.newDoc) : deco),
@@ -807,12 +636,6 @@ const decorationBaseTheme = EditorView.baseTheme({
   ".cm-md-bullet": { color: "var(--c-accent)" },
 });
 
-/**
- * The Live Preview extension: the decoration `ViewPlugin` plus the
- * base theme that styles every decoration class. Composed into the
- * editor inside a CM6 `Compartment` (see `Editor.tsx`) so L2 Session E
- * can reconfigure it to a no-op for the raw-source toggle.
- */
 export const livePreviewDecorations: Extension = [
   livePreviewPlugin,
   frontmatterHideField,

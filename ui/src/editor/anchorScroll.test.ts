@@ -34,7 +34,6 @@ describe("findHeadingOffset", () => {
 describe("findBlockDefinitionOffset", () => {
   it("finds the line whose trailing token defines the block id", () => {
     const doc = "first line\nbody text ^abc\nmore\n";
-    // Offset of the start of the "body text ^abc" line.
     expect(findBlockDefinitionOffset(doc, "abc")).toBe("first line\n".length);
   });
 
@@ -44,7 +43,6 @@ describe("findBlockDefinitionOffset", () => {
   });
 
   it("returns null when the id is not the trailing token", () => {
-    // `extra` is the final token, not `^abc`.
     expect(findBlockDefinitionOffset("body ^abc extra\n", "abc")).toBeNull();
   });
 

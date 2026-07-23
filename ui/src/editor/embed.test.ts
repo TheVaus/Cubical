@@ -62,10 +62,6 @@ function makeView(
   selectionAnchor?: number,
 ): EditorView {
   const host = document.createElement("div");
-  // Default the cursor to doc end so the embed's host line is *not*
-  // the active line — otherwise the Contract 2 cursor-line suppression
-  // would hide every embed under test. Tests that need cursor-on-host
-  // -line behavior set `selectionAnchor` explicitly.
   const anchor = selectionAnchor ?? doc.length;
   const view = new EditorView({
     parent: host,
@@ -137,10 +133,7 @@ describe("embedExtension", () => {
   });
 
   it("rebuilds on embedResolverUpdated effect (no doc change)", () => {
-    // Cold cache first — widget renders a Loading placeholder.
     const entries: Record<string, EmbedResolution> = {};
-    // `ver` mirrors the real resolver: bumps on every cache mutation,
-    // which is what drives the widget's remount (Contract 2 / bug #5).
     let ver = 0;
     const r: EmbedResolver = {
       get: (t) => entries[t],
@@ -164,8 +157,6 @@ describe("embedExtension", () => {
       view.contentDOM.querySelector(".cm-md-embed-loading"),
     ).not.toBeNull();
 
-    // Populate the cache and fire the effect — widget should repaint
-    // to the resolved body.
     entries.Daily = {
       kind: "note",
       target_path: "Daily.md",
@@ -187,8 +178,6 @@ describe("embedExtension", () => {
       parent: host,
       state: EditorState.create({
         doc: "![[Self]]\n",
-        // Cursor at end (line 2 — blank) so Contract 2 cursor-line
-        // suppression does not hide the widget under test.
         selection: { anchor: "![[Self]]\n".length },
         extensions: [
           markdown({ extensions: [wikilinkExtension] }),
@@ -205,10 +194,6 @@ describe("embedExtension", () => {
   });
 
   it("preserves widget DOM identity across an unrelated doc edit", () => {
-    // Issue 1 regression guard: with the old `Date.now()` stamp every
-    // rebuild produced a fresh widget identity and CM6 remounted the
-    // frame; with entry-reference identity an unrelated edit leaves
-    // the embed's DOM node intact.
     const r = stubResolver({
       Daily: { kind: "note", target_path: "Daily.md", content: "hi" },
     });
@@ -229,9 +214,6 @@ describe("embedExtension", () => {
   });
 
   it("remounts the widget when the resolver version bumps (cold → resolved)", () => {
-    // Companion to the identity-preservation test: when the resolver
-    // cache mutates (cold → resolved) it bumps `version()`, the new
-    // widget's `eq()` returns false, and CM6 remounts the DOM.
     const entries: Record<string, EmbedResolution> = {};
     let ver = 0;
     const r: EmbedResolver = {
@@ -270,9 +252,6 @@ describe("embedExtension", () => {
     view.destroy();
   });
 
-  // Sanity that the markdown grammar + wikilink extension still parses
-  // an embed token as a WikiLink node — guards against an upstream
-  // regression that would silently hide the widget.
   it("parses ![[…]] as a single WikiLink node", () => {
     const view = makeView("![[Daily]]\n", null);
     const tree = syntaxTree(view.state);
@@ -286,11 +265,6 @@ describe("embedExtension", () => {
     view.destroy();
   });
 
-  // The card renders only when the embed is ALONE on its line (the
-  // by-convention shape). The whole line is replaced with an atomic
-  // BLOCK decoration — the cursor-safe primitive (same as frontmatter
-  // hiding). Mid-line embeds stay raw (no card) to avoid block content
-  // inside a line, which is the cursor tension.
   const ALONE_DOC = "para 1\n\n![[Daily]]\n\npara 2\n";
   const EMBED_FROM = ALONE_DOC.indexOf("![[Daily]]");
   const EMBED_LINE = (() => {
@@ -313,7 +287,7 @@ describe("embedExtension", () => {
         openNotePathFacet.of(null),
         embedBlockField,
       ],
-      selection: { anchor: 0 }, // cursor off the embed line
+      selection: { anchor: 0 },
     });
 
     let blockReplace: { from: number; to: number } | null = null;
@@ -322,7 +296,6 @@ describe("embedExtension", () => {
         blockReplace = { from, to };
       }
     });
-    // The block replace covers the whole host line.
     expect(blockReplace).toEqual({ from: EMBED_LINE.from, to: EMBED_LINE.to });
   });
 
@@ -390,7 +363,7 @@ describe("embedExtension", () => {
         openNotePathFacet.of(null),
         embedBlockField,
       ],
-      selection: { anchor: EMBED_FROM + 1 }, // inside ![[Daily]]
+      selection: { anchor: EMBED_FROM + 1 },
     });
 
     let count = 0;
@@ -413,7 +386,7 @@ describe("embedExtension", () => {
         openNotePathFacet.of(null),
         embedBlockField,
       ],
-      selection: { anchor: 0 }, // line 1 — far from embed
+      selection: { anchor: 0 },
     });
 
     const set0 = state0.field(embedBlockField);
@@ -429,18 +402,11 @@ describe("embedExtension", () => {
       });
       return n;
     };
-    // Off the line: one whole-line block replace.
     expect(countOf(set0)).toBe(1);
-    // On the line: suppressed → 0.
     expect(countOf(set1)).toBe(0);
   });
 
   it("bug #5: widget identity changes when the resolver version bumps (nested embed resolves)", () => {
-    // A embeds B; B's content embeds C. Initially only B is cached and
-    // the resolver reports version 0. When the nested C resolves the
-    // resolver bumps its version — the top-level widget's identity must
-    // change so CM6 remounts and re-renders the now-resolved nested
-    // embed (instead of freezing on `Loading [[C]]…`).
     let version = 0;
     const cache: Record<string, EmbedResolution> = {
       B: { kind: "note", target_path: "B.md", content: "see ![[C]] nested" },
@@ -464,7 +430,7 @@ describe("embedExtension", () => {
       version: () => version,
     };
 
-    const doc = "host\n\n![[B]]\n\n\n"; // embed alone on its line
+    const doc = "host\n\n![[B]]\n\n\n";
     const state = EditorState.create({
       doc,
       selection: { anchor: 0 },
@@ -489,7 +455,6 @@ describe("embedExtension", () => {
     const w1 = widgetOf(state);
     expect(w1).not.toBeNull();
 
-    // Nested C resolves: cache grows and the version bumps.
     cache.C = { kind: "note", target_path: "C.md", content: "C body" };
     version++;
 
@@ -497,7 +462,6 @@ describe("embedExtension", () => {
     const w2 = widgetOf(tr.state);
     expect(w2).not.toBeNull();
 
-    // Identity MUST differ → CM6 remounts → nested embed re-renders.
     expect(w1!.eq(w2)).toBe(false);
   });
 });

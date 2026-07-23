@@ -72,22 +72,18 @@ describe("createEmbedResolver", () => {
     const r = createEmbedResolver("v1", ipc);
     expect(r.version()).toBe(0);
 
-    // Successful fetch → one bump.
     await r.resolve("Daily");
     const afterFetch = r.version();
     expect(afterFetch).toBeGreaterThan(0);
 
-    // A cached re-resolve does NOT fetch → no bump.
     await r.resolve("Daily");
     expect(r.version()).toBe(afterFetch);
 
-    // A failing fetch → bump.
     const failing = createEmbedResolver("v1", makeIpc(new Error("boom")));
     const v0 = failing.version();
     await failing.resolve("Ghost");
     expect(failing.version()).toBeGreaterThan(v0);
 
-    // invalidate → bump.
     const beforeInvalidate = r.version();
     r.invalidate();
     expect(r.version()).toBeGreaterThan(beforeInvalidate);
@@ -105,7 +101,7 @@ describe("createEmbedResolver", () => {
     expect(r.get("Daily")).toBeUndefined();
     unsub();
     r.invalidate();
-    expect(fn).toHaveBeenCalledTimes(2); // unsubscribed — no extra call
+    expect(fn).toHaveBeenCalledTimes(2);
   });
 
   it("resolve() joins an already-in-flight fetch without re-firing the IPC", async () => {
@@ -114,8 +110,8 @@ describe("createEmbedResolver", () => {
       .fn<(req: GetEmbedRequest) => Promise<GetEmbedResponse>>()
       .mockImplementation(() => d.promise);
     const r = createEmbedResolver("v1", ipc);
-    r.fetch("Daily"); // first fetch — in-flight
-    const pending = r.resolve("Daily"); // joins
+    r.fetch("Daily");
+    const pending = r.resolve("Daily");
     d.resolve(RESOLVED);
     const got = await pending;
     expect(got).toEqual(RESOLVED);
@@ -137,23 +133,9 @@ describe("createEmbedResolver", () => {
         });
       const r = createEmbedResolver("v1", ipc);
       const pending = r.resolve("Daily");
-      // Settle the first IPC. The `.then` microtask runs first
-      // (cache.set), then `.finally` runs (inFlight.delete + notify),
-      // then the subscriber in resolve() wakes. If invalidate() lands
-      // between the `.then` and the subscriber-wake, the subscriber
-      // sees an empty cache AND no in-flight fetch — it must re-kick
-      // or pending hangs forever.
       first.resolve(RESOLVED);
-      // One microtask tick: the `.then` runs (cache populated), but
-      // the `.finally` hasn't fired notify yet because the chain is
-      // not fully drained.
       await Promise.resolve();
-      // Now clear the cache before the finally-notify reaches the
-      // subscriber.
       r.invalidate();
-      // The original finally-notify still fires; the subscriber sees
-      // undefined + no in-flight → re-kicks the second fetch.
-      // Settle that one.
       second.resolve(RESOLVED);
       const got = await pending;
       expect(got).toEqual(RESOLVED);
@@ -282,20 +264,14 @@ describe("observability interface (Contract 4a)", () => {
       .mockImplementationOnce(() => Promise.resolve(RESOLVED));
     const r = createEmbedResolver("v1", ipc);
 
-    // Kick the first fetch via resolve(); it's pending.
     const resolvePromise = r.resolve("Daily");
 
-    // Abort while the first fetch is in flight.
     r.abort();
 
-    // The first fetch's late response is discarded (handle.aborted).
     pendingResolve(RESOLVED);
     await Promise.resolve();
     await Promise.resolve();
 
-    // The resolve() subscriber should have re-kicked a fresh fetch
-    // (via the notify() abort() now emits). That second fetch was
-    // wired to resolve immediately with RESOLVED.
     const result = await resolvePromise;
     expect(result).toEqual(RESOLVED);
     expect(ipc).toHaveBeenCalledTimes(2);

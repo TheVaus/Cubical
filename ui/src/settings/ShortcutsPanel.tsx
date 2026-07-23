@@ -13,18 +13,10 @@ import {
 } from "../core/commands";
 
 export interface ShortcutsPanelProps {
-  /** Command id → key spec, only for commands the user has changed. */
   overrides: Record<string, string>;
-  /** Called with the full next `overrides` object on every change. */
   onChange: (next: Record<string, string>) => void;
 }
 
-/**
- * Settings → Shortcuts. One editable row per `COMMAND_DEFAULTS` entry:
- * click "Change" to capture a new chord (Esc cancels, a same-scope
- * conflict shows inline and keeps capture open), "Reset" removes the
- * override so the command falls back to its default.
- */
 const ShortcutsPanel: Component<ShortcutsPanelProps> = (props) => {
   const [listeningId, setListeningId] = createSignal<string | null>(null);
   const [errorFor, setErrorFor] = createSignal<{ id: string; message: string } | null>(
@@ -40,10 +32,6 @@ const ShortcutsPanel: Component<ShortcutsPanelProps> = (props) => {
     setErrorFor(null);
   };
 
-  // Capture the next keydown at the window while a row is listening.
-  // Runs in the capture phase so it wins over any other handler
-  // (including CodeMirror's own keymap, if an editor happens to be
-  // focused underneath the Settings modal).
   createEffect(() => {
     const id = listeningId();
     if (id === null) return;

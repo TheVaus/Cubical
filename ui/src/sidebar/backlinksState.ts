@@ -1,30 +1,10 @@
-/**
- * Pure helpers for the L3 Session C Backlinks panel.
- *
- * The Solid component is a thin shell around these — keeping the
- * data-shape logic out of JSX lets us unit-test it without a render
- * harness, consistent with the rest of the UI codebase (see
- * `properties/coerce.ts` and `properties/inferType.ts`).
- */
-
 import type { Backlink } from "../api/ipc";
 import { stabilizeByKey } from "../listStability";
 
-/**
- * Stable key for a backlink row. `source_path` alone is ambiguous
- * when one source file contains multiple links to the same target;
- * combine with `position` for a tiebreaker.
- */
 export function backlinkKey(b: Backlink): string {
   return `${b.source_path}@${b.position}`;
 }
 
-/**
- * Display name for a source-file row: basename minus the `.md`
- * extension. Falls back to the empty string for a trailing-slash
- * input (which should not happen in practice, but we don't want to
- * crash if it does).
- */
 export function basenameWithoutExtension(path: string): string {
   const slash = path.lastIndexOf("/");
   const base = slash >= 0 ? path.slice(slash + 1) : path;
@@ -32,12 +12,6 @@ export function basenameWithoutExtension(path: string): string {
   return base;
 }
 
-/**
- * View-state machine for the panel. `idle` is the no-file-open state;
- * `loading` is between fetch start and the first response for the
- * current file. `empty` / `loaded` / `error` are the terminal states
- * for one fetch.
- */
 export type BacklinksViewState =
   | { kind: "idle" }
   | { kind: "loading" }
@@ -59,10 +33,6 @@ export function reduceBacklinksState(
     case "fetch:start":
       return { kind: "loading" };
     case "fetch:success": {
-      // `<For>` reconciles by object reference — reuse a previous row's
-      // reference when its content is unchanged so an unrelated refetch
-      // (e.g. the open file's own autosave bumping the refresh tick)
-      // doesn't tear down and remount rows that didn't actually change.
       const prevBacklinks = state.kind === "loaded" ? state.backlinks : [];
       const backlinks = stabilizeByKey(
         prevBacklinks,

@@ -12,7 +12,6 @@ import {
 } from "./embed";
 import { wikilinkResolverFacet } from "./decorations";
 
-// Minimal stub resolver — produces a cached "note" entry for every key.
 const stubEmbedResolver = {
   get: () => ({
     kind: "note" as const,
@@ -55,8 +54,6 @@ describe("livePreviewBundle", () => {
   });
 
   it("emits the embed block card when the embed is alone on its line", () => {
-    // Embed alone on its line (the by-convention shape). The bundle must
-    // emit a whole-line block replace rendering the card.
     const doc = "# Heading\n\n![[Daily]]\n\ntail\n";
     const state = EditorState.create({
       doc,

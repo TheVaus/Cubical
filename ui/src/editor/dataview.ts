@@ -1,24 +1,3 @@
-/**
- * Live-Preview widget for ```query blocks (L4-D).
- *
- * Walks the Lezer tree for every `FencedCode` node whose info string is
- * `query`, and replaces the whole fenced block with an atomic BLOCK
- * widget rendering the dataview result. Cursor-line suppression: when the
- * cursor sits inside the block, the raw fence source is shown for
- * editing — the same Live-Preview convention the embed widget uses.
- *
- * Mirrors `embed.ts` structurally: a {@link dataviewRunnerFacet} supplies
- * the async runner + the note-open callback to the decoration
- * `StateField`; an `onUpdate` subscription in `Editor.tsx` dispatches the
- * {@link dataviewRunnerUpdated} `StateEffect` to trigger rebuilds.
- *
- * The query is evaluated off the editor thread via the `dataview_query`
- * IPC; results (including the `error` variant for a bad query) are cached
- * by the runner keyed on the trimmed block source. This widget is
- * operator-smoke verified (Contract E) — the tested logic lives in the
- * pure `dataviewRender.ts` and `createDataviewRunner` below.
- */
-
 import {
   Decoration,
   EditorView,
@@ -42,33 +21,17 @@ import {
 } from "../api/ipc";
 import { renderDataview } from "../dataview/dataviewRender";
 
-/** Info string that marks a fenced block as a dataview query. */
 const QUERY_INFO = "query";
 
-/**
- * Per-vault async runner + note-open callback for ```query blocks.
- * Caches results keyed on the trimmed block source, dedupes concurrent
- * fetches, and notifies subscribers when the cache changes.
- */
 export interface DataviewRunner {
-  /** Sync lookup. `undefined` for sources not yet fetched. */
   get(source: string): DataviewResult | undefined;
-  /** Kick off (or skip if pending/cached) an async evaluation. */
   fetch(source: string): void;
-  /** Drop the cache and notify subscribers (e.g. on vault content change). */
   invalidate(): void;
-  /** Subscribe to cache-change notifications. Returns unsubscribe. */
   onUpdate(handler: () => void): () => void;
-  /** Monotonic counter bumped on every cache mutation; folded into widget identity. */
   version(): number;
-  /** Open a note by vault-relative path (a result link was clicked). */
   open(path: string): void;
 }
 
-/**
- * Build a runner bound to one vault. `onOpen` routes note-link clicks to
- * the host app's navigation; `ipc` is injectable for tests.
- */
 export function createDataviewRunner(
   vaultId: string,
   onOpen: (path: string) => void,
@@ -88,10 +51,6 @@ export function createDataviewRunner(
     message: err instanceof Error ? err.message : String(err),
   });
 
-  // Store a settled result. `notifyAlways` is true for a first fetch (the
-  // widget must remount to clear "Loading…"); for an invalidate refetch
-  // it's false, so only a *changed* result bumps the version + notifies —
-  // an unchanged result leaves the rendered block untouched (no flicker).
   const settle = (source: string, result: DataviewResult, notifyAlways: boolean) => {
     const prev = cache.get(source);
     const changed = prev === undefined || JSON.stringify(prev) !== JSON.stringify(result);
@@ -121,10 +80,6 @@ export function createDataviewRunner(
       run(source, true);
     },
     invalidate() {
-      // Stale-while-revalidate: keep showing the last result and re-fetch
-      // every known source in place. Only a changed result triggers a
-      // remount, so an unrelated vault change doesn't flash every ```query
-      // block back to "Loading…" (the L4 layer-close smoke flicker).
       for (const source of [...cache.keys()]) {
         if (inFlight.has(source)) continue;
         run(source, false);
@@ -145,10 +100,6 @@ export function createDataviewRunner(
   };
 }
 
-/**
- * Per-editor runner supplied via the facet. `null` when no vault is open
- * — the field emits no widgets in that case.
- */
 export const dataviewRunnerFacet = Facet.define<
   DataviewRunner | null,
   DataviewRunner | null
@@ -156,18 +107,12 @@ export const dataviewRunnerFacet = Facet.define<
   combine: (values) => values[0] ?? null,
 });
 
-/**
- * Dispatched by `Editor.tsx` whenever the runner's cache changes. The
- * StateField watches transactions for this effect and rebuilds.
- */
 export const dataviewRunnerUpdated = StateEffect.define<null>();
 
 class DataviewWidget extends WidgetType {
   constructor(
     private readonly runner: DataviewRunner,
     private readonly source: string,
-    // Folded into `eq()` so any cache mutation forces a remount, clearing
-    // the "Loading…" placeholder once the result settles.
     private readonly version: number,
   ) {
     super();
@@ -198,7 +143,6 @@ class DataviewWidget extends WidgetType {
   }
 
   override ignoreEvent(): boolean {
-    // Let the widget handle its own click events (note-link navigation).
     return false;
   }
 }
@@ -222,8 +166,6 @@ function buildDecorations(state: EditorState): DecorationSet {
 
       const fromLine = doc.lineAt(node.from);
       const toLine = doc.lineAt(Math.max(node.from, node.to - 1));
-      // Cursor-line suppression: when the cursor sits inside the block,
-      // expose the raw fence source for editing.
       if (
         activeLineNumber >= fromLine.number &&
         activeLineNumber <= toLine.number
@@ -250,12 +192,6 @@ function buildDecorations(state: EditorState): DecorationSet {
   return Decoration.set(ranges, true);
 }
 
-/**
- * The field-managed decoration set. Rebuilds on doc/tree changes, the
- * `dataviewRunnerUpdated` effect, facet swaps, and active-line changes
- * (the cursor-suppression trigger). Widget identity folds in the
- * runner's `version()`, so a settled query remounts to clear "Loading…".
- */
 export const dataviewBlockField = StateField.define<DecorationSet>({
   create: (state) => buildDecorations(state),
   update: (deco, tr) => {
@@ -323,7 +259,6 @@ export const dataviewBaseTheme = EditorView.baseTheme({
   },
 });
 
-/** The dataview live-preview extension: block field + theme. */
 export const dataviewExtension: Extension = [
   dataviewBlockField,
   dataviewBaseTheme,

@@ -37,8 +37,6 @@ const UnlinkedMentions: Component<UnlinkedMentionsProps> = (props) => {
     message: string;
   } | null>(null);
 
-  // Same untrack-guarded fetch effect as Backlinks (see
-  // backlinks.test.ts "self-trigger loop guard" for the rationale).
   let token = 0;
   createEffect(() => {
     const vid = props.vaultId;

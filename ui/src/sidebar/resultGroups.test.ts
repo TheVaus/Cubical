@@ -98,8 +98,6 @@ describe("buildStableFileGroups", () => {
 
   it("reuses every group's object reference when a refetch is unchanged", () => {
     const first = buildStableFileGroups([], hits);
-    // A fresh response with identical content, as a real refetch would
-    // produce (every IPC response deserializes new objects).
     const second = buildStableFileGroups(first, hits.map((h) => ({ ...h })));
 
     expect(second[0]).toBe(first[0]);

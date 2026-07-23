@@ -1,16 +1,3 @@
-/**
- * Pure DOM renderer for a Dataview query result (L4-D).
- *
- * The CodeMirror block widget is a thin host; this module builds the
- * fragment, mirroring `editor/embedRender.ts`. No markdown parsing —
- * cells render as plain text. Note links carry their target in a
- * `data-path` attribute; navigation is the editor's job — a capture-phase
- * `mousedown` interceptor (`dataviewMousedown.ts`) reads `data-path` and
- * routes it, the same WKWebView-robust pattern wiki-links and tags use.
- * A bubble-phase `click` handler here would fire too late in WKWebView
- * (the caret moves on `mousedown` first). Keeping navigation out of the
- * renderer also leaves it editor-free and jsdom-testable in isolation.
- */
 import type { DataviewResult } from "../api/ipc";
 
 function noteLink(path: string, title: string): HTMLAnchorElement {
@@ -22,11 +9,6 @@ function noteLink(path: string, title: string): HTMLAnchorElement {
   return a;
 }
 
-/**
- * Build the DOM fragment for a dataview result. The caller (the CM6
- * widget host) appends it into the editor; in tests it is appended into
- * a plain element.
- */
 export function renderDataview(result: DataviewResult): DocumentFragment {
   const frag = document.createDocumentFragment();
 
@@ -58,7 +40,6 @@ export function renderDataview(result: DataviewResult): DocumentFragment {
     return frag;
   }
 
-  // table
   const table = document.createElement("table");
   table.className = "cq-dataview-table";
 

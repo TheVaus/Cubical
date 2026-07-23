@@ -44,7 +44,6 @@ function stubIpc(responses: Record<string, ResolveLinkResponse>): {
   return { fn, calls };
 }
 
-/** Drain queued microtasks (3 ticks is enough for then→finally chains). */
 async function settle(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
@@ -150,7 +149,6 @@ describe("createWikiLinkResolver", () => {
       note: { target_path: "note.md", anchor: null },
     });
     const r = createWikiLinkResolver("v1", fn);
-    // No prior fetch — resolve() should kick one off and await it.
     const got = await r.resolve("note");
     expect(got).toEqual({ target_path: "note.md", anchor: null });
     expect(calls).toEqual([{ vault_id: "v1", target_raw: "note" }]);
@@ -163,8 +161,8 @@ describe("createWikiLinkResolver", () => {
         resolveIpc = r;
       });
     const r = createWikiLinkResolver("v1", fn);
-    r.fetch("note"); // first fetch — in-flight
-    const pending = r.resolve("note"); // joins
+    r.fetch("note");
+    const pending = r.resolve("note");
     resolveIpc({ target_path: "note.md", anchor: null });
     const got = await pending;
     expect(got).toEqual({ target_path: "note.md", anchor: null });
@@ -181,9 +179,6 @@ describe("createWikiLinkResolver", () => {
     };
     const r = createWikiLinkResolver("v1", fn);
     const pending = r.resolve("note");
-    // Invalidate mid-flight — cache is empty, the in-flight fetch
-    // is still pending. When it returns, resolve() should still
-    // settle on the eventual entry.
     r.invalidate();
     resolveIpc({ target_path: "note.md", anchor: null });
     const got = await pending;
@@ -298,20 +293,14 @@ describe("observability interface (Contract 4a)", () => {
       .mockImplementationOnce(() => Promise.resolve(RESOLVED));
     const r = createWikiLinkResolver("v1", ipc);
 
-    // Kick the first fetch via resolve(); it's pending.
     const resolvePromise = r.resolve("Daily");
 
-    // Abort while the first fetch is in flight.
     r.abort();
 
-    // The first fetch's late response is discarded (handle.aborted).
     pendingResolve(RESOLVED);
     await Promise.resolve();
     await Promise.resolve();
 
-    // The resolve() subscriber should have re-kicked a fresh fetch
-    // (via the notify() abort() now emits). That second fetch was
-    // wired to resolve immediately with RESOLVED.
     const result = await resolvePromise;
     expect(result).toEqual(RESOLVED);
     expect(ipc).toHaveBeenCalledTimes(2);

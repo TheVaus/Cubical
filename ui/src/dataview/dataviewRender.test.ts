@@ -21,8 +21,6 @@ describe("renderDataview", () => {
     const links = [...host.querySelectorAll("a.cq-dataview-link")];
     expect(links.length).toBe(2);
     expect(links[0]!.textContent).toBe("a");
-    // Navigation is the editor's job (capture-phase interceptor); the
-    // renderer only records the target on the element.
     expect(links[0]!.getAttribute("data-path")).toBe("a.md");
     expect(links[1]!.getAttribute("data-path")).toBe("b.md");
   });

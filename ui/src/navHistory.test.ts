@@ -45,8 +45,8 @@ describe("navHistory", () => {
 
   it("truncates forward entries when pushing after going back", () => {
     let s = navPush(navPush(navPush(emptyNav, "a.md"), "b.md"), "c.md");
-    s = navBack(s); // at b.md
-    s = navPush(s, "d.md"); // branch: c.md dropped
+    s = navBack(s);
+    s = navPush(s, "d.md");
     expect(s.stack).toEqual(["a.md", "b.md", "d.md"]);
     expect(navCurrent(s)).toBe("d.md");
     expect(canForward(s)).toBe(false);

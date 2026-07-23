@@ -5,7 +5,6 @@ import { tagExtension } from "./tag";
 
 const tagParser = parser.configure([tagExtension]);
 
-/** Collect every node of `name` in source order. */
 function nodesNamed(source: string, name: string): { from: number; to: number; text: string }[] {
   const tree = tagParser.parse(source);
   const out: { from: number; to: number; text: string }[] = [];
@@ -64,15 +63,10 @@ describe("tagExtension", () => {
   });
 
   it("does not recognise a tag inside an inline code span", () => {
-    // Lezer's `InlineCode` is a leaf — no inline parser descends into it.
     expect(nodesNamed("`#notatag`", "Tag")).toEqual([]);
   });
 
   it("recognises a tag that starts its own paragraph (offset > 0)", () => {
-    // Regression: a tag alone on a line forms its own inline span whose
-    // offset is past 0. The word-boundary guard must treat the span start
-    // as a boundary even though `cx.char(pos-1)` reads before the span
-    // (which returns NaN, not -1, from @lezer/markdown).
     const got = nodesNamed("text\n\n#location\n", "Tag");
     expect(got.map((n) => n.text)).toEqual(["#location"]);
   });

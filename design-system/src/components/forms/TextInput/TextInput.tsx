@@ -7,18 +7,13 @@ export interface TextInputProps {
   placeholder?: string;
   disabled?: boolean;
   type?: string;
-  /** Forwards the underlying <input> element, e.g. for imperative focus management. */
   ref?: (el: HTMLInputElement) => void;
-  /** Overrides the accessible name when no visible <label> element is present. */
   ariaLabel?: string;
-  /** Escape hatch for instance-specific layout overrides (token-driven values only). */
   style?: JSX.CSSProperties;
-  /** Compact sizing for dense clusters (e.g. inline-edit table cells). Defaults to 'md'. */
   size?: 'sm' | 'md';
   onFocus?: () => void;
   onBlur?: () => void;
   onKeyDown?: (e: KeyboardEvent) => void;
-  /** Rendered as the `inputmode` attribute, e.g. for numeric-leaning inline edit fields. */
   inputMode?: string;
 }
 

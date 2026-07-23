@@ -5,22 +5,12 @@ export interface IconButtonProps {
   label: string;
   active?: boolean;
   disabled?: boolean;
-  /** Overrides the tooltip text when it should read differently from the accessible name. */
   title?: string;
-  /** For disclosure/toggle buttons that control a popover or panel. */
   ariaExpanded?: boolean;
-  /** For toggle buttons that switch a mode on and off (e.g. a panel toggle). */
   ariaPressed?: boolean;
-  /**
-   * Renders the glyph in the mono face. For ASCII/punctuation glyphs
-   * (`</>`, `{}`) that only read as symbols in a mono font.
-   */
   mono?: boolean;
-  /** Compact glyph sizing for inline-use affordances (e.g. a table cell action). Defaults to 'md'. */
   size?: 'sm' | 'md';
-  /** For a glyph that discloses a menu/listbox/dialog rather than toggling in place. */
   ariaHaspopup?: JSX.AriaAttributes['aria-haspopup'];
-  /** Escape hatch for instance-specific style overrides (token-driven values only). */
   style?: JSX.CSSProperties;
   onClick?: (e: MouseEvent) => void;
   children: JSX.Element;

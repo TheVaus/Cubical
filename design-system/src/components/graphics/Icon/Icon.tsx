@@ -8,7 +8,6 @@ export type { IconName };
 export interface IconProps {
   name: IconName;
   size?: number;
-  /** When set, the icon is announced (role="img" + aria-label). */
   title?: string;
   ariaLabel?: string;
   class?: string;

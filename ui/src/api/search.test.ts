@@ -1,13 +1,3 @@
-/**
- * Smoke tests for the L4-A search IPC wrappers in `./ipc.ts`.
- *
- * These tests pin the on-wire envelope shape — the four search commands
- * pass arguments under a single `req` key, matching the Rust handlers in
- * `crates/cubical-app/src/lib.rs` (parameter name `req: SearchRequest` /
- * `req: SearchVaultRequest`). If a future refactor changes the envelope,
- * these tests fail loudly.
- */
-
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@tauri-apps/api/core", () => ({

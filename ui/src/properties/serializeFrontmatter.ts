@@ -1,16 +1,3 @@
-/**
- * Frontmatter serializer (spec §7.2). Reproduces scalars, string lists,
- * nested mappings, plus this app's own `# type:` comments (the type
- * registry).
- *
- * When an `existing` block is supplied, the serializer edits that block
- * *in place* — it reuses each unchanged key's parsed node — so foreign
- * comments and blank lines survive an edit to some *other* property. Only
- * anchors and aliases remain unmodelable (`hasUnmodelableYaml`): editing a
- * value that is shared by reference is genuinely ambiguous, so the
- * Properties UI renders read-only for those.
- */
-
 import {
   Document,
   isAlias,
@@ -30,13 +17,6 @@ import {
   typeToToken,
 } from "./typeComments";
 
-/**
- * Serialize `entries` into a `---\n…\n---\n` block. When `types` is
- * supplied, each emittable key gets a trailing `# type:<token>` comment;
- * `currencyDefault` decides whether a currency's code is written. When
- * `existing` is the current block's YAML body, unchanged keys keep their
- * parsed nodes (and thus their comments and spacing).
- */
 export function serializeFrontmatter(
   entries: FrontmatterEntry[],
   types?: Map<string, PropertyType>,
@@ -52,11 +32,6 @@ export function serializeFrontmatter(
   return `---\n${String(doc)}---\n`;
 }
 
-/**
- * A Document whose top-level map matches `entries`. With a parseable
- * `existing` map we mutate it in place (preserving foreign content);
- * otherwise we build a fresh one from scratch.
- */
 function buildDoc(entries: FrontmatterEntry[], existing?: string): Document {
   if (existing !== undefined && existing.trim() !== "") {
     const doc = parseDocument(existing);
@@ -70,12 +45,6 @@ function buildDoc(entries: FrontmatterEntry[], existing?: string): Document {
   return new Document(obj);
 }
 
-/**
- * Reconcile `map`'s items with `entries`: reuse each surviving key's
- * existing pair (replacing its value node only when the value changed),
- * append pairs for new keys, drop pairs whose key is gone, and reorder to
- * match `entries`. Reused pairs carry their comments and spacing along.
- */
 function syncMap(
   doc: Document,
   map: YAMLMap,
@@ -105,7 +74,6 @@ function syncMap(
   map.items = next;
 }
 
-/** Structural equality over the JSON-ish shapes frontmatter values take. */
 function valueEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (Array.isArray(a) && Array.isArray(b)) {
@@ -127,11 +95,6 @@ function valueEqual(a: unknown, b: unknown): boolean {
   return false;
 }
 
-/**
- * Stamp each emittable key with its `# type:<token>` comment. A scalar
- * value carries it on the value (trailing the value); a block list carries
- * it on the key line (which re-parses as the value's `commentBefore`).
- */
 function applyTypeComments(
   map: YAMLMap,
   types: Map<string, PropertyType>,
@@ -152,20 +115,12 @@ function applyTypeComments(
   }
 }
 
-/**
- * Splice a fresh `block` into `source`, replacing any existing block.
- */
 export function spliceFrontmatter(source: string, block: string): string {
   const split = splitFrontmatter(source);
   if (split.span === null) return block + source;
   return block + source.slice(split.span.end);
 }
 
-/**
- * Whether `yamlText` uses YAML the in-place serializer cannot safely
- * round-trip: anchors, aliases, or syntax the parser rejects. Comments and
- * blank lines are preserved by `serializeFrontmatter`, so they do NOT count.
- */
 export function hasUnmodelableYaml(yamlText: string): boolean {
   let doc: ReturnType<typeof parseDocument>;
   try {

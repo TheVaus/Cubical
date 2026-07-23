@@ -4,14 +4,11 @@ import './Link.css';
 
 export interface LinkProps {
   children: JSX.Element;
-  /** Present → renders `<a href>`; absent → renders `<button type="button">` (action-link). */
   href?: string;
   onClick?: () => void;
-  /** Font size. Defaults to 'sm'. */
   size?: 'xs' | 'sm' | 'md';
   ariaLabel?: string;
   class?: string;
-  /** Escape hatch for instance-specific layout overrides (token-driven values only). */
   style?: JSX.CSSProperties | string;
 }
 

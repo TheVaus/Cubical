@@ -1,9 +1,3 @@
-/**
- * Trailing-edge debounce. Returns a callable that delays `fn` until
- * `ms` has elapsed since the last invocation; `.cancel()` drops any
- * pending call. Used by the search panel to throttle keystroke-driven
- * queries.
- */
 export interface Debounced<A extends unknown[]> {
   (...args: A): void;
   cancel(): void;

@@ -25,26 +25,13 @@ import { formatPendingRewrites } from "./pendingRewritesLabel";
 import { errorMessage } from "../errorMessage";
 
 export interface PendingRewritesProps {
-  /** Null until a vault is open. Component renders nothing in that case. */
   vaultId: string | null;
-  /** Live count from `onVaultPendingRewritesChanged`. */
   count: number;
-  /** Surface a human-facing message back to the parent (typically `showToast`). */
   onError: (message: string) => void;
 }
 
 const RECENT_RENAME_OPS_LIMIT = 5;
 
-/**
- * Status-bar item + click-out popover for the L3 Session J pending
- * rewrites cache. Closed: the formatter label. Open: total + per-target
- * breakdown + "Save all pending" + recent rename ops with per-op Undo.
- *
- * Popover state is refetched on every open — keeps it consistent when
- * background events (own renames + flushes) landed between opens.
- *
- * See `docs/layer-3-spec.md` §9.16.
- */
 const PendingRewrites: Component<PendingRewritesProps> = (props) => {
   const [state, setState] = createSignal<PendingRewritesPopoverState>({
     kind: "closed",
@@ -101,8 +88,6 @@ const PendingRewrites: Component<PendingRewritesProps> = (props) => {
     setFlushing(true);
     try {
       await flushPendingRewrites({ vault_id: vid });
-      // Refetch (rows may have changed); the flush-complete event will
-      // surface the toast.
       refetch();
     } catch (e) {
       const message = errorMessage(e);

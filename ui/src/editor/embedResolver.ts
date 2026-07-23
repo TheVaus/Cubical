@@ -1,35 +1,3 @@
-/**
- * Per-vault embed resolution cache (L3 Session H.2, spec §2.8;
- * extended in L4-A-fix Contract 4a).
- *
- * A small in-memory store over the L3 Session H.1 `get_embed` IPC.
- * Each editor session is given one resolver bound to the open vault;
- * the resolver caches answers keyed on the wiki-link target string (as
- * written in the source, including any `#anchor`), dedupes concurrent
- * fetches, and notifies subscribers when the cache changes.
- *
- * Mirrors the L3 Session B `WikiLinkResolver` shape so the editor wiring
- * is symmetrical: a Facet supplies `{ get, fetch }` to the decoration
- * `StateField`, an `onUpdate` subscription dispatches a `StateEffect`
- * back into the view to trigger rebuilds, and `invalidate()` is called
- * from `App.tsx`'s `vault:file-changed` listener so freshly-resolvable
- * targets re-render without a reload.
- *
- * Failures cache an `unresolved` entry so a failing target does not
- * re-enter the IPC on every rebuild.
- *
- * **Contract 4a (L4-A-fix) additions.**
- *   - `debug()` returns a snapshot of cache + in-flight + last-fetch
- *     timestamps + last-error map for diagnostic.
- *   - `onEvent` emits granular events (`fetch-started`,
- *     `fetch-settled`, `fetch-errored`, `invalidate`, `abort`) so the
- *     operator + future dev panels can trace async behavior.
- *   - `abort()` cancels in-flight fetches at the cache-write side
- *     (the underlying IPC keeps running on the Rust side; the
- *     response is discarded). Used at vault swap; lays the pattern
- *     for L6 plugin sandbox async cancellation.
- */
-
 import {
   getEmbed as defaultGetEmbed,
   type GetEmbedRequest,
@@ -44,7 +12,6 @@ const UNRESOLVED: EmbedResolution = {
   content: null,
 };
 
-/** Snapshot of resolver state for diagnostic / dev-tools inspection. */
 export interface ResolverDebugState {
   cacheSize: number;
   inFlight: string[];
@@ -53,7 +20,6 @@ export interface ResolverDebugState {
   lastError: Map<string, string>;
 }
 
-/** One event in the resolver's audit stream. */
 export interface ResolverEvent {
   kind:
     | "fetch-started"
@@ -67,33 +33,14 @@ export interface ResolverEvent {
 }
 
 export interface EmbedResolver {
-  /** Sync lookup. Returns `undefined` for targets not yet fetched. */
   get(targetRaw: string): EmbedResolution | undefined;
-  /** Kick off (or skip if already pending/cached) an async fetch. */
   fetch(targetRaw: string): void;
-  /** Awaitable lookup. Resolves to the cached entry, fetching if cold. */
   resolve(targetRaw: string): Promise<EmbedResolution>;
-  /** Drop the entire cache and notify subscribers. */
   invalidate(): void;
-  /** Subscribe to cache-change notifications. Returns unsubscribe. */
   onUpdate(handler: () => void): () => void;
-  /**
-   * Monotonic counter bumped on every cache mutation (fetch settle,
-   * fetch error, invalidate). Embed widgets fold this into their CM6
-   * identity (`eq`) so that ANY resolution change — including a
-   * *nested* embed deep in the recursive render tree — forces a
-   * remount. Without this, a widget keyed only on its own top-level
-   * cache entry never re-renders when a descendant embed resolves,
-   * leaving nested `Loading…` placeholders stuck forever (the L4-A
-   * smoke bug #5: A/B/C embeds froze while the depth-1 D embed
-   * worked).
-   */
   version(): number;
-  /** Snapshot of resolver state (Contract 4a). */
   debug(): ResolverDebugState;
-  /** Subscribe to granular resolver events (Contract 4a). */
   onEvent(handler: (e: ResolverEvent) => void): () => void;
-  /** Abort in-flight fetches; cache + subscribers untouched (Contract 4a). */
   abort(): void;
 }
 
@@ -108,8 +55,6 @@ export function createEmbedResolver(
   const lastFetchAt = new Map<string, number>();
   const lastSettleAt = new Map<string, number>();
   const lastError = new Map<string, string>();
-  // Bumped on every cache mutation; folded into widget identity so
-  // nested-embed resolutions force a remount (see `version()` doc).
   let cacheVersion = 0;
 
   const notify = () => {
@@ -164,11 +109,6 @@ export function createEmbedResolver(
     resolve(targetRaw) {
       const hit = cache.get(targetRaw);
       if (hit !== undefined) return Promise.resolve(hit);
-      // Kick the fetch if not already in flight, then await the next
-      // notify carrying our entry. `invalidate()` can land between
-      // notifies — the subscriber simply keeps waiting until the
-      // entry appears (the in-flight fetch, or the next one if we
-      // were invalidated mid-flight, will fill it).
       resolver.fetch(targetRaw);
       return new Promise((resolveFn) => {
         const unsub = resolver.onUpdate(() => {
@@ -177,8 +117,6 @@ export function createEmbedResolver(
             unsub();
             resolveFn(entry);
           } else if (!inFlight.has(targetRaw)) {
-            // Cache miss AND no fetch in flight (an `invalidate()`
-            // cleared us). Kick a fresh one and keep waiting.
             resolver.fetch(targetRaw);
           }
         });

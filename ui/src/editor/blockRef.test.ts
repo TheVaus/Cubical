@@ -8,12 +8,10 @@ describe("byteOffsetOf", () => {
   });
 
   it("counts multi-byte chars before the cursor as their UTF-8 length", () => {
-    // "café" → c,a,f = 3 bytes + é = 2 bytes = 5 bytes for 4 chars.
     expect(byteOffsetOf("café world", 4)).toBe(5);
   });
 
   it("counts an astral char (surrogate pair) as 4 bytes", () => {
-    // "😀" is 2 UTF-16 code units and 4 UTF-8 bytes; cursor after it.
     expect(byteOffsetOf("😀x", 2)).toBe(4);
   });
 

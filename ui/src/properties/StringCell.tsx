@@ -8,14 +8,6 @@ import {
 
 import TextInput from "@ds/components/forms/TextInput/TextInput";
 
-/**
- * String-valued frontmatter cell (L2 Session F, spec §2.4).
- *
- * Holds a local `draft` so an `onAstChange`-driven row refresh cannot
- * clobber an in-progress edit: while the input is focused, incoming
- * `value` prop changes are ignored (brainstorming decision (d)). The
- * draft commits on blur or Enter.
- */
 export interface StringCellProps {
   value: string;
   autoFocus?: boolean;
@@ -26,9 +18,6 @@ const StringCell: Component<StringCellProps> = (props) => {
   const [draft, setDraft] = createSignal(props.value);
   const [focused, setFocused] = createSignal(false);
 
-  // Adopt external value changes only — must NOT re-run on focus
-  // changes alone, or blurring after an edit would revert the draft
-  // to the stale prop during the 150ms AST-tick window.
   createEffect(
     on(
       () => props.value,

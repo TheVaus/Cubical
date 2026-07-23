@@ -1,21 +1,3 @@
-/**
- * Per-vault cross-file property-reference resolver.
- *
- * A small in-memory store over the `get_property` IPC, mirroring the
- * embed resolver (`embedResolver.ts`) but keyed on a composite
- * `"<note> <property>"` cache key. Each editor session gets one resolver
- * bound to the open vault; it caches answers, dedupes concurrent fetches,
- * notifies subscribers on change, and exposes a monotonic `version()` that
- * editor widgets fold into their CM6 identity so a settled fetch forces a
- * remount.
- *
- * Self-references (`[[.prop]]`) never reach this resolver — they are read
- * synchronously from the open document's own frontmatter by the widget.
- *
- * A rejected fetch caches a `note_unresolved` entry so a failing target
- * does not re-enter the IPC on every decoration rebuild.
- */
-
 import {
   getProperty as defaultGetProperty,
   type GetPropertyRequest,
@@ -27,17 +9,11 @@ const UNRESOLVED: GetPropertyResponse = { kind: "note_unresolved", value: null }
 const cacheKey = (note: string, property: string) => `${note} ${property}`;
 
 export interface PropertyResolver {
-  /** Sync lookup. Returns `undefined` for entries not yet fetched. */
   get(note: string, property: string): GetPropertyResponse | undefined;
-  /** Kick off (or skip if already pending/cached) an async fetch. */
   fetch(note: string, property: string): void;
-  /** Awaitable lookup. Resolves to the cached entry, fetching if cold. */
   resolve(note: string, property: string): Promise<GetPropertyResponse>;
-  /** Drop the entire cache and notify subscribers. */
   invalidate(): void;
-  /** Subscribe to cache-change notifications. Returns unsubscribe. */
   onUpdate(handler: () => void): () => void;
-  /** Monotonic counter bumped on every cache mutation. */
   version(): number;
 }
 
@@ -88,8 +64,6 @@ export function createPropertyResolver(
             unsub();
             resolveFn(entry);
           } else if (!inFlight.has(k)) {
-            // Cache miss and nothing in flight (an `invalidate()` cleared
-            // us). Kick a fresh fetch and keep waiting.
             resolver.fetch(note, property);
           }
         });

@@ -1,12 +1,3 @@
-/**
- * Direct unit tests for the Lezer-to-canonical normalizer.
- *
- * These complement the cross-language parity harness in
- * `parity.test.ts`. The parity harness proves the TS normalizer
- * agrees with the Rust normalizer on shared fixtures; these tests
- * exercise behaviors and edge cases that don't need a Rust
- * round-trip to be meaningful.
- */
 import { describe, expect, it } from "vitest";
 
 import { splitFrontmatter } from "./frontmatter";
@@ -73,7 +64,6 @@ describe("normalize() shape", () => {
     if (!list || list.kind !== "list" || list.ordered) {
       throw new Error("expected unordered list");
     }
-    // The first item should contain a paragraph and a nested list.
     expect(list.items.length).toBeGreaterThanOrEqual(1);
     const first = list.items[0]!;
     const hasPara = first.blocks.some((b) => b.kind === "paragraph");

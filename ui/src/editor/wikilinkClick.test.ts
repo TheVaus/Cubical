@@ -88,9 +88,6 @@ describe("handleWikiLinkClick", () => {
   });
 
   it("awaits the fetch and navigates once the resolver settles", async () => {
-    // Cold cache — `get` returns undefined, but `resolve` awaits and
-    // returns the eventual entry. The click handler should follow
-    // through to onNavigate rather than bailing as 'pending'.
     let resolveLate: (v: WikiLinkResolution) => void = () => {};
     const lateFetch = new Promise<WikiLinkResolution>((r) => {
       resolveLate = r;
@@ -118,10 +115,8 @@ describe("handleWikiLinkClick", () => {
       onNavigate,
       onOfferCreate,
     });
-    // Before the fetch settles, neither callback has fired.
     expect(onNavigate).not.toHaveBeenCalled();
     expect(onOfferCreate).not.toHaveBeenCalled();
-    // Fetch returns — click routes through.
     resolveLate({ target_path: "note.md", anchor: null });
     const result = await pending;
     expect(result).toBe("navigated");

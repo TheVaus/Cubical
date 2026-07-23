@@ -10,21 +10,11 @@ import {
 import { rankItems, matchText, type OmniItem, type RankedItem } from "./ranker";
 import Icon from "@ds/components/graphics/Icon/Icon";
 
-/**
- * L4-C Omni-Bar — a `Cmd/Ctrl+K` modal that fuzzy-finds notes + tags and
- * jumps to them, fully from the keyboard. A unified ranked list (best
- * match first regardless of kind); ↑/↓ select, Enter navigates, Esc
- * closes. All ranking lives in the pure `ranker.ts`; this component is
- * operator-smoke-only (Contract E — no Solid render lib). Design:
- * `docs/superpowers/specs/2026-06-08-l4-c-omnibar-design.md`.
- */
 const RESULT_LIMIT = 50;
 
 export interface OmniBarProps {
   open: boolean;
-  /** Notes + tags merged by the parent. */
   items: OmniItem[];
-  /** Empty-query fallback (parent-built, recency order). */
   recentNotes: RankedItem[];
   onClose: () => void;
   onOpenNote: (path: string) => void;
@@ -44,7 +34,6 @@ const OmniBar: Component<OmniBarProps> = (props) => {
       : rankItems(query(), props.items, RESULT_LIMIT),
   );
 
-  // Reset + focus on open; restore focus to the prior element on close.
   createEffect(
     on(
       () => props.open,
@@ -61,7 +50,6 @@ const OmniBar: Component<OmniBarProps> = (props) => {
     ),
   );
 
-  // Keep selection in range as the result set changes.
   createEffect(
     on(results, (r) => {
       if (selected() >= r.length) setSelected(0);
@@ -191,7 +179,6 @@ const OmniBar: Component<OmniBarProps> = (props) => {
   );
 };
 
-/** One result row: kind badge + name (matched chars marked) + subtitle. */
 const OmniRow: Component<{
   id: string;
   ranked: RankedItem;

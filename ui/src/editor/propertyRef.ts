@@ -1,25 +1,3 @@
-/**
- * Live-Preview inline widget for property references
- * (`[[note.prop]]` / `[[.prop]]`, property-reference-interpolation design).
- *
- * Walks the Lezer tree for every `WikiLink` node whose raw source the
- * tokenizer classifies as a `property_ref`, and replaces the token with
- * an INLINE widget rendering the resolved frontmatter scalar (read-only).
- *
- * Resolution:
- *   - Self-ref (`note === null`) reads the open document's own frontmatter
- *     synchronously — no IPC.
- *   - Cross-file ref goes through the {@link PropertyResolver} cache; a
- *     cold lookup renders a `loading` placeholder and kicks a fetch, and a
- *     `propertyResolverUpdated` effect rebuilds when the cache settles.
- *
- * Cursor-line suppression: when the cursor sits on the token's line, the
- * raw `[[…]]` text stays visible for editing — the established Live
- * Preview pattern (Link / Emphasis / embed). The replace ranges are
- * registered ATOMIC so cursor motion steps over a rendered value cleanly
- * everywhere else.
- */
-
 import {
   Decoration,
   EditorView,
@@ -44,11 +22,6 @@ import {
   type PropertyRefRenderState,
 } from "./propertyRefRender";
 
-/**
- * Per-editor property resolver supplied via {@link propertyResolverFacet}.
- * `null` when no vault is open — cross-file refs then render as broken,
- * self-refs still resolve from the open document.
- */
 export const propertyResolverFacet = Facet.define<
   PropertyResolver | null,
   PropertyResolver | null
@@ -56,23 +29,12 @@ export const propertyResolverFacet = Facet.define<
   combine: (values) => values[0] ?? null,
 });
 
-/**
- * Whether the property-refs core plugin is enabled for the open vault.
- * `false` makes the field emit no decorations, so both self- and
- * cross-file refs fall back to their raw `[[…]]` source text. Defaults
- * to `true`.
- */
 export const propertyRefsEnabledFacet = Facet.define<boolean, boolean>({
   combine: (values) => values[0] ?? true,
 });
 
-/**
- * StateEffect dispatched by `Editor.tsx` whenever the resolver's cache
- * changes; the field watches transactions for it and rebuilds.
- */
 export const propertyResolverUpdated = StateEffect.define<null>();
 
-/** Render a single top-level frontmatter scalar to display text. */
 function scalarToDisplay(value: unknown): string | null {
   if (typeof value === "string") return value;
   if (typeof value === "number" || typeof value === "boolean") {
@@ -90,7 +52,6 @@ function scalarToDisplay(value: unknown): string | null {
   return null;
 }
 
-/** Look up a top-level key in the open doc's own frontmatter (self-ref). */
 function selfValue(docText: string, property: string): string | null {
   const split = splitFrontmatter(docText);
   if (split.yaml === null || split.span === null) return null;
@@ -112,14 +73,11 @@ class PropertyRefWidget extends WidgetType {
     return JSON.stringify(this.render) === JSON.stringify(other.render);
   }
 
-  // Let click events bubble to the capture-phase mousedown handler in
-  // Editor.tsx (so a click on a rendered value can route to its source).
   override ignoreEvent(): boolean {
     return false;
   }
 }
 
-/** Resolve the render state for one tokenized property-ref run. */
 function renderStateFor(
   tok: { note: string | null; property: string },
   raw: string,
@@ -146,10 +104,6 @@ export function buildPropertyDecorations(state: EditorState): DecorationSet {
   const resolver = state.facet(propertyResolverFacet);
   const tree = syntaxTree(state);
   const doc = state.doc;
-  // Materializing the whole document is only needed to resolve a
-  // self-ref (`[[.prop]]`) — lazy + memoized so the common case (no
-  // self-refs in this note) never pays for it, and a note with one still
-  // only stringifies the doc once regardless of how many self-refs it has.
   let docText: string | undefined;
   const getDocText = () => (docText ??= doc.toString());
   const activeLine = doc.lineAt(state.selection.main.head).number;
@@ -161,7 +115,6 @@ export function buildPropertyDecorations(state: EditorState): DecorationSet {
       const raw = doc.sliceString(node.from, node.to);
       const tok = scanWikilinks(raw)[0];
       if (!tok || tok.kind !== "property_ref") return;
-      // Cursor-line suppression: expose the raw token for editing.
       if (doc.lineAt(node.from).number === activeLine) return;
       const rstate = renderStateFor(tok, raw, getDocText, resolver);
       ranges.push(

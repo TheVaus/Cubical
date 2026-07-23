@@ -1,13 +1,3 @@
-/**
- * Theme resolution — unit tests (L2 Session D, spec §2.5).
- *
- * `resolveTheme` is the pure, DOM-free core of the theme mechanism:
- * given the user's mode (`light`/`dark`/`system`) and the OS
- * dark-mode preference, it returns the concrete theme to apply. The
- * DOM-touching wrappers (`applyTheme`, `watchSystemTheme`) are
- * exercised by the interactive smoke pass, not here — vitest runs in
- * `node` with no `window`.
- */
 import { describe, expect, it } from "vitest";
 
 import { resolveTheme } from "./theme";

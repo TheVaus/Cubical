@@ -42,42 +42,15 @@ import {
   resolveType,
 } from "./properties/propertiesLogic";
 
-/**
- * L2 Session F — inline Properties UI (spec §2.4).
- *
- * Renders one editable row per top-level frontmatter key above the
- * editor. It is *not* a separate write path (spec §5 #1): every commit
- * reserializes the whole frontmatter block and splices it into the
- * source via `applyEdit` (a surgical `EditorView` range replace), which
- * the editor reports as an ordinary `docChanged` — Session A's autosave
- * then persists it.
- *
- * Rows rebuild from `frontmatter` on each debounced `onAstChange` tick,
- * so raw-mode frontmatter edits flow back in. Individual cells hold a
- * focus-guarded draft so a refresh never clobbers an in-progress edit.
- *
- * Round-trip safety: commits edit the existing block in place, so foreign
- * comments and blank lines survive. Only anchors and aliases are
- * unmodelable — for those the panel degrades to read-only rather than risk
- * destroying content.
- */
-
-/** A leaf type the user can pick (kind + optional date format). */
 interface TypeLeaf {
   type: PropertyType;
   label: string;
 }
-/** A family in the type menu; single-leaf families commit immediately. */
 interface TypeFamily {
   label: string;
   leaves: TypeLeaf[];
 }
 
-/**
- * Build the type menu. The Date submenu leads with the vault default
- * format (that's what the `properties.date_format_default` setting seeds),
- * then lists every format as an explicit override.
- */
 function buildTypeMenu(dateDefault: string): TypeFamily[] {
   return [
     { label: "Text", leaves: [{ type: { kind: "string" }, label: "Text" }] },
@@ -130,11 +103,6 @@ function buildTypeMenu(dateDefault: string): TypeFamily[] {
   ];
 }
 
-/**
- * Whether a menu leaf matches the active type, for highlighting. Compares
- * kind, date format, and currency code; enum values are ignored (the menu
- * leaf is always the empty `enum()`).
- */
 function sameType(a: PropertyType, b: PropertyType): boolean {
   return (
     a.kind === b.kind &&
@@ -144,28 +112,15 @@ function sameType(a: PropertyType, b: PropertyType): boolean {
 }
 
 export interface PropertiesProps {
-  /** Parsed frontmatter from the latest `onAstChange` tick. */
   frontmatter: Frontmatter | null;
-  /** Identifies the open document; resets transient per-doc state. */
   path: string;
-  /** Accessor for the live editor buffer (commit splices into it). */
   getSource: () => string;
-  /** Apply a surgical range replacement to the editor buffer. */
   applyEdit: (from: number, to: number, text: string) => void;
-  /** Flip the editor into raw mode (the RawCell "Open as raw" link). */
   onOpenRaw: () => void;
-  /**
-   * Optional — when set, clicking a tag chip opens that tag's virtual
-   * page (L3 Session E). Forwarded to `TagListCell`.
-   */
   onNavigateTag?: (tagPath: string) => void;
-  /** Whether typed properties are enabled (Settings ▸ Editor). */
   typedEnabled: boolean;
-  /** Vault default date format (`properties.date_format_default`). */
   dateDefault: string;
-  /** Vault default currency code (`properties.default_currency`). */
   currencyDefault: string;
-  /** Render the `tags` property's list as tag chips even without `#`. */
   tagsKeyAsTags: boolean;
 }
 
@@ -194,14 +149,10 @@ interface RowProps {
   onNavigateTag?: (tagPath: string) => void;
 }
 
-/** A single key/value frontmatter row. */
 const PropertyRow: Component<RowProps> = (props) => {
   const [keyDraft, setKeyDraft] = createSignal(props.keyName);
   const [keyFocused, setKeyFocused] = createSignal(false);
 
-  // Adopt external key changes only — must NOT re-run when keyFocused
-  // alone flips, or blurring after a rename would revert the draft to
-  // props.keyName before the row unmounts (150ms AST-tick window).
   createEffect(
     on(
       () => props.keyName,
@@ -225,8 +176,6 @@ const PropertyRow: Component<RowProps> = (props) => {
     if (!ok) setKeyDraft(props.keyName);
   };
 
-  // Highlight a menu leaf as active. Currency compares the effective code
-  // (the active type may be the bare, default-currency form).
   const leafActive = (leafType: PropertyType): boolean => {
     if (leafType.kind === "currency" && props.type.kind === "currency") {
       return leafType.currency === props.currency;
@@ -335,22 +284,6 @@ const PropertyRow: Component<RowProps> = (props) => {
         </Show>
 
         <Show when={props.lossyOriginal !== undefined}>
-          {/*
-            @ds Button variant="ghost" size="sm" is the base: computed-style
-            diffing against the outgoing bespoke markup (design-system
-            migration Task 4 revert-button revisit) showed font-family,
-            font-size, background and border-width/style already match
-            ghost+sm exactly — only color, border-color, border-radius and
-            vertical padding diverge, so those go through the token-driven
-            style escape hatch, same standard as `+ Add property` above
-            (which overrides 5 properties; this overrides 5). `danger` is
-            still rejected for the same reason as before — a solid filled
-            var(--c-error) block reads as "delete", and an "undo the lossy
-            conversion" action must not. `title` needed a small, additive
-            Button prop (mirrors IconButton's existing `title`) to keep the
-            hover tooltip; it defaults to unset so no other Button call
-            site is affected.
-          */}
           <Button
             variant="ghost"
             size="sm"
@@ -380,15 +313,6 @@ const PropertyRow: Component<RowProps> = (props) => {
             }
           }}
         >
-          {/*
-            size="sm" is the IconButton variant purpose-built to replace
-            miniButtonStyle() — but the outgoing style bumped this glyph's
-            font-size to var(--text-sm) (the sm-default is --text-xs), so
-            that override is preserved via the style escape hatch rather
-            than silently dropped or forced up to size="md" (whose fixed
-            1.9rem square footprint is far too large for an inline
-            disclosure triangle in a dense property row).
-          */}
           <IconButton
             label={`Change type of ${props.keyName}`}
             size="sm"
@@ -518,10 +442,6 @@ const PropertyRow: Component<RowProps> = (props) => {
 };
 
 const Properties: Component<PropertiesProps> = (props) => {
-  // Per-doc transient state. The persisted type registry lives in the
-  // inline comments (`typeMap`); `lossy` holds the pre-coercion value for
-  // rows whose last type change lost information. Reset when the doc
-  // changes. `openFamily` tracks the expanded type-menu submenu.
   const [lossy, setLossy] = createSignal<Map<string, { value: unknown }>>(
     new Map(),
   );
@@ -548,27 +468,19 @@ const Properties: Component<PropertiesProps> = (props) => {
   const keys = createMemo(() => entries().map(([k]) => k));
   const entryMap = createMemo(() => new Map(entries()));
 
-  // Inline type comments parsed from the live buffer. Recomputed each AST
-  // tick so raw edits flow back in. Parsed even when the feature is off so
-  // commits preserve existing comments.
   const typeMap = createMemo(() => {
     void props.frontmatter;
     return parseTypeComments(splitFrontmatter(props.getSource()).yaml ?? "");
   });
 
-  // Type menu, rebuilt when the vault default date format changes (it
-  // leads the Date submenu).
   const menu = createMemo(() => buildTypeMenu(props.dateDefault));
 
-  // Modelable when there is no frontmatter (we can add it) or the
-  // existing block has no comments/anchors/aliases (spec §2.4 / (a)).
   const modelable = createMemo(() => {
     void props.frontmatter;
     const split = splitFrontmatter(props.getSource());
     return split.yaml === null || !hasUnmodelableYaml(split.yaml);
   });
 
-  /** Reserialize `nextEntries` (+ type annotations) and splice in. */
   const commit = (
     nextEntries: FrontmatterEntry[],
     types: Map<string, PropertyType> = typeMap(),
@@ -624,8 +536,6 @@ const Properties: Component<PropertiesProps> = (props) => {
 
   const changeType = (key: string, type: PropertyType) => {
     const current = entryMap().get(key);
-    // Dates reformat the value; enum keeps the value (the set is defined
-    // next, via the cell); everything else uses coerceValue.
     const result =
       type.kind === "date"
         ? convertDate(current, effectiveFormat(type))
@@ -648,11 +558,6 @@ const Properties: Component<PropertiesProps> = (props) => {
     );
   };
 
-  /**
-   * Redefine an enum property's allowed values (from the cell's values
-   * editor). Rewrites the type comment; if the current value is no longer
-   * in the set, it's snapped to the first value (or cleared when empty).
-   */
   const setEnumValues = (key: string, values: string[]) => {
     const current = entryMap().get(key);
     const inSet = values.includes(String(current));
@@ -694,9 +599,6 @@ const Properties: Component<PropertiesProps> = (props) => {
   const resolvedType = (key: string): PropertyType =>
     resolveType(props.typedEnabled, typeMap(), key, entryMap().get(key));
 
-  // Nothing to show for a file with no frontmatter at all: the modelable
-  // empty state has no properties and no unparseable YAML to warn about,
-  // so the box would just be dead chrome (border + "+ Add property").
   const hasContent = createMemo(() => !modelable() || keys().length > 0);
 
   return (

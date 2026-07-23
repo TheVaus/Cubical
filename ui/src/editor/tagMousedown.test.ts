@@ -1,10 +1,3 @@
-/**
- * Regression coverage for the tag click interceptor (L3 Session E).
- *
- * Mirrors `wikilinkMousedown.test.ts` so we never regress to
- * "tag clicks just move the caret in Tauri" — the lesson the
- * Session B wiki-link bug taught.
- */
 import { afterAll, describe, expect, it, vi } from "vitest";
 
 import {

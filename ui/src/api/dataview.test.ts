@@ -1,11 +1,3 @@
-/**
- * Smoke tests for the L4-D `dataview_query` IPC wrapper in `./ipc.ts`.
- *
- * Pins the on-wire envelope shape — the command passes arguments under a
- * single `req` key, matching the Rust handler in
- * `crates/cubical-app/src/lib.rs` (parameter name `req: DataviewQueryRequest`).
- */
-
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));

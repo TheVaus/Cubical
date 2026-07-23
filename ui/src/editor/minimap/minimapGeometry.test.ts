@@ -22,7 +22,6 @@ describe("fractionFromClientY", () => {
 describe("scrollTopForFraction", () => {
   const vp = { scrollTop: 0, scrollHeight: 1000, clientHeight: 200 };
   it("centers the fraction in the viewport", () => {
-    // 0.5 * 1000 - 200/2 = 400
     expect(scrollTopForFraction(0.5, vp)).toBe(400);
   });
   it("clamps to [0, scrollHeight - clientHeight]", () => {
@@ -37,8 +36,8 @@ describe("indicatorRect", () => {
       { scrollTop: 500, scrollHeight: 1000, clientHeight: 200 },
       100,
     );
-    expect(r.height).toBeCloseTo(20); // 200/1000 * 100
-    expect(r.top).toBeCloseTo(50); // 500/1000 * 100
+    expect(r.height).toBeCloseTo(20);
+    expect(r.top).toBeCloseTo(50);
   });
   it("clamps a tiny indicator to a minimum height and keeps it in bounds", () => {
     const r = indicatorRect(

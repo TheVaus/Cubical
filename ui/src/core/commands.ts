@@ -1,38 +1,18 @@
-/**
- * Core substrate — command + keymap registry.
- *
- * Pure: types, the static binding table, key-string matching, and command
- * resolution. No DOM, no Solid; imports nothing from any feature. Adapters
- * (App.tsx global keydown, Editor.tsx CodeMirror keymap) inject the `run`
- * closures and wire this to their runtime. Bindings are a static const table
- * in v1 — no user remapping.
- */
-
-/** Where a binding is active. */
 export type CommandScope = "global" | "editor";
 
-/** An invokable app action. `run` closures are supplied by adapters. */
 export interface Command {
   id: string;
   title: string;
   run: () => void;
-  /** Optional guard; when present and false, the binding does not fire. */
   when?: () => boolean;
 }
 
-/** A key → command mapping within a scope. Key uses CodeMirror notation. */
 export interface KeyBinding {
   key: string;
   command: string;
   scope: CommandScope;
 }
 
-/**
- * Metadata for every rebindable command: its default key, human-readable
- * title (for the Settings → Shortcuts UI), and scope. `DEFAULT_BINDINGS`
- * and the Settings panel are both derived from this one table, so adding
- * a command later only means adding one entry here.
- */
 export interface BindingDefault {
   id: string;
   title: string;
@@ -91,23 +71,10 @@ export const COMMAND_DEFAULTS: readonly BindingDefault[] = [
   },
 ];
 
-/**
- * The v1 binding table. Editor-scope entries are handed to CodeMirror;
- * global-scope entries are matched by the App-level keydown adapter.
- */
 export const DEFAULT_BINDINGS: readonly KeyBinding[] = COMMAND_DEFAULTS.map(
   (c) => ({ key: c.defaultKey, command: c.id, scope: c.scope }),
 );
 
-/**
- * Merge `overrides` (command id → key spec, from the `shortcuts.overrides`
- * setting) with {@link COMMAND_DEFAULTS} into the effective binding table.
- * A diff, not a snapshot: a command with no entry in `overrides` falls
- * through to its default, so a future default-table change is picked up
- * automatically. An override whose key no longer matches any
- * `COMMAND_DEFAULTS` entry is silently ignored — this only ever iterates
- * the default table, never the override object's own keys.
- */
 export function resolveBindings(
   overrides: Record<string, string>,
 ): KeyBinding[] {
@@ -118,7 +85,6 @@ export function resolveBindings(
   }));
 }
 
-/** Returns `"scope:key"` for every (scope, key) claimed more than once. */
 export function findDuplicateBindings(
   bindings: readonly KeyBinding[],
 ): string[] {
@@ -132,7 +98,6 @@ export function findDuplicateBindings(
   return [...dupes];
 }
 
-/** A normalized key chord. `key` is always lower-cased. */
 export interface KeyChord {
   mod: boolean;
   shift: boolean;
@@ -140,7 +105,6 @@ export interface KeyChord {
   key: string;
 }
 
-/** Parse a CodeMirror-notation spec ("Mod-Shift-b") into a {@link KeyChord}. */
 export function parseKeySpec(spec: string): KeyChord {
   const parts = spec.split("-");
   const key = (parts[parts.length - 1] ?? "").toLowerCase();
@@ -161,7 +125,6 @@ interface KeyEventLike {
   key: string;
 }
 
-/** Normalize a DOM keyboard event into a {@link KeyChord}. */
 export function eventToChord(e: KeyEventLike): KeyChord {
   return {
     mod: e.metaKey || e.ctrlKey,
@@ -171,7 +134,6 @@ export function eventToChord(e: KeyEventLike): KeyChord {
   };
 }
 
-/** True when `spec` exactly describes the chord of event `e`. */
 export function chordMatches(spec: string, e: KeyEventLike): boolean {
   const a = parseKeySpec(spec);
   const b = eventToChord(e);
@@ -180,13 +142,6 @@ export function chordMatches(spec: string, e: KeyEventLike): boolean {
   );
 }
 
-/**
- * Returns the command id already bound to `spec` within `scope` (ignoring
- * `excludeCommandId`, so re-capturing a row's own current key never
- * conflicts with itself), or `undefined` if `spec` is free. `global` and
- * `editor` are independent key spaces — a match in the other scope is not
- * a conflict.
- */
 export function findConflict(
   spec: string,
   scope: CommandScope,
@@ -210,7 +165,6 @@ export function findConflict(
   return undefined;
 }
 
-/** Build a key spec string (CodeMirror notation) from a captured chord. */
 export function specFromChord(chord: KeyChord): string {
   const mods: string[] = [];
   if (chord.mod) mods.push("Mod");
@@ -219,11 +173,6 @@ export function specFromChord(chord: KeyChord): string {
   return [...mods, chord.key].join("-");
 }
 
-/**
- * Friendly display labels for known multi-character DOM key names.
- * `parseKeySpec` always lower-cases the key, so lookups here are lowercase.
- * Anything not in this map falls back to the raw key (degrades gracefully).
- */
 const SPECIAL_KEY_LABELS: Record<string, string> = {
   enter: "Enter",
   arrowleft: "←",
@@ -234,15 +183,6 @@ const SPECIAL_KEY_LABELS: Record<string, string> = {
   " ": "Space",
 };
 
-/**
- * Render a key spec as the ordered `<kbd>` labels the Settings UI
- * displays (e.g. `"Mod-Shift-b"` → `["⌘/Ctrl", "⇧", "B"]`). `parseKeySpec`
- * always lower-cases the key; this uppercases single-character keys for
- * display since that's how the previous hand-written Settings JSX showed
- * them, and maps known multi-character DOM key names (e.g. "arrowleft",
- * "enter") to friendly labels via {@link SPECIAL_KEY_LABELS} so the
- * Shortcuts panel never shows a raw DOM key name.
- */
 export function formatChordForDisplay(spec: string): string[] {
   const chord = parseKeySpec(spec);
   const labels: string[] = [];
@@ -257,10 +197,6 @@ export function formatChordForDisplay(spec: string): string[] {
   return labels;
 }
 
-/**
- * Resolve a keyboard event to the global command it should run, or
- * `undefined`. Honors `when?.()` guards and ignores non-`global` bindings.
- */
 export function resolveGlobal(
   bindings: readonly KeyBinding[],
   commands: Record<string, Command>,
@@ -277,12 +213,6 @@ export function resolveGlobal(
   return undefined;
 }
 
-/**
- * Build CodeMirror keymap entries from the `editor`-scope bindings. Each
- * `run` invokes the command (honoring `when?.()`) and returns `true` when it
- * ran so CodeMirror stops, `false` to fall through to later handlers. The
- * returned shape is CodeMirror's `KeyBinding` ({ key, run }).
- */
 export function toCmBindings(
   bindings: readonly KeyBinding[],
   commands: Record<string, Command>,

@@ -8,12 +8,6 @@ export interface LayoutInput {
   font: string;
 }
 
-/**
- * Lay out the full document at minimap scale via Pretext and flatten the
- * result into a {@link MinimapLayout}. Pretext owns text measurement
- * internally (its own canvas `measureText` + `Intl.Segmenter`), so there is
- * no measurement injection point — see the design spec §5.
- */
 export function layoutDocument(input: LayoutInput): MinimapLayout {
   const { text, width, lineHeight, font } = input;
   if (text.length === 0) return { lines: [], contentHeight: 0 };

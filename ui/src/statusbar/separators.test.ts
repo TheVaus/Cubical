@@ -7,7 +7,6 @@ describe("leadingSeparators", () => {
   });
 
   it("skips hidden items and never marks them", () => {
-    // vault path hidden, scanning visible, broken hidden, pending visible
     expect(leadingSeparators([false, true, false, true])).toEqual([
       false,
       false,

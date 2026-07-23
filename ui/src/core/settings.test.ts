@@ -37,7 +37,6 @@ describe("persistSetting", () => {
     expect(() =>
       persistSetting("v1", "properties.typed_enabled", true),
     ).not.toThrow();
-    // Let the rejected promise settle so the .catch runs.
     await Promise.resolve();
     expect(console.error).toHaveBeenCalled();
   });
@@ -64,8 +63,6 @@ describe("seedSetting", () => {
   });
 
   it("applies a falsy stored value rather than the fallback", async () => {
-    // `false ?? fallback` must yield `false`, not the fallback — a bug
-    // a `||` would introduce.
     mockGet.mockResolvedValueOnce(false);
     const apply = vi.fn();
     await seedSetting("v1", "properties.typed_enabled", true, apply);

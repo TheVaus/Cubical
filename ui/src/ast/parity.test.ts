@@ -1,17 +1,3 @@
-/**
- * Cross-language AST parity harness — TypeScript side.
- *
- * Asserts that `normalize(input)` produces the same JSON as the Rust
- * `cubical_ast::parse(input)` for every fixture in
- * `crates/cubical-ast/tests/fixtures/parity.json`. The fixture file is
- * the single source of truth; never edit it by hand. To regenerate
- * after intentionally changing the AST shape:
- *
- * ```sh
- * CUBICAL_UPDATE_PARITY_FIXTURES=1 cargo test -p cubical-ast \
- *   --test parity_fixtures
- * ```
- */
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";

@@ -5,12 +5,6 @@ import IconButton from "@ds/components/forms/IconButton/IconButton";
 
 import type { RecentVault } from "./api/ipc";
 
-/**
- * Shared list of recent vaults, used by the vault-switcher popover and
- * the empty-vault landing. An existing vault is a one-click switch; a
- * missing one (folder deleted/moved/unmounted) is greyed with a × to
- * prune it. Presentational — all persistence flows through the callbacks.
- */
 export interface RecentVaultListProps {
   vaults: RecentVault[];
   onSwitch: (path: string) => void;

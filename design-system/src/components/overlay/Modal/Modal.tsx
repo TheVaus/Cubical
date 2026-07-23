@@ -6,14 +6,8 @@ export interface ModalProps {
   open: boolean;
   onClose: () => void;
   title?: string;
-  /**
-   * Accessible name when there is no visible `title`. Ignored when `title`
-   * is set (the title labels the dialog via `aria-labelledby`).
-   */
   ariaLabel?: string;
-  /** Panel width. `md` (default) = 560px content modal; `sm` = compact confirm. */
   size?: 'sm' | 'md';
-  /** Vertical placement. `top` (default) sits below the top edge; `center` centers. */
   placement?: 'top' | 'center';
   children: JSX.Element;
 }

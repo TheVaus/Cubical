@@ -60,7 +60,6 @@ describe("TwoPaneModal", () => {
     ));
     const p = panel();
     expect(p).not.toBeNull();
-    // ARIA lives on the PANEL, not the scrim (fixes the app's old bug).
     expect(p!.getAttribute("role")).toBe("dialog");
     expect(p!.getAttribute("aria-modal")).toBe("true");
     expect(p!.getAttribute("aria-label")).toBe("Settings");
@@ -163,6 +162,6 @@ describe("TwoPaneModal", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
     setOpen(false);
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
-    expect(onClose).toHaveBeenCalledTimes(1); // no further calls once closed
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

@@ -6,7 +6,6 @@ export interface MenuItem {
   label: string;
   shortcut?: string;
   disabled?: boolean;
-  /** Render in the error color for destructive actions (e.g. Delete). */
   danger?: boolean;
   onSelect: () => void;
 }

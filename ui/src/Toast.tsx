@@ -4,10 +4,6 @@ import IconButton from "@ds/components/forms/IconButton/IconButton";
 
 import { currentToast, dismissToast } from "./toastState";
 
-/**
- * Single-slot toast renderer. The state lives in `toastState.ts`; this
- * component is the visual shell mounted once in `App.tsx`.
- */
 export const ToastHost: Component = () => {
   return (
     <Show when={currentToast() !== null}>
