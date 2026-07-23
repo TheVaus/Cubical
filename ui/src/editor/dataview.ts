@@ -250,7 +250,7 @@ export const dataviewBaseTheme = EditorView.baseTheme({
     width: "100%",
   },
   ".cq-dataview-table th, .cq-dataview-table td": {
-    border: "1px solid var(--c-border, var(--c-bg-tertiary))",
+    border: "1px solid var(--c-border-subtle)",
     padding: "var(--space-1) var(--space-2)",
     textAlign: "left",
   },
