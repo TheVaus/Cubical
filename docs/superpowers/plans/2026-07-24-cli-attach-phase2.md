@@ -16,7 +16,7 @@
 - **Engine stays wire-free:** wire types (`Command`/`Outcome`/`Response`) live in `cubical-ipc`, never in `cubical-engine`. `Outcome` carries owned primitives, not engine response structs.
 - **No explanatory comments in source** (project rule) — rationale goes in `docs/`. A one-line doc is the most allowed.
 - **Full gate:** `scripts/check.sh` (tsc, vitest, build, cargo fmt/clippy/test, docs). Run it, not the pieces. Known non-blocking flake: `cubical-core` `dropping_handle_stops_event_delivery_within_100ms` under full load.
-- **Tests set `CUBICAL_RUNTIME_DIR`** for hermeticity; in-process env-touching tests serialize on `vault_lock::RUNTIME_ENV_GUARD`.
+- **Tests set `CUBICAL_RUNTIME_DIR`** for hermeticity; in-process env-touching tests serialize on a shared `std::sync::Mutex` guard (Rust runs a crate's tests concurrently in one process, so unguarded `set_var`/`remove_var` races). Engine tests use `vault_lock::RUNTIME_ENV_GUARD`; `cubical-ipc` unit tests use a crate-local `RUNTIME_ENV_GUARD` (added in Task 1); the `cubical-ipc` integration test uses a file-local guard. Async tests that hold the guard across `.await` carry `#[allow(clippy::await_holding_lock)]` (mirrors the Phase-1 engine integration test).
 - **Branch:** `feat/cli-attach` (already created off `main`; single checkout, no worktrees). Commit after each task.
 - `--json` output shape is defined by `Outcome` (intentional, documented change from Phase-1's raw-struct dump; human output unchanged).
 
@@ -141,6 +141,9 @@ mod protocol;
 pub use protocol::{Command, Outcome, Request, Response};
 
 #[cfg(test)]
+pub(crate) static RUNTIME_ENV_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(test)]
 mod protocol_tests {
     use super::*;
 
@@ -240,7 +243,9 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
     async fn dispatch_new_note_creates_a_file() {
+        let _env = crate::RUNTIME_ENV_GUARD.lock().unwrap();
         let dir = tempfile::tempdir().unwrap();
         std::env::set_var("CUBICAL_RUNTIME_DIR", dir.path().join("rt"));
         let (state, vault_id) = open_temp(dir.path()).await;
@@ -263,7 +268,9 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
     async fn dispatch_write_replaces_body() {
+        let _env = crate::RUNTIME_ENV_GUARD.lock().unwrap();
         let dir = tempfile::tempdir().unwrap();
         std::env::set_var("CUBICAL_RUNTIME_DIR", dir.path().join("rt2"));
         std::fs::write(dir.path().join("N.md"), "old").unwrap();
@@ -665,6 +672,7 @@ mod tests {
 
     #[test]
     fn app_socket_path_lands_in_runtime_dir_and_names_the_pid() {
+        let _env = crate::RUNTIME_ENV_GUARD.lock().unwrap();
         std::env::set_var("CUBICAL_RUNTIME_DIR", "/tmp/cubical-ipc-test-rt");
         let p = app_socket_path(4242);
         assert!(p.starts_with("/tmp/cubical-ipc-test-rt"));
@@ -674,7 +682,7 @@ mod tests {
 }
 ```
 
-Note: this test touches `CUBICAL_RUNTIME_DIR`. Keep it in its own `#[test]` (not shared with async tests). It does not run concurrently with engine env tests (different crate/process).
+Note: the `app_socket_path` test touches `CUBICAL_RUNTIME_DIR` and asserts on it, so it locks `crate::RUNTIME_ENV_GUARD` (shared with the Task-2 dispatch tests in the same test binary) to serialize against them. The `frame_round_trips` test touches no env and needs no guard.
 
 - [ ] **Step 2: Run to verify it fails**
 
@@ -1011,6 +1019,8 @@ use cubical_engine::state::AppState;
 use cubical_ipc::{client_send, handle_connection, Command, Request, Response};
 use tokio::net::UnixListener;
 
+static ENV_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 async fn open_scanned(dir: &std::path::Path) -> (AppState, String) {
     let state = AppState::new();
     let opened = vault::open_vault(
@@ -1037,7 +1047,9 @@ async fn open_scanned(dir: &std::path::Path) -> (AppState, String) {
 }
 
 #[tokio::test]
+#[allow(clippy::await_holding_lock)]
 async fn socket_new_note_creates_a_file_via_dispatch() {
+    let _env = ENV_GUARD.lock().unwrap();
     let rt = tempfile::tempdir().unwrap();
     std::env::set_var("CUBICAL_RUNTIME_DIR", rt.path());
     let vault_dir = tempfile::tempdir().unwrap();
@@ -1069,7 +1081,9 @@ async fn socket_new_note_creates_a_file_via_dispatch() {
 }
 
 #[tokio::test]
+#[allow(clippy::await_holding_lock)]
 async fn socket_unknown_vault_returns_err() {
+    let _env = ENV_GUARD.lock().unwrap();
     let rt = tempfile::tempdir().unwrap();
     std::env::set_var("CUBICAL_RUNTIME_DIR", rt.path());
     let state = AppState::new();
