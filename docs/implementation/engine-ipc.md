@@ -108,6 +108,15 @@ An entry is pruned once no referrer text still names `from` (the rewrites baked
 into the `.md` files) or once `to` itself vanishes. Best-effort: errors are
 logged and swallowed so a bad journal can never wedge vault open.
 
+## Known debt
+
+- **`audit_log` grows unbounded.** The watcher writes a row per event; the
+  spec'd auto-prune to a row ceiling was never implemented. Marked with a
+  `TODO(L0+)` at the insert site in `events.rs`.
+- The watcher dispatcher deliberately does **not** commit the search index per
+  event — it batches one commit per drained burst. Don't "fix" that by adding a
+  per-event commit.
+
 ## Settings routing
 
 Writes are routed by key: durable (non-`ui.*`) keys go to the portable

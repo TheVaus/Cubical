@@ -459,6 +459,7 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) -> O
         }
     };
 
+    // TODO(L0+): auto-prune audit_log to 10000 rows; it grows unbounded until then.
     let (message, detail) = audit_payload_for(ev);
     if let Err(e) = conn
         .execute(
