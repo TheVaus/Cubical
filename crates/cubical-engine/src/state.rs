@@ -19,6 +19,7 @@ pub struct OpenVault {
     pub flush_timer_cancel: CancellationToken,
     pub search_state: Arc<std::sync::Mutex<SearchStateInner>>,
     pub settings: Arc<RwLock<SettingsMap>>,
+    pub lock_guard: Option<crate::vault_lock::VaultLockGuard>,
 }
 
 #[derive(Debug, Clone)]
@@ -69,6 +70,7 @@ impl OpenVault {
             flush_timer_cancel: CancellationToken::new(),
             search_state: Arc::new(std::sync::Mutex::new(SearchStateInner::default())),
             settings: Arc::new(RwLock::new(settings)),
+            lock_guard: None,
         }
     }
 }

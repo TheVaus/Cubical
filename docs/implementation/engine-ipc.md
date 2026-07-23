@@ -173,6 +173,34 @@ constructing a second vault (and a second Tantivy `IndexWriter`) on the same
 directory, which throws a lock-busy error. Identity is the **canonical** path;
 a stored root that no longer canonicalizes simply doesn't match.
 
+## Cross-process vault ownership lock
+
+The idempotent re-open guard above only sees vaults open in *this* process's
+`AppState`. `vault_lock` extends it across processes so a second frontend (the
+CLI) can never become a concurrent writer on a vault the app already owns.
+`open_vault` acquires an exclusive lock before `Vault::open`; on contention it
+returns `VaultLocked { pid, socket_path }` without touching the index. The guard
+lives on `OpenVault`, so `close_vault` (and process exit) releases it.
+
+- **Enforcement is an OS advisory lock** (`fs4::try_lock_exclusive`), not
+  PID-liveness polling. The kernel releases it when the holder exits — including
+  on crash — so a dead owner never wedges the vault. The lockfile's JSON payload
+  (`pid`, path, `socket_path`) is informational: it feeds the "who owns it"
+  message and, in Phase 2, the socket the CLI attaches to.
+- **The lockfile lives in the OS runtime dir**, keyed by a SHA-256 of the
+  canonical vault path — never in `.cubical/`. A socket path or PID synced to
+  another machine via Dropbox would be poison. `CUBICAL_RUNTIME_DIR` overrides
+  the dir (tests, and headless CLI use). This mirrors `recent_vaults.json`:
+  machine-local state belongs outside the portable vault.
+- **The lockfile is not deleted on release**, only unlocked. Unlinking a lock
+  file races with a waiter that already holds a descriptor to it; the next
+  acquirer truncates and rewrites the payload after it wins the lock. Leftover
+  files are bounded by the count of distinct vault paths ever opened.
+
+Both frontends share this path because it is in the engine's `open_vault`: the
+GUI taking the lock is precisely what lets the CLI detect it. Phase 2 turns the
+CLI's `VaultLocked` branch from *decline* into *attach* over `socket_path`.
+
 ## Degrade-not-throw surfaces
 
 Dataview and search deliberately fold failures into a structured result rather

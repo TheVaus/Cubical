@@ -130,6 +130,26 @@ non-zero (release the lock, flush what's done).
 ## Docs
 
 - Durable rationale (lock mechanism, ownership invariant, Phase-2 socket boundary) →
-  `docs/implementation/engine-ipc.md`.
-- "What was built" recorded here at closeout; Project state block in `CLAUDE.md`
-  rewritten.
+  `docs/implementation/engine-ipc.md` → "Cross-process vault ownership lock".
+- "What was built" recorded below; Project state block in `CLAUDE.md` rewritten.
+
+## What was built (Phase 1 — 2026-07-24)
+
+- **`cubical-engine::vault_lock`** — OS advisory-lock ownership primitive (`fs4` +
+  `dirs`, SHA-256 path key, `CUBICAL_RUNTIME_DIR` override). 6 unit tests.
+- **`CubicalError::VaultLocked { pid, socket_path }`**; `OpenVault.lock_guard`
+  field (defaulted `None`, so the 16 `OpenVault::new` callers were untouched).
+- **`open_vault` acquires the lock before `Vault::open`; `close_vault` releases it.**
+  Both frontends now participate (the GUI takes the lock too). 1 integration test.
+- **`cubical` CLI** rebuilt from the read-only PoC into a write-capable frontend:
+  `list`, `resolve`, `backlinks`, `new note|folder`, `write` (stdin), `rename`
+  (file/folder auto-detect), `rm`, `set`, `get`, `undo-rename`; `--json` global;
+  lifecycle opens→scan→dispatch→**close (flushes referrer rewrites)**; declines
+  with **exit 2** when the app owns the vault. 7 integration tests (incl. the
+  referrer-rewrite proving close-flush lands, and the exit-2 decline).
+- Gate green (`scripts/check.sh`), modulo the pre-existing `cubical-core` watcher
+  flake.
+
+**Not built (Phase 2/3, deferred):** the socket server + CLI attach, and the
+in-app terminal panel. The `socket_path` payload field and the CLI's decline
+branch are the seams they plug into.

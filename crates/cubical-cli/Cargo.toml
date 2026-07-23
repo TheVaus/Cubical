@@ -17,3 +17,9 @@ cubical-engine = { path = "../cubical-engine" }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 anyhow = { workspace = true }
 clap = { version = "4", features = ["derive"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+cubical-engine = { path = "../cubical-engine" }
+tempfile = "3"

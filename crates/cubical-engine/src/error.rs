@@ -20,6 +20,12 @@ pub enum CubicalError {
     #[error("vault not open: {0}")]
     VaultNotOpen(String),
 
+    #[error("vault is open in another Cubical process (pid {pid})")]
+    VaultLocked {
+        pid: u32,
+        socket_path: Option<String>,
+    },
+
     #[error("file not found in vault: {0}")]
     FileNotFound(String),
 
@@ -53,6 +59,7 @@ impl CubicalError {
             Self::VaultNotWritable(_) => "VaultNotWritable",
             Self::SchemaVersionUnsupported(_) => "SchemaVersionUnsupported",
             Self::VaultNotOpen(_) => "VaultNotOpen",
+            Self::VaultLocked { .. } => "VaultLocked",
             Self::FileNotFound(_) => "FileNotFound",
             Self::ScanCancelled => "ScanCancelled",
             Self::Io(_) => "Io",

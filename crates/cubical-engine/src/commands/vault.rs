@@ -45,15 +45,29 @@ pub async fn open_vault(
     app: std::sync::Arc<dyn EventSink>,
     req: OpenVaultRequest,
 ) -> Result<OpenVaultResponse, CubicalError> {
-    if let Ok(incoming) = std::fs::canonicalize(&req.path) {
+    let canonical = std::fs::canonicalize(&req.path).ok();
+    if let Some(incoming) = &canonical {
         let guard = state.vaults().read().await;
-        if let Some((existing_id, status)) = find_open_vault_by_canonical_path(&guard, &incoming) {
+        if let Some((existing_id, status)) = find_open_vault_by_canonical_path(&guard, incoming) {
             return Ok(OpenVaultResponse {
                 vault_id: existing_id,
                 scan_status: status.into(),
             });
         }
     }
+
+    let lock_key = canonical.unwrap_or_else(|| req.path.clone());
+    let lock_guard = match crate::vault_lock::acquire(&lock_key)
+        .map_err(|e| CubicalError::Io(format!("acquiring vault lock: {e}")))?
+    {
+        crate::vault_lock::Acquire::Acquired(guard) => guard,
+        crate::vault_lock::Acquire::Held(owner) => {
+            return Err(CubicalError::VaultLocked {
+                pid: owner.pid,
+                socket_path: owner.socket_path,
+            });
+        }
+    };
 
     let vault = Vault::open(&req.path).await?;
     let vault_id = state.new_vault_id();
@@ -67,13 +81,14 @@ pub async fn open_vault(
         cubical_core::vault::settings::SettingsMap::new()
     });
 
-    let open = OpenVault::new(
+    let mut open = OpenVault::new(
         vault.clone(),
         cancel.clone(),
         ScanStatusBackend::InProgress,
         Some(watcher),
         settings,
     );
+    open.lock_guard = Some(lock_guard);
     let flush_own_writes = open.flush_own_writes.clone();
     let flush_in_progress = open.flush_in_progress.clone();
     let flush_timer_cancel = open.flush_timer_cancel.clone();
@@ -1956,5 +1971,56 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(got.value, Some(serde_json::json!("light")));
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn open_vault_declines_a_second_process_and_releases_on_close() {
+        let _env = crate::vault_lock::RUNTIME_ENV_GUARD.lock().unwrap();
+        let runtime = tempdir().unwrap();
+        std::env::set_var("CUBICAL_RUNTIME_DIR", runtime.path());
+
+        let vault_dir = tempdir().unwrap();
+        let path = vault_dir.path().to_path_buf();
+        let sink: Arc<dyn EventSink> = Arc::new(crate::events::NoopEventSink);
+
+        let state_a = AppState::new();
+        let opened = open_vault(
+            &state_a,
+            Arc::clone(&sink),
+            OpenVaultRequest { path: path.clone() },
+        )
+        .await
+        .expect("first frontend owns the vault");
+
+        let state_b = AppState::new();
+        let err = open_vault(
+            &state_b,
+            Arc::clone(&sink),
+            OpenVaultRequest { path: path.clone() },
+        )
+        .await
+        .expect_err("a second frontend must be declined while the vault is owned");
+        assert!(matches!(err, CubicalError::VaultLocked { .. }));
+
+        close_vault(
+            &state_a,
+            sink.as_ref(),
+            CloseVaultRequest {
+                vault_id: opened.vault_id,
+            },
+        )
+        .await
+        .expect("close releases the lock");
+
+        let canonical = std::fs::canonicalize(&path).unwrap();
+        match crate::vault_lock::acquire(&canonical).unwrap() {
+            crate::vault_lock::Acquire::Acquired(_) => {}
+            crate::vault_lock::Acquire::Held(_) => {
+                panic!("ownership lock must be free once the owner has closed the vault")
+            }
+        }
+
+        std::env::remove_var("CUBICAL_RUNTIME_DIR");
     }
 }

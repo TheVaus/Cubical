@@ -1,0 +1,207 @@
+use std::fs::{File, OpenOptions};
+use std::io;
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
+
+pub struct VaultLockGuard {
+    file: File,
+    lock_path: PathBuf,
+}
+
+impl VaultLockGuard {
+    pub fn lock_path(&self) -> &Path {
+        &self.lock_path
+    }
+}
+
+impl Drop for VaultLockGuard {
+    fn drop(&mut self) {
+        use fs4::FileExt;
+        let _ = FileExt::unlock(&self.file);
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LockOwner {
+    pub pid: u32,
+    pub socket_path: Option<String>,
+}
+
+pub enum Acquire {
+    Acquired(VaultLockGuard),
+    Held(LockOwner),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct LockPayload {
+    pid: u32,
+    path: String,
+    #[serde(default)]
+    socket_path: Option<String>,
+}
+
+pub fn acquire(canonical_vault_path: &Path) -> io::Result<Acquire> {
+    acquire_in(&runtime_dir(), canonical_vault_path)
+}
+
+pub(crate) fn acquire_in(dir: &Path, canonical_vault_path: &Path) -> io::Result<Acquire> {
+    use fs4::FileExt;
+
+    std::fs::create_dir_all(dir)?;
+    let lock_path = dir.join(lock_filename(canonical_vault_path));
+    let file = OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .truncate(false)
+        .open(&lock_path)?;
+
+    match file.try_lock_exclusive() {
+        Ok(()) => {
+            write_payload(&file, canonical_vault_path)?;
+            Ok(Acquire::Acquired(VaultLockGuard { file, lock_path }))
+        }
+        Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+            let owner = read_owner(&lock_path).unwrap_or(LockOwner {
+                pid: 0,
+                socket_path: None,
+            });
+            Ok(Acquire::Held(owner))
+        }
+        Err(e) => Err(e),
+    }
+}
+
+fn write_payload(file: &File, canonical_vault_path: &Path) -> io::Result<()> {
+    use std::io::{Seek, SeekFrom, Write};
+
+    let payload = LockPayload {
+        pid: std::process::id(),
+        path: canonical_vault_path.to_string_lossy().into_owned(),
+        socket_path: None,
+    };
+    let bytes = serde_json::to_vec(&payload).map_err(io::Error::other)?;
+    file.set_len(0)?;
+    (&*file).seek(SeekFrom::Start(0))?;
+    (&*file).write_all(&bytes)?;
+    (&*file).flush()?;
+    Ok(())
+}
+
+fn read_owner(lock_path: &Path) -> Option<LockOwner> {
+    let bytes = std::fs::read(lock_path).ok()?;
+    let payload: LockPayload = serde_json::from_slice(&bytes).ok()?;
+    Some(LockOwner {
+        pid: payload.pid,
+        socket_path: payload.socket_path,
+    })
+}
+
+fn lock_filename(canonical_vault_path: &Path) -> String {
+    use sha2::{Digest, Sha256};
+
+    use std::fmt::Write as _;
+
+    let mut hasher = Sha256::new();
+    hasher.update(canonical_vault_path.to_string_lossy().as_bytes());
+    let digest = hasher.finalize();
+    let mut name = String::with_capacity(digest.len() * 2 + 5);
+    for byte in digest {
+        let _ = write!(name, "{byte:02x}");
+    }
+    name.push_str(".lock");
+    name
+}
+
+fn runtime_dir() -> PathBuf {
+    if let Some(dir) = std::env::var_os("CUBICAL_RUNTIME_DIR") {
+        return PathBuf::from(dir);
+    }
+    dirs::runtime_dir()
+        .or_else(dirs::cache_dir)
+        .unwrap_or_else(std::env::temp_dir)
+        .join("cubical")
+        .join("locks")
+}
+
+#[cfg(test)]
+pub(crate) static RUNTIME_ENV_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn acquire_on_a_free_path_succeeds() {
+        let dir = tempfile::tempdir().unwrap();
+        let vault = Path::new("/vaults/alpha");
+        match acquire_in(dir.path(), vault).unwrap() {
+            Acquire::Acquired(_) => {}
+            Acquire::Held(_) => panic!("free path should be acquirable"),
+        }
+    }
+
+    #[test]
+    fn a_second_acquire_reports_the_current_owner() {
+        let dir = tempfile::tempdir().unwrap();
+        let vault = Path::new("/vaults/beta");
+        let _held = match acquire_in(dir.path(), vault).unwrap() {
+            Acquire::Acquired(g) => g,
+            Acquire::Held(_) => panic!("first acquire should succeed"),
+        };
+        match acquire_in(dir.path(), vault).unwrap() {
+            Acquire::Acquired(_) => panic!("second acquire must not succeed while held"),
+            Acquire::Held(owner) => assert_eq!(owner.pid, std::process::id()),
+        }
+    }
+
+    #[test]
+    fn releasing_the_guard_allows_reacquire() {
+        let dir = tempfile::tempdir().unwrap();
+        let vault = Path::new("/vaults/gamma");
+        {
+            let g = match acquire_in(dir.path(), vault).unwrap() {
+                Acquire::Acquired(g) => g,
+                Acquire::Held(_) => panic!("first acquire should succeed"),
+            };
+            drop(g);
+        }
+        match acquire_in(dir.path(), vault).unwrap() {
+            Acquire::Acquired(_) => {}
+            Acquire::Held(_) => panic!("after release the path should be free again"),
+        }
+    }
+
+    #[test]
+    fn distinct_vault_paths_are_independent() {
+        let dir = tempfile::tempdir().unwrap();
+        let _a = match acquire_in(dir.path(), Path::new("/vaults/one")).unwrap() {
+            Acquire::Acquired(g) => g,
+            Acquire::Held(_) => panic!("first vault should be acquirable"),
+        };
+        match acquire_in(dir.path(), Path::new("/vaults/two")).unwrap() {
+            Acquire::Acquired(_) => {}
+            Acquire::Held(_) => panic!("a different vault path must lock independently"),
+        }
+    }
+
+    #[test]
+    fn the_lock_file_lands_in_the_given_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let g = match acquire_in(dir.path(), Path::new("/vaults/delta")).unwrap() {
+            Acquire::Acquired(g) => g,
+            Acquire::Held(_) => panic!("acquire should succeed"),
+        };
+        assert!(g.lock_path().starts_with(dir.path()));
+        assert!(g.lock_path().exists());
+    }
+
+    #[test]
+    fn runtime_dir_honors_the_env_override() {
+        let _guard = RUNTIME_ENV_GUARD.lock().unwrap();
+        std::env::set_var("CUBICAL_RUNTIME_DIR", "/tmp/cubical-test-runtime");
+        assert_eq!(runtime_dir(), PathBuf::from("/tmp/cubical-test-runtime"));
+        std::env::remove_var("CUBICAL_RUNTIME_DIR");
+    }
+}
