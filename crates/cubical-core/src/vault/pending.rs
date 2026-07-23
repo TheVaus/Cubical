@@ -440,7 +440,7 @@ fn match_tag_entry(
             (trimmed, trim_off)
         };
 
-    let (body, body_offset_in_scalar, hash_prefix) = if let Some(rest) = inner.strip_prefix('#') {
+    let (body, body_offset_in_scalar, _hash_prefix) = if let Some(rest) = inner.strip_prefix('#') {
         (rest, inner_offset_in_scalar + 1, true)
     } else {
         (inner, inner_offset_in_scalar, false)
@@ -457,7 +457,6 @@ fn match_tag_entry(
         return None;
     };
 
-    let _ = hash_prefix;
     Some((body_offset_in_scalar, body.len(), replacement_body))
 }
 

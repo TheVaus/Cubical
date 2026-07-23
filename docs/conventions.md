@@ -2,6 +2,39 @@
 
 Code-style rules enforced by review and (where noted) by tooling. Load this when editing code; not required reading for every session.
 
+## Comments
+
+**Source files carry no explanatory comments.** Rationale, invariants and
+design reasoning live in [`implementation/`](implementation/) (one file per
+domain) or in the architecture docs — not in the code. A comment is allowed
+only as a **brief one-liner**: a pointer to the owning doc, a `TODO(...)`
+marker, or a short section label in a long stylesheet.
+
+This applies to doc-comments too (`///`, `//!`, JSDoc `/** */`) — they are
+prose about the code like any other comment. Consequences of that choice, all
+deliberate:
+
+- `#![warn(missing_docs)]` is **not** used. With crate-level docs removed it
+  fires on the crate itself, and `clippy -D warnings` turns that into a build
+  failure. Don't re-add it without also re-adding crate docs.
+- **CLI help text is data, not documentation.** clap's `--help` strings are
+  written as explicit `#[arg(help = "…")]` / `#[command(about = "…")]`
+  attributes, never as doc comments — a doc comment there would be swept up by
+  a cleanup pass and silently degrade `--help`.
+
+### Comments that must never be stripped
+
+A few comment-shaped lines are **functional** — the toolchain reads them, and
+removing them breaks the build or the tests:
+
+| Pragma | Where | Removing it |
+|---|---|---|
+| `// @vitest-environment jsdom` | first line of DOM-touching test files | drops those files to the `node` env — ~50 tests fail on `document is not defined` |
+| `/// <reference types="vitest" />` | `ui/vite.config.ts` | loses the Vitest config types |
+
+Treat these as code. Any future comment sweep must preserve them and re-run
+`scripts/check.sh` to prove it.
+
 ## Rust
 
 - Edition 2021; toolchain pinned in `rust-toolchain.toml` (CI uses the same).

@@ -47,7 +47,7 @@ cubical/
 
 Crates without Tauri deps (`cubical-core`, `cubical-ast`, `cubical-index`, `cubical-search`, `cubical-sync`) must remain buildable and testable without the app harness. Tauri-coupled surfaces are inventoried in [`migration-touchpoints.md`](migration-touchpoints.md).
 
-Source files carry no explanatory comments — at most a brief one-line pointer. The rationale that used to live in them is owned by [`implementation/`](implementation/), one file per domain.
+Source files carry no explanatory comments — the rule (and the few functional pragmas that must never be stripped) is owned by [`conventions.md`](conventions.md) → Comments. The rationale that used to live in those comments is owned by [`implementation/`](implementation/), one file per domain.
 
 ## Other content
 
