@@ -17,8 +17,7 @@ pub(crate) async fn prune_audit_log_conn(
         return Ok(0);
     }
 
-    // O(1) guard: ids are unique and increasing, so a span <= max_rows cannot
-    // hold more than max_rows rows. Keeps the per-burst call effectively free.
+    // O(1) guard: ids increase, so a span <= max_rows cannot hold more than max_rows rows.
     let mut rows = conn
         .query("SELECT MIN(id), MAX(id) FROM audit_log", ())
         .await?;
