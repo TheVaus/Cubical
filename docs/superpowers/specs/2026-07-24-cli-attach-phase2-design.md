@@ -56,25 +56,26 @@ Contents:
 `cubical <cmd>` → canonicalize `--vault` → `open_vault` acquires the lock (advertising `None`) → `wait_for_scan` → build `Command` (read stdin for `write`) → `dispatch(vault_id, cmd, &state, &NoopEventSink)` → `render(outcome, json)` → `close_vault` (flushes referrer rewrites) → exit.
 
 **App open (attach):**
-`cubical <cmd>` → canonicalize `--vault` → `open_vault` → `Err(VaultLocked { socket_path: Some(path), .. })` → build `Request { vault_path, command }` (read stdin for `write`) → `ipc::client::send(path, request)` → **[app]** accept → resolve `vault_path` → `vault_id` → `dispatch(vault_id, cmd, &state, &TauriEventSink)` → engine fn runs, `TauriEventSink` fires (UI updates live; watcher echo suppressed via the same `flush_own_writes` path the GUI uses) → `Outcome` → framed `Response` → **[CLI]** `render(outcome, json)` → exit with that code.
+`cubical <cmd>` → canonicalize `--vault` → `open_vault` → `Err(VaultLocked { socket_path: Some(path), .. })` → build `Request { vault_path, command }` (read stdin for `write`) → `ipc::client::send(path, request)` → **[app]** accept → resolve `vault_path` → `vault_id` → `dispatch(vault_id, cmd, &state, &TauriEventSink)` → engine fn runs, `TauriEventSink` fires and the app's file watcher picks up the FS change (UI updates live) → `Outcome` → framed `Response` → **[CLI]** `render(outcome, json)` → exit with that code.
 
 ## App-side socket server & advertisement
 
 - **Server task:** a `.setup(|app| …)` hook in `cubical-app` spawns a task (via `tauri::async_runtime::spawn`) that binds `app_socket_path(pid)` (**unlink-before-bind** to clear a stale same-pid leftover) and accepts connections. Connections are handled **sequentially** in that one task (not one task per connection: `handle_connection` borrows `&AppState`/`&dyn EventSink`, so spawning would demand `'static`, and mutations are already serialized by `AppState`'s own locks). Per connection:
   1. read a framed `Request`;
-  2. resolve `request.vault_path` → `vault_id` via a new public engine resolver (see below); if not open → `Response::Err("vault not open")`;
+  2. resolve `request.vault_path` → `(vault_id, scan_status)` via a new public engine resolver (see below); if not open → `Response::Err("vault not open")`, if not yet `Complete` → `Response::Err("vault is still scanning")`;
   3. `dispatch(vault_id, request.command, app.state::<AppState>(), &TauriEventSink::new(app.clone()))`;
   4. map `Result<Outcome, CubicalError>` → `Response` and write it framed.
   A panicking or erroring handler never brings down the app; the worst case is one `Response::Err`.
-- **Path→vault_id resolver:** `find_open_vault_by_canonical_path` is currently private. Add a thin `pub async fn resolve_open_vault_id(state: &AppState, canonical: &Path) -> Option<String>` in `commands::vault` wrapping it, rather than leaking the private helper.
+- **Path→vault resolver:** `find_open_vault_by_canonical_path` is currently private. Add a thin `pub async fn resolve_open_vault(state: &AppState, canonical: &Path) -> Option<(String, ScanStatus)>` in `commands::vault` wrapping it, rather than leaking the private helper. It must surface the scan status, not just the id: the attach path has no `wait_for_scan`, and dispatching against a partial index gives `list` partial results and `rename` an incomplete referrer set.
 - **Socket advertisement:** add an `advertise_socket: Option<String>` **parameter** to `commands::vault::open_vault` (not a field on `OpenVaultRequest`, which is the frontend→app `Deserialize` contract and must not carry app-internal wiring). Thread it into `vault_lock::acquire(canonical, socket_path)` → `write_payload`, replacing the hardcoded `socket_path: None`. The **app** passes `Some(app_socket_path(pid).to_string_lossy())`; the **CLI** and engine tests pass `None`. Four call sites total.
 - **One socket per app.** The per-pid filename avoids collisions between two app instances (which own different vaults / different locks). Every vault the app opens advertises the *same* socket path; the `Request` names the vault, so one listener serves all open vaults.
 
 ## Concurrency & safety
 
 - The engine already serializes mutations through `AppState`'s locks. Socket connections, the GUI, and (when closed) the one-shot CLI all funnel through the same `AppState` — no new locking is introduced.
-- Routing through the same `AppState` is exactly what makes a socket `write_file_text` populate `flush_own_writes` identically to a GUI write, so the app's own file watcher suppresses the echo. This is why attach uses the app's `AppState` + real sink rather than a second engine.
-- The socket is a same-user, local-only endpoint (Unix-domain socket in the user's runtime dir). No auth layer beyond filesystem permissions — consistent with the local-first, single-user desktop model.
+- Attach uses the app's `AppState` + a real `TauriEventSink` (rather than a second engine) so the app's index, rename journal and audit log stay authoritative and the rename/flush/audit events reach the UI. The editor picks up a socket `write` through the **file watcher**, not through `flush_own_writes` — `write_file_text` does not populate that gate (only the rename referrer-rewrite flush does), and suppressing the echo would leave the GUI unaware of the write.
+- The socket is a same-user, local-only endpoint (Unix-domain socket in the user's runtime dir). Filesystem permissions are the only auth layer, so they are asserted rather than assumed: `0o700` on the runtime dir, `0o600` on the socket after bind (the `temp_dir()` fallback can be world-writable). Consistent with the local-first, single-user desktop model.
+- Both sides read under a deadline (`cubical_ipc::IO_TIMEOUT`, 10s): the accept loop is sequential, so an idle connected peer would otherwise wedge every later `cubical` invocation. A transient `accept` error backs off and retries, and a panicking handler is caught, so neither ends the server for the app's lifetime.
 
 ## Wire protocol & transport (`#[cfg(unix)]`)
 
@@ -104,6 +105,9 @@ Reads (`list`, `resolve`, `backlinks`, `get`) now succeed while the app is open,
 | App open, command ok | Dispatched live over socket, `render` exit code |
 | App open, dispatch error | `Response::Err` → exit 1 |
 | App open, vault mid-close / not resolvable | `Response::Err("vault not open")` → exit 1 |
+| App open, vault still scanning | `Response::Err("vault is still scanning")` → exit 1 (the local path's `wait_for_scan` equivalent — a partial index would give `list` partial results and `rename` an incomplete referrer set) |
+| App open, `cubical set …` | Succeeds and is persisted, but **the UI does not reflect it until a settings reload** — `set_setting` emits no event and `.cubical/` is excluded from the watcher. The only attached command with no live UI effect. |
+| App open, peer idle / app wedged | Client read times out after `IO_TIMEOUT` → clear error, exit 1 |
 | App open, connect fails (app just closed) | Clear error, exit 1 (no retry) |
 | Lock held but `socket_path: None` | Phase-1 decline, exit 2 |
 | Windows | No server; decline / connect-error path |
@@ -142,17 +146,25 @@ Reads (`list`, `resolve`, `backlinks`, `get`) now succeed while the app is open,
   `socket_path: Option<&str>`; `commands::vault::open_vault` gained a 4th
   `advertise_socket: Option<String>` **parameter** (not an `OpenVaultRequest`
   field — that type is the frontend→app `Deserialize` contract). New public
-  `resolve_open_vault_id(state, canonical_path) -> Option<String>` wraps the
-  existing private lookup. 1 new `vault_lock` advertisement test, 1 new
-  resolver test.
+  `resolve_open_vault(state, canonical_path) -> Option<(String, ScanStatus)>`
+  wraps the existing private lookup — it returns the scan status too, so the
+  socket path can gate on `Complete` the way the local path's
+  `wait_for_scan` does. `vault_lock::runtime_dir` is `pub` so `cubical-ipc`
+  shares one definition instead of a copy. 1 new `vault_lock` advertisement
+  test, 2 resolver tests.
 - **App:** `open_vault` advertises `Some(app_socket_path(pid))`; a `.setup()`
   hook spawns `serve_socket`, a sequential accept loop over
   `cubical_ipc::handle_connection` — one task, not one-per-connection, since
   `handle_connection` borrows `&AppState` and mutations are already
   serialized by `AppState`'s own locks. Each connection gets a fresh
-  `TauriEventSink`, so a socket command updates the live UI exactly like a
-  click and the watcher echo is suppressed through the same
-  `flush_own_writes` path a GUI write uses.
+  `TauriEventSink`, so the app's index/journal stay authoritative and the
+  rename/flush/audit events reach the UI; a socket `write` reaches the editor
+  via the **file watcher** (`write_file_text` does not populate
+  `flush_own_writes`). `open_vault` advertises a socket path only when the
+  `.setup()` bind actually succeeded, so a failed bind degrades to the
+  Phase-1 decline instead of stranding every later CLI call on a dead path.
+  The accept loop survives transient errors (backoff + retry) and catches a
+  panicking handler; the socket is unlinked on `RunEvent::Exit`.
 - **CLI:** builds the wire `Command` before opening the vault (stdin is
   consumed once and isn't seekable). `VaultLocked { socket_path: Some(path) }`
   → attach over the socket; `None` → the Phase-1 decline (exit 2), unchanged.
@@ -161,8 +173,12 @@ Reads (`list`, `resolve`, `backlinks`, `get`) now succeed while the app is open,
   + 2 end-to-end tests (real binary + real engine + real socket, asserting
   the FS effect and a piped stdin write).
 - **`--json` output is now `Outcome`-defined** (an intentional, documented
-  change from Phase 1's raw-engine-struct dump). Human output is
-  unchanged/byte-identical to Phase 1.
+  change from Phase 1's raw-engine-struct dump). **Success** output on stdout
+  is byte-identical to Phase 1. Error text is not: Phase 1 wrapped engine
+  calls in `anyhow` context, so a failure printed e.g.
+  `error: writing X.md: <cause>`; the shared `dispatch` prints
+  `error: <cause>`. Accepted — the cause is unchanged and the context added
+  nothing the command line didn't already say.
 - 17 new tests total across `cubical-ipc`, `cubical-engine`, and
   `cubical-cli`.
 

@@ -18,7 +18,7 @@
 - **Full gate:** `scripts/check.sh` (tsc, vitest, build, cargo fmt/clippy/test, docs). Run it, not the pieces. Known non-blocking flake: `cubical-core` `dropping_handle_stops_event_delivery_within_100ms` under full load.
 - **Tests set `CUBICAL_RUNTIME_DIR`** for hermeticity; in-process env-touching tests serialize on a shared `std::sync::Mutex` guard (Rust runs a crate's tests concurrently in one process, so unguarded `set_var`/`remove_var` races). Engine tests use `vault_lock::RUNTIME_ENV_GUARD`; `cubical-ipc` unit tests use a crate-local `RUNTIME_ENV_GUARD` (added in Task 1); the `cubical-ipc` integration test uses a file-local guard. Async tests that hold the guard across `.await` carry `#[allow(clippy::await_holding_lock)]` (mirrors the Phase-1 engine integration test).
 - **Branch:** `feat/cli-attach` (already created off `main`; single checkout, no worktrees). Commit after each task.
-- `--json` output shape is defined by `Outcome` (intentional, documented change from Phase-1's raw-struct dump; human output unchanged).
+- `--json` output shape is defined by `Outcome` (intentional, documented change from Phase-1's raw-struct dump). Human **success** output is unchanged; error text loses Phase-1's `anyhow` context (`error: writing X.md: <cause>` → `error: <cause>`).
 
 ---
 
@@ -765,7 +765,7 @@ pub async fn client_send(_socket_path: &Path, _req: &Request) -> std::io::Result
 }
 ```
 
-Add `dirs = "5"` to `crates/cubical-ipc/Cargo.toml` `[dependencies]` (`dirs` is **not** a workspace dependency — `cubical-engine` pins it directly as `dirs = "5"`; match that). This keeps the runtime-dir logic identical to `vault_lock::runtime_dir`.
+`cubical-ipc` calls `cubical_engine::vault_lock::runtime_dir` (made `pub`) rather than keeping its own copy — the two must resolve identically or the CLI attaches to a path nobody bound, and only a shared definition makes the compiler enforce that. No `dirs` dependency on `cubical-ipc`.
 
 - [ ] **Step 4: Wire transport into lib.rs**
 
@@ -1544,5 +1544,5 @@ Rewrite the `CLAUDE.md` Project state block (Phase 2 done; Phase 3 the remaining
 
 - **Spec coverage:** architecture (Tasks 1–2), server + advertisement (Tasks 4,5,7), CLI attach (Task 6), transport/framing/Windows stub (Task 3), error handling (render + attach branches, Task 6; `Response::Err` in Task 5), testing (unit in 1–2, transport in 3, socket round-trip in 5, CLI attach in 6), docs (Task 8). No gaps.
 - **Placeholder scan:** every code/test step carries real code; the only "fill in later" is the spec's "What was built" (by design, filled in Task 8 Step 2) and actual test counts (Task 8).
-- **Type consistency:** `dispatch(vault_id, command, state, sink)`, `render(&Outcome, json) -> i32`, `acquire(path, Option<&str>)`, `open_vault(state, app, req, Option<String>)`, `resolve_open_vault_id(state, &Path) -> Option<String>`, `handle_connection(UnixStream, &AppState, &dyn EventSink)`, `client_send(&Path, &Request) -> Response`, `app_socket_path(u32)` — used consistently across tasks. `Command`/`Outcome`/`Response` variant names match between protocol, dispatch, render, and the CLI/tests.
-- **Known nuance:** `--json` shape is now `Outcome`-defined (documented, no external consumers). Human output unchanged.
+- **Type consistency:** `dispatch(vault_id, command, state, sink)`, `render(&Outcome, json) -> i32`, `acquire(path, Option<&str>)`, `open_vault(state, app, req, Option<String>)`, `resolve_open_vault(state, &Path) -> Option<(String, ScanStatus)>`, `handle_connection(UnixStream, &AppState, &dyn EventSink)`, `client_send(&Path, &Request) -> Response`, `app_socket_path(u32)` — used consistently across tasks. `Command`/`Outcome`/`Response` variant names match between protocol, dispatch, render, and the CLI/tests.
+- **Known nuance:** `--json` shape is now `Outcome`-defined (documented, no external consumers). Human success output unchanged; error text drops Phase-1's `anyhow` context.
