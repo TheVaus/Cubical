@@ -40,7 +40,7 @@ walkdir = "2"
 libsql = { version = "0.6", default-features = false, features = ["core"] }
 
 # Hashing
-sha2 = "0.10"
+sha2 = "0.11"
 
 # Markdown parsing — used by `cubical-ast` for the canonical AST normalizer.
 # CommonMark-conformant pull parser; MIT/Apache-2.0; no_std-compatible.
