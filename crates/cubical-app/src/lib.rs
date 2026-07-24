@@ -160,7 +160,9 @@ fn bind_socket(sock: &std::path::Path) -> std::io::Result<std::os::unix::net::Un
 
     if let Some(parent) = sock.parent() {
         std::fs::create_dir_all(parent)?;
-        std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))?;
+        if let Err(e) = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700)) {
+            tracing::warn!("could not restrict {}: {e}", parent.display());
+        }
     }
     if let Err(e) = std::fs::remove_file(sock) {
         if e.kind() != std::io::ErrorKind::NotFound {
