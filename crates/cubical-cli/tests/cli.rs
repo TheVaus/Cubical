@@ -132,7 +132,7 @@ fn declines_with_exit_code_2_when_the_vault_is_locked() {
     // simulating the app owning the vault.
     std::env::set_var("CUBICAL_RUNTIME_DIR", &h.runtime_path);
     let canonical = std::fs::canonicalize(h.vault_path()).unwrap();
-    let _guard = match cubical_engine::vault_lock::acquire(&canonical).unwrap() {
+    let _guard = match cubical_engine::vault_lock::acquire(&canonical, None).unwrap() {
         cubical_engine::vault_lock::Acquire::Acquired(g) => g,
         cubical_engine::vault_lock::Acquire::Held(_) => panic!("test should own the lock first"),
     };

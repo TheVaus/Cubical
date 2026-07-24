@@ -221,6 +221,7 @@ mod tests {
             OpenVaultRequest {
                 path: dir.to_path_buf(),
             },
+            None,
         )
         .await
         .unwrap();

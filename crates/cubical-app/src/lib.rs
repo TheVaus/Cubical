@@ -112,6 +112,7 @@ async fn open_vault(
         state.inner(),
         std::sync::Arc::new(crate::tauri_sink::TauriEventSink::new(app.clone())),
         req,
+        None,
     )
     .await?;
     if let Some(store) = recent_vaults_store(&app) {

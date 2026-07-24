@@ -88,6 +88,7 @@ async fn run(cli: Cli) -> i32 {
         OpenVaultRequest {
             path: cli.vault.clone(),
         },
+        None,
     )
     .await
     {
