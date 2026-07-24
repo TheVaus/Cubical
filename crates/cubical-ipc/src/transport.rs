@@ -9,23 +9,56 @@ use crate::protocol::{Request, Response};
 const MAX_FRAME: u32 = 64 * 1024 * 1024;
 pub const IO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
-pub async fn write_msg<W, T>(w: &mut W, msg: &T) -> std::io::Result<()>
+#[derive(Debug)]
+pub enum TransportError {
+    Io(std::io::Error),
+    Protocol(String),
+}
+
+impl std::fmt::Display for TransportError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TransportError::Io(e) => write!(f, "{e}"),
+            TransportError::Protocol(msg) => write!(f, "{msg}"),
+        }
+    }
+}
+
+impl std::error::Error for TransportError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            TransportError::Io(e) => Some(e),
+            TransportError::Protocol(_) => None,
+        }
+    }
+}
+
+impl From<std::io::Error> for TransportError {
+    fn from(e: std::io::Error) -> Self {
+        TransportError::Io(e)
+    }
+}
+
+pub type TransportResult<T> = Result<T, TransportError>;
+
+pub async fn write_msg<W, T>(w: &mut W, msg: &T) -> TransportResult<()>
 where
     W: AsyncWrite + Unpin,
     T: Serialize,
 {
-    let bytes = serde_json::to_vec(msg).map_err(std::io::Error::other)?;
+    let bytes = serde_json::to_vec(msg)
+        .map_err(|e| TransportError::Protocol(format!("message is not encodable: {e}")))?;
     let len = u32::try_from(bytes.len())
         .ok()
         .filter(|len| *len <= MAX_FRAME)
-        .ok_or_else(|| std::io::Error::other("frame exceeds maximum size"))?;
+        .ok_or_else(|| TransportError::Protocol("frame exceeds maximum size".into()))?;
     w.write_all(&len.to_be_bytes()).await?;
     w.write_all(&bytes).await?;
     w.flush().await?;
     Ok(())
 }
 
-pub async fn read_msg<R, T>(r: &mut R) -> std::io::Result<T>
+pub async fn read_msg<R, T>(r: &mut R) -> TransportResult<T>
 where
     R: AsyncRead + Unpin,
     T: DeserializeOwned,
@@ -34,24 +67,27 @@ where
     r.read_exact(&mut len_buf).await?;
     let len = u32::from_be_bytes(len_buf);
     if len > MAX_FRAME {
-        return Err(std::io::Error::other("frame exceeds maximum size"));
+        return Err(TransportError::Protocol(
+            "frame exceeds maximum size".into(),
+        ));
     }
     let mut buf = vec![0u8; len as usize];
     r.read_exact(&mut buf).await?;
-    serde_json::from_slice(&buf).map_err(std::io::Error::other)
+    serde_json::from_slice(&buf)
+        .map_err(|e| TransportError::Protocol(format!("frame is not valid JSON: {e}")))
 }
 
-pub async fn read_msg_timeout<R, T>(r: &mut R, timeout: std::time::Duration) -> std::io::Result<T>
+pub async fn read_msg_timeout<R, T>(r: &mut R, timeout: std::time::Duration) -> TransportResult<T>
 where
     R: AsyncRead + Unpin,
     T: DeserializeOwned,
 {
     match tokio::time::timeout(timeout, read_msg(r)).await {
         Ok(res) => res,
-        Err(_) => Err(std::io::Error::new(
+        Err(_) => Err(TransportError::Io(std::io::Error::new(
             std::io::ErrorKind::TimedOut,
             "timed out waiting for a framed message",
-        )),
+        ))),
     }
 }
 
@@ -60,7 +96,7 @@ pub fn app_socket_path(pid: u32) -> PathBuf {
 }
 
 #[cfg(unix)]
-pub async fn client_send(socket_path: &Path, req: &Request) -> std::io::Result<Response> {
+pub async fn client_send(socket_path: &Path, req: &Request) -> TransportResult<Response> {
     use tokio::net::UnixStream;
     let mut stream = UnixStream::connect(socket_path).await?;
     write_msg(&mut stream, req).await?;
@@ -68,10 +104,10 @@ pub async fn client_send(socket_path: &Path, req: &Request) -> std::io::Result<R
 }
 
 #[cfg(not(unix))]
-pub async fn client_send(_socket_path: &Path, _req: &Request) -> std::io::Result<Response> {
-    Err(std::io::Error::other(
+pub async fn client_send(_socket_path: &Path, _req: &Request) -> TransportResult<Response> {
+    Err(TransportError::Io(std::io::Error::other(
         "socket attach is not supported on this platform",
-    ))
+    )))
 }
 
 #[cfg(unix)]
@@ -79,7 +115,7 @@ pub async fn handle_connection(
     mut stream: tokio::net::UnixStream,
     state: &cubical_engine::state::AppState,
     sink: &dyn cubical_engine::events::EventSink,
-) -> std::io::Result<()> {
+) -> TransportResult<()> {
     use cubical_engine::api::types::ScanStatus;
 
     let req: Request = read_msg_timeout(&mut stream, IO_TIMEOUT).await?;
@@ -127,6 +163,7 @@ mod tests {
         let (mut a, _b) = tokio::io::duplex(64);
         let huge = "x".repeat(MAX_FRAME as usize + 16);
         let err = write_msg(&mut a, &huge).await.unwrap_err();
+        assert!(matches!(err, TransportError::Protocol(_)), "{err:?}");
         assert!(err.to_string().contains("exceeds maximum size"));
     }
 
@@ -136,7 +173,49 @@ mod tests {
         let err = read_msg_timeout::<_, Request>(&mut a, std::time::Duration::from_millis(20))
             .await
             .unwrap_err();
-        assert_eq!(err.kind(), std::io::ErrorKind::TimedOut);
+        assert!(
+            matches!(&err, TransportError::Io(e) if e.kind() == std::io::ErrorKind::TimedOut),
+            "a silent peer is an I/O condition, not a protocol one: {err:?}",
+        );
+    }
+
+    #[tokio::test]
+    async fn a_reachable_peer_sending_garbage_is_a_protocol_error_not_an_io_error() {
+        let (mut a, mut b) = tokio::io::duplex(1024);
+        let garbage = b"{not json at all";
+        let writer = tokio::spawn(async move {
+            let len = u32::try_from(garbage.len()).unwrap();
+            a.write_all(&len.to_be_bytes()).await.unwrap();
+            a.write_all(garbage).await.unwrap();
+            a.flush().await.unwrap();
+        });
+        let err = read_msg::<_, Request>(&mut b).await.unwrap_err();
+        writer.await.unwrap();
+
+        assert!(
+            matches!(err, TransportError::Protocol(_)),
+            "the peer was reachable; only its payload was bad: {err:?}",
+        );
+    }
+
+    #[tokio::test]
+    async fn a_truncated_stream_is_an_io_error() {
+        let (a, mut b) = tokio::io::duplex(1024);
+        drop(a);
+        let err = read_msg::<_, Request>(&mut b).await.unwrap_err();
+        assert!(matches!(err, TransportError::Io(_)), "{err:?}");
+    }
+
+    #[tokio::test]
+    async fn an_oversized_declared_length_is_a_protocol_error() {
+        let (mut a, mut b) = tokio::io::duplex(1024);
+        let writer = tokio::spawn(async move {
+            a.write_all(&(MAX_FRAME + 1).to_be_bytes()).await.unwrap();
+            a.flush().await.unwrap();
+        });
+        let err = read_msg::<_, Request>(&mut b).await.unwrap_err();
+        writer.await.unwrap();
+        assert!(matches!(err, TransportError::Protocol(_)), "{err:?}");
     }
 
     #[test]

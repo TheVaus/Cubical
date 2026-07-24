@@ -69,6 +69,40 @@ fn assert_ok(out: &Output) {
 }
 
 #[test]
+fn write_to_a_nonexistent_vault_fails_without_waiting_on_stdin() {
+    use std::process::Stdio;
+
+    let missing = tempdir().unwrap().path().join("definitely-not-here");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_cubical"))
+        .arg("--vault")
+        .arg(&missing)
+        .args(["write", "x.md"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn cubical");
+
+    // Deliberately hold the stdin pipe open and write nothing: a build_command that
+    // reads to EOF first would block here forever.
+    let _held_open = child.stdin.take().expect("stdin pipe");
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let status = loop {
+        if let Some(status) = child.try_wait().expect("try_wait") {
+            break status;
+        }
+        if std::time::Instant::now() > deadline {
+            let _ = child.kill();
+            panic!("cubical blocked on stdin instead of rejecting the vault path");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    };
+
+    assert!(!status.success(), "a missing vault must be an error");
+}
+
+#[test]
 fn new_note_creates_a_markdown_file() {
     let h = Harness::new();
     let out = h.run(&["new", "note", "--at", "Daily.md"]);

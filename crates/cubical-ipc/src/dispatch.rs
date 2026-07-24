@@ -6,7 +6,7 @@ use cubical_engine::api::types::{
 };
 use cubical_engine::commands::{backlinks, links, rename, vault};
 use cubical_engine::error::CubicalError;
-use cubical_engine::events::EventSink;
+use cubical_engine::events::{self, EventSink, VaultSettingChanged};
 use cubical_engine::state::AppState;
 
 use crate::protocol::{Command, Outcome};
@@ -165,10 +165,18 @@ pub async fn dispatch(
                 SetSettingRequest {
                     vault_id: vid,
                     key: key.clone(),
-                    value,
+                    value: value.clone(),
                 },
             )
             .await?;
+            events::emit_setting_changed(
+                sink,
+                VaultSettingChanged {
+                    vault_id: vault_id.to_string(),
+                    key: key.clone(),
+                    value,
+                },
+            );
             Ok(Outcome::SettingSet(key))
         }
         Command::Get { key } => {
@@ -209,9 +217,20 @@ mod tests {
     use super::*;
     use cubical_engine::api::types::{GetVaultInfoRequest, OpenVaultRequest, ScanStatus};
     use cubical_engine::commands::vault;
-    use cubical_engine::events::NoopEventSink;
+    use cubical_engine::events::{AppEvent, NoopEventSink};
     use cubical_engine::state::AppState;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Default)]
+    struct RecordingSink {
+        events: Mutex<Vec<AppEvent>>,
+    }
+
+    impl EventSink for RecordingSink {
+        fn emit(&self, event: AppEvent) {
+            self.events.lock().unwrap().push(event);
+        }
+    }
 
     async fn open_temp(dir: &std::path::Path) -> (AppState, String) {
         let state = AppState::new();
@@ -296,6 +315,76 @@ mod tests {
             std::fs::read_to_string(dir.path().join("N.md")).unwrap(),
             "new body"
         );
+        std::env::remove_var("CUBICAL_RUNTIME_DIR");
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn dispatch_set_emits_setting_changed_so_the_ui_can_refresh() {
+        let _env = crate::RUNTIME_ENV_GUARD.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("CUBICAL_RUNTIME_DIR", dir.path().join("rt3"));
+        let (state, vault_id) = open_temp(dir.path()).await;
+        let sink = RecordingSink::default();
+
+        dispatch(
+            &vault_id,
+            Command::Set {
+                key: "editor.minimap_enabled".into(),
+                value: serde_json::json!(true),
+            },
+            &state,
+            &sink,
+        )
+        .await
+        .unwrap();
+
+        let events = sink.events.lock().unwrap();
+        let changed: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                AppEvent::SettingChanged(p) => Some(p),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            changed.len(),
+            1,
+            "set must emit exactly one setting-changed"
+        );
+        assert_eq!(changed[0].vault_id, vault_id);
+        assert_eq!(changed[0].key, "editor.minimap_enabled");
+        assert_eq!(changed[0].value, serde_json::json!(true));
+
+        std::env::remove_var("CUBICAL_RUNTIME_DIR");
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn dispatch_set_emits_nothing_when_the_key_is_rejected() {
+        let _env = crate::RUNTIME_ENV_GUARD.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("CUBICAL_RUNTIME_DIR", dir.path().join("rt4"));
+        let (state, _vault_id) = open_temp(dir.path()).await;
+        let sink = RecordingSink::default();
+
+        let err = dispatch(
+            "no-such-vault",
+            Command::Set {
+                key: "editor.minimap_enabled".into(),
+                value: serde_json::json!(true),
+            },
+            &state,
+            &sink,
+        )
+        .await;
+
+        assert!(err.is_err(), "unknown vault must fail");
+        assert!(
+            sink.events.lock().unwrap().is_empty(),
+            "a failed set must not claim the setting changed",
+        );
+
         std::env::remove_var("CUBICAL_RUNTIME_DIR");
     }
 }
