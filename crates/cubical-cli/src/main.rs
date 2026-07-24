@@ -141,7 +141,9 @@ async fn run(cli: Cli) -> i32 {
             pid,
             socket_path: None,
         }) => {
-            eprintln!("Cubical has this vault open (pid {pid}). Live routing arrives in Phase 2.");
+            eprintln!(
+                "Cubical has this vault open (pid {pid}) but is not accepting local connections."
+            );
             return 2;
         }
         Err(e) => {

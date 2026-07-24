@@ -99,7 +99,7 @@ pub fn render(outcome: &Outcome, json: bool) -> i32 {
             if json {
                 println!(
                     "{}",
-                    serde_json::json!({ "removed": removed, "pending_count": pending_count })
+                    serde_json::json!({ "op_id": op_id, "removed": removed, "pending_count": pending_count })
                 );
             } else {
                 println!("undid rename op {op_id} (removed {removed} rows)");
