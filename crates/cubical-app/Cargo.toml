@@ -14,6 +14,8 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 # The frontend-agnostic engine — handlers, state, events, IPC types.
 cubical-engine = { path = "../cubical-engine" }
+cubical-ipc = { path = "../cubical-ipc" }
+tokio = { workspace = true }
 
 # Tauri
 tauri = { version = "2", features = [] }

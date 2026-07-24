@@ -49,6 +49,19 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::new())
+        .setup(|app| {
+            #[cfg(unix)]
+            {
+                let handle = app.handle().clone();
+                let sock = cubical_ipc::app_socket_path(std::process::id());
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = serve_socket(handle, sock).await {
+                        tracing::warn!("cubical-ipc socket server stopped: {e}");
+                    }
+                });
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             open_vault,
             list_recent_vaults,
@@ -101,6 +114,26 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
+#[cfg(unix)]
+async fn serve_socket(app: tauri::AppHandle, sock: std::path::PathBuf) -> std::io::Result<()> {
+    use tauri::Manager;
+
+    let _ = std::fs::remove_file(&sock);
+    if let Some(parent) = sock.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let listener = tokio::net::UnixListener::bind(&sock)?;
+    tracing::info!("cubical-ipc socket listening at {}", sock.display());
+    loop {
+        let (stream, _) = listener.accept().await?;
+        let state = app.state::<AppState>();
+        let sink = crate::tauri_sink::TauriEventSink::new(app.clone());
+        if let Err(e) = cubical_ipc::handle_connection(stream, state.inner(), &sink).await {
+            tracing::warn!("cubical-ipc connection error: {e}");
+        }
+    }
+}
+
 #[tauri::command]
 async fn open_vault(
     state: tauri::State<'_, AppState>,
@@ -112,7 +145,11 @@ async fn open_vault(
         state.inner(),
         std::sync::Arc::new(crate::tauri_sink::TauriEventSink::new(app.clone())),
         req,
-        None,
+        Some(
+            cubical_ipc::app_socket_path(std::process::id())
+                .to_string_lossy()
+                .into_owned(),
+        ),
     )
     .await?;
     if let Some(store) = recent_vaults_store(&app) {
