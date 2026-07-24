@@ -13,6 +13,20 @@ use tokio::process::Command;
 
 static ENV_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+const SERVE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+
+async fn serve_one(listener: &UnixListener, state: &AppState) {
+    let served = async {
+        let (stream, _) = listener.accept().await.unwrap();
+        handle_connection(stream, state, &NoopEventSink)
+            .await
+            .unwrap();
+    };
+    tokio::time::timeout(SERVE_TIMEOUT, served)
+        .await
+        .expect("the CLI never connected to the advertised socket — it is no longer attaching");
+}
+
 async fn open_advertised(
     vault_dir: &std::path::Path,
     sock: &std::path::Path,
@@ -58,12 +72,7 @@ async fn cli_attach_creates_a_note_through_the_real_engine() {
     let (state, _vault_id) = open_advertised(vault_dir.path(), &sock).await;
     let listener = UnixListener::bind(&sock).unwrap();
 
-    let server = async {
-        let (stream, _) = listener.accept().await.unwrap();
-        handle_connection(stream, &state, &NoopEventSink)
-            .await
-            .unwrap();
-    };
+    let server = serve_one(&listener, &state);
     let client = async {
         Command::new(env!("CARGO_BIN_EXE_cubical"))
             .env("CUBICAL_RUNTIME_DIR", &runtime_path)
@@ -106,12 +115,7 @@ async fn cli_attach_writes_stdin_body_through_the_real_engine() {
 
     let body = "hello from the real engine over the socket\n";
 
-    let server = async {
-        let (stream, _) = listener.accept().await.unwrap();
-        handle_connection(stream, &state, &NoopEventSink)
-            .await
-            .unwrap();
-    };
+    let server = serve_one(&listener, &state);
     let client = async {
         let mut child = Command::new(env!("CARGO_BIN_EXE_cubical"))
             .env("CUBICAL_RUNTIME_DIR", &runtime_path)

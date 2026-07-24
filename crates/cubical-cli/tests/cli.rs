@@ -150,6 +150,7 @@ fn declines_with_exit_code_2_when_the_vault_is_locked() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn attaches_over_the_socket_when_the_app_owns_the_vault() {
     use std::io::{Read, Write};
@@ -174,9 +175,25 @@ fn attaches_over_the_socket_when_the_app_owns_the_vault() {
     std::env::remove_var("CUBICAL_RUNTIME_DIR");
 
     let listener = UnixListener::bind(&sock).unwrap();
+    listener.set_nonblocking(true).unwrap();
     // Fake server: read the framed Request, reply with a sentinel Files outcome.
     let server = std::thread::spawn(move || {
-        let (mut stream, _) = listener.accept().unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        let mut stream = loop {
+            match listener.accept() {
+                Ok((stream, _)) => break stream,
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "the CLI never connected to the advertised socket — \
+                         it is no longer taking the attach branch"
+                    );
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                Err(e) => panic!("accept failed: {e}"),
+            }
+        };
+        stream.set_nonblocking(false).unwrap();
         let mut len = [0u8; 4];
         stream.read_exact(&mut len).unwrap();
         let n = u32::from_be_bytes(len) as usize;
