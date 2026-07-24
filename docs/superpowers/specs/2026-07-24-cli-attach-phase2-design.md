@@ -44,7 +44,7 @@ Contents:
   - Rename is split into `RenameFile`/`RenameFolder`: the CLI does the `is_dir` detection client-side (it has FS access to the vault in both modes) and emits the matching variant, which maps 1:1 to the two engine fns. Keeps `dispatch` from needing a vault-root lookup.
 - **`Request { vault_path: PathBuf, command: Command }`** — `vault_path` is the **canonicalized** vault path; the server resolves it to an open `vault_id`.
 - **`Outcome`** — a `serde` enum, one variant per command carrying exactly what the CLI prints (created path, rename `pending_count`, file list, `Resolve` `Option<String>`, backlinks list, `Get` `Option<Value>`, `UndoRename` `removed` count, write confirmation, etc.).
-- **`Response = Result<Outcome, String>`** — dispatch errors become `Err(message)`.
+- **`Response`** — `enum Response { Ok(Outcome), Err(String) }`; dispatch errors travel as `Err(message)` data rather than a dropped connection. (Built as a dedicated enum rather than the originally-sketched `Result<Outcome, String>` alias: it tags cleanly on the wire and reads unambiguously at the CLI match site.)
 - **`dispatch(vault_id: &str, command: Command, state: &AppState, sink: &dyn EventSink) -> Result<Outcome, CubicalError>`** — the single command→engine-fn mapping. This *is* today's `cubical-cli/src/main.rs` `dispatch`, lifted out and made to return data instead of printing.
 - **`render(outcome: &Outcome, json: bool) -> i32`** — prints human-readable or `--json` output to stdout/stderr and returns the process exit code, owning the existing "unresolved/unset → exit 1" cases (`Resolve` None, `Get` None). Both the local and socket paths call `render` identically.
 - **Transport** (`#[cfg(unix)]`), see §4.
@@ -60,7 +60,7 @@ Contents:
 
 ## App-side socket server & advertisement
 
-- **Server task:** a `.setup(|app| …)` hook in `cubical-app` spawns a task (via `tauri::async_runtime::spawn`) that binds `app_socket_path(pid)` (**unlink-before-bind** to clear a stale same-pid leftover) and accepts connections. Each connection runs in its own task with error isolation:
+- **Server task:** a `.setup(|app| …)` hook in `cubical-app` spawns a task (via `tauri::async_runtime::spawn`) that binds `app_socket_path(pid)` (**unlink-before-bind** to clear a stale same-pid leftover) and accepts connections. Connections are handled **sequentially** in that one task (not one task per connection: `handle_connection` borrows `&AppState`/`&dyn EventSink`, so spawning would demand `'static`, and mutations are already serialized by `AppState`'s own locks). Per connection:
   1. read a framed `Request`;
   2. resolve `request.vault_path` → `vault_id` via a new public engine resolver (see below); if not open → `Response::Err("vault not open")`;
   3. `dispatch(vault_id, request.command, app.state::<AppState>(), &TauriEventSink::new(app.clone()))`;
