@@ -3,10 +3,12 @@
 mod dispatch;
 mod protocol;
 mod render;
+mod transport;
 
 pub use dispatch::dispatch;
 pub use protocol::{Command, Outcome, Request, Response};
 pub use render::render;
+pub use transport::{app_socket_path, client_send, read_msg, write_msg};
 
 #[cfg(test)]
 pub(crate) static RUNTIME_ENV_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
