@@ -1,5 +1,10 @@
 # CLI frontend — Phase 2 handoff (2026-07-24)
 
+> **CONSUMED — Phase 2 is built and merged to `main` (merge `a0c9f46`). This document is
+> kept as a record of what was handed off; do not act on it.** What actually shipped is
+> owned by [`specs/2026-07-24-cli-attach-phase2-design.md`](specs/2026-07-24-cli-attach-phase2-design.md).
+> The live handoff is [`2026-07-24-cli-phase3-handoff.md`](2026-07-24-cli-phase3-handoff.md).
+
 Making the `cubical` CLI a **live** second frontend on the *running app's* backend,
 instead of a standalone one-shot. This is the payoff of the whole design: the app
 window and the terminal become two windows onto one backend — no collision, always

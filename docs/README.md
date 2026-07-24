@@ -31,9 +31,13 @@ cubical/
 │   ├── cubical-core/       # vault, file watcher, file-type registry, frontmatter I/O
 │   ├── cubical-ast/        # canonical Markdown AST (no Tauri deps)
 │   ├── cubical-index/      # libSQL schema and queries
+│   ├── cubical-query/      # dataview-style query parser + evaluator
 │   ├── cubical-search/     # Tantivy wrapper (L4)
 │   ├── cubical-sync/       # CrdtBackend trait + Loro impl (Loro lands at L7)
-│   └── cubical-app/        # Tauri app, depends on the above
+│   ├── cubical-engine/     # transport-free engine: commands, AppState, EventSink, vault_lock
+│   ├── cubical-ipc/        # wire boundary: Command/Outcome/Response, one dispatch(), render(), unix socket transport
+│   ├── cubical-cli/        # `cubical` terminal frontend (runs standalone, or attaches to the running app)
+│   └── cubical-app/        # Tauri app, depends on the above; hosts the cubical-ipc socket server
 ├── ui/                     # Solid + TypeScript + Vite frontend
 ├── design-system/          # @ds — SolidJS component library + canonical design tokens; ui/ borrows from here (architecture/ui.md §11.6)
 ├── docs/                   # this index
@@ -45,7 +49,7 @@ cubical/
 └── README.md
 ```
 
-Crates without Tauri deps (`cubical-core`, `cubical-ast`, `cubical-index`, `cubical-search`, `cubical-sync`) must remain buildable and testable without the app harness. Tauri-coupled surfaces are inventoried in [`migration-touchpoints.md`](migration-touchpoints.md).
+Crates without Tauri deps (`cubical-core`, `cubical-ast`, `cubical-index`, `cubical-query`, `cubical-search`, `cubical-sync`, `cubical-engine`, `cubical-ipc`, `cubical-cli`) must remain buildable and testable without the app harness — `cubical-app` is the only Tauri-coupled crate. Tauri-coupled surfaces are inventoried in [`migration-touchpoints.md`](migration-touchpoints.md).
 
 Source files carry no explanatory comments — the rule (and the few functional pragmas that must never be stripped) is owned by [`conventions.md`](conventions.md) → Comments. The rationale that used to live in those comments is owned by [`implementation/`](implementation/), one file per domain.
 
