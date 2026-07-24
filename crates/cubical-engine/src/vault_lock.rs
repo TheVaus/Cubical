@@ -122,7 +122,7 @@ fn lock_filename(canonical_vault_path: &Path) -> String {
     name
 }
 
-fn runtime_dir() -> PathBuf {
+pub fn runtime_dir() -> PathBuf {
     if let Some(dir) = std::env::var_os("CUBICAL_RUNTIME_DIR") {
         return PathBuf::from(dir);
     }

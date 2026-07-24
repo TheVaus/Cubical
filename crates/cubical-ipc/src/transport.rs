@@ -7,6 +7,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use crate::protocol::{Request, Response};
 
 const MAX_FRAME: u32 = 64 * 1024 * 1024;
+pub const IO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 pub async fn write_msg<W, T>(w: &mut W, msg: &T) -> std::io::Result<()>
 where
@@ -14,7 +15,10 @@ where
     T: Serialize,
 {
     let bytes = serde_json::to_vec(msg).map_err(std::io::Error::other)?;
-    let len = u32::try_from(bytes.len()).map_err(|_| std::io::Error::other("frame too large"))?;
+    let len = u32::try_from(bytes.len())
+        .ok()
+        .filter(|len| *len <= MAX_FRAME)
+        .ok_or_else(|| std::io::Error::other("frame exceeds maximum size"))?;
     w.write_all(&len.to_be_bytes()).await?;
     w.write_all(&bytes).await?;
     w.flush().await?;
@@ -37,19 +41,22 @@ where
     serde_json::from_slice(&buf).map_err(std::io::Error::other)
 }
 
-pub fn app_socket_path(pid: u32) -> PathBuf {
-    runtime_dir().join(format!("cubical-{pid}.sock"))
+pub async fn read_msg_timeout<R, T>(r: &mut R, timeout: std::time::Duration) -> std::io::Result<T>
+where
+    R: AsyncRead + Unpin,
+    T: DeserializeOwned,
+{
+    match tokio::time::timeout(timeout, read_msg(r)).await {
+        Ok(res) => res,
+        Err(_) => Err(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "timed out waiting for a framed message",
+        )),
+    }
 }
 
-fn runtime_dir() -> PathBuf {
-    if let Some(dir) = std::env::var_os("CUBICAL_RUNTIME_DIR") {
-        return PathBuf::from(dir);
-    }
-    dirs::runtime_dir()
-        .or_else(dirs::cache_dir)
-        .unwrap_or_else(std::env::temp_dir)
-        .join("cubical")
-        .join("locks")
+pub fn app_socket_path(pid: u32) -> PathBuf {
+    cubical_engine::vault_lock::runtime_dir().join(format!("cubical-{pid}.sock"))
 }
 
 #[cfg(unix)]
@@ -57,7 +64,7 @@ pub async fn client_send(socket_path: &Path, req: &Request) -> std::io::Result<R
     use tokio::net::UnixStream;
     let mut stream = UnixStream::connect(socket_path).await?;
     write_msg(&mut stream, req).await?;
-    read_msg(&mut stream).await
+    read_msg_timeout(&mut stream, IO_TIMEOUT).await
 }
 
 #[cfg(not(unix))]
@@ -73,18 +80,24 @@ pub async fn handle_connection(
     state: &cubical_engine::state::AppState,
     sink: &dyn cubical_engine::events::EventSink,
 ) -> std::io::Result<()> {
-    let req: Request = read_msg(&mut stream).await?;
-    let canonical = std::fs::canonicalize(&req.vault_path).unwrap_or(req.vault_path.clone());
-    let response =
-        match cubical_engine::commands::vault::resolve_open_vault_id(state, &canonical).await {
-            Some(vault_id) => {
-                match crate::dispatch::dispatch(&vault_id, req.command, state, sink).await {
-                    Ok(outcome) => Response::Ok(outcome),
-                    Err(e) => Response::Err(e.to_string()),
-                }
+    use cubical_engine::api::types::ScanStatus;
+
+    let req: Request = read_msg_timeout(&mut stream, IO_TIMEOUT).await?;
+    let canonical =
+        std::fs::canonicalize(&req.vault_path).unwrap_or_else(|_| req.vault_path.clone());
+    let response = match cubical_engine::commands::vault::resolve_open_vault(state, &canonical)
+        .await
+    {
+        Some((vault_id, ScanStatus::Complete)) => {
+            match crate::dispatch::dispatch(&vault_id, req.command, state, sink).await {
+                Ok(outcome) => Response::Ok(outcome),
+                Err(e) => Response::Err(e.to_string()),
             }
-            None => Response::Err("vault not open".to_string()),
-        };
+        }
+        Some((_, ScanStatus::InProgress)) => Response::Err("vault is still scanning".to_string()),
+        Some((_, ScanStatus::Cancelled)) => Response::Err("vault scan was cancelled".to_string()),
+        None => Response::Err("vault not open".to_string()),
+    };
     write_msg(&mut stream, &response).await
 }
 
@@ -107,6 +120,23 @@ mod tests {
         let got: Request = read_msg(&mut b).await.unwrap();
         writer.await.unwrap();
         assert_eq!(got, req);
+    }
+
+    #[tokio::test]
+    async fn write_msg_rejects_a_frame_over_the_maximum() {
+        let (mut a, _b) = tokio::io::duplex(64);
+        let huge = "x".repeat(MAX_FRAME as usize + 16);
+        let err = write_msg(&mut a, &huge).await.unwrap_err();
+        assert!(err.to_string().contains("exceeds maximum size"));
+    }
+
+    #[tokio::test]
+    async fn read_msg_timeout_gives_up_on_a_silent_peer() {
+        let (mut a, _b) = tokio::io::duplex(64);
+        let err = read_msg_timeout::<_, Request>(&mut a, std::time::Duration::from_millis(20))
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::TimedOut);
     }
 
     #[test]

@@ -10,7 +10,9 @@ pub use protocol::{Command, Outcome, Request, Response};
 pub use render::render;
 #[cfg(unix)]
 pub use transport::handle_connection;
-pub use transport::{app_socket_path, client_send, read_msg, write_msg};
+pub use transport::{
+    app_socket_path, client_send, read_msg, read_msg_timeout, write_msg, IO_TIMEOUT,
+};
 
 #[cfg(test)]
 pub(crate) static RUNTIME_ENV_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());

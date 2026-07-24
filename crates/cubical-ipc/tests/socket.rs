@@ -113,3 +113,46 @@ async fn socket_unknown_vault_returns_err() {
     assert!(matches!(resp, Response::Err(_)));
     std::env::remove_var("CUBICAL_RUNTIME_DIR");
 }
+
+#[tokio::test]
+async fn socket_declines_while_the_vault_is_still_scanning() {
+    use cubical_engine::state::{OpenVault, ScanStatusBackend};
+
+    let vault_dir = tempfile::tempdir().unwrap();
+    let vault = cubical_core::Vault::open(vault_dir.path()).await.unwrap();
+    let state = AppState::new();
+    state.vaults().write().await.insert(
+        "scanning".to_string(),
+        OpenVault::new(
+            vault,
+            tokio_util::sync::CancellationToken::new(),
+            ScanStatusBackend::InProgress,
+            None,
+            cubical_core::vault::settings::SettingsMap::new(),
+        ),
+    );
+
+    let sock_dir = tempfile::tempdir().unwrap();
+    let sock = sock_dir.path().join("scanning.sock");
+    let listener = UnixListener::bind(&sock).unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        handle_connection(stream, &state, &NoopEventSink)
+            .await
+            .unwrap();
+    });
+
+    let canonical = std::fs::canonicalize(vault_dir.path()).unwrap();
+    let resp = client_send(
+        &sock,
+        &Request {
+            vault_path: canonical,
+            command: Command::List,
+        },
+    )
+    .await
+    .unwrap();
+
+    server.await.unwrap();
+    assert_eq!(resp, Response::Err("vault is still scanning".to_string()));
+}
