@@ -8,6 +8,8 @@ mod transport;
 pub use dispatch::dispatch;
 pub use protocol::{Command, Outcome, Request, Response};
 pub use render::render;
+#[cfg(unix)]
+pub use transport::handle_connection;
 pub use transport::{app_socket_path, client_send, read_msg, write_msg};
 
 #[cfg(test)]

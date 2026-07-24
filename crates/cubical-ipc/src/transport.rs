@@ -67,6 +67,27 @@ pub async fn client_send(_socket_path: &Path, _req: &Request) -> std::io::Result
     ))
 }
 
+#[cfg(unix)]
+pub async fn handle_connection(
+    mut stream: tokio::net::UnixStream,
+    state: &cubical_engine::state::AppState,
+    sink: &dyn cubical_engine::events::EventSink,
+) -> std::io::Result<()> {
+    let req: Request = read_msg(&mut stream).await?;
+    let canonical = std::fs::canonicalize(&req.vault_path).unwrap_or(req.vault_path.clone());
+    let response =
+        match cubical_engine::commands::vault::resolve_open_vault_id(state, &canonical).await {
+            Some(vault_id) => {
+                match crate::dispatch::dispatch(&vault_id, req.command, state, sink).await {
+                    Ok(outcome) => Response::Ok(outcome),
+                    Err(e) => Response::Err(e.to_string()),
+                }
+            }
+            None => Response::Err("vault not open".to_string()),
+        };
+    write_msg(&mut stream, &response).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
