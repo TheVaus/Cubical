@@ -47,7 +47,7 @@ sha2 = "0.10"
 pulldown-cmark = { version = "0.13", default-features = false }
 
 # Full-text search — Tantivy wrapper lives in `cubical-search` (L4-A).
-tantivy = "0.22"
+tantivy = "0.26"
 
 # Test-only — used as a dev-dep across crates that need an isolated FS.
 tempfile = "3"
