@@ -687,7 +687,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml_ng",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "tracing",
 ]
 
@@ -720,7 +720,7 @@ dependencies = [
  "serde_yaml_ng",
  "sha2",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-util",
  "toml 0.8.2",
@@ -745,7 +745,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-util",
  "tracing",
@@ -759,7 +759,7 @@ dependencies = [
  "libsql",
  "serde",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "tokio",
  "tracing",
 ]
@@ -785,7 +785,7 @@ dependencies = [
  "libsql",
  "serde",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "tokio",
 ]
 
@@ -798,7 +798,7 @@ dependencies = [
  "serde_json",
  "tantivy",
  "tempfile",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "tracing",
 ]
 
@@ -807,7 +807,7 @@ name = "cubical-sync"
 version = "0.1.0"
 dependencies = [
  "cubical-ast",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
