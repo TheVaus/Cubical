@@ -17,6 +17,9 @@ cubical-engine = { path = "../cubical-engine" }
 cubical-ipc = { path = "../cubical-ipc" }
 tokio = { workspace = true }
 
+# Panic isolation for the socket accept loop (FutureExt::catch_unwind).
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+
 # Tauri
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
