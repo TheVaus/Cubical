@@ -5,9 +5,6 @@ mod protocol;
 pub use protocol::{Command, Outcome, Request, Response};
 
 #[cfg(test)]
-pub(crate) static RUNTIME_ENV_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-#[cfg(test)]
 mod protocol_tests {
     use super::*;
 

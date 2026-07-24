@@ -141,9 +141,6 @@ mod protocol;
 pub use protocol::{Command, Outcome, Request, Response};
 
 #[cfg(test)]
-pub(crate) static RUNTIME_ENV_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-#[cfg(test)]
 mod protocol_tests {
     use super::*;
 
@@ -602,7 +599,7 @@ pub fn render(outcome: &Outcome, json: bool) -> i32 {
 }
 ```
 
-- [ ] **Step 8: Wire the new modules into lib.rs**
+- [ ] **Step 8: Wire the new modules into lib.rs (and add the env-test guard)**
 
 Edit `crates/cubical-ipc/src/lib.rs` — add below `mod protocol;`:
 
@@ -612,7 +609,12 @@ mod render;
 
 pub use dispatch::dispatch;
 pub use render::render;
+
+#[cfg(test)]
+pub(crate) static RUNTIME_ENV_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
 ```
+
+The guard is introduced here (not earlier) because this is the first task with a test that consumes it — a `#[cfg(test)]` static with no consumer trips `dead_code` under the workspace's `-D warnings` clippy gate.
 
 - [ ] **Step 9: Run all ipc tests**
 
