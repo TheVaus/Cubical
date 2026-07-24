@@ -667,6 +667,7 @@ version = "0.1.0"
 dependencies = [
  "cubical-engine",
  "cubical-ipc",
+ "futures-util",
  "serde",
  "serde_json",
  "tauri",
@@ -767,12 +768,13 @@ dependencies = [
 name = "cubical-ipc"
 version = "0.1.0"
 dependencies = [
+ "cubical-core",
  "cubical-engine",
- "dirs 5.0.1",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]
