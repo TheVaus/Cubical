@@ -41,11 +41,15 @@ struct LockPayload {
     socket_path: Option<String>,
 }
 
-pub fn acquire(canonical_vault_path: &Path) -> io::Result<Acquire> {
-    acquire_in(&runtime_dir(), canonical_vault_path)
+pub fn acquire(canonical_vault_path: &Path, socket_path: Option<&str>) -> io::Result<Acquire> {
+    acquire_in(&runtime_dir(), canonical_vault_path, socket_path)
 }
 
-pub(crate) fn acquire_in(dir: &Path, canonical_vault_path: &Path) -> io::Result<Acquire> {
+pub(crate) fn acquire_in(
+    dir: &Path,
+    canonical_vault_path: &Path,
+    socket_path: Option<&str>,
+) -> io::Result<Acquire> {
     use fs4::FileExt;
 
     std::fs::create_dir_all(dir)?;
@@ -59,7 +63,7 @@ pub(crate) fn acquire_in(dir: &Path, canonical_vault_path: &Path) -> io::Result<
 
     match file.try_lock_exclusive() {
         Ok(()) => {
-            write_payload(&file, canonical_vault_path)?;
+            write_payload(&file, canonical_vault_path, socket_path)?;
             Ok(Acquire::Acquired(VaultLockGuard { file, lock_path }))
         }
         Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
@@ -73,13 +77,17 @@ pub(crate) fn acquire_in(dir: &Path, canonical_vault_path: &Path) -> io::Result<
     }
 }
 
-fn write_payload(file: &File, canonical_vault_path: &Path) -> io::Result<()> {
+fn write_payload(
+    file: &File,
+    canonical_vault_path: &Path,
+    socket_path: Option<&str>,
+) -> io::Result<()> {
     use std::io::{Seek, SeekFrom, Write};
 
     let payload = LockPayload {
         pid: std::process::id(),
         path: canonical_vault_path.to_string_lossy().into_owned(),
-        socket_path: None,
+        socket_path: socket_path.map(|s| s.to_string()),
     };
     let bytes = serde_json::to_vec(&payload).map_err(io::Error::other)?;
     file.set_len(0)?;
@@ -114,7 +122,7 @@ fn lock_filename(canonical_vault_path: &Path) -> String {
     name
 }
 
-fn runtime_dir() -> PathBuf {
+pub fn runtime_dir() -> PathBuf {
     if let Some(dir) = std::env::var_os("CUBICAL_RUNTIME_DIR") {
         return PathBuf::from(dir);
     }
@@ -136,7 +144,7 @@ mod tests {
     fn acquire_on_a_free_path_succeeds() {
         let dir = tempfile::tempdir().unwrap();
         let vault = Path::new("/vaults/alpha");
-        match acquire_in(dir.path(), vault).unwrap() {
+        match acquire_in(dir.path(), vault, None).unwrap() {
             Acquire::Acquired(_) => {}
             Acquire::Held(_) => panic!("free path should be acquirable"),
         }
@@ -146,11 +154,11 @@ mod tests {
     fn a_second_acquire_reports_the_current_owner() {
         let dir = tempfile::tempdir().unwrap();
         let vault = Path::new("/vaults/beta");
-        let _held = match acquire_in(dir.path(), vault).unwrap() {
+        let _held = match acquire_in(dir.path(), vault, None).unwrap() {
             Acquire::Acquired(g) => g,
             Acquire::Held(_) => panic!("first acquire should succeed"),
         };
-        match acquire_in(dir.path(), vault).unwrap() {
+        match acquire_in(dir.path(), vault, None).unwrap() {
             Acquire::Acquired(_) => panic!("second acquire must not succeed while held"),
             Acquire::Held(owner) => assert_eq!(owner.pid, std::process::id()),
         }
@@ -161,13 +169,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let vault = Path::new("/vaults/gamma");
         {
-            let g = match acquire_in(dir.path(), vault).unwrap() {
+            let g = match acquire_in(dir.path(), vault, None).unwrap() {
                 Acquire::Acquired(g) => g,
                 Acquire::Held(_) => panic!("first acquire should succeed"),
             };
             drop(g);
         }
-        match acquire_in(dir.path(), vault).unwrap() {
+        match acquire_in(dir.path(), vault, None).unwrap() {
             Acquire::Acquired(_) => {}
             Acquire::Held(_) => panic!("after release the path should be free again"),
         }
@@ -176,11 +184,11 @@ mod tests {
     #[test]
     fn distinct_vault_paths_are_independent() {
         let dir = tempfile::tempdir().unwrap();
-        let _a = match acquire_in(dir.path(), Path::new("/vaults/one")).unwrap() {
+        let _a = match acquire_in(dir.path(), Path::new("/vaults/one"), None).unwrap() {
             Acquire::Acquired(g) => g,
             Acquire::Held(_) => panic!("first vault should be acquirable"),
         };
-        match acquire_in(dir.path(), Path::new("/vaults/two")).unwrap() {
+        match acquire_in(dir.path(), Path::new("/vaults/two"), None).unwrap() {
             Acquire::Acquired(_) => {}
             Acquire::Held(_) => panic!("a different vault path must lock independently"),
         }
@@ -189,12 +197,28 @@ mod tests {
     #[test]
     fn the_lock_file_lands_in_the_given_dir() {
         let dir = tempfile::tempdir().unwrap();
-        let g = match acquire_in(dir.path(), Path::new("/vaults/delta")).unwrap() {
+        let g = match acquire_in(dir.path(), Path::new("/vaults/delta"), None).unwrap() {
             Acquire::Acquired(g) => g,
             Acquire::Held(_) => panic!("acquire should succeed"),
         };
         assert!(g.lock_path().starts_with(dir.path()));
         assert!(g.lock_path().exists());
+    }
+
+    #[test]
+    fn acquire_advertises_the_socket_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let vault = Path::new("/vaults/epsilon");
+        let _held = match acquire_in(dir.path(), vault, Some("/run/cubical-1.sock")).unwrap() {
+            Acquire::Acquired(g) => g,
+            Acquire::Held(_) => panic!("first acquire should succeed"),
+        };
+        match acquire_in(dir.path(), vault, None).unwrap() {
+            Acquire::Acquired(_) => panic!("still held"),
+            Acquire::Held(owner) => {
+                assert_eq!(owner.socket_path.as_deref(), Some("/run/cubical-1.sock"));
+            }
+        }
     }
 
     #[test]

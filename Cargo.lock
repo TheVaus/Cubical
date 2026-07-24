@@ -666,12 +666,15 @@ name = "cubical-app"
 version = "0.1.0"
 dependencies = [
  "cubical-engine",
+ "cubical-ipc",
+ "futures-util",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
  "tempfile",
+ "tokio",
  "tracing",
  "tracing-subscriber",
 ]
@@ -695,6 +698,7 @@ dependencies = [
  "anyhow",
  "clap",
  "cubical-engine",
+ "cubical-ipc",
  "serde",
  "serde_json",
  "tempfile",
@@ -758,6 +762,19 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "cubical-ipc"
+version = "0.1.0"
+dependencies = [
+ "cubical-core",
+ "cubical-engine",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]

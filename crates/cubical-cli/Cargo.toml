@@ -13,6 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 cubical-engine = { path = "../cubical-engine" }
+cubical-ipc = { path = "../cubical-ipc" }
 
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 anyhow = { workspace = true }
@@ -22,4 +23,5 @@ serde_json = { workspace = true }
 
 [dev-dependencies]
 cubical-engine = { path = "../cubical-engine" }
+cubical-ipc = { path = "../cubical-ipc" }
 tempfile = "3"

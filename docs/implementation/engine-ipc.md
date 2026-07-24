@@ -201,6 +201,69 @@ Both frontends share this path because it is in the engine's `open_vault`: the
 GUI taking the lock is precisely what lets the CLI detect it. Phase 2 turns the
 CLI's `VaultLocked` branch from *decline* into *attach* over `socket_path`.
 
+### Socket boundary (Phase 2)
+
+The wire boundary lives in a new crate, `cubical-ipc`, not in `cubical-engine`
+— the engine stays free of serialization concerns, matching the Handler
+pattern's reason for framework-free IPC types above. `cubical-ipc` owns the
+`Command`/`Outcome`/`Response` wire types, the length-prefixed JSON framing,
+and a single `dispatch(vault_id, command, &AppState, &dyn EventSink) ->
+Result<Outcome, CubicalError>`. Both `cubical-cli` and `cubical-app` depend on
+it; the engine has no reverse dependency.
+
+`dispatch` is the same reasoning as the event-sink chokepoint above, applied
+one layer up: there is exactly one command→engine-fn mapping and one
+`render`, called identically by the CLI running standalone (`NoopEventSink`),
+the app's socket server (`TauriEventSink`), and the CLI attached as a client —
+so the three callers cannot drift apart.
+
+`cubical-app` advertises its socket path (`open_vault`'s `advertise_socket`
+parameter, threaded into `vault_lock::acquire`/`write_payload`) rather than a
+fixed location, because the path is keyed by the app's own pid
+(`cubical-<pid>.sock`) — the same machine-local reasoning that keeps the
+lockfile itself out of `.cubical/`, above. The server is a
+`.setup()`-spawned, **sequential** accept loop (not one task per connection):
+`handle_connection` borrows `&AppState`, and `AppState`'s own locks already
+serialize mutations (see Lock discipline above), so a second concurrency
+layer here would be redundant. A transient `accept` error backs off and
+retries rather than ending the loop, and a panicking handler is caught, so
+neither can silently take CLI attach offline for the app's lifetime. Both
+sides of a connection read under a deadline (`cubical_ipc::IO_TIMEOUT`): a
+local process that connects and sends nothing would otherwise wedge the
+sequential loop for every later `cubical` invocation.
+
+Routing an attached command through the app's real `AppState` and a real
+`TauriEventSink` — instead of a second engine — is what keeps the app's
+index, rename journal and audit log authoritative, and what carries the
+rename/flush/audit events to the UI. It is **not** what updates the editor
+after a socket `write`: `write_file_text` never populates `flush_own_writes`
+(only the rename referrer-rewrite flush does, and `close_vault` consumes it),
+so the app's file watcher sees the write as a change and fires — which is
+precisely what makes the GUI pick it up. Suppressing that echo would leave
+the GUI unaware of the CLI's write.
+
+`cubical set …` is the one attached command with no live UI effect:
+`set_setting` emits no event and `.cubical/` is excluded from the watcher, so
+the app reflects it only after a settings reload.
+
+The socket's only auth boundary is filesystem permissions, so the app asserts
+them rather than inheriting whatever the runtime dir happens to have: `0o700`
+on the directory, `0o600` on the socket after bind. The `std::env::temp_dir()`
+fallback in `runtime_dir` can otherwise land in a world-writable `/tmp`. That
+`runtime_dir` is the engine's — `cubical-ipc` calls
+`vault_lock::runtime_dir` rather than keeping a copy, because the two must
+resolve identically or the CLI attaches to a path nobody bound. A runtime
+directory is not a wire type, so this does not breach the engine's
+serialization-free rule. The socket is unlinked on `RunEvent::Exit`; a
+crashed app leaves one behind until the same pid is reused.
+
+The transport (`#[cfg(unix)]`) is Unix-domain-socket only; Windows is a
+deliberate, confined stub — the CLI simply never receives a `socket_path` to
+attach to and falls back to the Phase-1 decline. Design and data flow are
+owned by
+[`docs/superpowers/specs/2026-07-24-cli-attach-phase2-design.md`](../superpowers/specs/2026-07-24-cli-attach-phase2-design.md);
+this section records only why the boundary is shaped this way.
+
 ## Degrade-not-throw surfaces
 
 Dataview and search deliberately fold failures into a structured result rather

@@ -40,10 +40,20 @@ fn find_open_vault_by_canonical_path(
     })
 }
 
+pub async fn resolve_open_vault(
+    state: &AppState,
+    incoming_canonical: &std::path::Path,
+) -> Option<(String, ScanStatus)> {
+    let guard = state.vaults().read().await;
+    find_open_vault_by_canonical_path(&guard, incoming_canonical)
+        .map(|(id, status)| (id, status.into()))
+}
+
 pub async fn open_vault(
     state: &AppState,
     app: std::sync::Arc<dyn EventSink>,
     req: OpenVaultRequest,
+    advertise_socket: Option<String>,
 ) -> Result<OpenVaultResponse, CubicalError> {
     let canonical = std::fs::canonicalize(&req.path).ok();
     if let Some(incoming) = &canonical {
@@ -57,7 +67,7 @@ pub async fn open_vault(
     }
 
     let lock_key = canonical.unwrap_or_else(|| req.path.clone());
-    let lock_guard = match crate::vault_lock::acquire(&lock_key)
+    let lock_guard = match crate::vault_lock::acquire(&lock_key, advertise_socket.as_deref())
         .map_err(|e| CubicalError::Io(format!("acquiring vault lock: {e}")))?
     {
         crate::vault_lock::Acquire::Acquired(guard) => guard,
@@ -1989,6 +1999,7 @@ mod tests {
             &state_a,
             Arc::clone(&sink),
             OpenVaultRequest { path: path.clone() },
+            None,
         )
         .await
         .expect("first frontend owns the vault");
@@ -1998,6 +2009,7 @@ mod tests {
             &state_b,
             Arc::clone(&sink),
             OpenVaultRequest { path: path.clone() },
+            None,
         )
         .await
         .expect_err("a second frontend must be declined while the vault is owned");
@@ -2014,7 +2026,7 @@ mod tests {
         .expect("close releases the lock");
 
         let canonical = std::fs::canonicalize(&path).unwrap();
-        match crate::vault_lock::acquire(&canonical).unwrap() {
+        match crate::vault_lock::acquire(&canonical, None).unwrap() {
             crate::vault_lock::Acquire::Acquired(_) => {}
             crate::vault_lock::Acquire::Held(_) => {
                 panic!("ownership lock must be free once the owner has closed the vault")
@@ -2022,5 +2034,54 @@ mod tests {
         }
 
         std::env::remove_var("CUBICAL_RUNTIME_DIR");
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn resolve_open_vault_finds_the_open_vault_and_its_scan_status() {
+        let _guard = crate::vault_lock::RUNTIME_ENV_GUARD.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("CUBICAL_RUNTIME_DIR", dir.path().join("rt"));
+        let state = AppState::new();
+        let opened = open_vault(
+            &state,
+            std::sync::Arc::new(crate::events::NoopEventSink),
+            OpenVaultRequest {
+                path: dir.path().to_path_buf(),
+            },
+            None,
+        )
+        .await
+        .unwrap();
+        let canonical = std::fs::canonicalize(dir.path()).unwrap();
+        let found = resolve_open_vault(&state, &canonical).await;
+        assert_eq!(
+            found.as_ref().map(|(id, _)| id.as_str()),
+            Some(opened.vault_id.as_str())
+        );
+        std::env::remove_var("CUBICAL_RUNTIME_DIR");
+    }
+
+    #[tokio::test]
+    async fn resolve_open_vault_reports_a_still_scanning_vault() {
+        let dir = tempdir().unwrap();
+        let vault = Vault::open(dir.path()).await.expect("open");
+        let state = AppState::new();
+        state.vaults().write().await.insert(
+            "scanning".to_string(),
+            OpenVault::new(
+                vault,
+                tokio_util::sync::CancellationToken::new(),
+                ScanStatusBackend::InProgress,
+                None,
+                cubical_core::vault::settings::SettingsMap::new(),
+            ),
+        );
+        let canonical = std::fs::canonicalize(dir.path()).unwrap();
+        let found = resolve_open_vault(&state, &canonical).await;
+        assert!(matches!(
+            found.as_ref().map(|(id, s)| (id.as_str(), s)),
+            Some(("scanning", ScanStatus::InProgress))
+        ));
     }
 }
