@@ -695,6 +695,7 @@ dependencies = [
  "anyhow",
  "clap",
  "cubical-engine",
+ "cubical-ipc",
  "serde",
  "serde_json",
  "tempfile",

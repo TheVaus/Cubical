@@ -3,6 +3,8 @@ use std::process::{Command, Output};
 
 use tempfile::{tempdir, TempDir};
 
+static ENV_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 struct Harness {
     _runtime: TempDir,
     vault: TempDir,
@@ -127,6 +129,7 @@ fn set_then_get_round_trips_a_setting() {
 
 #[test]
 fn declines_with_exit_code_2_when_the_vault_is_locked() {
+    let _env = ENV_GUARD.lock().unwrap();
     let h = Harness::new();
     // Hold the ownership lock from the test process (same runtime dir as the child),
     // simulating the app owning the vault.
@@ -144,5 +147,65 @@ fn declines_with_exit_code_2_when_the_vault_is_locked() {
         Some(2),
         "a locked vault must exit 2; stderr: {}",
         String::from_utf8_lossy(&out.stderr),
+    );
+}
+
+#[test]
+fn attaches_over_the_socket_when_the_app_owns_the_vault() {
+    use std::io::{Read, Write};
+    use std::os::unix::net::UnixListener;
+
+    let _env = ENV_GUARD.lock().unwrap();
+    let h = Harness::new();
+    std::env::set_var("CUBICAL_RUNTIME_DIR", &h.runtime_path);
+    let canonical = std::fs::canonicalize(h.vault_path()).unwrap();
+    let sock = h.runtime_path.join("cubical-fake.sock");
+
+    // Hold the lock AND advertise the fake socket, exactly as the running app would.
+    let _guard = match cubical_engine::vault_lock::acquire(
+        &canonical,
+        Some(sock.to_string_lossy().as_ref()),
+    )
+    .unwrap()
+    {
+        cubical_engine::vault_lock::Acquire::Acquired(g) => g,
+        cubical_engine::vault_lock::Acquire::Held(_) => panic!("test should own the lock"),
+    };
+    std::env::remove_var("CUBICAL_RUNTIME_DIR");
+
+    let listener = UnixListener::bind(&sock).unwrap();
+    // Fake server: read the framed Request, reply with a sentinel Files outcome.
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut len = [0u8; 4];
+        stream.read_exact(&mut len).unwrap();
+        let n = u32::from_be_bytes(len) as usize;
+        let mut buf = vec![0u8; n];
+        stream.read_exact(&mut buf).unwrap();
+        let _req: cubical_ipc::Request = serde_json::from_slice(&buf).unwrap();
+        let resp = cubical_ipc::Response::Ok(cubical_ipc::Outcome::Files(vec![
+            "SENTINEL-ROUTED.md".to_string(),
+        ]));
+        let bytes = serde_json::to_vec(&resp).unwrap();
+        stream
+            .write_all(&(bytes.len() as u32).to_be_bytes())
+            .unwrap();
+        stream.write_all(&bytes).unwrap();
+        stream.flush().unwrap();
+    });
+
+    let out = h.run(&["list"]);
+    server.join().unwrap();
+
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains("SENTINEL-ROUTED.md"),
+        "expected the command to route through the socket; stdout: {}",
+        String::from_utf8_lossy(&out.stdout),
     );
 }
