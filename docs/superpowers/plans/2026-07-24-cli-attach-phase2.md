@@ -951,6 +951,8 @@ pub async fn resolve_open_vault_id(
 
 Also fix the two in-crate test callers in `crates/cubical-engine/src/commands/vault.rs` (the `let opened = open_vault(...)` and `let err = open_vault(...)` sites the grep found) by appending `, None`.
 
+**And fix the `cubical-ipc` test caller:** `crates/cubical-ipc/src/dispatch.rs`'s `open_temp` test helper calls `vault::open_vault(...)` with three arguments (correct before this task) — append `, None` as the fourth. Adding the parameter is a breaking signature change, so sweep for **every** caller before building: `rg -n "open_vault\s*\(" crates --glob '*.rs'`. Expect call sites in `cubical-cli/src/main.rs`, `cubical-app/src/lib.rs`, `cubical-engine/src/commands/vault.rs` (2 tests), and `cubical-ipc/src/dispatch.rs` (1 test helper).
+
 - [ ] **Step 7: Add a resolver test**
 
 Add to the tests in `crates/cubical-engine/src/commands/vault.rs` (mirror an existing open_vault test's setup):
