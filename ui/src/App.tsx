@@ -43,6 +43,7 @@ import {
   listTags,
   onVaultFileChanged,
   onVaultFlushComplete,
+  onVaultSettingChanged,
   onVaultPendingRewritesChanged,
   onVaultScanCancelled,
   onVaultScanComplete,
@@ -443,6 +444,7 @@ const App: Component = () => {
   let unlistenFileChanged: UnlistenFn | undefined;
   let unlistenPendingChanged: UnlistenFn | undefined;
   let unlistenFlushComplete: UnlistenFn | undefined;
+  let unlistenSettingChanged: UnlistenFn | undefined;
 
   let pendingRefresh = false;
   let lastRefreshAt = 0;
@@ -1090,6 +1092,10 @@ const App: Component = () => {
           `${files} file${files === 1 ? "" : "s"}.`,
       );
     });
+    unlistenSettingChanged = await onVaultSettingChanged((p) => {
+      if (p.vault_id !== vaultId()) return;
+      void hydrateVaultSettings(p.vault_id);
+    });
 
     const onBeforeUnload = () => {
       if (autosaveTimer !== undefined) {
@@ -1165,11 +1171,108 @@ const App: Component = () => {
     unlistenFileChanged?.();
     unlistenPendingChanged?.();
     unlistenFlushComplete?.();
+    unlistenSettingChanged?.();
     if (autosaveTimer !== undefined) clearTimeout(autosaveTimer);
     if (rightSidebarRefreshTimer !== undefined)
       clearTimeout(rightSidebarRefreshTimer);
     if (searchRefreshTimer !== undefined) clearTimeout(searchRefreshTimer);
   });
+
+  const hydrateVaultSettings = async (vid: string) => {
+    try {
+      const stored = await getSetting(vid, "appearance.theme_mode");
+      if (stored !== null) {
+        setThemeMode(stored);
+        setResolvedTheme(applyTheme(stored));
+      }
+    } catch (e) {
+      console.error("loading theme_mode failed", e);
+    }
+
+    await seedSetting(vid, "editor.raw_source_default", false, setRawDefault);
+
+    await seedSetting(vid, "editor.minimap_enabled", false, setMinimapEnabled);
+
+    await seedSetting(
+      vid,
+      "editor.colorize_raw_source",
+      false,
+      setColorizeSource,
+    );
+
+    await seedSetting(
+      vid,
+      "wikilinks.rewrite_broken_links_on_rename",
+      true,
+      setRewriteBrokenLinks,
+    );
+    await seedSetting(vid, "properties.typed_enabled", false, setTypedProps);
+    await seedSetting(
+      vid,
+      "properties.date_format_default",
+      "YYYY-MM-DD",
+      setDateDefault,
+    );
+    await seedSetting(
+      vid,
+      "properties.default_currency",
+      "usd",
+      setCurrencyDefault,
+    );
+    await seedSetting(
+      vid,
+      "properties.tags_key_as_tags",
+      true,
+      setTagsKeyAsTags,
+    );
+
+    {
+      const enab: Record<string, boolean> = {};
+      for (const p of CORE_PLUGINS) {
+        try {
+          const stored = await getSetting(vid, p.settingKey);
+          enab[p.id] = stored ?? p.defaultEnabled;
+        } catch (e) {
+          console.error(`loading ${p.settingKey} failed`, e);
+          enab[p.id] = p.defaultEnabled;
+        }
+      }
+      setCorePlugins(enab);
+    }
+
+    {
+      const cfg: Record<string, boolean> = {};
+      const keys: BooleanSettingKey[] = [
+        STATUSBAR_ENABLED_KEY,
+        ...STATUSBAR_SEGMENTS.map((s) => s.settingKey),
+      ];
+      for (const k of keys) {
+        try {
+          cfg[k] = (await getSetting(vid, k)) ?? STATUSBAR_DEFAULT;
+        } catch (e) {
+          console.error(`loading ${k} failed`, e);
+          cfg[k] = STATUSBAR_DEFAULT;
+        }
+      }
+      setStatusbarConfig(cfg);
+    }
+
+    await seedSetting(
+      vid,
+      "ui.right_sidebar_collapsed",
+      false,
+      setRightSidebarCollapsed,
+    );
+
+    await seedSetting(
+      vid,
+      "ui.right_sidebar_panel",
+      "backlinks",
+      setRightSidebarPanel,
+    );
+
+    await seedSetting(vid, "shortcuts.overrides", {}, setShortcutOverrides);
+  };
 
   const openVaultByPath = async (path: string) => {
     setError(null);
@@ -1223,119 +1326,7 @@ const App: Component = () => {
       setAutocompleteProvider(createAutocompleteProvider(resp.vault_id));
       scheduleRefresh();
 
-      try {
-        const stored = await getSetting(resp.vault_id, "appearance.theme_mode");
-        if (stored !== null) {
-          setThemeMode(stored);
-          setResolvedTheme(applyTheme(stored));
-        }
-      } catch (e) {
-        console.error("loading theme_mode failed", e);
-      }
-
-      await seedSetting(
-        resp.vault_id,
-        "editor.raw_source_default",
-        false,
-        setRawDefault,
-      );
-
-      await seedSetting(
-        resp.vault_id,
-        "editor.minimap_enabled",
-        false,
-        setMinimapEnabled,
-      );
-
-      await seedSetting(
-        resp.vault_id,
-        "editor.colorize_raw_source",
-        false,
-        setColorizeSource,
-      );
-
-      await seedSetting(
-        resp.vault_id,
-        "wikilinks.rewrite_broken_links_on_rename",
-        true,
-        setRewriteBrokenLinks,
-      );
-      await seedSetting(
-        resp.vault_id,
-        "properties.typed_enabled",
-        false,
-        setTypedProps,
-      );
-      await seedSetting(
-        resp.vault_id,
-        "properties.date_format_default",
-        "YYYY-MM-DD",
-        setDateDefault,
-      );
-      await seedSetting(
-        resp.vault_id,
-        "properties.default_currency",
-        "usd",
-        setCurrencyDefault,
-      );
-      await seedSetting(
-        resp.vault_id,
-        "properties.tags_key_as_tags",
-        true,
-        setTagsKeyAsTags,
-      );
-
-      {
-        const enab: Record<string, boolean> = {};
-        for (const p of CORE_PLUGINS) {
-          try {
-            const stored = await getSetting(resp.vault_id, p.settingKey);
-            enab[p.id] = stored ?? p.defaultEnabled;
-          } catch (e) {
-            console.error(`loading ${p.settingKey} failed`, e);
-            enab[p.id] = p.defaultEnabled;
-          }
-        }
-        setCorePlugins(enab);
-      }
-
-      {
-        const cfg: Record<string, boolean> = {};
-        const keys: BooleanSettingKey[] = [
-          STATUSBAR_ENABLED_KEY,
-          ...STATUSBAR_SEGMENTS.map((s) => s.settingKey),
-        ];
-        for (const k of keys) {
-          try {
-            cfg[k] = (await getSetting(resp.vault_id, k)) ?? STATUSBAR_DEFAULT;
-          } catch (e) {
-            console.error(`loading ${k} failed`, e);
-            cfg[k] = STATUSBAR_DEFAULT;
-          }
-        }
-        setStatusbarConfig(cfg);
-      }
-
-      await seedSetting(
-        resp.vault_id,
-        "ui.right_sidebar_collapsed",
-        false,
-        setRightSidebarCollapsed,
-      );
-
-      await seedSetting(
-        resp.vault_id,
-        "ui.right_sidebar_panel",
-        "backlinks",
-        setRightSidebarPanel,
-      );
-
-      await seedSetting(
-        resp.vault_id,
-        "shortcuts.overrides",
-        {},
-        setShortcutOverrides,
-      );
+      await hydrateVaultSettings(resp.vault_id);
 
       void refreshRecentVaults();
     } catch (e) {

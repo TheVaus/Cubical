@@ -787,6 +787,20 @@ export function onVaultFlushComplete(
   );
 }
 
+export interface VaultSettingChanged {
+  vault_id: string;
+  key: string;
+  value: unknown;
+}
+
+export function onVaultSettingChanged(
+  handler: (payload: VaultSettingChanged) => void,
+): Promise<UnlistenFn> {
+  return listen<VaultSettingChanged>("vault:setting-changed", (e) =>
+    handler(e.payload),
+  );
+}
+
 export type FieldScope =
   | { kind: "default" }
   | { kind: "headings_only" }

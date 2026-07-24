@@ -118,11 +118,11 @@ management:
 ## Known gaps and carry-overs (from the Phase-2 final review)
 
 **Functional:**
-- **`cubical set …` doesn't refresh the running UI.** `set_setting` emits no event and
-  `.cubical/` is watcher-excluded, so a setting changed from the terminal is invisible
-  until a reload. This is the one command where attach is *worse* than the old decline —
-  it reports success while the UI diverges. Recorded in the Phase-2 spec. Fix by emitting
-  an event the frontend already listens for.
+- ~~**`cubical set …` doesn't refresh the running UI.**~~ **CLOSED 2026-07-24.** A new
+  `vault:setting-changed` event, emitted from `dispatch`'s `Set` arm (not from
+  `set_setting`, so the GUI's own writes don't echo), drives a frontend re-hydration of
+  the whole settings set. Rationale in
+  [`../implementation/engine-ipc.md`](../implementation/engine-ipc.md) → "Socket boundary".
 - **The Tauri GUI smoke was never run** (non-interactive session). Everything below
   `.setup()` is covered by the end-to-end tests; the ~15 lines of Tauri glue are
   inspection-only. A one-minute manual check closes it: launch the app, open a vault,
@@ -132,15 +132,12 @@ management:
   and the parity claim was narrowed to *success* output. Restore the context in `render`
   if it's missed.
 
-**Cosmetic / deferred (deliberately not fixed):**
-- `cubical-ipc`'s transport collapses serde errors, oversized frames, and malformed JSON
-  into `io::Error::other`, so the CLI reports "could not reach the running Cubical app"
-  even for a malformed response from a reachable app. A small `TransportError` enum
-  would make the message honest.
-- `cubical write` reads stdin to EOF *before* validating the vault (required — stdin
-  isn't seekable and the `Command` must exist before the lock check), so
-  `cubical --vault /nonexistent write x.md` hangs at an interactive terminal instead of
-  erroring. A `stat` on the vault dir before reading stdin would fix it.
+**Cosmetic / deferred — both CLOSED 2026-07-24:**
+- ~~transport collapses every failure into `io::Error::other`~~ → `TransportError` is now
+  `Io` vs `Protocol`, and the CLI distinguishes "could not reach the running Cubical app"
+  from "the running Cubical app sent an unreadable response".
+- ~~`cubical write` hangs on stdin for a nonexistent vault~~ → the CLI now rejects a
+  `--vault` that is not a directory *before* building the command, for every subcommand.
 
 **Unrelated, still open:** intermittent `[[wikilink]]` non-render in Live Preview (raw
 mode fine, no pattern yet) — `project_wikilink_livepreview_render_bug`. Two Dependabot

@@ -11,7 +11,8 @@ pub use render::render;
 #[cfg(unix)]
 pub use transport::handle_connection;
 pub use transport::{
-    app_socket_path, client_send, read_msg, read_msg_timeout, write_msg, IO_TIMEOUT,
+    app_socket_path, client_send, read_msg, read_msg_timeout, write_msg, TransportError,
+    TransportResult, IO_TIMEOUT,
 };
 
 #[cfg(test)]

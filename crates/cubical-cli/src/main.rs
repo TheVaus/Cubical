@@ -109,6 +109,14 @@ fn build_command(cmd: Cmd, vault_root: &Path) -> Result<WireCommand> {
 }
 
 async fn run(cli: Cli) -> i32 {
+    if !cli.vault.is_dir() {
+        eprintln!(
+            "error: {} is not a directory, so it cannot be a vault",
+            cli.vault.display(),
+        );
+        return 1;
+    }
+
     let command = match build_command(cli.cmd, &cli.vault) {
         Ok(c) => c,
         Err(e) => {
@@ -190,8 +198,12 @@ async fn attach(vault_root: &Path, command: WireCommand, socket_path: &str, json
             eprintln!("error: {msg}");
             1
         }
-        Err(e) => {
+        Err(cubical_ipc::TransportError::Io(e)) => {
             eprintln!("error: could not reach the running Cubical app: {e}");
+            1
+        }
+        Err(cubical_ipc::TransportError::Protocol(msg)) => {
+            eprintln!("error: the running Cubical app sent an unreadable response: {msg}");
             1
         }
     }

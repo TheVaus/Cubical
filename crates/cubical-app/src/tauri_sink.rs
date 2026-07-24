@@ -23,6 +23,7 @@ impl<R: Runtime> EventSink for TauriEventSink<R> {
             AppEvent::Audit(p) => self.app.emit(name, p),
             AppEvent::PendingRewritesChanged(p) => self.app.emit(name, p),
             AppEvent::FlushComplete(p) => self.app.emit(name, p),
+            AppEvent::SettingChanged(p) => self.app.emit(name, p),
         };
         if let Err(e) = res {
             tracing::warn!(error = %e, event = name, "failed to emit event");

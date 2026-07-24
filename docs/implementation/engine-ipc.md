@@ -242,9 +242,22 @@ so the app's file watcher sees the write as a change and fires — which is
 precisely what makes the GUI pick it up. Suppressing that echo would leave
 the GUI unaware of the CLI's write.
 
-`cubical set …` is the one attached command with no live UI effect:
-`set_setting` emits no event and `.cubical/` is excluded from the watcher, so
-the app reflects it only after a settings reload.
+`cubical set …` has no watcher to ride on — `.cubical/` is excluded from it,
+and the workspace half of `set_setting` writes to libsql, not to a file at
+all — so it carries its own event, `vault:setting-changed`. That event is
+emitted from `dispatch`'s `Set` arm rather than from `set_setting` itself,
+which is what keeps it from firing on the UI's *own* writes: the GUI's
+setting changes go through the Tauri command, never through `dispatch`, so a
+control the user just moved is not knocked back by an echo of itself. The
+CLI-local caller's `NoopEventSink` swallows it, correctly — no app is running
+to hear it. The event carries `key` and `value`, but the frontend re-reads
+the whole settings set rather than applying the payload: the key→signal
+mapping already exists once, at the vault-open hydration path, and a second
+copy in an event handler is the kind of thing that drifts. Re-hydration costs
+~20 reads and only happens when a setting is changed from outside the GUI.
+
+The event fires only after `set_setting` returns `Ok`, so a rejected key never
+tells the UI something changed.
 
 The socket's only auth boundary is filesystem permissions, so the app asserts
 them rather than inheriting whatever the runtime dir happens to have: `0o700`
@@ -259,8 +272,25 @@ crashed app leaves one behind until the same pid is reused.
 
 The transport (`#[cfg(unix)]`) is Unix-domain-socket only; Windows is a
 deliberate, confined stub — the CLI simply never receives a `socket_path` to
-attach to and falls back to the Phase-1 decline. Design and data flow are
-owned by
+attach to and falls back to the Phase-1 decline.
+
+The transport's error type is `TransportError`, split `Io` vs `Protocol`,
+because the CLI's user-facing message turns on exactly that distinction:
+"could not reach the running Cubical app" is a lie when the app was reached
+and answered with something unparseable. `Io` is the unreachable / timed-out /
+truncated case; `Protocol` covers a non-encodable message, an over-maximum
+frame, and a frame that is not valid JSON. Collapsing both into
+`io::Error::other` — as Phase 2 did — makes a corrupt-response bug look like a
+socket bug and sends debugging in the wrong direction.
+
+The CLI rejects a `--vault` that is not a directory *before* it builds the
+command, because `cubical write` reads stdin to EOF at build time (stdin is
+not seekable, and the `Command` has to exist before the lock check can run).
+Without the pre-check, `cubical --vault /nonexistent write x.md` sits waiting
+for a body it will never use at an interactive terminal. The check is a plain
+`is_dir`, and it applies to every subcommand rather than just `write`.
+
+Design and data flow are owned by
 [`docs/superpowers/specs/2026-07-24-cli-attach-phase2-design.md`](../superpowers/specs/2026-07-24-cli-attach-phase2-design.md);
 this section records only why the boundary is shaped this way.
 

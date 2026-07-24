@@ -106,7 +106,7 @@ Reads (`list`, `resolve`, `backlinks`, `get`) now succeed while the app is open,
 | App open, dispatch error | `Response::Err` → exit 1 |
 | App open, vault mid-close / not resolvable | `Response::Err("vault not open")` → exit 1 |
 | App open, vault still scanning | `Response::Err("vault is still scanning")` → exit 1 (the local path's `wait_for_scan` equivalent — a partial index would give `list` partial results and `rename` an incomplete referrer set) |
-| App open, `cubical set …` | Succeeds and is persisted, but **the UI does not reflect it until a settings reload** — `set_setting` emits no event and `.cubical/` is excluded from the watcher. The only attached command with no live UI effect. |
+| App open, `cubical set …` | Dispatched live; the UI reflects it immediately. There is no watcher to ride on (`.cubical/` is excluded, and workspace keys go to libsql), so `dispatch`'s `Set` arm emits `vault:setting-changed` and the frontend re-hydrates. Emitted from `dispatch`, not `set_setting`, so the GUI's own writes don't echo back. *(Closed 2026-07-24; was the one attached command with no live UI effect.)* |
 | App open, peer idle / app wedged | Client read times out after `IO_TIMEOUT` → clear error, exit 1 |
 | App open, connect fails (app just closed) | Clear error, exit 1 (no retry) |
 | Lock held but `socket_path: None` | Phase-1 decline, exit 2 |

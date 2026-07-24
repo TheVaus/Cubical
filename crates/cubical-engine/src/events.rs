@@ -33,6 +33,8 @@ pub const VAULT_FLUSH_COMPLETE: &str = "vault:flush-complete";
 
 pub const VAULT_AUDIT: &str = "vault:audit";
 
+pub const VAULT_SETTING_CHANGED: &str = "vault:setting-changed";
+
 #[derive(Serialize, Clone)]
 pub struct VaultScanProgress {
     pub vault_id: String,
@@ -86,6 +88,13 @@ pub struct VaultPendingRewritesChanged {
 }
 
 #[derive(Serialize, Clone)]
+pub struct VaultSettingChanged {
+    pub vault_id: String,
+    pub key: String,
+    pub value: serde_json::Value,
+}
+
+#[derive(Serialize, Clone)]
 pub struct VaultFlushComplete {
     pub vault_id: String,
     pub files_rewritten: i64,
@@ -101,6 +110,7 @@ pub enum AppEvent {
     Audit(VaultAudit),
     PendingRewritesChanged(VaultPendingRewritesChanged),
     FlushComplete(VaultFlushComplete),
+    SettingChanged(VaultSettingChanged),
 }
 
 impl AppEvent {
@@ -114,6 +124,7 @@ impl AppEvent {
             AppEvent::Audit(_) => VAULT_AUDIT,
             AppEvent::PendingRewritesChanged(_) => VAULT_PENDING_REWRITES_CHANGED,
             AppEvent::FlushComplete(_) => VAULT_FLUSH_COMPLETE,
+            AppEvent::SettingChanged(_) => VAULT_SETTING_CHANGED,
         }
     }
 }
@@ -154,6 +165,10 @@ pub fn emit_pending_rewrites_changed(sink: &dyn EventSink, payload: VaultPending
 
 pub fn emit_flush_complete(sink: &dyn EventSink, payload: VaultFlushComplete) {
     sink.emit(AppEvent::FlushComplete(payload));
+}
+
+pub fn emit_setting_changed(sink: &dyn EventSink, payload: VaultSettingChanged) {
+    sink.emit(AppEvent::SettingChanged(payload));
 }
 
 pub fn spawn_scan_dispatcher(
