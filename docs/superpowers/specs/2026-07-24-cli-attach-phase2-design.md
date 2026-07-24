@@ -130,4 +130,44 @@ Reads (`list`, `resolve`, `backlinks`, `get`) now succeed while the app is open,
 
 ## What was built (Phase 2)
 
-_(Filled in at session close.)_
+- **New crate `cubical-ipc`** — `protocol.rs` (`Command`/`Request`/`Outcome`/
+  `Response`, `Outcome` carrying owned primitives rather than engine response
+  structs), `dispatch.rs` (the single command→engine-fn mapping, lifted out
+  of the CLI), `render.rs` (all printing + exit codes), `transport.rs`
+  (length-prefixed JSON framing, `client_send`, `handle_connection`,
+  `app_socket_path`; `#[cfg(unix)]` with a `#[cfg(not(unix))]` error stub).
+  12 tests: 2 protocol round-trip, 2 dispatch, 4 render, 2 transport, 2 socket
+  round-trip (real `UnixListener` + real `dispatch`).
+- **Engine:** `vault_lock::acquire`/`acquire_in`/`write_payload` take
+  `socket_path: Option<&str>`; `commands::vault::open_vault` gained a 4th
+  `advertise_socket: Option<String>` **parameter** (not an `OpenVaultRequest`
+  field — that type is the frontend→app `Deserialize` contract). New public
+  `resolve_open_vault_id(state, canonical_path) -> Option<String>` wraps the
+  existing private lookup. 1 new `vault_lock` advertisement test, 1 new
+  resolver test.
+- **App:** `open_vault` advertises `Some(app_socket_path(pid))`; a `.setup()`
+  hook spawns `serve_socket`, a sequential accept loop over
+  `cubical_ipc::handle_connection` — one task, not one-per-connection, since
+  `handle_connection` borrows `&AppState` and mutations are already
+  serialized by `AppState`'s own locks. Each connection gets a fresh
+  `TauriEventSink`, so a socket command updates the live UI exactly like a
+  click and the watcher echo is suppressed through the same
+  `flush_own_writes` path a GUI write uses.
+- **CLI:** builds the wire `Command` before opening the vault (stdin is
+  consumed once and isn't seekable). `VaultLocked { socket_path: Some(path) }`
+  → attach over the socket; `None` → the Phase-1 decline (exit 2), unchanged.
+  No retry on connect failure. Reads (`list`/`resolve`/`backlinks`/`get`) now
+  work while the app is open. 1 attach test (real binary vs. a fake server)
+  + 2 end-to-end tests (real binary + real engine + real socket, asserting
+  the FS effect and a piped stdin write).
+- **`--json` output is now `Outcome`-defined** (an intentional, documented
+  change from Phase 1's raw-engine-struct dump). Human output is
+  unchanged/byte-identical to Phase 1.
+- 17 new tests total across `cubical-ipc`, `cubical-engine`, and
+  `cubical-cli`.
+
+**Not built:** interactive Tauri GUI smoke-verification of the live socket
+path (non-interactive session — covered instead by the cross-process fake-
+server and real-engine-over-socket tests above). Phase 3 (in-app terminal
+panel) remains deferred; this phase makes it nearly free, per the Architecture
+section above.

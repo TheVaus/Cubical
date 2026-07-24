@@ -201,6 +201,44 @@ Both frontends share this path because it is in the engine's `open_vault`: the
 GUI taking the lock is precisely what lets the CLI detect it. Phase 2 turns the
 CLI's `VaultLocked` branch from *decline* into *attach* over `socket_path`.
 
+### Socket boundary (Phase 2)
+
+The wire boundary lives in a new crate, `cubical-ipc`, not in `cubical-engine`
+— the engine stays free of serialization concerns, matching the Handler
+pattern's reason for framework-free IPC types above. `cubical-ipc` owns the
+`Command`/`Outcome`/`Response` wire types, the length-prefixed JSON framing,
+and a single `dispatch(vault_id, command, &AppState, &dyn EventSink) ->
+Result<Outcome, CubicalError>`. Both `cubical-cli` and `cubical-app` depend on
+it; the engine has no reverse dependency.
+
+`dispatch` is the same reasoning as the event-sink chokepoint above, applied
+one layer up: there is exactly one command→engine-fn mapping and one
+`render`, called identically by the CLI running standalone (`NoopEventSink`),
+the app's socket server (`TauriEventSink`), and the CLI attached as a client —
+so the three callers cannot drift apart.
+
+`cubical-app` advertises its socket path (`open_vault`'s `advertise_socket`
+parameter, threaded into `vault_lock::acquire`/`write_payload`) rather than a
+fixed location, because the path is keyed by the app's own pid
+(`cubical-<pid>.sock`) — the same machine-local reasoning that keeps the
+lockfile itself out of `.cubical/`, above. The server is a
+`.setup()`-spawned, **sequential** accept loop (not one task per connection):
+`handle_connection` borrows `&AppState`, and `AppState`'s own locks already
+serialize mutations (see Lock discipline above), so a second concurrency
+layer here would be redundant. Routing an attached command through the app's
+real `AppState` and a real `TauriEventSink` — instead of a second engine — is
+what lets a socket write populate the same `flush_own_writes` gate a GUI
+write does, suppressing the watcher echo (see Own-write hash gate above); a
+standalone second engine would not share that gate and would bounce the
+write back as an external edit.
+
+The transport (`#[cfg(unix)]`) is Unix-domain-socket only; Windows is a
+deliberate, confined stub — the CLI simply never receives a `socket_path` to
+attach to and falls back to the Phase-1 decline. Design and data flow are
+owned by
+[`docs/superpowers/specs/2026-07-24-cli-attach-phase2-design.md`](../superpowers/specs/2026-07-24-cli-attach-phase2-design.md);
+this section records only why the boundary is shaped this way.
+
 ## Degrade-not-throw surfaces
 
 Dataview and search deliberately fold failures into a structured result rather
