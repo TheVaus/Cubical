@@ -1,8 +1,15 @@
 #![forbid(unsafe_code)]
 
+mod dispatch;
 mod protocol;
+mod render;
 
+pub use dispatch::dispatch;
 pub use protocol::{Command, Outcome, Request, Response};
+pub use render::render;
+
+#[cfg(test)]
+pub(crate) static RUNTIME_ENV_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[cfg(test)]
 mod protocol_tests {
