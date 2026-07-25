@@ -76,6 +76,19 @@ import {
   canForward,
   type NavState,
 } from "./navHistory";
+import TabStrip from "./tabs/TabStrip";
+import {
+  activateTab,
+  activeTab,
+  closeTab,
+  emptyTabs,
+  moveTab,
+  openTab,
+  remapTabPaths,
+  updateNav,
+  type TabSet,
+  type TabView,
+} from "./tabs/tabModel";
 import { errorMessage } from "./errorMessage";
 import {
   createWikiLinkResolver,
@@ -205,7 +218,6 @@ const App: Component = () => {
       setRecentVaults([]);
     }
   };
-  const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
   const [selectedContent, setSelectedContent] = createSignal<string | null>(
     null,
   );
@@ -301,14 +313,24 @@ const App: Component = () => {
     null,
   );
 
-  type View = { kind: "file" } | { kind: "tag"; tagPath: string };
-  const [view, setView] = createSignal<View>({ kind: "file" });
+  type View = TabView;
+  const [tabs, setTabs] = createSignal<TabSet>(emptyTabs);
+  const view = (): View =>
+    activeTab(tabs())?.view ?? { kind: "file", path: "" };
+  const selectedPath = (): string | null => {
+    const t = activeTab(tabs());
+    return t !== null && t.view.kind === "file" ? t.view.path : null;
+  };
   const [tagRefreshTick, setTagRefreshTick] = createSignal(0);
 
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = createSignal(false);
   const [leftCollapsed, setLeftCollapsed] = createSignal(false);
   const toggleLeftSidebar = () => setLeftCollapsed((v) => !v);
-  const [navState, setNavState] = createSignal<NavState>(emptyNav);
+  const navState = (): NavState => activeTab(tabs())?.nav ?? emptyNav;
+  const setNavState = (fn: (n: NavState) => NavState) => {
+    const id = tabs().activeId;
+    if (id !== null) setTabs((s) => updateNav(s, id, fn));
+  };
   const navCanBack = createMemo(() => canBack(navState()));
   const navCanForward = createMemo(() => canForward(navState()));
   const [settingsOpen, setSettingsOpen] = createSignal(false);
@@ -603,17 +625,15 @@ const App: Component = () => {
       } else {
         await renameFile({ vault_id: id, from_path: fromPath, to_path: target });
       }
-      if (isFolder) {
-        const sel = selectedPath();
-        if (sel !== null) {
-          const reprefixed = reprefixNestedPath(sel, fromPath, target);
-          if (reprefixed !== null) {
-            setSelectedPath(reprefixed);
-          }
-        }
-      } else if (selectedPath() === fromPath) {
-        setSelectedPath(target);
-      }
+      setTabs((s) =>
+        remapTabPaths(s, (p) =>
+          isFolder
+            ? reprefixNestedPath(p, fromPath, target)
+            : p === fromPath
+              ? target
+              : null,
+        ),
+      );
       wikilinkResolver()?.invalidate();
       embedResolver()?.invalidate();
       propertyResolver()?.invalidate();
@@ -744,6 +764,33 @@ const App: Component = () => {
     persistSetting(vaultId(), "ui.right_sidebar_panel", id);
   };
 
+  const loadActiveTabContent = async () => {
+    const id = vaultId();
+    const path = selectedPath();
+    if (!id || path === null) return;
+    try {
+      const resp = await readFileText({ vault_id: id, path });
+      setSelectedContent(resp.content);
+    } catch (e) {
+      setError(errorMessage(e));
+      setSelectedContent(null);
+    }
+  };
+
+  const activateTabById = async (id: string) => {
+    if (tabs().activeId === id) return;
+    await flushAutosave();
+    setError(null);
+    setConflictExternalHash(null);
+    setRawOverride(null);
+    setPropertiesFrontmatter(null);
+    seenHash = null;
+    lastWrittenHash = null;
+    dirty = false;
+    setTabs((s) => activateTab(s, id));
+    await loadActiveTabContent();
+  };
+
   const handleSelectFile = async (
     file: FileEntry,
     knownHash?: string,
@@ -752,28 +799,20 @@ const App: Component = () => {
     if (file.type_id !== "markdown") return;
     const id = vaultId();
     if (!id) return;
-    setView({ kind: "file" });
     if (selectedPath() === file.path) return;
 
     await flushAutosave();
 
     setError(null);
     setConflictExternalHash(null);
-    setSelectedPath(file.path);
+    setTabs((s) => openTab(s, { kind: "file", path: file.path }));
     if (!opts?.fromHistory) setNavState((s) => navPush(s, file.path));
     setRawOverride(null);
     setPropertiesFrontmatter(null);
     seenHash = knownHash ?? null;
     lastWrittenHash = knownHash ?? null;
     dirty = false;
-    try {
-      const resp = await readFileText({ vault_id: id, path: file.path });
-      setSelectedContent(resp.content);
-    } catch (e) {
-      const message = errorMessage(e);
-      setError(message);
-      setSelectedContent(null);
-    }
+    await loadActiveTabContent();
   };
 
   const navigateToHistoryPath = (path: string) => {
@@ -789,14 +828,14 @@ const App: Component = () => {
   const goBack = () => {
     const next = navBack(navState());
     if (next.index === navState().index) return;
-    setNavState(next);
+    setNavState(() => next);
     const path = navCurrent(next);
     if (path) navigateToHistoryPath(path);
   };
   const goForward = () => {
     const next = navForward(navState());
     if (next.index === navState().index) return;
-    setNavState(next);
+    setNavState(() => next);
     const path = navCurrent(next);
     if (path) navigateToHistoryPath(path);
   };
@@ -863,11 +902,12 @@ const App: Component = () => {
 
   const handleNavigateTag = async (tagPath: string) => {
     await flushAutosave();
-    setView({ kind: "tag", tagPath });
+    setTabs((s) => openTab(s, { kind: "tag", tagPath }));
   };
 
   const handleExitTagView = () => {
-    setView({ kind: "file" });
+    const id = tabs().activeId;
+    if (id !== null) setTabs((s) => closeTab(s, id));
   };
 
   const dismissCreateOffer = () => {
@@ -1284,7 +1324,7 @@ const App: Component = () => {
       setFilesTotalEstimate(0);
       setScanStatus("in_progress");
       setVaultPath(path);
-      setSelectedPath(null);
+      setTabs(emptyTabs);
       setSelectedContent(null);
       setPropertiesFrontmatter(null);
       setBlockCount(0);
@@ -1299,7 +1339,6 @@ const App: Component = () => {
       setDeleteTarget(null);
       setRenamingPath(null);
       setTagRefreshTick(0);
-      setView({ kind: "file" });
       setRightSidebarCollapsed(false);
       setRightSidebarPanel("backlinks");
       setShortcutOverrides({});
@@ -1409,18 +1448,12 @@ const App: Component = () => {
           </IconButton>
         </div>
         <div class="topbar__center">
-          <div class="topbar__tabs">
-            <Show
-              when={!!vaultId() && view().kind === "file" && !!selectedPath()}
-            >
-              <div class="tab tab--active">{fileStem(selectedPath()!)}</div>
-            </Show>
-            <Show when={view().kind === "tag"}>
-              <div class="tab tab--active">
-                #{(view() as { kind: "tag"; tagPath: string }).tagPath}
-              </div>
-            </Show>
-          </div>
+          <TabStrip
+            tabs={tabs()}
+            onActivate={(id) => void activateTabById(id)}
+            onClose={(id) => setTabs((s) => closeTab(s, id))}
+            onMove={(id, i) => setTabs((s) => moveTab(s, id, i))}
+          />
           <div class="topbar__source">
             <IconButton
               label="Toggle raw source"
