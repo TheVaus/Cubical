@@ -28,6 +28,18 @@ export interface RemoveRecentVaultRequest {
   path: string;
 }
 
+export interface TabRecordDto {
+  id: string;
+  kind: "file" | "tag";
+  path: string | null;
+  tag_path: string | null;
+}
+
+export interface TabSessionDto {
+  tabs: TabRecordDto[];
+  active_id: string | null;
+}
+
 export interface CancelVaultScanRequest {
   vault_id: string;
 }
@@ -376,6 +388,17 @@ export function listRecentVaults(): Promise<ListRecentVaultsResponse> {
 
 export function removeRecentVault(req: RemoveRecentVaultRequest): Promise<void> {
   return invoke("remove_recent_vault", { req });
+}
+
+export function loadTabSession(vaultPath: string): Promise<TabSessionDto> {
+  return invoke("load_tab_session", { vaultPath });
+}
+
+export function saveTabSession(
+  vaultPath: string,
+  session: TabSessionDto,
+): Promise<void> {
+  return invoke("save_tab_session", { vaultPath, session });
 }
 
 export function cancelVaultScan(req: CancelVaultScanRequest): Promise<void> {
