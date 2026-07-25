@@ -94,8 +94,23 @@ plus an `EditorApi` ref — and holds CodeMirror state, including the undo stack
 Swapping `value` on a single shared instance would reset undo, scroll, and cursor on every
 tab switch, which reads as a bug the moment tabs exist.
 
-So: **each tab keeps its `Editor` mounted, capped at 8 live instances (LRU), with the
+So: **each tab keeps its `Editor` mounted, capped at N live instances (LRU), with the
 active tab pinned.**
+
+**N is configurable.** New setting `editor.live_tab_limit` (number, **default 8**), exposed
+in the Settings modal's Editor tab alongside the other `editor.*` knobs. The default is a
+guess, not a measurement, which is precisely why it is a knob. Values are clamped to a
+minimum of 1 — the active tab is always live, so 0 is not a meaningful setting — and the
+clamp lives with the LRU policy so a hand-edited `.cubical/config.toml` cannot break the
+workspace.
+
+It is a vault setting rather than machine-local state, matching
+`pending_rewrites.flush_interval_secs`, the existing numeric tuning knob. The honest
+trade-off: a vault synced between a 64 GB desktop and an 8 GB laptop gets one cap for both.
+Machine-local would fit the semantics better, but the app's only machine-local store
+(`recent_vaults.json`) is not a settings system — no schema, no Settings-modal plumbing —
+and building that for a single number is not worth it. Revisit if a second machine-scoped
+knob ever appears.
 
 Because of §1's invariant, **an evicted tab is always clean**. Therefore re-activating an
 evicted tab simply **re-reads the file from disk** — there is no content cache in the tab
@@ -108,9 +123,9 @@ rehydrate from.
 | tab, its position, its nav history | yes |
 | CodeMirror undo stack, scroll, cursor | no |
 
-The loss only bites on the 9th-least-recently-used tab. Uncapped keep-alive was rejected:
-unbounded CodeMirror instances is a poor trade in an app whose selling point is being
-blazing-fast.
+At the default of 8, the loss only bites on the 9th-least-recently-used tab. Uncapped
+keep-alive was rejected: unbounded CodeMirror instances is a poor trade in an app whose
+selling point is being blazing-fast.
 
 ---
 
@@ -162,7 +177,8 @@ of components so it can be tested without a DOM (`navHistory.ts`, `fileTree.ts`,
 
 - `ui/src/tabs/tabModel.test.ts` — every operation, including dedupe-on-open and
   close-active neighbour selection.
-- `ui/src/tabs/lru.test.ts` — eviction order, active-tab pinning.
+- `ui/src/tabs/lru.test.ts` — eviction order, active-tab pinning, and the
+  `editor.live_tab_limit` clamp (0 and negatives behave as 1).
 - `crates/cubical-app` `tab_sessions` tests — the shape `recent_vaults.rs` already uses,
   including dropping vanished files on restore.
 - A tab-strip render test.
