@@ -34,3 +34,6 @@ Thumbs.db
 
 # Superpowers session scaffolding (brainstorm server state, etc.)
 .superpowers/
+
+# graphify knowledge graph (generated, ~9MB)
+graphify-out/

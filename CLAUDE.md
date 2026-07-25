@@ -36,6 +36,8 @@ For non-features explicitly cut from scope, see [`docs/architecture/constraints.
 
 **Loading:** Auto-loaded every session. Start at the index [`docs/README.md`](docs/README.md) for the doc map. If the task touches design, load `docs/architecture/README.md` and the relevant sub-file; if editing code, `docs/conventions.md`; if touching IPC / Tauri, `docs/migration-touchpoints.md`; if editing docs, follow **Doc discipline** in the index.
 
+**Orienting in the codebase — use graphify first, it is far cheaper than grepping.** A prebuilt knowledge graph of this repo lives in [`graphify-out/`](graphify-out/) (`graph.json`, `GRAPH_REPORT.md`, `graph.html`). Before fanning out reads or searches to answer "how does X work / what calls Y / where does Z live", run `graphify query "<question>"` from the repo root — it answers from the graph without opening files. Also `graphify path "A" "B"` (shortest path between two concepts) and `graphify explain "<node>"`. Rebuild after large changes with `graphify . --update`. `graphify-out/` is generated and untracked; do not hand-edit it. Full usage: `~/.claude/skills/graphify/SKILL.md`.
+
 **Right-size the process:** ceremony scales with the task — a trivial fix just ships; a standard feature gets one working doc; only layer/architectural work gets the full brainstorm→spec→plan→closeout. Details + the smoke rules in `docs/conventions.md` → Sessions.
 
 **During work:** Don't live-update the layer spec. Capture what landed once, tersely, at session end — in the layer spec's "What was built" plus the Project state block below.
