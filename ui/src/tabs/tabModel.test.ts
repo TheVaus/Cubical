@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { navPush } from "../navHistory";
 import {
   activateTab,
   activeTab,
@@ -12,7 +11,6 @@ import {
   prevTab,
   remapTabPaths,
   tabId,
-  updateNav,
 } from "./tabModel";
 
 const fileView = (path: string) => ({ kind: "file" as const, path });
@@ -102,24 +100,13 @@ describe("moveTab", () => {
   });
 });
 
-describe("updateNav", () => {
-  it("updates only the addressed tab's history", () => {
-    let s = openTab(emptyTabs, fileView("a.md"));
-    s = openTab(s, fileView("b.md"));
-    s = updateNav(s, "file:a.md", (n) => navPush(n, "a.md"));
-    expect(s.tabs[0]!.nav.stack).toEqual(["a.md"]);
-    expect(s.tabs[1]!.nav.stack).toEqual([]);
-  });
-});
-
 describe("remapTabPaths", () => {
-  it("rewrites a renamed path and its id, preserving nav history", () => {
+  it("rewrites a renamed path and its id, keeping the tab active", () => {
     let s = openTab(emptyTabs, fileView("a.md"));
-    s = updateNav(s, "file:a.md", (n) => navPush(n, "a.md"));
     s = remapTabPaths(s, (p) => (p === "a.md" ? "b.md" : null));
+    expect(s.tabs).toHaveLength(1);
     expect(s.tabs[0]!.id).toBe("file:b.md");
     expect(s.tabs[0]!.view).toEqual(fileView("b.md"));
-    expect(s.tabs[0]!.nav.stack).toEqual(["a.md"]);
     expect(s.activeId).toBe("file:b.md");
   });
 

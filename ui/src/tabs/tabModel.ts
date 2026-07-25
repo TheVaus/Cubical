@@ -1,5 +1,3 @@
-import { emptyNav, type NavState } from "../navHistory";
-
 export type TabView =
   | { kind: "file"; path: string }
   | { kind: "tag"; tagPath: string };
@@ -7,7 +5,6 @@ export type TabView =
 export interface Tab {
   id: string;
   view: TabView;
-  nav: NavState;
 }
 
 export interface TabSet {
@@ -28,7 +25,7 @@ export function activeTab(s: TabSet): Tab | null {
 export function openTab(s: TabSet, view: TabView): TabSet {
   const id = tabId(view);
   if (s.tabs.some((t) => t.id === id)) return { ...s, activeId: id };
-  return { tabs: [...s.tabs, { id, view, nav: emptyNav }], activeId: id };
+  return { tabs: [...s.tabs, { id, view }], activeId: id };
 }
 
 export function closeTab(s: TabSet, id: string): TabSet {
@@ -68,17 +65,6 @@ export function nextTab(s: TabSet): TabSet {
 
 export function prevTab(s: TabSet): TabSet {
   return step(s, -1);
-}
-
-export function updateNav(
-  s: TabSet,
-  id: string,
-  fn: (nav: NavState) => NavState,
-): TabSet {
-  return {
-    ...s,
-    tabs: s.tabs.map((t) => (t.id === id ? { ...t, nav: fn(t.nav) } : t)),
-  };
 }
 
 export function remapTabPaths(

@@ -85,7 +85,7 @@ import {
   moveTab,
   openTab,
   remapTabPaths,
-  updateNav,
+  tabId,
   type TabSet,
   type TabView,
 } from "./tabs/tabModel";
@@ -326,11 +326,7 @@ const App: Component = () => {
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = createSignal(false);
   const [leftCollapsed, setLeftCollapsed] = createSignal(false);
   const toggleLeftSidebar = () => setLeftCollapsed((v) => !v);
-  const navState = (): NavState => activeTab(tabs())?.nav ?? emptyNav;
-  const setNavState = (fn: (n: NavState) => NavState) => {
-    const id = tabs().activeId;
-    if (id !== null) setTabs((s) => updateNav(s, id, fn));
-  };
+  const [navState, setNavState] = createSignal<NavState>(emptyNav);
   const navCanBack = createMemo(() => canBack(navState()));
   const navCanForward = createMemo(() => canForward(navState()));
   const [settingsOpen, setSettingsOpen] = createSignal(false);
@@ -791,6 +787,22 @@ const App: Component = () => {
     await loadActiveTabContent();
   };
 
+  const closeTabById = async (id: string) => {
+    const wasActive = tabs().activeId === id;
+    if (wasActive) await flushAutosave();
+    setTabs((s) => closeTab(s, id));
+    if (!wasActive) return;
+    setError(null);
+    setConflictExternalHash(null);
+    setRawOverride(null);
+    setPropertiesFrontmatter(null);
+    seenHash = null;
+    lastWrittenHash = null;
+    dirty = false;
+    if (tabs().activeId === null) setSelectedContent(null);
+    else await loadActiveTabContent();
+  };
+
   const handleSelectFile = async (
     file: FileEntry,
     knownHash?: string,
@@ -828,14 +840,14 @@ const App: Component = () => {
   const goBack = () => {
     const next = navBack(navState());
     if (next.index === navState().index) return;
-    setNavState(() => next);
+    setNavState(next);
     const path = navCurrent(next);
     if (path) navigateToHistoryPath(path);
   };
   const goForward = () => {
     const next = navForward(navState());
     if (next.index === navState().index) return;
-    setNavState(() => next);
+    setNavState(next);
     const path = navCurrent(next);
     if (path) navigateToHistoryPath(path);
   };
@@ -905,9 +917,14 @@ const App: Component = () => {
     setTabs((s) => openTab(s, { kind: "tag", tagPath }));
   };
 
-  const handleExitTagView = () => {
+  const handleExitTagView = async () => {
     const id = tabs().activeId;
-    if (id !== null) setTabs((s) => closeTab(s, id));
+    if (id === null) return;
+    const back = navCurrent(navState());
+    await closeTabById(id);
+    if (back === null) return;
+    const target = tabId({ kind: "file", path: back });
+    if (tabs().tabs.some((t) => t.id === target)) await activateTabById(target);
   };
 
   const dismissCreateOffer = () => {
@@ -1451,7 +1468,7 @@ const App: Component = () => {
           <TabStrip
             tabs={tabs()}
             onActivate={(id) => void activateTabById(id)}
-            onClose={(id) => setTabs((s) => closeTab(s, id))}
+            onClose={(id) => void closeTabById(id)}
             onMove={(id, i) => setTabs((s) => moveTab(s, id, i))}
           />
           <div class="topbar__source">
