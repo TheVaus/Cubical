@@ -346,4 +346,20 @@ describe("new bindable commands (#7)", () => {
     );
     expect(findDuplicateBindings(resolveBindings({}))).toEqual([]);
   });
+  it("registers the tab commands with defaults and no conflict", () => {
+    expect(COMMAND_DEFAULTS).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "view.nextTab", scope: "global", defaultKey: "Mod-Tab" }),
+        expect.objectContaining({ id: "view.prevTab", scope: "global", defaultKey: "Mod-Shift-Tab" }),
+        expect.objectContaining({ id: "view.closeTab", scope: "global", defaultKey: "Mod-Shift-w" }),
+      ]),
+    );
+    expect(findDuplicateBindings(resolveBindings({}))).toEqual([]);
+    for (const id of ["view.nextTab", "view.prevTab", "view.closeTab"]) {
+      expect(ids.filter((x) => x === id)).toHaveLength(1);
+    }
+  });
+  it("renders the Tab key with a readable label", () => {
+    expect(formatChordForDisplay("Mod-Tab")).toEqual(["⌘/Ctrl", "Tab"]);
+  });
 });

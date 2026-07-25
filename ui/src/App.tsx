@@ -78,17 +78,19 @@ import {
 } from "./navHistory";
 import TabStrip from "./tabs/TabStrip";
 import {
-  activateTab,
   activeTab,
   closeTab,
   emptyTabs,
   moveTab,
+  nextTab,
   openTab,
+  prevTab,
   remapTabPaths,
   tabId,
   type TabSet,
   type TabView,
 } from "./tabs/tabModel";
+import { activateWithFlush, type ActivationDeps } from "./tabs/activation";
 import { errorMessage } from "./errorMessage";
 import {
   createWikiLinkResolver,
@@ -773,9 +775,7 @@ const App: Component = () => {
     }
   };
 
-  const activateTabById = async (id: string) => {
-    if (tabs().activeId === id) return;
-    await flushAutosave();
+  const resetDocState = () => {
     setError(null);
     setConflictExternalHash(null);
     setRawOverride(null);
@@ -783,8 +783,27 @@ const App: Component = () => {
     seenHash = null;
     lastWrittenHash = null;
     dirty = false;
-    setTabs((s) => activateTab(s, id));
-    await loadActiveTabContent();
+  };
+
+  const activationDeps: ActivationDeps = {
+    current: () => tabs(),
+    flush: () => flushAutosave(),
+    setTabs: (fn) => setTabs(fn),
+    resetDocState,
+    loadContent: () => loadActiveTabContent(),
+  };
+
+  const activateTabById = async (
+    id: string,
+    opts?: { fromHistory?: boolean },
+  ) => {
+    const switching = tabs().activeId !== id;
+    await activateWithFlush(activationDeps, id);
+    if (!switching || opts?.fromHistory === true) return;
+    const t = activeTab(tabs());
+    if (t === null || t.view.kind !== "file") return;
+    const path = t.view.path;
+    setNavState((s) => navPush(s, path));
   };
 
   const closeTabById = async (id: string) => {
@@ -792,13 +811,7 @@ const App: Component = () => {
     if (wasActive) await flushAutosave();
     setTabs((s) => closeTab(s, id));
     if (!wasActive) return;
-    setError(null);
-    setConflictExternalHash(null);
-    setRawOverride(null);
-    setPropertiesFrontmatter(null);
-    seenHash = null;
-    lastWrittenHash = null;
-    dirty = false;
+    resetDocState();
     if (tabs().activeId === null) setSelectedContent(null);
     else await loadActiveTabContent();
   };
@@ -921,10 +934,17 @@ const App: Component = () => {
     const id = tabs().activeId;
     if (id === null) return;
     const back = navCurrent(navState());
-    await closeTabById(id);
-    if (back === null) return;
-    const target = tabId({ kind: "file", path: back });
-    if (tabs().tabs.some((t) => t.id === target)) await activateTabById(target);
+    const target = back === null ? null : tabId({ kind: "file", path: back });
+    const canRestore =
+      target !== null &&
+      target !== id &&
+      tabs().tabs.some((t) => t.id === target);
+    if (!canRestore) {
+      await closeTabById(id);
+      return;
+    }
+    await activateTabById(target, { fromHistory: true });
+    setTabs((s) => closeTab(s, id));
   };
 
   const dismissCreateOffer = () => {
@@ -1197,6 +1217,33 @@ const App: Component = () => {
         title: "Navigate forward",
         when: () => navCanForward(),
         run: () => goForward(),
+      },
+      "view.nextTab": {
+        id: "view.nextTab",
+        title: "Next tab",
+        when: () => tabs().tabs.length > 1,
+        run: () => {
+          const id = nextTab(tabs()).activeId;
+          if (id !== null) void activateTabById(id);
+        },
+      },
+      "view.prevTab": {
+        id: "view.prevTab",
+        title: "Previous tab",
+        when: () => tabs().tabs.length > 1,
+        run: () => {
+          const id = prevTab(tabs()).activeId;
+          if (id !== null) void activateTabById(id);
+        },
+      },
+      "view.closeTab": {
+        id: "view.closeTab",
+        title: "Close tab",
+        when: () => tabs().activeId !== null,
+        run: () => {
+          const id = tabs().activeId;
+          if (id !== null) void closeTabById(id);
+        },
       },
     };
     const onGlobalKey = (e: KeyboardEvent) => {

@@ -69,6 +69,24 @@ export const COMMAND_DEFAULTS: readonly BindingDefault[] = [
     scope: "global",
     defaultKey: "Mod-Alt-ArrowRight",
   },
+  {
+    id: "view.nextTab",
+    title: "Next tab",
+    scope: "global",
+    defaultKey: "Mod-Tab",
+  },
+  {
+    id: "view.prevTab",
+    title: "Previous tab",
+    scope: "global",
+    defaultKey: "Mod-Shift-Tab",
+  },
+  {
+    id: "view.closeTab",
+    title: "Close tab",
+    scope: "global",
+    defaultKey: "Mod-Shift-w",
+  },
 ];
 
 export const DEFAULT_BINDINGS: readonly KeyBinding[] = COMMAND_DEFAULTS.map(
@@ -180,6 +198,7 @@ const SPECIAL_KEY_LABELS: Record<string, string> = {
   arrowup: "↑",
   arrowdown: "↓",
   escape: "Esc",
+  tab: "Tab",
   " ": "Space",
 };
 
