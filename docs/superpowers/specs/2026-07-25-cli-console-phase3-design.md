@@ -1,7 +1,7 @@
 # CLI frontend Phase 3 — in-app command console (design)
 
 **Date:** 2026-07-25
-**Status:** designed, not built
+**Status:** designed, **blocked on tabs** — see "Dependency" below
 **Supersedes the Phase-3 framing in:** [`../2026-07-24-cli-phase3-handoff.md`](../2026-07-24-cli-phase3-handoff.md)
 **Builds on:** [`2026-07-24-cli-frontend-design.md`](2026-07-24-cli-frontend-design.md) (Phase 1),
 [`2026-07-24-cli-attach-phase2-design.md`](2026-07-24-cli-attach-phase2-design.md) (Phase 2)
@@ -25,6 +25,27 @@ to `cubical`, which attaches over the Unix socket — elegant, but it makes the 
 on an unsolved packaging problem and inherits Phase 2's `#[cfg(unix)]` restriction. The
 console calls `dispatch` in-process instead, so it needs no binary and works on Windows,
 where sockets are deliberately deferred.
+
+## Dependency: this is blocked on tabs
+
+The console is **a tab**, not a docked panel — it opens in the center workspace alongside
+open notes and is closed like any other tab. Cubical has no tabs today (issue #20; the
+`topbar__tabs` markup in `App.tsx` renders exactly one placeholder `tab--active` div), so
+this spec cannot be implemented until that lands.
+
+Sequencing, decided 2026-07-25:
+
+- **Project A — tabs** (issue #20), tabs-only, no splits. Its own spec → plan → build.
+- **Project B — this spec**, retargeted onto A's tab model.
+
+§1 (the Rust half) is entirely tab-agnostic and unchanged by this. It is deliberately
+**not** landed early: `render_to` with no second caller is speculative generality, and a
+`console_exec` command with no UI to call it is dead code waiting on a dependency.
+
+The accepted cost of tab-over-panel, with no splits: **the console cannot be visible at the
+same time as a note.** Running `list` or `backlinks` while reading is exactly the use case
+that loses. This was weighed and accepted; splits would restore it and are deferred with
+the rest of issue #20.
 
 ## The invariant this must not break
 
@@ -119,26 +140,31 @@ dependency.
 | `ui/src/console/scrollback.ts` | entry model `{ kind: "input" \| "stdout" \| "stderr", text }` + 500-entry cap — pure, unit-tested |
 | `ui/src/console/ConsolePanel.tsx` | the panel: scrollback log + input line |
 | `ui/src/api/ipc.ts` | `consoleExec` — the single IPC chokepoint, per `docs/migration-touchpoints.md` |
-| `ui/src/App.tsx` | height + collapsed signals, `view.toggleConsole` command and shortcut, renders the panel gated on the core-plugin toggle |
-| `ui/src/styles/layout.css` | `.console` region and drag handle |
+| tab model (project A) | a `console` view kind, `view.openConsole` command and shortcut, gated on the core-plugin toggle |
+| `ui/src/styles/layout.css` | console-tab body styling only — no new layout region |
 | `ui/src/settings/corePlugins.ts` | a `console` entry in `CORE_PLUGINS` |
 
-**Placement.** `.app-shell` is a flex column (`topbar` / `stage` / `statusbar`). The console
-is a new `flex: 0 0 auto` region between `.stage` and `.statusbar` with a drag handle
-above it. This adds to `layout.css`; it does not shrink it, so the standing "do not shrink
-`layout.css` further" carry-over is unaffected.
+**Placement.** The console is a **view kind in project A's tab model**, rendered in the
+center workspace where a note or tag page would be. It adds no layout region, no drag
+handle, and no height state — the tab model owns all of that. This adds a little to
+`layout.css` and shrinks none of it, so the standing "do not shrink `layout.css` further"
+carry-over is unaffected.
 
 **Composability.** Per the CLAUDE.md non-negotiable, the console is a core plugin, not a
 monolith. `CORE_PLUGINS` gains:
 
 ```ts
 { id: "console", name: "Command console",
-  description: "Run cubical commands against the open vault from a panel in the app.",
-  settingKey: "plugins.console_enabled", defaultEnabled: true }
+  description: "Run cubical commands against the open vault in a tab.",
+  settingKey: "plugins.console_enabled", defaultEnabled: false }
 ```
 
-`defaultEnabled: true` matches the two existing core plugins; the panel itself ships
-collapsed, so "on by default" costs the user no screen space.
+`defaultEnabled: false`, unlike the two existing core plugins. The console is a power-user
+surface that can rename and trash files, so it is opt-in; flipping the default later is a
+one-line change if it earns its place.
+
+When the plugin is switched off while a console tab is open, that tab closes — a composable
+block must switch off cleanly.
 
 **Settings storage needs no Rust change.** Settings are stored generically as TOML
 key/value pairs; only the TS `Setting` union in `ui/src/api/ipc.ts` enumerates keys, so
@@ -146,8 +172,8 @@ this is a one-line addition there. `is_workspace_key` is `key.starts_with("ui.")
 `plugins.*` key is vault-scoped and travels in the portable `.cubical/config.toml` —
 correct for a core plugin.
 
-**Panel height and collapse are session state**, held in signals and reset on vault change,
-matching how the existing left/right sidebars behave. Not persisted.
+**Scrollback and history are session state**, held in signals and discarded when the tab
+closes or the vault changes. Not persisted.
 
 ---
 
@@ -176,6 +202,10 @@ recoverable, so a modal would add friction without adding safety.
   clap's exit code 2. `help`, `new --help`, and a typo'd flag therefore all produce useful
   in-panel text. This falls out of capturing clap's rendered message instead of letting it
   print — a free win, not extra work.
+
+  Help text is clap's generated output, not hand-written console help, so it cannot drift
+  from the actual verbs. The console prepends one line naming its own restrictions
+  (`write` and `--vault` are unavailable here) since clap does not know about them.
 - **Rejected input** (§3) → one `stderr`-kind entry.
 - **Dispatch errors** → the identical `error: <msg>` line the CLI prints, code 1.
 - **No vault open** → the panel renders inside the existing `vaultId()` gate in `App.tsx`,
@@ -216,7 +246,8 @@ a known flake under full-workspace load.
 Not in this spec, and not implied by it: a PTY or any shell process; ANSI or curses
 support; running arbitrary non-`cubical` programs; streaming or long-running commands;
 command cancellation; tab completion; persisted scrollback or history across restarts;
-bundling the `cubical` binary with the app.
+bundling the `cubical` binary with the app; **splits** (a console tab and a note tab
+visible at once) — deferred with the rest of issue #20.
 
 The general-shell fork is not foreclosed — the console does not make it harder to add a
 real terminal later — but nothing here is built speculatively to accommodate it.
