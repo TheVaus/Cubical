@@ -828,15 +828,11 @@ const App: Component = () => {
 
     await flushAutosave();
 
-    setError(null);
-    setConflictExternalHash(null);
+    resetDocState();
     setTabs((s) => openTab(s, { kind: "file", path: file.path }));
     if (!opts?.fromHistory) setNavState((s) => navPush(s, file.path));
-    setRawOverride(null);
-    setPropertiesFrontmatter(null);
     seenHash = knownHash ?? null;
     lastWrittenHash = knownHash ?? null;
-    dirty = false;
     await loadActiveTabContent();
   };
 

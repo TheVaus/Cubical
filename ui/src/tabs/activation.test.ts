@@ -20,6 +20,7 @@ function harness() {
     flush: async () => {
       log.push("flush");
       if (!dirty) return;
+      await Promise.resolve();
       const t = activeTab(tabs);
       if (t !== null && t.view.kind === "file") {
         writes.push({ path: t.view.path, content: buffer });
@@ -66,13 +67,6 @@ describe("activateWithFlush", () => {
     expect(h.writes.some((w) => w.path === "b.md")).toBe(false);
   });
 
-  it("flushes strictly before mutating the tab set", async () => {
-    const h = harness();
-    h.edit("edited in a");
-    await activateWithFlush(h.deps, "file:b.md");
-    expect(h.log.indexOf("flush")).toBeLessThan(h.log.indexOf("setTabs"));
-  });
-
   it("runs flush, reset, switch, load in exactly that order", async () => {
     const h = harness();
     h.edit("edited in a");
@@ -83,6 +77,7 @@ describe("activateWithFlush", () => {
   it("loads content only after the tab set has switched", async () => {
     const h = harness();
     await activateWithFlush(h.deps, "file:b.md");
+    expect(h.log.indexOf("setTabs")).toBeGreaterThanOrEqual(0);
     expect(h.log.indexOf("setTabs")).toBeLessThan(h.log.indexOf("loadContent"));
     expect(h.activeId()).toBe("file:b.md");
   });
@@ -97,5 +92,14 @@ describe("activateWithFlush", () => {
     const h = harness();
     await activateWithFlush(h.deps, "file:b.md");
     expect(h.writes).toEqual([]);
+  });
+
+  it("is a no-op for an id that is not in the tab set", async () => {
+    const h = harness();
+    h.edit("edited in a");
+    await activateWithFlush(h.deps, "file:missing.md");
+    expect(h.log).toEqual([]);
+    expect(h.writes).toEqual([]);
+    expect(h.activeId()).toBe("file:a.md");
   });
 });
