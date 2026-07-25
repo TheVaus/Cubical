@@ -40,6 +40,7 @@ export default function TabStrip(props: TabStripProps) {
           >
             <span class="tab__label">{label(tab)}</span>
             <button
+              type="button"
               class="tab__close"
               aria-label="Close tab"
               onClick={(e) => {
