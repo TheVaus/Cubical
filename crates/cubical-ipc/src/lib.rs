@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod dispatch;
+pub mod parse;
 mod protocol;
 mod render;
 mod transport;

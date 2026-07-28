@@ -696,7 +696,6 @@ name = "cubical-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "clap",
  "cubical-engine",
  "cubical-ipc",
  "serde",
@@ -768,6 +767,8 @@ dependencies = [
 name = "cubical-ipc"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "clap",
  "cubical-core",
  "cubical-engine",
  "serde",
