@@ -43,6 +43,8 @@ import {
   listFiles,
   listRecentVaults,
   listTags,
+  loadTabSession,
+  saveTabSession,
   onVaultFileChanged,
   onVaultFlushComplete,
   onVaultSettingChanged,
@@ -60,6 +62,7 @@ import {
   type FileEntry,
   type RecentVault,
   type ResolvedAnchor,
+  type TabSessionDto,
 } from "./api/ipc";
 import { createVaultSession } from "./core/vaultSession";
 import { persistSetting, seedSetting } from "./core/settings";
@@ -488,6 +491,60 @@ const App: Component = () => {
     const t = tabs().tabs.find((x) => x.id === id);
     return t !== undefined && t.view.kind === "file" ? t.view.path : null;
   };
+  const [tabsReady, setTabsReady] = createSignal(false);
+
+  const toDto = (s: TabSet): TabSessionDto => ({
+    active_id: s.activeId,
+    tabs: s.tabs.map((t) => ({
+      id: t.id,
+      kind: t.view.kind,
+      path: t.view.kind === "file" ? t.view.path : null,
+      tag_path: t.view.kind === "tag" ? t.view.tagPath : null,
+    })),
+  });
+
+  const fromDto = (dto: TabSessionDto): TabSet => {
+    const tabs = dto.tabs.flatMap((r) => {
+      const view: TabView | null =
+        r.kind === "file" && r.path !== null
+          ? { kind: "file", path: r.path }
+          : r.kind === "tag" && r.tag_path !== null
+            ? { kind: "tag", tagPath: r.tag_path }
+            : null;
+      return view === null ? [] : [{ id: tabId(view), view }];
+    });
+    const activeId = tabs.some((t) => t.id === dto.active_id)
+      ? dto.active_id
+      : (tabs[0]?.id ?? null);
+    return { tabs, activeId };
+  };
+
+  const restoreTabs = async (path: string) => {
+    try {
+      const dto = await loadTabSession(path);
+      let restored = fromDto(dto);
+      if (scanStatus() === "complete") {
+        const present = new Set(files().map((f) => f.path));
+        restored = dropMissingTabs(restored, (p) => present.has(p));
+      }
+      if (restored.tabs.length > 0) {
+        setTabs(restored);
+        await loadActiveTabContent();
+      }
+    } catch (e) {
+      console.error("loadTabSession failed", e);
+    } finally {
+      setTabsReady(true);
+    }
+  };
+
+  createEffect(() => {
+    const path = vaultPath();
+    const ready = tabsReady();
+    const snapshot = toDto(tabs());
+    if (path === null || !ready) return;
+    void saveTabSession(path, snapshot);
+  });
 
   createEffect(() => {
     const id = tabs().activeId;
@@ -1492,6 +1549,7 @@ const App: Component = () => {
       setFilesTotalEstimate(0);
       setScanStatus("in_progress");
       setVaultPath(path);
+      setTabsReady(false);
       setTabs(emptyTabs);
       setContents(produce((c) => {
         for (const k of Object.keys(c)) delete c[k];
@@ -1537,6 +1595,8 @@ const App: Component = () => {
       scheduleRefresh();
 
       await hydrateVaultSettings(resp.vault_id);
+      await refreshFileList();
+      await restoreTabs(path);
 
       void refreshRecentVaults();
     } catch (e) {
