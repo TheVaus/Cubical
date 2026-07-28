@@ -7,9 +7,11 @@ import {
   onCleanup,
   onMount,
   Show,
+  untrack,
   type Component,
   type JSX,
 } from "solid-js";
+import { createStore, produce } from "solid-js/store";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
@@ -91,6 +93,12 @@ import {
   type TabView,
 } from "./tabs/tabModel";
 import { activateWithFlush, type ActivationDeps } from "./tabs/activation";
+import {
+  DEFAULT_LIVE_TAB_LIMIT,
+  clampLimit,
+  liveIds,
+  touch,
+} from "./tabs/lru";
 import { errorMessage } from "./errorMessage";
 import {
   createWikiLinkResolver,
@@ -220,9 +228,17 @@ const App: Component = () => {
       setRecentVaults([]);
     }
   };
-  const [selectedContent, setSelectedContent] = createSignal<string | null>(
-    null,
-  );
+  const [contents, setContents] = createStore<Record<string, string>>({});
+  const selectedContent = (): string | null => {
+    const id = tabs().activeId;
+    return id === null ? null : (contents[id] ?? null);
+  };
+  const setSelectedContent = (value: string | null) => {
+    const id = tabs().activeId;
+    if (id === null) return;
+    if (value === null) setContents(produce((c) => delete c[id]));
+    else setContents(id, value);
+  };
   const [propertiesFrontmatter, setPropertiesFrontmatter] =
     createSignal<Frontmatter | null>(null);
 
@@ -273,6 +289,12 @@ const App: Component = () => {
   const [rawOverride, setRawOverride] = createSignal<boolean | null>(null);
   const [minimapEnabled, setMinimapEnabled] = createSignal(false);
   const [colorizeSource, setColorizeSource] = createSignal(false);
+  const [liveTabLimit, setLiveTabLimit] = createSignal(DEFAULT_LIVE_TAB_LIMIT);
+  const setLiveTabLimitValue = (raw: number) => {
+    const val = clampLimit(raw);
+    setLiveTabLimit(val);
+    persistSetting(vaultId(), "editor.live_tab_limit", val);
+  };
   const effectiveRaw = createMemo(() =>
     resolveRawState(rawOverride(), rawDefault()),
   );
@@ -454,7 +476,35 @@ const App: Component = () => {
   let lastWrittenHash: string | null = null;
   let dirty = false;
 
-  let editorApi: EditorApi | undefined;
+  const [mru, setMru] = createSignal<string[]>([]);
+  const editorApis = new Map<string, EditorApi>();
+  const live = () => liveIds(mru(), tabs().activeId, liveTabLimit());
+  const editorApi = (): EditorApi | undefined => {
+    const id = tabs().activeId;
+    return id === null ? undefined : editorApis.get(id);
+  };
+  const pathForId = (id: string): string | null => {
+    const t = tabs().tabs.find((x) => x.id === id);
+    return t !== undefined && t.view.kind === "file" ? t.view.path : null;
+  };
+
+  createEffect(() => {
+    const id = tabs().activeId;
+    if (id !== null) setMru((m) => touch(m, id));
+  });
+
+  createEffect(() => {
+    const keep = new Set(live());
+    for (const id of [...editorApis.keys()]) {
+      if (!keep.has(id)) editorApis.delete(id);
+    }
+    untrack(() => {
+      for (const id of Object.keys(contents)) {
+        if (!keep.has(id)) setContents(produce((c) => delete c[id]));
+      }
+    });
+  });
+
   let autosaveTimer: ReturnType<typeof setTimeout> | undefined;
   let pendingWrite: Promise<void> | null = null;
 
@@ -497,8 +547,9 @@ const App: Component = () => {
   const performWrite = async (): Promise<void> => {
     const id = vaultId();
     const path = selectedPath();
-    if (!id || !path || !editorApi) return;
-    const content = editorApi.getContent();
+    const api = editorApi();
+    if (!id || !path || !api) return;
+    const content = api.getContent();
     try {
       const req: Parameters<typeof writeFileText>[0] = {
         vault_id: id,
@@ -509,7 +560,7 @@ const App: Component = () => {
       const resp = await writeFileText(req);
       lastWrittenHash = resp.new_content_hash;
       seenHash = resp.new_content_hash;
-      if (editorApi.getContent() === content) {
+      if (api.getContent() === content) {
         dirty = false;
       }
       scheduleSearchRefresh();
@@ -668,7 +719,7 @@ const App: Component = () => {
   const handleAstChange = (doc: CanonicalDocument) => {
     setPropertiesFrontmatter(doc.frontmatter);
     setBlockCount(doc.blocks.length);
-    const text = editorApi?.getContent() ?? selectedContent() ?? "";
+    const text = editorApi()?.getContent() ?? selectedContent() ?? "";
     const trimmed = text.trim();
     setWordCount(trimmed ? trimmed.split(/\s+/).length : 0);
   };
@@ -810,10 +861,10 @@ const App: Component = () => {
     const wasActive = tabs().activeId === id;
     if (wasActive) await flushAutosave();
     setTabs((s) => closeTab(s, id));
+    setMru((m) => m.filter((x) => x !== id));
     if (!wasActive) return;
     resetDocState();
-    if (tabs().activeId === null) setSelectedContent(null);
-    else await loadActiveTabContent();
+    if (tabs().activeId !== null) await loadActiveTabContent();
   };
 
   const handleSelectFile = async (
@@ -864,10 +915,11 @@ const App: Component = () => {
   const reloadFromDisk = async () => {
     const id = vaultId();
     const path = selectedPath();
-    if (!id || !path || !editorApi) return;
+    const api = editorApi();
+    if (!id || !path || !api) return;
     try {
       const resp = await readFileText({ vault_id: id, path });
-      editorApi.replaceContent(resp.content);
+      api.replaceContent(resp.content);
       setSelectedContent(resp.content);
       seenHash = conflictExternalHash();
       lastWrittenHash = null;
@@ -900,14 +952,14 @@ const App: Component = () => {
     };
     const alreadyOpen = selectedPath() === path;
     if (anchor !== null && !alreadyOpen) {
-      editorApi?.requestAnchorScroll(anchor);
+      editorApi()?.requestAnchorScroll(anchor);
     }
     await handleSelectFile(file, knownHash);
     if (anchor !== null && alreadyOpen) {
       const found =
         anchor.kind === "heading"
-          ? editorApi?.scrollToHeading(anchor.value)
-          : editorApi?.scrollToBlock(anchor.value);
+          ? editorApi()?.scrollToHeading(anchor.value)
+          : editorApi()?.scrollToBlock(anchor.value);
       if (found === false) notifyAnchorNotFound(anchor);
     }
   };
@@ -941,6 +993,7 @@ const App: Component = () => {
     }
     await activateTabById(target, { fromHistory: true });
     setTabs((s) => closeTab(s, id));
+    setMru((m) => m.filter((x) => x !== id));
   };
 
   const dismissCreateOffer = () => {
@@ -1140,7 +1193,7 @@ const App: Component = () => {
         if (!id || !path) return;
         readFileText({ vault_id: id, path })
           .then((resp) => {
-            editorApi?.replaceContent(resp.content);
+            editorApi()?.replaceContent(resp.content);
             setSelectedContent(resp.content);
             seenHash = incoming;
             dirty = false;
@@ -1295,6 +1348,13 @@ const App: Component = () => {
 
     await seedSetting(
       vid,
+      "editor.live_tab_limit",
+      DEFAULT_LIVE_TAB_LIMIT,
+      (v) => setLiveTabLimit(clampLimit(v)),
+    );
+
+    await seedSetting(
+      vid,
       "editor.colorize_raw_source",
       false,
       setColorizeSource,
@@ -1385,7 +1445,10 @@ const App: Component = () => {
       setScanStatus("in_progress");
       setVaultPath(path);
       setTabs(emptyTabs);
-      setSelectedContent(null);
+      setContents(produce((c) => {
+        for (const k of Object.keys(c)) delete c[k];
+      }));
+      setMru([]);
       setPropertiesFrontmatter(null);
       setBlockCount(0);
       setWordCount(0);
@@ -2019,9 +2082,9 @@ const App: Component = () => {
                   <Properties
                     frontmatter={propertiesFrontmatter()}
                     path={selectedPath() ?? ""}
-                    getSource={() => editorApi?.getContent() ?? ""}
+                    getSource={() => editorApi()?.getContent() ?? ""}
                     applyEdit={(from, to, text) =>
-                      editorApi?.replaceRange(from, to, text)
+                      editorApi()?.replaceRange(from, to, text)
                     }
                     onOpenRaw={() => setRawOverride(true)}
                     onNavigateTag={(tagPath) =>
@@ -2033,49 +2096,57 @@ const App: Component = () => {
                     tagsKeyAsTags={tagsKeyAsTags()}
                   />
                 </Show>
-                <Editor
-                  value={selectedContent() ?? ""}
-                  resolvedTheme={resolvedTheme()}
-                  rawSource={effectiveRaw()}
-                  minimapEnabled={minimapEnabled()}
-                  colorizeSource={colorizeSource()}
-                  wikilinkResolver={wikilinkResolver()}
-                  embedResolver={embedResolver()}
-                  propertyResolver={propertyResolver()}
-                  propertyRefsEnabled={corePluginEnabled(
-                    corePlugins(),
-                    CORE_PLUGINS.find((p) => p.id === "property-refs")!,
+                <For each={live()}>
+                  {(id) => (
+                    <div
+                      style={{
+                        display: id === tabs().activeId ? "contents" : "none",
+                      }}
+                    >
+                      <Editor
+                        value={contents[id] ?? ""}
+                        resolvedTheme={resolvedTheme()}
+                        rawSource={effectiveRaw()}
+                        minimapEnabled={minimapEnabled()}
+                        colorizeSource={colorizeSource()}
+                        wikilinkResolver={wikilinkResolver()}
+                        embedResolver={embedResolver()}
+                        propertyResolver={propertyResolver()}
+                        propertyRefsEnabled={corePluginEnabled(
+                          corePlugins(),
+                          CORE_PLUGINS.find((p) => p.id === "property-refs")!,
+                        )}
+                        dataviewRunner={
+                          corePluginEnabled(
+                            corePlugins(),
+                            CORE_PLUGINS.find((p) => p.id === "dataview")!,
+                          )
+                            ? dataviewRunner()
+                            : null
+                        }
+                        openNotePath={pathForId(id)}
+                        autocompleteProvider={autocompleteProvider()}
+                        editorBindings={effectiveBindings()}
+                        onNavigateWikilink={(path, anchor) =>
+                          void handleNavigateWikilink(path, anchor)
+                        }
+                        onOfferCreateWikilink={(path) =>
+                          handleOfferCreateWikilink(path)
+                        }
+                        onAnchorNotFound={notifyAnchorNotFound}
+                        onNavigateTag={(tagPath) =>
+                          void handleNavigateTag(tagPath)
+                        }
+                        onToggleRawSource={toggleRawSource}
+                        onAstChange={handleAstChange}
+                        onContentChange={handleContentChange}
+                        onBlur={() => void flushAutosave()}
+                        onCopyBlockRef={(off) => void handleCopyBlockRef(off)}
+                        ref={(api) => editorApis.set(id, api)}
+                      />
+                    </div>
                   )}
-                  dataviewRunner={
-                    corePluginEnabled(
-                      corePlugins(),
-                      CORE_PLUGINS.find((p) => p.id === "dataview")!,
-                    )
-                      ? dataviewRunner()
-                      : null
-                  }
-                  openNotePath={selectedPath()}
-                  autocompleteProvider={autocompleteProvider()}
-                  editorBindings={effectiveBindings()}
-                  onNavigateWikilink={(path, anchor) =>
-                    void handleNavigateWikilink(path, anchor)
-                  }
-                  onOfferCreateWikilink={(path) =>
-                    handleOfferCreateWikilink(path)
-                  }
-                  onAnchorNotFound={notifyAnchorNotFound}
-                  onNavigateTag={(tagPath) =>
-                    void handleNavigateTag(tagPath)
-                  }
-                  onToggleRawSource={toggleRawSource}
-                  onAstChange={handleAstChange}
-                  onContentChange={handleContentChange}
-                  onBlur={() => void flushAutosave()}
-                  onCopyBlockRef={(off) => void handleCopyBlockRef(off)}
-                  ref={(api) => {
-                    editorApi = api;
-                  }}
-                />
+                </For>
               </Show>
               </Show>
               </div>
@@ -2214,6 +2285,25 @@ const App: Component = () => {
                   <OnOffControl
                     value={minimapEnabled()}
                     onChange={setMinimapEnabledValue}
+                  />
+                </div>
+                <div class="set-row">
+                  <div>
+                    <div class="set-row__lab">Live editor tabs</div>
+                    <div class="set-row__desc">
+                      How many open tabs keep a live editor. Tabs beyond this
+                      reload from disk when you return to them.
+                    </div>
+                  </div>
+                  <input
+                    class="set-row__num"
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={liveTabLimit()}
+                    onChange={(e) =>
+                      setLiveTabLimitValue(Number(e.currentTarget.value))
+                    }
                   />
                 </div>
                 <div class="set-row">
