@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod recent_vaults;
+mod tab_sessions;
 mod tauri_sink;
 
 use cubical_engine::api::types::{
@@ -76,6 +77,8 @@ pub fn run() {
             open_vault,
             list_recent_vaults,
             remove_recent_vault,
+            load_tab_session,
+            save_tab_session,
             cancel_vault_scan,
             get_vault_info,
             list_files,
@@ -256,6 +259,27 @@ fn list_recent_vaults(app: tauri::AppHandle) -> recent_vaults::ListRecentVaultsR
 fn remove_recent_vault(app: tauri::AppHandle, req: recent_vaults::RemoveRecentVaultRequest) {
     if let Some(p) = recent_vaults_store(&app) {
         recent_vaults::remove(&p, &req.path);
+    }
+}
+
+fn tab_sessions_store(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    app.path()
+        .app_data_dir()
+        .ok()
+        .map(|dir| dir.join("tab_sessions.json"))
+}
+
+#[tauri::command]
+fn load_tab_session(app: tauri::AppHandle, vault_path: String) -> tab_sessions::TabSession {
+    tab_sessions_store(&app)
+        .map(|p| tab_sessions::load(&p, &vault_path))
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+fn save_tab_session(app: tauri::AppHandle, vault_path: String, session: tab_sessions::TabSession) {
+    if let Some(p) = tab_sessions_store(&app) {
+        tab_sessions::save(&p, &vault_path, &session);
     }
 }
 

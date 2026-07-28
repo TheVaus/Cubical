@@ -63,6 +63,65 @@ resolutions stay valid; invalidating anyway only thrashes embed-card height and
 jumps the viewport. Other-file changes and genuine external edits still
 invalidate.
 
+## Tabs
+
+The active-document model lives in an immutable `TabSet` (`tabs/tabModel.ts`),
+in the style of `navHistory.ts` — `App` holds one `tabs` signal and derives the
+old `view()` / `selectedPath()` accessors from it, so every existing read site
+kept working untouched.
+
+**Only the active tab can be dirty, because activating a tab flushes autosave
+first.** The autosave machinery stays global and unchanged — one `dirty`, one
+timer, one `pendingWrite`. Lifting that to per-tab state is the sharpest
+data-loss hazard in the app: tab B's timer firing against tab A's buffer writes
+A's text to B's path. Flushing on activation removes the hazard by construction.
+The activation ordering lives in exactly one tested place (`tabs/activation.ts`);
+never add a second path that switches tabs without going through it, and never
+introduce per-tab `dirty` — a bug that seems to need it is almost always a
+missing flush.
+
+**Tab ids are derived from the view** (`file:<path>`, `tag:<path>`), so opening
+an already-open document activates its existing tab instead of duplicating it.
+That removes identity bookkeeping, but it also forces **nav history to be
+global**: dedupe-on-open makes a tab *be* a document, so a per-tab back/forward
+stack could only ever hold the one path it was created with. History is one
+app-wide `NavState`, and back/forward may change which tab is active.
+
+**Keep-alive editors.** Each tab keeps its `Editor` mounted (`<For each={live()}>`
+with a `display: contents | none` wrapper), capped by an LRU (`editor.live_tab_limit`,
+default 8, clamped to ≥1). Swapping `value` on one shared instance would reset
+CodeMirror's undo/scroll/cursor on every switch. Because the plan's single
+`selectedContent` signal cannot drive N mounted editors without the hidden ones
+clobbering each other, editor content is a **per-id store** (`contents[id]`);
+each editor binds to its own key, so a switch never touches a hidden buffer.
+Returning to a *live* tab preserves its CodeMirror state for free: activation
+reloads from disk, but the flush-on-leave invariant guarantees disk equals the
+editor's buffer, so `Editor`'s `current !== next` guard makes the re-dispatch a
+no-op. An *evicted* tab is always clean (same invariant), so it simply remounts
+and **rehydrates from disk** — the markdown-is-source-of-truth rule applied
+literally; there is deliberately no content cache for cold tabs. The eviction
+effect prunes both `editorApis` and `contents` for any id no longer live.
+
+**Lifecycle edges.** Rename remaps the tab ids (`remapTabPaths`) *and* the
+keep-alive `mru` / `contents` keys, so the renamed active tab keeps its content;
+`editorApis` self-prunes because the renamed id leaves `live()`. External deletes
+are handled in `refreshFileList` via `dropMissingTabs`, gated on
+`ScanStatus::Complete` so a partial mid-scan file list never drops a legitimately
+open tab.
+
+**Sessions are machine-local**, in the Tauri app-data dir keyed by vault path —
+not `.cubical/config.toml`. Which tabs you had open should not travel with a
+vault shared between machines or people (the recent-vaults precedent). Nav
+history is not persisted; a restored tab starts with empty history, the way a
+browser treats a restored tab. Persistence is gated behind a `tabsReady` flag:
+a vault switch clears the tab set to empty *before* restore reads the saved
+session, and an ungated persist effect would save that empty set — which the
+Rust side reads as "forget this vault" — and wipe the session before it is read.
+
+**Known exposure, unchanged from single-file editing:** if the flush write
+fails, activation still proceeds with unflushed content. Today's file-switch has
+exactly this exposure; tabs neither widen nor narrow it.
+
 ## Command registry is pure substrate
 
 `ui/src/core/commands.ts` holds types, the default binding table, key-string

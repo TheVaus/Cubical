@@ -58,7 +58,7 @@ export type TabView =
   | { kind: "file"; path: string }
   | { kind: "tag"; tagPath: string };
 
-export interface Tab { id: string; view: TabView; nav: NavState }
+export interface Tab { id: string; view: TabView }
 export interface TabSet { tabs: Tab[]; activeId: string | null }
 ```
 
@@ -70,8 +70,24 @@ the same file twice is therefore not possible. This is a deliberate simplificati
 removes identity bookkeeping, and duplicate views of one file only earn their keep once
 splits exist.
 
-**Nav history is per-tab**, the browser model. This is nearly free: `navHistory.ts` is 35
-lines of pure functions over an immutable `NavState`, so it becomes a field on `Tab`.
+**Nav history is global, not per-tab** — one app-wide `NavState`, exactly as today.
+Back/forward means "previously visited document" and may switch which tab is active.
+
+This reverses an earlier decision in this spec, and the reason is worth recording because it
+is structural rather than incidental. Per-tab history requires a tab to be a *container* that
+shows different documents over time. Dedupe-on-open makes a tab **be** a document: navigating
+to another note activates that note's own tab rather than changing the current tab's content.
+So a tab's history can only ever hold the one path it was created with — `navPush` no-ops on
+the path already current — and back/forward is dead in every tab, permanently.
+
+The two decisions are individually reasonable and jointly incompatible. Keeping dedupe-on-open
+(§2) means history must be global. The alternative — opaque tab ids, in-tab navigation, and
+duplicates allowed — is the browser/Obsidian model and was rejected with the duplicates
+question.
+
+Caught during implementation, after the per-tab version had shipped in the tab model and been
+wired into `App.tsx`; both the implementer and the reviewer traced it independently. `Tab` has
+no `nav` field and `tabModel` has no `updateNav`.
 
 The CLI console spec adds `{ kind: "console" }` to `TabView`. Nothing else in this spec
 needs to know about it — that is the point of keying tabs by view kind.
@@ -120,7 +136,7 @@ rehydrate from.
 
 | | survives eviction |
 |---|---|
-| tab, its position, its nav history | yes |
+| tab and its position | yes |
 | CodeMirror undo stack, scroll, cursor | no |
 
 At the default of 8, the loss only bites on the 9th-least-recently-used tab. Uncapped

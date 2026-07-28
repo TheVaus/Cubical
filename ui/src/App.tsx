@@ -7,9 +7,11 @@ import {
   onCleanup,
   onMount,
   Show,
+  untrack,
   type Component,
   type JSX,
 } from "solid-js";
+import { createStore, produce } from "solid-js/store";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
@@ -41,6 +43,8 @@ import {
   listFiles,
   listRecentVaults,
   listTags,
+  loadTabSession,
+  saveTabSession,
   onVaultFileChanged,
   onVaultFlushComplete,
   onVaultSettingChanged,
@@ -58,6 +62,7 @@ import {
   type FileEntry,
   type RecentVault,
   type ResolvedAnchor,
+  type TabSessionDto,
 } from "./api/ipc";
 import { createVaultSession } from "./core/vaultSession";
 import { persistSetting, seedSetting } from "./core/settings";
@@ -76,6 +81,28 @@ import {
   canForward,
   type NavState,
 } from "./navHistory";
+import TabStrip from "./tabs/TabStrip";
+import {
+  activeTab,
+  closeTab,
+  dropMissingTabs,
+  emptyTabs,
+  moveTab,
+  nextTab,
+  openTab,
+  prevTab,
+  remapTabPaths,
+  tabId,
+  type TabSet,
+  type TabView,
+} from "./tabs/tabModel";
+import { activateWithFlush, type ActivationDeps } from "./tabs/activation";
+import {
+  DEFAULT_LIVE_TAB_LIMIT,
+  clampLimit,
+  liveIds,
+  touch,
+} from "./tabs/lru";
 import { errorMessage } from "./errorMessage";
 import {
   createWikiLinkResolver,
@@ -205,10 +232,17 @@ const App: Component = () => {
       setRecentVaults([]);
     }
   };
-  const [selectedPath, setSelectedPath] = createSignal<string | null>(null);
-  const [selectedContent, setSelectedContent] = createSignal<string | null>(
-    null,
-  );
+  const [contents, setContents] = createStore<Record<string, string>>({});
+  const selectedContent = (): string | null => {
+    const id = tabs().activeId;
+    return id === null ? null : (contents[id] ?? null);
+  };
+  const setSelectedContent = (value: string | null) => {
+    const id = tabs().activeId;
+    if (id === null) return;
+    if (value === null) setContents(produce((c) => delete c[id]));
+    else setContents(id, value);
+  };
   const [propertiesFrontmatter, setPropertiesFrontmatter] =
     createSignal<Frontmatter | null>(null);
 
@@ -259,6 +293,12 @@ const App: Component = () => {
   const [rawOverride, setRawOverride] = createSignal<boolean | null>(null);
   const [minimapEnabled, setMinimapEnabled] = createSignal(false);
   const [colorizeSource, setColorizeSource] = createSignal(false);
+  const [liveTabLimit, setLiveTabLimit] = createSignal(DEFAULT_LIVE_TAB_LIMIT);
+  const setLiveTabLimitValue = (raw: number) => {
+    const val = clampLimit(raw);
+    setLiveTabLimit(val);
+    persistSetting(vaultId(), "editor.live_tab_limit", val);
+  };
   const effectiveRaw = createMemo(() =>
     resolveRawState(rawOverride(), rawDefault()),
   );
@@ -301,8 +341,14 @@ const App: Component = () => {
     null,
   );
 
-  type View = { kind: "file" } | { kind: "tag"; tagPath: string };
-  const [view, setView] = createSignal<View>({ kind: "file" });
+  type View = TabView;
+  const [tabs, setTabs] = createSignal<TabSet>(emptyTabs);
+  const view = (): View =>
+    activeTab(tabs())?.view ?? { kind: "file", path: "" };
+  const selectedPath = (): string | null => {
+    const t = activeTab(tabs());
+    return t !== null && t.view.kind === "file" ? t.view.path : null;
+  };
   const [tagRefreshTick, setTagRefreshTick] = createSignal(0);
 
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = createSignal(false);
@@ -434,7 +480,89 @@ const App: Component = () => {
   let lastWrittenHash: string | null = null;
   let dirty = false;
 
-  let editorApi: EditorApi | undefined;
+  const [mru, setMru] = createSignal<string[]>([]);
+  const editorApis = new Map<string, EditorApi>();
+  const live = () => liveIds(mru(), tabs().activeId, liveTabLimit());
+  const editorApi = (): EditorApi | undefined => {
+    const id = tabs().activeId;
+    return id === null ? undefined : editorApis.get(id);
+  };
+  const pathForId = (id: string): string | null => {
+    const t = tabs().tabs.find((x) => x.id === id);
+    return t !== undefined && t.view.kind === "file" ? t.view.path : null;
+  };
+  const [tabsReady, setTabsReady] = createSignal(false);
+
+  const toDto = (s: TabSet): TabSessionDto => ({
+    active_id: s.activeId,
+    tabs: s.tabs.map((t) => ({
+      id: t.id,
+      kind: t.view.kind,
+      path: t.view.kind === "file" ? t.view.path : null,
+      tag_path: t.view.kind === "tag" ? t.view.tagPath : null,
+    })),
+  });
+
+  const fromDto = (dto: TabSessionDto): TabSet => {
+    const tabs = dto.tabs.flatMap((r) => {
+      const view: TabView | null =
+        r.kind === "file" && r.path !== null
+          ? { kind: "file", path: r.path }
+          : r.kind === "tag" && r.tag_path !== null
+            ? { kind: "tag", tagPath: r.tag_path }
+            : null;
+      return view === null ? [] : [{ id: tabId(view), view }];
+    });
+    const activeId = tabs.some((t) => t.id === dto.active_id)
+      ? dto.active_id
+      : (tabs[0]?.id ?? null);
+    return { tabs, activeId };
+  };
+
+  const restoreTabs = async (path: string) => {
+    try {
+      const dto = await loadTabSession(path);
+      let restored = fromDto(dto);
+      if (scanStatus() === "complete") {
+        const present = new Set(files().map((f) => f.path));
+        restored = dropMissingTabs(restored, (p) => present.has(p));
+      }
+      if (restored.tabs.length > 0) {
+        setTabs(restored);
+        await loadActiveTabContent();
+      }
+    } catch (e) {
+      console.error("loadTabSession failed", e);
+    } finally {
+      setTabsReady(true);
+    }
+  };
+
+  createEffect(() => {
+    const path = vaultPath();
+    const ready = tabsReady();
+    const snapshot = toDto(tabs());
+    if (path === null || !ready) return;
+    void saveTabSession(path, snapshot);
+  });
+
+  createEffect(() => {
+    const id = tabs().activeId;
+    if (id !== null) setMru((m) => touch(m, id));
+  });
+
+  createEffect(() => {
+    const keep = new Set(live());
+    for (const id of [...editorApis.keys()]) {
+      if (!keep.has(id)) editorApis.delete(id);
+    }
+    untrack(() => {
+      for (const id of Object.keys(contents)) {
+        if (!keep.has(id)) setContents(produce((c) => delete c[id]));
+      }
+    });
+  });
+
   let autosaveTimer: ReturnType<typeof setTimeout> | undefined;
   let pendingWrite: Promise<void> | null = null;
 
@@ -457,6 +585,21 @@ const App: Component = () => {
       const resp = await listFiles({ vault_id: id });
       setFiles(resp.files);
       setFolders(resp.folders);
+      if (scanStatus() === "complete") {
+        const present = new Set(resp.files.map((f) => f.path));
+        const dropped = dropMissingTabs(tabs(), (p) => present.has(p));
+        if (dropped !== tabs()) {
+          const before = tabs().activeId;
+          setTabs(dropped);
+          setMru((m) =>
+            m.filter((mid) => dropped.tabs.some((t) => t.id === mid)),
+          );
+          if (dropped.activeId !== before) {
+            resetDocState();
+            if (dropped.activeId !== null) await loadActiveTabContent();
+          }
+        }
+      }
     } catch (e) {
       console.error("listFiles failed", e);
     }
@@ -477,8 +620,9 @@ const App: Component = () => {
   const performWrite = async (): Promise<void> => {
     const id = vaultId();
     const path = selectedPath();
-    if (!id || !path || !editorApi) return;
-    const content = editorApi.getContent();
+    const api = editorApi();
+    if (!id || !path || !api) return;
+    const content = api.getContent();
     try {
       const req: Parameters<typeof writeFileText>[0] = {
         vault_id: id,
@@ -489,7 +633,7 @@ const App: Component = () => {
       const resp = await writeFileText(req);
       lastWrittenHash = resp.new_content_hash;
       seenHash = resp.new_content_hash;
-      if (editorApi.getContent() === content) {
+      if (api.getContent() === content) {
         dirty = false;
       }
       scheduleSearchRefresh();
@@ -603,17 +747,47 @@ const App: Component = () => {
       } else {
         await renameFile({ vault_id: id, from_path: fromPath, to_path: target });
       }
-      if (isFolder) {
-        const sel = selectedPath();
-        if (sel !== null) {
-          const reprefixed = reprefixNestedPath(sel, fromPath, target);
-          if (reprefixed !== null) {
-            setSelectedPath(reprefixed);
+      const renamedId = (oldId: string): string => {
+        if (!oldId.startsWith("file:")) return oldId;
+        const p = oldId.slice("file:".length);
+        const to = isFolder
+          ? reprefixNestedPath(p, fromPath, target)
+          : p === fromPath
+            ? target
+            : null;
+        return to === null || to === p ? oldId : tabId({ kind: "file", path: to });
+      };
+      setTabs((s) =>
+        remapTabPaths(s, (p) =>
+          isFolder
+            ? reprefixNestedPath(p, fromPath, target)
+            : p === fromPath
+              ? target
+              : null,
+        ),
+      );
+      setMru((m) => {
+        const seen = new Set<string>();
+        const out: string[] = [];
+        for (const id of m) {
+          const next = renamedId(id);
+          if (!seen.has(next)) {
+            seen.add(next);
+            out.push(next);
           }
         }
-      } else if (selectedPath() === fromPath) {
-        setSelectedPath(target);
-      }
+        return out;
+      });
+      setContents(
+        produce((c) => {
+          for (const oldId of Object.keys(c)) {
+            const next = renamedId(oldId);
+            if (next === oldId) continue;
+            if (!(next in c)) c[next] = c[oldId]!;
+            delete c[oldId];
+          }
+        }),
+      );
       wikilinkResolver()?.invalidate();
       embedResolver()?.invalidate();
       propertyResolver()?.invalidate();
@@ -650,7 +824,7 @@ const App: Component = () => {
   const handleAstChange = (doc: CanonicalDocument) => {
     setPropertiesFrontmatter(doc.frontmatter);
     setBlockCount(doc.blocks.length);
-    const text = editorApi?.getContent() ?? selectedContent() ?? "";
+    const text = editorApi()?.getContent() ?? selectedContent() ?? "";
     const trimmed = text.trim();
     setWordCount(trimmed ? trimmed.split(/\s+/).length : 0);
   };
@@ -744,6 +918,60 @@ const App: Component = () => {
     persistSetting(vaultId(), "ui.right_sidebar_panel", id);
   };
 
+  const loadActiveTabContent = async () => {
+    const id = vaultId();
+    const path = selectedPath();
+    if (!id || path === null) return;
+    try {
+      const resp = await readFileText({ vault_id: id, path });
+      setSelectedContent(resp.content);
+    } catch (e) {
+      setError(errorMessage(e));
+      setSelectedContent(null);
+    }
+  };
+
+  const resetDocState = () => {
+    setError(null);
+    setConflictExternalHash(null);
+    setRawOverride(null);
+    setPropertiesFrontmatter(null);
+    seenHash = null;
+    lastWrittenHash = null;
+    dirty = false;
+  };
+
+  const activationDeps: ActivationDeps = {
+    current: () => tabs(),
+    flush: () => flushAutosave(),
+    setTabs: (fn) => setTabs(fn),
+    resetDocState,
+    loadContent: () => loadActiveTabContent(),
+  };
+
+  const activateTabById = async (
+    id: string,
+    opts?: { fromHistory?: boolean },
+  ) => {
+    const switching = tabs().activeId !== id;
+    await activateWithFlush(activationDeps, id);
+    if (!switching || opts?.fromHistory === true) return;
+    const t = activeTab(tabs());
+    if (t === null || t.view.kind !== "file") return;
+    const path = t.view.path;
+    setNavState((s) => navPush(s, path));
+  };
+
+  const closeTabById = async (id: string) => {
+    const wasActive = tabs().activeId === id;
+    if (wasActive) await flushAutosave();
+    setTabs((s) => closeTab(s, id));
+    setMru((m) => m.filter((x) => x !== id));
+    if (!wasActive) return;
+    resetDocState();
+    if (tabs().activeId !== null) await loadActiveTabContent();
+  };
+
   const handleSelectFile = async (
     file: FileEntry,
     knownHash?: string,
@@ -752,28 +980,16 @@ const App: Component = () => {
     if (file.type_id !== "markdown") return;
     const id = vaultId();
     if (!id) return;
-    setView({ kind: "file" });
     if (selectedPath() === file.path) return;
 
     await flushAutosave();
 
-    setError(null);
-    setConflictExternalHash(null);
-    setSelectedPath(file.path);
+    resetDocState();
+    setTabs((s) => openTab(s, { kind: "file", path: file.path }));
     if (!opts?.fromHistory) setNavState((s) => navPush(s, file.path));
-    setRawOverride(null);
-    setPropertiesFrontmatter(null);
     seenHash = knownHash ?? null;
     lastWrittenHash = knownHash ?? null;
-    dirty = false;
-    try {
-      const resp = await readFileText({ vault_id: id, path: file.path });
-      setSelectedContent(resp.content);
-    } catch (e) {
-      const message = errorMessage(e);
-      setError(message);
-      setSelectedContent(null);
-    }
+    await loadActiveTabContent();
   };
 
   const navigateToHistoryPath = (path: string) => {
@@ -804,10 +1020,11 @@ const App: Component = () => {
   const reloadFromDisk = async () => {
     const id = vaultId();
     const path = selectedPath();
-    if (!id || !path || !editorApi) return;
+    const api = editorApi();
+    if (!id || !path || !api) return;
     try {
       const resp = await readFileText({ vault_id: id, path });
-      editorApi.replaceContent(resp.content);
+      api.replaceContent(resp.content);
       setSelectedContent(resp.content);
       seenHash = conflictExternalHash();
       lastWrittenHash = null;
@@ -840,14 +1057,14 @@ const App: Component = () => {
     };
     const alreadyOpen = selectedPath() === path;
     if (anchor !== null && !alreadyOpen) {
-      editorApi?.requestAnchorScroll(anchor);
+      editorApi()?.requestAnchorScroll(anchor);
     }
     await handleSelectFile(file, knownHash);
     if (anchor !== null && alreadyOpen) {
       const found =
         anchor.kind === "heading"
-          ? editorApi?.scrollToHeading(anchor.value)
-          : editorApi?.scrollToBlock(anchor.value);
+          ? editorApi()?.scrollToHeading(anchor.value)
+          : editorApi()?.scrollToBlock(anchor.value);
       if (found === false) notifyAnchorNotFound(anchor);
     }
   };
@@ -863,11 +1080,25 @@ const App: Component = () => {
 
   const handleNavigateTag = async (tagPath: string) => {
     await flushAutosave();
-    setView({ kind: "tag", tagPath });
+    setTabs((s) => openTab(s, { kind: "tag", tagPath }));
   };
 
-  const handleExitTagView = () => {
-    setView({ kind: "file" });
+  const handleExitTagView = async () => {
+    const id = tabs().activeId;
+    if (id === null) return;
+    const back = navCurrent(navState());
+    const target = back === null ? null : tabId({ kind: "file", path: back });
+    const canRestore =
+      target !== null &&
+      target !== id &&
+      tabs().tabs.some((t) => t.id === target);
+    if (!canRestore) {
+      await closeTabById(id);
+      return;
+    }
+    await activateTabById(target, { fromHistory: true });
+    setTabs((s) => closeTab(s, id));
+    setMru((m) => m.filter((x) => x !== id));
   };
 
   const dismissCreateOffer = () => {
@@ -1067,7 +1298,7 @@ const App: Component = () => {
         if (!id || !path) return;
         readFileText({ vault_id: id, path })
           .then((resp) => {
-            editorApi?.replaceContent(resp.content);
+            editorApi()?.replaceContent(resp.content);
             setSelectedContent(resp.content);
             seenHash = incoming;
             dirty = false;
@@ -1141,6 +1372,33 @@ const App: Component = () => {
         when: () => navCanForward(),
         run: () => goForward(),
       },
+      "view.nextTab": {
+        id: "view.nextTab",
+        title: "Next tab",
+        when: () => tabs().tabs.length > 1,
+        run: () => {
+          const id = nextTab(tabs()).activeId;
+          if (id !== null) void activateTabById(id);
+        },
+      },
+      "view.prevTab": {
+        id: "view.prevTab",
+        title: "Previous tab",
+        when: () => tabs().tabs.length > 1,
+        run: () => {
+          const id = prevTab(tabs()).activeId;
+          if (id !== null) void activateTabById(id);
+        },
+      },
+      "view.closeTab": {
+        id: "view.closeTab",
+        title: "Close tab",
+        when: () => tabs().activeId !== null,
+        run: () => {
+          const id = tabs().activeId;
+          if (id !== null) void closeTabById(id);
+        },
+      },
     };
     const onGlobalKey = (e: KeyboardEvent) => {
       const c = resolveGlobal(effectiveBindings(), globalCommands, e);
@@ -1192,6 +1450,13 @@ const App: Component = () => {
     await seedSetting(vid, "editor.raw_source_default", false, setRawDefault);
 
     await seedSetting(vid, "editor.minimap_enabled", false, setMinimapEnabled);
+
+    await seedSetting(
+      vid,
+      "editor.live_tab_limit",
+      DEFAULT_LIVE_TAB_LIMIT,
+      (v) => setLiveTabLimit(clampLimit(v)),
+    );
 
     await seedSetting(
       vid,
@@ -1284,8 +1549,12 @@ const App: Component = () => {
       setFilesTotalEstimate(0);
       setScanStatus("in_progress");
       setVaultPath(path);
-      setSelectedPath(null);
-      setSelectedContent(null);
+      setTabsReady(false);
+      setTabs(emptyTabs);
+      setContents(produce((c) => {
+        for (const k of Object.keys(c)) delete c[k];
+      }));
+      setMru([]);
       setPropertiesFrontmatter(null);
       setBlockCount(0);
       setWordCount(0);
@@ -1299,7 +1568,6 @@ const App: Component = () => {
       setDeleteTarget(null);
       setRenamingPath(null);
       setTagRefreshTick(0);
-      setView({ kind: "file" });
       setRightSidebarCollapsed(false);
       setRightSidebarPanel("backlinks");
       setShortcutOverrides({});
@@ -1327,6 +1595,8 @@ const App: Component = () => {
       scheduleRefresh();
 
       await hydrateVaultSettings(resp.vault_id);
+      await refreshFileList();
+      await restoreTabs(path);
 
       void refreshRecentVaults();
     } catch (e) {
@@ -1409,18 +1679,12 @@ const App: Component = () => {
           </IconButton>
         </div>
         <div class="topbar__center">
-          <div class="topbar__tabs">
-            <Show
-              when={!!vaultId() && view().kind === "file" && !!selectedPath()}
-            >
-              <div class="tab tab--active">{fileStem(selectedPath()!)}</div>
-            </Show>
-            <Show when={view().kind === "tag"}>
-              <div class="tab tab--active">
-                #{(view() as { kind: "tag"; tagPath: string }).tagPath}
-              </div>
-            </Show>
-          </div>
+          <TabStrip
+            tabs={tabs()}
+            onActivate={(id) => void activateTabById(id)}
+            onClose={(id) => void closeTabById(id)}
+            onMove={(id, i) => setTabs((s) => moveTab(s, id, i))}
+          />
           <div class="topbar__source">
             <IconButton
               label="Toggle raw source"
@@ -1926,9 +2190,9 @@ const App: Component = () => {
                   <Properties
                     frontmatter={propertiesFrontmatter()}
                     path={selectedPath() ?? ""}
-                    getSource={() => editorApi?.getContent() ?? ""}
+                    getSource={() => editorApi()?.getContent() ?? ""}
                     applyEdit={(from, to, text) =>
-                      editorApi?.replaceRange(from, to, text)
+                      editorApi()?.replaceRange(from, to, text)
                     }
                     onOpenRaw={() => setRawOverride(true)}
                     onNavigateTag={(tagPath) =>
@@ -1940,49 +2204,57 @@ const App: Component = () => {
                     tagsKeyAsTags={tagsKeyAsTags()}
                   />
                 </Show>
-                <Editor
-                  value={selectedContent() ?? ""}
-                  resolvedTheme={resolvedTheme()}
-                  rawSource={effectiveRaw()}
-                  minimapEnabled={minimapEnabled()}
-                  colorizeSource={colorizeSource()}
-                  wikilinkResolver={wikilinkResolver()}
-                  embedResolver={embedResolver()}
-                  propertyResolver={propertyResolver()}
-                  propertyRefsEnabled={corePluginEnabled(
-                    corePlugins(),
-                    CORE_PLUGINS.find((p) => p.id === "property-refs")!,
+                <For each={live()}>
+                  {(id) => (
+                    <div
+                      style={{
+                        display: id === tabs().activeId ? "contents" : "none",
+                      }}
+                    >
+                      <Editor
+                        value={contents[id] ?? ""}
+                        resolvedTheme={resolvedTheme()}
+                        rawSource={effectiveRaw()}
+                        minimapEnabled={minimapEnabled()}
+                        colorizeSource={colorizeSource()}
+                        wikilinkResolver={wikilinkResolver()}
+                        embedResolver={embedResolver()}
+                        propertyResolver={propertyResolver()}
+                        propertyRefsEnabled={corePluginEnabled(
+                          corePlugins(),
+                          CORE_PLUGINS.find((p) => p.id === "property-refs")!,
+                        )}
+                        dataviewRunner={
+                          corePluginEnabled(
+                            corePlugins(),
+                            CORE_PLUGINS.find((p) => p.id === "dataview")!,
+                          )
+                            ? dataviewRunner()
+                            : null
+                        }
+                        openNotePath={pathForId(id)}
+                        autocompleteProvider={autocompleteProvider()}
+                        editorBindings={effectiveBindings()}
+                        onNavigateWikilink={(path, anchor) =>
+                          void handleNavigateWikilink(path, anchor)
+                        }
+                        onOfferCreateWikilink={(path) =>
+                          handleOfferCreateWikilink(path)
+                        }
+                        onAnchorNotFound={notifyAnchorNotFound}
+                        onNavigateTag={(tagPath) =>
+                          void handleNavigateTag(tagPath)
+                        }
+                        onToggleRawSource={toggleRawSource}
+                        onAstChange={handleAstChange}
+                        onContentChange={handleContentChange}
+                        onBlur={() => void flushAutosave()}
+                        onCopyBlockRef={(off) => void handleCopyBlockRef(off)}
+                        ref={(api) => editorApis.set(id, api)}
+                      />
+                    </div>
                   )}
-                  dataviewRunner={
-                    corePluginEnabled(
-                      corePlugins(),
-                      CORE_PLUGINS.find((p) => p.id === "dataview")!,
-                    )
-                      ? dataviewRunner()
-                      : null
-                  }
-                  openNotePath={selectedPath()}
-                  autocompleteProvider={autocompleteProvider()}
-                  editorBindings={effectiveBindings()}
-                  onNavigateWikilink={(path, anchor) =>
-                    void handleNavigateWikilink(path, anchor)
-                  }
-                  onOfferCreateWikilink={(path) =>
-                    handleOfferCreateWikilink(path)
-                  }
-                  onAnchorNotFound={notifyAnchorNotFound}
-                  onNavigateTag={(tagPath) =>
-                    void handleNavigateTag(tagPath)
-                  }
-                  onToggleRawSource={toggleRawSource}
-                  onAstChange={handleAstChange}
-                  onContentChange={handleContentChange}
-                  onBlur={() => void flushAutosave()}
-                  onCopyBlockRef={(off) => void handleCopyBlockRef(off)}
-                  ref={(api) => {
-                    editorApi = api;
-                  }}
-                />
+                </For>
               </Show>
               </Show>
               </div>
@@ -2121,6 +2393,25 @@ const App: Component = () => {
                   <OnOffControl
                     value={minimapEnabled()}
                     onChange={setMinimapEnabledValue}
+                  />
+                </div>
+                <div class="set-row">
+                  <div>
+                    <div class="set-row__lab">Live editor tabs</div>
+                    <div class="set-row__desc">
+                      How many open tabs keep a live editor. Tabs beyond this
+                      reload from disk when you return to them.
+                    </div>
+                  </div>
+                  <input
+                    class="set-row__num"
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={liveTabLimit()}
+                    onChange={(e) =>
+                      setLiveTabLimitValue(Number(e.currentTarget.value))
+                    }
                   />
                 </div>
                 <div class="set-row">

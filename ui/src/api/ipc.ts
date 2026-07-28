@@ -28,6 +28,18 @@ export interface RemoveRecentVaultRequest {
   path: string;
 }
 
+export interface TabRecordDto {
+  id: string;
+  kind: "file" | "tag";
+  path: string | null;
+  tag_path: string | null;
+}
+
+export interface TabSessionDto {
+  tabs: TabRecordDto[];
+  active_id: string | null;
+}
+
 export interface CancelVaultScanRequest {
   vault_id: string;
 }
@@ -217,6 +229,7 @@ export type Setting =
   | { key: "editor.raw_source_default"; value: boolean }
   | { key: "editor.minimap_enabled"; value: boolean }
   | { key: "editor.colorize_raw_source"; value: boolean }
+  | { key: "editor.live_tab_limit"; value: number }
   | { key: "appearance.theme_mode"; value: "light" | "dark" | "system" }
   | { key: "ui.right_sidebar_collapsed"; value: boolean }
   | { key: "ui.right_sidebar_panel"; value: "backlinks" | "unlinked_mentions" }
@@ -376,6 +389,17 @@ export function listRecentVaults(): Promise<ListRecentVaultsResponse> {
 
 export function removeRecentVault(req: RemoveRecentVaultRequest): Promise<void> {
   return invoke("remove_recent_vault", { req });
+}
+
+export function loadTabSession(vaultPath: string): Promise<TabSessionDto> {
+  return invoke("load_tab_session", { vaultPath });
+}
+
+export function saveTabSession(
+  vaultPath: string,
+  session: TabSessionDto,
+): Promise<void> {
+  return invoke("save_tab_session", { vaultPath, session });
 }
 
 export function cancelVaultScan(req: CancelVaultScanRequest): Promise<void> {
