@@ -82,6 +82,7 @@ import TabStrip from "./tabs/TabStrip";
 import {
   activeTab,
   closeTab,
+  dropMissingTabs,
   emptyTabs,
   moveTab,
   nextTab,
@@ -527,6 +528,21 @@ const App: Component = () => {
       const resp = await listFiles({ vault_id: id });
       setFiles(resp.files);
       setFolders(resp.folders);
+      if (scanStatus() === "complete") {
+        const present = new Set(resp.files.map((f) => f.path));
+        const dropped = dropMissingTabs(tabs(), (p) => present.has(p));
+        if (dropped !== tabs()) {
+          const before = tabs().activeId;
+          setTabs(dropped);
+          setMru((m) =>
+            m.filter((mid) => dropped.tabs.some((t) => t.id === mid)),
+          );
+          if (dropped.activeId !== before) {
+            resetDocState();
+            if (dropped.activeId !== null) await loadActiveTabContent();
+          }
+        }
+      }
     } catch (e) {
       console.error("listFiles failed", e);
     }
@@ -674,6 +690,16 @@ const App: Component = () => {
       } else {
         await renameFile({ vault_id: id, from_path: fromPath, to_path: target });
       }
+      const renamedId = (oldId: string): string => {
+        if (!oldId.startsWith("file:")) return oldId;
+        const p = oldId.slice("file:".length);
+        const to = isFolder
+          ? reprefixNestedPath(p, fromPath, target)
+          : p === fromPath
+            ? target
+            : null;
+        return to === null || to === p ? oldId : tabId({ kind: "file", path: to });
+      };
       setTabs((s) =>
         remapTabPaths(s, (p) =>
           isFolder
@@ -682,6 +708,28 @@ const App: Component = () => {
               ? target
               : null,
         ),
+      );
+      setMru((m) => {
+        const seen = new Set<string>();
+        const out: string[] = [];
+        for (const id of m) {
+          const next = renamedId(id);
+          if (!seen.has(next)) {
+            seen.add(next);
+            out.push(next);
+          }
+        }
+        return out;
+      });
+      setContents(
+        produce((c) => {
+          for (const oldId of Object.keys(c)) {
+            const next = renamedId(oldId);
+            if (next === oldId) continue;
+            if (!(next in c)) c[next] = c[oldId]!;
+            delete c[oldId];
+          }
+        }),
       );
       wikilinkResolver()?.invalidate();
       embedResolver()?.invalidate();
