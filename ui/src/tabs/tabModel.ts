@@ -26,6 +26,17 @@ export function tabId(view: TabView): string {
   }
 }
 
+export type PersistableTabView = Extract<
+  TabView,
+  { kind: "file" } | { kind: "tag" }
+>;
+
+export function isPersistableTab(
+  t: Tab,
+): t is Tab & { view: PersistableTabView } {
+  return t.view.kind === "file" || t.view.kind === "tag";
+}
+
 export function activeTab(s: TabSet): Tab | null {
   return s.tabs.find((t) => t.id === s.activeId) ?? null;
 }

@@ -122,6 +122,30 @@ Rust side reads as "forget this vault" — and wipe the session before it is rea
 fails, activation still proceeds with unflushed content. Today's file-switch has
 exactly this exposure; tabs neither widen nor narrow it.
 
+## Integrity panel
+
+Third right-sidebar tab, alongside Backlinks and Mentions (which is why that
+body is a `<Switch>`/`<Match>` now — two panels fit a `<Show>` fallback, three
+do not). It reads `list_dangling_links` and is otherwise the same shape as
+Backlinks: a pure reducer (`integrityState.ts`) holds
+idle/loading/empty/loaded/error, the component holds only the request token and
+the transient open-popover and busy-candidate ids. Rank labels and the action
+label live in the reducer module too, so the wording is asserted by a plain
+vitest rather than by DOM scraping.
+
+**The click that repairs must name the file it repairs to.** "Reattach to…"
+opens a `Popover` of ranked candidates; nothing is sent until the user clicks a
+specific candidate, whose accessible name is the whole sentence — `Reattach
+[[plan]] to notes/planning.md`. There is no bulk action and no default
+selection: the engine will rewrite the user's `.md` files, so the confirmation
+has to carry the actual consequence, not a generic yes. A group with no
+candidate still lists (the residue must stay visible) with the action disabled
+and a title explaining that the note has to be relinked by hand.
+
+After a repair the panel reloads itself and calls `onRepaired`, which nudges the
+shared right-sidebar refresh tick so Backlinks and Mentions re-read the vault
+they no longer agree with.
+
 ## Console
 
 The console is a `{ kind: "console" }` tab with a fixed, singleton id
@@ -150,6 +174,34 @@ still let it consume a keep-alive slot; that gap is closed.)
 `ipc.ts`'s `consoleExec` is the single chokepoint the panel calls; parsing,
 verb rejection and rendering all happen on the Rust side
 (`docs/implementation/engine-ipc.md` → "Console: the fourth caller").
+
+### The console is isolated on purpose
+
+A PTY terminal will replace the console
+([`2026-07-30-terminal-design.md`](../superpowers/specs/2026-07-30-terminal-design.md)
+→ "Retiring the console"), so its surface is deliberately collapsed into
+`ui/src/console/` and kept there: `registration.ts` owns the plugin descriptor,
+`tabView.ts` the singleton tab identity, `wiring.ts` the availability check,
+the flush-then-open action, the command object and the close-on-disable
+effect, `ConsoleButton.tsx` the topbar control, and `console.css` its styles.
+`App.tsx` holds one `createConsoleWiring` call and two placements
+(`<ConsoleButton>`, `<ConsolePanel>`); no console *logic* lives there.
+
+Two things stay outside on purpose. `ui/src/core/commands.ts` keeps its own
+`view.openConsole` default entry rather than importing one, because the command
+registry is substrate that must not import a feature (see "Command registry is
+pure substrate" below) — the console module owns only the id and title
+constants the adapters restate, exactly as every other command does.
+`ipc.ts` keeps `consoleExec` and the `plugins.console_enabled` key, because
+that file is the one typed IPC surface and the setting union mirrors the Rust
+`Setting` enum.
+
+`tabModel.ts` and `TabStrip.tsx` still name the `console` tab kind, and should:
+the closed `TabView` union is what makes removal safe — drop the variant and
+every exhaustive `switch` becomes a compile error listing the sites. What is
+*not* console-specific any more is `isPersistableTab`, which now allow-lists
+`file`/`tag` instead of deny-listing `console`, so any future non-file tab
+(the terminal included) is excluded from session persistence by default.
 
 ## Command registry is pure substrate
 
