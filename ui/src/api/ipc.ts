@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import type { CanonicalDocument } from "../ast/types";
@@ -240,6 +240,7 @@ export type Setting =
   | { key: "plugins.dataview_enabled"; value: boolean }
   | { key: "plugins.property_refs_enabled"; value: boolean }
   | { key: "plugins.console_enabled"; value: boolean }
+  | { key: "plugins.terminal_enabled"; value: boolean }
   | { key: "properties.typed_enabled"; value: boolean }
   | { key: "properties.date_format_default"; value: string }
   | { key: "properties.default_currency"; value: string }
@@ -679,6 +680,52 @@ export function consoleExec(vaultId: string, line: string): Promise<ConsoleResul
   return invoke<ConsoleResult>("console_exec", {
     req: { vault_id: vaultId, line },
   });
+}
+
+export interface TerminalExit {
+  code: number | null;
+  signal: number | null;
+}
+
+export interface TerminalChunk {
+  base64: string;
+  exit?: TerminalExit | null;
+}
+
+export interface TerminalOpenResponse {
+  terminal_id: string;
+}
+
+export function terminalOpen(
+  vaultId: string,
+  cols: number,
+  rows: number,
+  onOutput: (chunk: TerminalChunk) => void,
+): Promise<TerminalOpenResponse> {
+  const channel = new Channel<TerminalChunk>();
+  channel.onmessage = onOutput;
+  return invoke<TerminalOpenResponse>("terminal_open", {
+    vaultId,
+    cols,
+    rows,
+    onOutput: channel,
+  });
+}
+
+export function terminalWrite(terminalId: string, data: string): Promise<void> {
+  return invoke("terminal_write", { terminalId, data });
+}
+
+export function terminalResize(
+  terminalId: string,
+  cols: number,
+  rows: number,
+): Promise<void> {
+  return invoke("terminal_resize", { terminalId, cols, rows });
+}
+
+export function terminalClose(terminalId: string): Promise<void> {
+  return invoke("terminal_close", { terminalId });
 }
 
 export interface VaultScanProgress {

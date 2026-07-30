@@ -80,6 +80,23 @@
   --editor-mark-fg-muted: #b9b29d;
   --editor-caret: #4f6d68;
   --editor-selection-bg: rgba(79, 109, 104, 0.18);
+  /* Terminal ANSI palette (light) */
+  --term-ansi-black: var(--c-fg-primary);
+  --term-ansi-red: var(--c-error);
+  --term-ansi-green: var(--c-success);
+  --term-ansi-yellow: var(--c-warning);
+  --term-ansi-blue: #3a6ea5;
+  --term-ansi-magenta: #8a4f7d;
+  --term-ansi-cyan: var(--c-accent);
+  --term-ansi-white: var(--c-fg-secondary);
+  --term-ansi-bright-black: var(--c-fg-muted);
+  --term-ansi-bright-red: #c9563c;
+  --term-ansi-bright-green: #5e9257;
+  --term-ansi-bright-yellow: #cf9a38;
+  --term-ansi-bright-blue: #4a82be;
+  --term-ansi-bright-magenta: #a05f92;
+  --term-ansi-bright-cyan: #5f8279;
+  --term-ansi-bright-white: var(--c-fg-primary);
 }
 
 [data-theme="dark"] {
@@ -105,6 +122,23 @@
   --editor-mark-fg-muted: #6b6456;
   --editor-caret: #7fa39c;
   --editor-selection-bg: rgba(127, 163, 156, 0.28);
+  /* Terminal ANSI palette (dark) */
+  --term-ansi-black: var(--c-border-subtle);
+  --term-ansi-red: var(--c-error);
+  --term-ansi-green: var(--c-success);
+  --term-ansi-yellow: var(--c-warning);
+  --term-ansi-blue: #7fa0c9;
+  --term-ansi-magenta: #c090b8;
+  --term-ansi-cyan: var(--c-accent);
+  --term-ansi-white: var(--c-fg-secondary);
+  --term-ansi-bright-black: var(--c-fg-muted);
+  --term-ansi-bright-red: #e89a80;
+  --term-ansi-bright-green: #9bcb90;
+  --term-ansi-bright-yellow: #e8bd72;
+  --term-ansi-bright-blue: #9db9dd;
+  --term-ansi-bright-magenta: #d5aacd;
+  --term-ansi-bright-cyan: #9dc0b9;
+  --term-ansi-bright-white: var(--c-fg-primary);
 }
 
 [data-theme="high-contrast"] {
@@ -130,6 +164,23 @@
   --editor-mark-fg-muted: #3d3d3d;
   --editor-caret: #005f56;
   --editor-selection-bg: rgba(0, 95, 86, 0.22);
+  /* Terminal ANSI palette (high-contrast) */
+  --term-ansi-black: #000000;
+  --term-ansi-red: var(--c-error);
+  --term-ansi-green: var(--c-success);
+  --term-ansi-yellow: var(--c-warning);
+  --term-ansi-blue: #00308f;
+  --term-ansi-magenta: #6a0f6a;
+  --term-ansi-cyan: var(--c-accent);
+  --term-ansi-white: var(--c-fg-muted);
+  --term-ansi-bright-black: #3d3d3d;
+  --term-ansi-bright-red: #d00000;
+  --term-ansi-bright-green: #007800;
+  --term-ansi-bright-yellow: #a06a00;
+  --term-ansi-bright-blue: #003fb0;
+  --term-ansi-bright-magenta: #7f177f;
+  --term-ansi-bright-cyan: #007068;
+  --term-ansi-bright-white: #000000;
 }
 
 @media (prefers-reduced-motion: reduce) {

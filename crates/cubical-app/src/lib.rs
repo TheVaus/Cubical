@@ -4,6 +4,7 @@ mod console;
 mod recent_vaults;
 mod tab_sessions;
 mod tauri_sink;
+mod terminal;
 
 pub use console::{run_console_line, ConsoleResult};
 
@@ -54,6 +55,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::new())
+        .manage(terminal::TerminalRegistry::default())
         .setup(|_app| {
             #[cfg(unix)]
             {
@@ -129,12 +131,17 @@ pub fn run() {
             reload_settings,
             close_vault,
             console::console_exec,
+            terminal::terminal_open,
+            terminal::terminal_write,
+            terminal::terminal_resize,
+            terminal::terminal_close,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|_app, _event| {
-            #[cfg(unix)]
             if matches!(_event, tauri::RunEvent::Exit) {
+                terminal::reap_all_blocking(&_app.state::<terminal::TerminalRegistry>());
+                #[cfg(unix)]
                 remove_bound_socket();
             }
         });
@@ -699,9 +706,11 @@ async fn reload_settings(
 #[tauri::command]
 async fn close_vault(
     state: tauri::State<'_, AppState>,
+    registry: tauri::State<'_, terminal::TerminalRegistry>,
     app: tauri::AppHandle,
     req: CloseVaultRequest,
 ) -> Result<(), CubicalError> {
+    terminal::reap_vault(registry.inner(), &req.vault_id).await;
     commands::vault::close_vault(
         state.inner(),
         &crate::tauri_sink::TauriEventSink::new(app),
