@@ -17,7 +17,6 @@ cubical-ipc = { path = "../cubical-ipc" }
 
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 anyhow = { workspace = true }
-clap = { version = "4", features = ["derive"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

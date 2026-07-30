@@ -9,9 +9,16 @@ export interface TabStripProps {
 }
 
 function label(tab: Tab): string {
-  if (tab.view.kind === "tag") return `#${tab.view.tagPath}`;
-  const base = tab.view.path.slice(tab.view.path.lastIndexOf("/") + 1);
-  return base.endsWith(".md") ? base.slice(0, -3) : base;
+  switch (tab.view.kind) {
+    case "tag":
+      return `#${tab.view.tagPath}`;
+    case "console":
+      return "Console";
+    case "file": {
+      const base = tab.view.path.slice(tab.view.path.lastIndexOf("/") + 1);
+      return base.endsWith(".md") ? base.slice(0, -3) : base;
+    }
+  }
 }
 
 export default function TabStrip(props: TabStripProps) {

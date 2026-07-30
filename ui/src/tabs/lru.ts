@@ -18,3 +18,14 @@ export function liveIds(
   const ordered = activeId === null ? mru : touch(mru, activeId);
   return ordered.slice(0, cap);
 }
+
+export function liveFileIds(
+  mru: string[],
+  activeId: string | null,
+  limit: number,
+  isFile: (id: string) => boolean,
+): string[] {
+  const filtered = mru.filter(isFile);
+  const active = activeId !== null && isFile(activeId) ? activeId : null;
+  return liveIds(filtered, active, limit);
+}

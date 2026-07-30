@@ -122,6 +122,35 @@ Rust side reads as "forget this vault" — and wipe the session before it is rea
 fails, activation still proceeds with unflushed content. Today's file-switch has
 exactly this exposure; tabs neither widen nor narrow it.
 
+## Console
+
+The console is a `{ kind: "console" }` tab with a fixed, singleton id
+(`"console"`) — opening it while it's already open activates the existing tab
+rather than duplicating it, the same rule as `file:<path>`/`tag:<path>` ids
+above. It is gated on the `console` core plugin
+(`plugins.console_enabled`, `defaultEnabled: false`); switching the plugin off
+while the tab is open closes it, per the "a feature toggles without touching
+the vault" non-negotiable.
+
+Scrollback (`console/scrollback.ts`, 500-entry cap, one `Entry` per command's
+output) and command history (`console/history.ts`) are ephemeral signals, not
+vault state — they are dropped from tab-session `toDto` and start empty on
+every restore, the same way nav history resets for a restored tab (see Tabs,
+above).
+
+Console ids are excluded from the editor keep-alive pool at the accounting
+level, not just at render time: `live()` computes from `liveFileIds`
+(`tabs/lru.ts`), which filters the `mru` list and the active id down to
+file-backed ids *before* applying the `live_tab_limit` cap, so a console tab
+never occupies one of the capped LRU slots and can never evict a warm file
+editor's CodeMirror state. (An earlier version filtered only at the render
+site — `<For each={live()}>` — which kept the console `Editor`-free but
+still let it consume a keep-alive slot; that gap is closed.)
+
+`ipc.ts`'s `consoleExec` is the single chokepoint the panel calls; parsing,
+verb rejection and rendering all happen on the Rust side
+(`docs/implementation/engine-ipc.md` → "Console: the fourth caller").
+
 ## Command registry is pure substrate
 
 `ui/src/core/commands.ts` holds types, the default binding table, key-string

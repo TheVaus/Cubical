@@ -31,6 +31,9 @@ tracing-subscriber = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
+# Tokenizes a console line the way a shell would (quoting, escapes) before clap parses it.
+shell-words = "1"
+
 [dev-dependencies]
 tempfile = { workspace = true }
 
