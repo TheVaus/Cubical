@@ -140,14 +140,75 @@ still gets its `files` row rekeyed and its rename journalled; treating the read
 as fatal would abort *after* the index transaction had already committed,
 leaving exactly the inconsistency adoption exists to prevent.
 
-**Platform caveat.** `WatchEvent::Renamed` depends on `notify-debouncer-full`
-pairing the two halves. On macOS FSEvents re-reports a stale `ItemCreated` flag
-on the **first** move of a file after the watcher starts, and the debouncer
-collapses that pair into a bare `Created(dest)` — the source side never arrives
-at all, so neither adoption nor a tombstone buffer can see it. Subsequent moves
-of the same file pair correctly. Linux inotify pairs reliably via rename
-cookies. This is why the end-to-end adoption test performs a warm-up move
-before the move under test.
+### Recovering renames the watcher failed to pair
+
+`WatchEvent::Renamed` only arrives when `notify-debouncer-full` pairs the two
+halves, and it does not always manage it. Two measured failure modes, each
+needing its own mechanism, both funnelling into the one `adopt_external_rename`
+so there is a single commit path regardless of how the rename was recovered:
+
+**(a) Split events.** The halves land outside the 100 ms debounce window, or the
+platform emits `RenameMode::From`/`To` separately; the translator degrades those
+to `Removed` + `Created`.
+
+**(b) Dropped source (macOS).** FSEvents re-reports a stale `ItemCreated` flag on
+the source path of an early move. `push_rename_event` in the debouncer checks
+`was_created()` on the source queue and, when it is set, **omits the
+`Modify(Name(Both))` event entirely** — the surviving source-queue events are
+re-pathed onto the destination, so the move surfaces as a bare `Created(dest)`
+with **no `Removed` anywhere**. Measured directly against the real watcher: the
+first *two* moves after start emitted `[Created]`, moves #3–#12 emitted
+`Renamed`, reproducible. A raw `notify` probe confirms the cause — every rename
+carries a spurious `Create(File)` on the source path alongside
+`Modify(Name(Any))`. Linux inotify pairs reliably via rename cookies.
+
+**M1 — index reverse-lookup (durable).** On `Created`, before the `files` upsert,
+look for a tracked row carrying the **same inode at a different path** that no
+longer exists on disk. No buffer and no TTL are needed, because the populated
+`files.inode` column makes the index itself the tombstone. This is what rescues
+(b), where nothing else survives the move.
+
+**M2 — tombstone buffer (ephemeral).** `Removed` deletes the `files` row, which
+destroys M1's record — so the row is captured into a bounded buffer *before* the
+delete. A later `Created` matching a live tombstone resurrects the row and
+adopts through the same predicate; if adoption then declines, the resurrection is
+rolled back so no phantom row survives. The buffer is bounded in **both**
+dimensions (2 s TTL, 256 entries, oldest evicted first) because it sits in the
+watcher hot path and a vault-wide `rm -rf` must not balloon memory. Unmatched
+tombstones expire and the `Removed` stands.
+
+**Precedence is inode first, then content hash.** Inode is exact for
+same-volume moves; hash covers cross-volume moves, where the inode necessarily
+changes but content is preserved.
+
+The inode lookup rides `idx_files_inode`, but `files.content_hash` has **no
+index**, so an unconditional hash lookup would full-scan `files` on every single
+`Created` — quadratic when a vault is bulk-imported. The hash pass is therefore
+gated on a live tombstone already carrying that hash, which costs an in-memory
+scan of a ≤256-entry buffer and reaches SQL only in the seconds after a
+deletion. Nothing is lost: a cross-volume move is a copy-then-delete, so it
+always emits a `Removed` and always leaves a tombstone. The dropped-source case
+is an FSEvents *rename*, which is same-volume by definition and keeps its inode
+— and both `scan` and the watcher upsert populate `files.inode` on Unix, so M1
+is never inode-blind there. On Windows `inode` is always `NULL` and pairing is
+tombstone-and-hash-only, which is consistent with Windows watching having no
+paired-rename path to begin with.
+
+**Hash matching is skipped entirely when more than one tracked file shares the
+hash.** Duplicate files are ordinary in a vault (empty notes, templates,
+boilerplate), and the candidate count is therefore taken across *all* tracked
+entities — live `files` rows **and** live tombstones — **before** filtering to
+those missing from disk. Counting after the disk filter looks equivalent and is
+not: it would leave a single missing candidate whenever its twin is still on
+disk, and pair them. A missed rename is recoverable; a wrong rewrite silently
+corrupts the user's markdown. Ambiguous inode matches are refused on the same
+grounds. Both mechanisms then re-check that the chosen source is genuinely
+absent from disk — a file that is still there did not move.
+
+Recovery cannot double-apply, because it reuses the same
+row-at-`from`/no-row-at-`to` predicate: a `Created` whose path is already tracked
+is skipped outright, which is what makes an in-app rename (already rekeyed by
+`commit_rename`) and a re-delivered event both no-ops.
 
 ### Journal replay
 
@@ -159,6 +220,46 @@ mid-rename" recover instead of stranding referrers.
 An entry is pruned once no referrer text still names `from` (the rewrites baked
 into the `.md` files) or once `to` itself vanishes. Best-effort: errors are
 logged and swallowed so a bad journal can never wedge vault open.
+
+## Link integrity: the visible residue
+
+Adoption (above) is confident and silent. What it cannot pair must never rot
+silently, so `commands::integrity` surfaces the remainder and lets the user —
+never the engine — decide the repair.
+
+**One notion of "what file does this token name."** `commands::link_match` owns
+it: `classify_candidate` returns a `CandidateRank` (exact path → exact basename
+→ case-insensitive path → case-insensitive basename), which is the same predicate
+`reconnect_broken_links_to` expresses in SQL. That equality is not a convention,
+it is a test: `classification_agrees_with_the_reconnect_sql_predicate` runs the
+real `UPDATE` against a real index and asserts the matched set equals
+`classify_candidate`'s. Two notions of token matching is precisely the drift this
+layer exists to prevent — extend `link_match`, never re-derive.
+
+`FrontmatterTitle` is the one rank with no SQL twin. It is **candidate-only**:
+offered to the user, never used by any automatic rewrite. That asymmetry is the
+whole boundary — confident matching stays narrow, consented matching can afford
+to be generous.
+
+**What counts as dangling.** A link row whose `target_path` no longer names a
+tracked file. Two shapes reach that state: a stale non-null path (the watcher's
+`Removed` arm deletes the `files` row and leaves referring link rows pointing at
+it — that *is* the rot), and a null path that never resolved. A null path with no
+repair candidate is dropped from the report: in a PKM, `[[a note I have not
+written yet]]` is normal authoring, and a panel that lists it is a panel nobody
+reads. Groups are keyed by exact `target_raw`, which is also what
+`apply_pending`'s rewrite matches on, so a group is exactly one repairable unit.
+
+**Repair routes through the pending queue.** `repair_dangling_link` mints an op
+id, enqueues one coalesced `wiki_link` rewrite per referring file, reconnects the
+index rows in the same transaction, then flushes those targets through
+`flush_pending_for_target` (so the own-write hash gate is honoured and the
+watcher doesn't echo). No markdown is written by hand and no second rewrite path
+exists. The new token keeps the shape the author used — a bare token stays bare —
+except when the basename would collide with the token that was already ambiguous,
+where it widens to the path form, since that is the only form that disambiguates.
+There is deliberately **no repair-all**: an unconfirmed guess writes wrong links
+into the source of truth.
 
 ## Audit log retention
 

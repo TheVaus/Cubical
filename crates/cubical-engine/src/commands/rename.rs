@@ -22,6 +22,7 @@ use crate::api::types::{
     RenameFileRequest, RenameFileResponse, RenameFolderRequest, RenameFolderResponse,
     RenameTagRequest, RenameTagResponse, UndoRenameRequest, UndoRenameResponse,
 };
+use crate::commands::link_match::{basename_without_md, link_name_forms, strip_md_suffix};
 use crate::error::CubicalError;
 use crate::events::{
     emit_flush_complete, emit_pending_rewrites_changed, EventSink, FlushOwnWrites,
@@ -31,7 +32,7 @@ use crate::state::AppState;
 
 const RENAME_OP_ID_KEY: &str = "pending_rewrites.next_rename_op_id";
 
-async fn mint_rename_op_id(vault: &cubical_core::Vault) -> Result<i64, CubicalError> {
+pub(super) async fn mint_rename_op_id(vault: &cubical_core::Vault) -> Result<i64, CubicalError> {
     let conn = vault.index().connection();
     let tx = conn.transaction().await?;
 
@@ -62,20 +63,11 @@ async fn mint_rename_op_id(vault: &cubical_core::Vault) -> Result<i64, CubicalEr
     Ok(next)
 }
 
-fn unix_now_secs() -> i64 {
+pub(super) fn unix_now_secs() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::SystemTime::UNIX_EPOCH)
         .map(|d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
         .unwrap_or(0)
-}
-
-fn strip_md_suffix(path: &str) -> &str {
-    path.strip_suffix(".md").unwrap_or(path)
-}
-
-fn basename_without_md(path: &str) -> &str {
-    let after_slash = path.rsplit('/').next().unwrap_or(path);
-    strip_md_suffix(after_slash)
 }
 
 fn derive_wikilink_new_token(target_raw: &str, from_path: &str, to_path: &str) -> String {
@@ -97,7 +89,7 @@ async fn clone_vault(
     Ok(open.vault.clone())
 }
 
-async fn clone_vault_with_flush_state(
+pub(super) async fn clone_vault_with_flush_state(
     state: &AppState,
     vault_id: &str,
 ) -> Result<
@@ -133,7 +125,7 @@ async fn enforce_fifty_per_file_fuse(
     Ok(())
 }
 
-async fn enqueue_coalesced(
+pub(super) async fn enqueue_coalesced(
     tx: &libsql::Transaction,
     target_file: &str,
     rewrite_kind: &str,
@@ -1225,7 +1217,10 @@ pub async fn undo_rename(
     })
 }
 
-async fn path_tracked(conn: &libsql::Connection, path: &str) -> Result<bool, CubicalError> {
+pub(super) async fn path_tracked(
+    conn: &libsql::Connection,
+    path: &str,
+) -> Result<bool, CubicalError> {
     let mut rows = conn
         .query("SELECT 1 FROM files WHERE path = ?1", params![path])
         .await?;
@@ -1248,13 +1243,6 @@ async fn any_pending_named(
     Ok(rows.next().await?.is_some())
 }
 
-fn link_name_forms(path: &str) -> (String, String) {
-    (
-        basename_without_md(path).to_string(),
-        strip_md_suffix(path).to_string(),
-    )
-}
-
 async fn select_broken_referrers_naming(
     conn: &libsql::Connection,
     old_basename: &str,
@@ -1275,7 +1263,7 @@ async fn select_broken_referrers_naming(
     Ok(out)
 }
 
-async fn reconnect_broken_links_to(
+pub(super) async fn reconnect_broken_links_to(
     tx: &libsql::Transaction,
     to_path: &str,
     old_basename: &str,

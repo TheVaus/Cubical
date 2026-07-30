@@ -63,15 +63,23 @@ The `Renamed` arm calls `adopt_external_rename(from, to)` instead of its current
 - **Markdown only.** Adopting a rename of a binary file has no referrers to rewrite; it still needs the file row rekeyed, which `commit_rename` does anyway.
 - **Failure is non-fatal.** A failed adoption logs and falls back to the current remove+create behaviour. The index must never be left mid-transaction; `commit_rename` already wraps its index work in one TX.
 
-### 3. Hash fallback for split rename events
+### 3. Recovering renames the watcher failed to pair
 
-`FileIdMap` pairing fails when the two halves land outside the 100 ms debounce window, or when the platform emits `RenameMode::From`/`RenameMode::To` separately — the translator already degrades those to `Removed`/`Created` ([`watcher.rs:131`](../../../crates/cubical-core/src/vault/watcher.rs)).
+`FileIdMap` pairing is not reliable enough to be the only mechanism. Two distinct failure modes, confirmed by measurement during T3:
 
-Add a **short-lived tombstone buffer** in the engine's watch handling: a `Removed` of a tracked markdown file records `(path, content_hash, inode, at)` for a bounded window (2 s, capacity-bounded). A subsequent `Created` whose content hash or inode matches a live tombstone is promoted to an adopted rename. Unmatched tombstones expire and the `Removed` stands as-is.
+**(a) Split events.** The two halves land outside the 100 ms debounce window, or the platform emits `RenameMode::From`/`RenameMode::To` separately — the translator already degrades those to `Removed`/`Created` ([`watcher.rs:131`](../../../crates/cubical-core/src/vault/watcher.rs)).
 
-Pairing precedence: **inode first, hash second.** Inode is exact for same-volume moves. Hash covers cross-volume moves (where inode changes but content is preserved). Hash matching is skipped when more than one tracked file shares the hash — duplicate files would mis-pair, and a wrong rewrite is worse than no rewrite.
+**(b) Dropped source (macOS).** The *first* `mv` of a file after the watcher starts arrives as a bare `Created(dest)` — **the source side is dropped entirely, including any `Removed`.** FSEvents re-reports a stale `ItemCreated` flag on the source path, and `notify-debouncer-full`'s `push_rename_event` sees `was_created()` on the source queue and collapses the pair. Measured directly in `cubical-core`: rename #1 → `[Created]`, renames #2–#15 → `Renamed`, reproducible across runs. Linux inotify pairs reliably via rename cookies, so this is macOS-specific — and macOS is a primary target, so it must be handled, not documented away.
 
-This is also why §4 populates `files.inode`: the tombstone needs the *departed* file's inode, which can only come from the index, since the file is gone by the time the event arrives.
+These need *different* mechanisms, because (b) leaves no `Removed` for a buffer to capture.
+
+**Mechanism 1 — index reverse-lookup (durable).** On `Created`, stat the new file and query `files` for a row with the **same inode at a different path**. If that other path no longer exists on disk, the file moved: adopt it. This needs no buffer and no TTL, because §4 makes the index itself the tombstone. It is what rescues case (b).
+
+**Mechanism 2 — tombstone buffer (ephemeral).** A `Removed` of a tracked file deletes its `files` row, destroying the reverse-lookup record. So before that delete, capture `(path, content_hash, inode, at)` into a bounded, 2-second-TTL buffer. A subsequent `Created` matching a live tombstone is promoted to an adopted rename. Unmatched tombstones expire and the `Removed` stands. This is what rescues case (a).
+
+**Pairing precedence in both: inode first, hash second.** Inode is exact for same-volume moves. Hash covers cross-volume moves, where the inode necessarily changes but content is preserved. **Hash matching is skipped entirely when more than one tracked file shares that hash** — duplicate files would mis-pair, and a wrong rewrite is worse than no rewrite.
+
+Both mechanisms funnel into the same `adopt_external_rename` from §2, so there is one commit path regardless of how the rename was recovered.
 
 ### 4. Populate `files.inode`
 
@@ -101,7 +109,8 @@ Convergence claims are only worth what the tests prove, and the load-bearing tes
 3. **In-app rename is not double-applied.** Perform `rename_file`, let the watch event arrive, assert referrers were rewritten exactly once and one journal entry exists.
 4. **Split-event pairing.** Emit `Removed` then `Created` outside the debounce window; assert promotion to an adopted rename via inode, and separately via hash with inode unavailable.
 5. **Ambiguous hash is not paired.** Two tracked files with identical content; remove one, create a third with the same content; assert no rename is adopted and no links are rewritten.
-6. **Tombstone expiry.** `Created` after the window assert leaves the `Removed` standing.
+6. **Tombstone expiry.** `Created` after the window leaves the `Removed` standing.
+8. **Dropped-source recovery (macOS case b).** A bare `Created` with no preceding `Removed`, where a tracked `files` row holds the same inode at a path now absent from disk, is adopted. The real-watcher end-to-end test must cover the **first** rename in a watcher's lifetime — the T3 test's warm-up-move workaround exists precisely to dodge this, and once this lands the workaround must be removed, not kept.
 7. **Integrity query.** Dangling links are reported with ranked candidates; a genuinely resolvable link is not reported.
 
 Test 5 is the one that matters most — it is the case where a plausible implementation silently corrupts the user's files.

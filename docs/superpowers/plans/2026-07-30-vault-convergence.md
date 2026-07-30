@@ -50,15 +50,19 @@ Failed adoption logs and degrades to today's remove+create behaviour.
 
 **Acceptance:** spec tests 2 and 3 — real out-of-band `std::fs::rename` rewrites referrers and journals; an in-app `rename_file` is **not** double-applied.
 
-## T4 — Tombstone buffer for split rename events
+## T4 — Recover renames the watcher failed to pair
 
-`crates/cubical-engine/src/events.rs`
+`crates/cubical-engine/src/events.rs`. **Revised after T3's measurement** — see spec §3.
 
-`Removed` of a tracked markdown file records `(path, content_hash, inode, at)` in a bounded, 2-second-TTL buffer. A later `Created` matching a live tombstone is promoted to an adopted rename.
+Two failure modes needing two mechanisms, both funnelling into `adopt_external_rename`:
 
-Precedence **inode first, then hash**. **Skip hash matching entirely when more than one tracked file shares that hash** — a wrong rewrite is worse than no rewrite.
+**M1 — index reverse-lookup (durable).** On `Created`, stat the file and look for a `files` row with the **same inode at a different path** that no longer exists on disk → adopt. No buffer, no TTL; T2 made the index the tombstone. Rescues the macOS dropped-source case, where **no `Removed` arrives at all** and a buffer would have nothing to hold.
 
-**Acceptance:** spec tests 4, 5, 6. Test 5 (ambiguous hash must not pair) is the one that matters — a plausible implementation silently corrupts user files here.
+**M2 — tombstone buffer (ephemeral).** `Removed` deletes the `files` row, destroying M1's record — so capture `(path, content_hash, inode, at)` *before* the delete into a bounded 2 s TTL buffer. A later `Created` matching a live tombstone is adopted. Rescues split `Removed`+`Created`.
+
+Precedence in both: **inode first, then hash**. **Skip hash matching entirely when more than one tracked file shares that hash** — a wrong rewrite is worse than no rewrite.
+
+**Acceptance:** spec tests 4, 5, 6, 8. Test 5 (ambiguous hash must not pair) is the one that matters — a plausible implementation silently corrupts user files here. Test 8 requires **removing** the warm-up-move workaround in T3's real-watcher test, which exists only to dodge this bug.
 
 ## T5 — Integrity query + panel
 

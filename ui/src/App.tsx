@@ -6,7 +6,9 @@ import {
   on,
   onCleanup,
   onMount,
+  Match,
   Show,
+  Switch,
   untrack,
   type Component,
   type JSX,
@@ -170,6 +172,7 @@ import {
 import Backlinks from "./sidebar/Backlinks";
 import UnlinkedMentions from "./sidebar/UnlinkedMentions";
 import SearchPanel from "./sidebar/SearchPanel";
+import IntegrityPanel from "./sidebar/IntegrityPanel";
 import TagPage from "./TagPage";
 import OmniBar from "./omnibar/OmniBar";
 import { type OmniItem, type RankedItem } from "./omnibar/ranker";
@@ -460,7 +463,7 @@ const App: Component = () => {
       })),
   );
 
-  type RightSidebarPanel = "backlinks" | "unlinked_mentions";
+  type RightSidebarPanel = "backlinks" | "unlinked_mentions" | "integrity";
   const [rightSidebarPanel, setRightSidebarPanel] =
     createSignal<RightSidebarPanel>("backlinks");
 
@@ -924,7 +927,8 @@ const App: Component = () => {
   };
 
   const handleRightSidebarSegmentChange = (id: string) => {
-    if (id !== "backlinks" && id !== "unlinked_mentions") return;
+    if (id !== "backlinks" && id !== "unlinked_mentions" && id !== "integrity")
+      return;
     setRightSidebarPanel(id);
     persistSetting(vaultId(), "ui.right_sidebar_panel", id);
   };
@@ -2326,11 +2330,32 @@ const App: Component = () => {
                 >
                   Mentions
                 </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={rightSidebarPanel() === "integrity"}
+                  class="rs-tab"
+                  classList={{
+                    "rs-tab--active": rightSidebarPanel() === "integrity",
+                  }}
+                  onClick={() => handleRightSidebarSegmentChange("integrity")}
+                >
+                  Integrity
+                </button>
               </div>
               <div class="rs-body">
-                <Show
-                  when={rightSidebarPanel() === "backlinks"}
-                  fallback={
+                <Switch>
+                  <Match when={rightSidebarPanel() === "backlinks"}>
+                    <Backlinks
+                      vaultId={vaultId()}
+                      path={selectedPath()}
+                      refreshSignal={rightSidebarRefreshTick()}
+                      onRowClick={(path) =>
+                        void handleNavigateWikilink(path, null)
+                      }
+                    />
+                  </Match>
+                  <Match when={rightSidebarPanel() === "unlinked_mentions"}>
                     <UnlinkedMentions
                       vaultId={vaultId()}
                       path={selectedPath()}
@@ -2339,17 +2364,18 @@ const App: Component = () => {
                         void handleNavigateWikilink(path, null)
                       }
                     />
-                  }
-                >
-                  <Backlinks
-                    vaultId={vaultId()}
-                    path={selectedPath()}
-                    refreshSignal={rightSidebarRefreshTick()}
-                    onRowClick={(path) =>
-                      void handleNavigateWikilink(path, null)
-                    }
-                  />
-                </Show>
+                  </Match>
+                  <Match when={rightSidebarPanel() === "integrity"}>
+                    <IntegrityPanel
+                      vaultId={vaultId()}
+                      refreshSignal={rightSidebarRefreshTick()}
+                      onRowClick={(path) =>
+                        void handleNavigateWikilink(path, null)
+                      }
+                      onRepaired={() => scheduleRightSidebarRefresh()}
+                    />
+                  </Match>
+                </Switch>
               </div>
             </div>
           </aside>

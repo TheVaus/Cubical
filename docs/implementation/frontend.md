@@ -122,6 +122,30 @@ Rust side reads as "forget this vault" — and wipe the session before it is rea
 fails, activation still proceeds with unflushed content. Today's file-switch has
 exactly this exposure; tabs neither widen nor narrow it.
 
+## Integrity panel
+
+Third right-sidebar tab, alongside Backlinks and Mentions (which is why that
+body is a `<Switch>`/`<Match>` now — two panels fit a `<Show>` fallback, three
+do not). It reads `list_dangling_links` and is otherwise the same shape as
+Backlinks: a pure reducer (`integrityState.ts`) holds
+idle/loading/empty/loaded/error, the component holds only the request token and
+the transient open-popover and busy-candidate ids. Rank labels and the action
+label live in the reducer module too, so the wording is asserted by a plain
+vitest rather than by DOM scraping.
+
+**The click that repairs must name the file it repairs to.** "Reattach to…"
+opens a `Popover` of ranked candidates; nothing is sent until the user clicks a
+specific candidate, whose accessible name is the whole sentence — `Reattach
+[[plan]] to notes/planning.md`. There is no bulk action and no default
+selection: the engine will rewrite the user's `.md` files, so the confirmation
+has to carry the actual consequence, not a generic yes. A group with no
+candidate still lists (the residue must stay visible) with the action disabled
+and a title explaining that the note has to be relinked by hand.
+
+After a repair the panel reloads itself and calls `onRepaired`, which nudges the
+shared right-sidebar refresh tick so Backlinks and Mentions re-read the vault
+they no longer agree with.
+
 ## Console
 
 The console is a `{ kind: "console" }` tab with a fixed, singleton id

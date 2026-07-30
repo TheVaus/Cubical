@@ -20,12 +20,13 @@ use cubical_engine::api::types::{
     GetPendingRewritesBreakdownResponse, GetPendingRewritesCountRequest,
     GetPendingRewritesCountResponse, GetPropertyRequest, GetPropertyResponse, GetSettingRequest,
     GetSettingResponse, GetVaultInfoRequest, GetVaultInfoResponse, LinkAutocompleteRequest,
-    LinkAutocompleteResponse, ListFilesRequest, ListFilesResponse, ListRecentRenameOpsRequest,
-    ListRecentRenameOpsResponse, ListTagsRequest, ListTagsResponse, OpenVaultRequest,
-    OpenVaultResponse, QueryTagPageRequest, QueryTagPageResponse, ReadFileTextRequest,
-    ReadFileTextResponse, ReloadSettingsRequest, ReloadSettingsResponse, RenameBlockIdRequest,
-    RenameBlockIdResponse, RenameFileRequest, RenameFileResponse, RenameFolderRequest,
-    RenameFolderResponse, RenameTagRequest, RenameTagResponse, ResolveLinkRequest,
+    LinkAutocompleteResponse, ListDanglingLinksRequest, ListDanglingLinksResponse,
+    ListFilesRequest, ListFilesResponse, ListRecentRenameOpsRequest, ListRecentRenameOpsResponse,
+    ListTagsRequest, ListTagsResponse, OpenVaultRequest, OpenVaultResponse, QueryTagPageRequest,
+    QueryTagPageResponse, ReadFileTextRequest, ReadFileTextResponse, ReloadSettingsRequest,
+    ReloadSettingsResponse, RenameBlockIdRequest, RenameBlockIdResponse, RenameFileRequest,
+    RenameFileResponse, RenameFolderRequest, RenameFolderResponse, RenameTagRequest,
+    RenameTagResponse, RepairDanglingLinkRequest, RepairDanglingLinkResponse, ResolveLinkRequest,
     ResolveLinkResponse, SearchHealthDto, SearchIndexStatusDto, SearchRequest, SearchResponse,
     SearchVaultRequest, SetSettingRequest, SetSettingResponse, TagAutocompleteRequest,
     TagAutocompleteResponse, UndoRenameRequest, UndoRenameResponse, WriteFileTextRequest,
@@ -118,6 +119,8 @@ pub fn run() {
             get_pending_rewrites_breakdown,
             list_recent_rename_ops,
             undo_rename,
+            list_dangling_links,
+            repair_dangling_link,
             search,
             search_index_status,
             search_rebuild_index,
@@ -610,6 +613,28 @@ async fn undo_rename(
     req: UndoRenameRequest,
 ) -> Result<UndoRenameResponse, CubicalError> {
     commands::rename::undo_rename(
+        state.inner(),
+        &crate::tauri_sink::TauriEventSink::new(app),
+        req,
+    )
+    .await
+}
+
+#[tauri::command]
+async fn list_dangling_links(
+    state: tauri::State<'_, AppState>,
+    req: ListDanglingLinksRequest,
+) -> Result<ListDanglingLinksResponse, CubicalError> {
+    commands::integrity::list_dangling_links(state.inner(), req).await
+}
+
+#[tauri::command]
+async fn repair_dangling_link(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    req: RepairDanglingLinkRequest,
+) -> Result<RepairDanglingLinkResponse, CubicalError> {
+    commands::integrity::repair_dangling_link(
         state.inner(),
         &crate::tauri_sink::TauriEventSink::new(app),
         req,
