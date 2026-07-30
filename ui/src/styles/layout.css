@@ -594,3 +594,30 @@
   border-radius: var(--radius-sm, var(--radius-md));
   color: var(--c-fg-secondary);
 }
+
+.console {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  font-family: var(--font-mono, monospace);
+  font-size: var(--text-sm);
+}
+.console__scrollback {
+  flex: 1;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  padding: var(--space-3);
+}
+.console__entry--input { color: var(--c-fg-primary); font-weight: 600; }
+.console__entry--stdout { color: var(--c-fg-secondary, var(--c-fg-primary)); }
+.console__entry--stderr { color: var(--c-danger, var(--c-warning, var(--c-accent))); }
+.console__input {
+  border: none;
+  border-top: 1px solid var(--c-border-subtle);
+  background: var(--c-bg-secondary);
+  color: var(--c-fg-primary);
+  font: inherit;
+  padding: var(--space-2) var(--space-3);
+  outline: none;
+}
