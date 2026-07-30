@@ -566,10 +566,8 @@ const App: Component = () => {
       corePlugins(),
       CORE_PLUGINS.find((p) => p.id === "console")!,
     );
-    if (!enabled) {
-      setTabs((s) =>
-        s.tabs.some((t) => t.view.kind === "console") ? closeTab(s, "console") : s,
-      );
+    if (!enabled && tabs().tabs.some((t) => t.view.kind === "console")) {
+      void closeTabById("console");
     }
   });
 
@@ -1430,7 +1428,12 @@ const App: Component = () => {
             corePlugins(),
             CORE_PLUGINS.find((p) => p.id === "console")!,
           ),
-        run: () => setTabs((s) => openTab(s, { kind: "console" })),
+        run: () => {
+          void (async () => {
+            await flushAutosave();
+            setTabs((s) => openTab(s, { kind: "console" }));
+          })();
+        },
       },
     };
     const onGlobalKey = (e: KeyboardEvent) => {
@@ -2240,7 +2243,7 @@ const App: Component = () => {
                     tagsKeyAsTags={tagsKeyAsTags()}
                   />
                 </Show>
-                <For each={live().filter((id) => pathForId(id) !== null)}>
+                <For each={live()}>
                   {(id) => (
                     <div
                       style={{

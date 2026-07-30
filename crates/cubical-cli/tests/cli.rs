@@ -83,8 +83,8 @@ fn write_to_a_nonexistent_vault_fails_without_waiting_on_stdin() {
         .spawn()
         .expect("spawn cubical");
 
-    // Deliberately hold the stdin pipe open and write nothing: a build_command that
-    // reads to EOF first would block here forever.
+    // Deliberately hold the stdin pipe open and write nothing: a to_command
+    // (guarded by needs_body) that read to EOF unconditionally would block here forever.
     let _held_open = child.stdin.take().expect("stdin pipe");
 
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
