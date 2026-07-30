@@ -1,4 +1,4 @@
-import { For, createSignal, type JSXElement } from "solid-js";
+import { For, Show, createSignal, type JSXElement } from "solid-js";
 
 import { consoleExec } from "../api/ipc";
 import { emptyHistory, push, up, down, type History } from "./history";
@@ -20,14 +20,8 @@ export function ConsolePanel(props: { vaultId: string }): JSXElement {
     try {
       const res = await consoleExec(props.vaultId, line);
       const next: Entry[] = [];
-      if (res.stdout !== "") {
-        const lines = res.stdout.replace(/\n$/, "").split("\n");
-        next.push(...lines.map((text) => ({ kind: "stdout" as const, text })));
-      }
-      if (res.stderr !== "") {
-        const lines = res.stderr.replace(/\n$/, "").split("\n");
-        next.push(...lines.map((text) => ({ kind: "stderr" as const, text })));
-      }
+      if (res.stdout !== "") next.push({ kind: "stdout", text: res.stdout.replace(/\n$/, "") });
+      if (res.stderr !== "") next.push({ kind: "stderr", text: res.stderr.replace(/\n$/, "") });
       if (next.length > 0) setEntries((e) => append(e, next));
     } catch (err) {
       setEntries((e) => append(e, [{ kind: "stderr", text: String(err) }]));
@@ -59,7 +53,13 @@ export function ConsolePanel(props: { vaultId: string }): JSXElement {
         <For each={entries()}>
           {(entry) => (
             <div class={`console__entry console__entry--${entry.kind}`}>
-              {entry.kind === "input" ? `› ${entry.text}` : entry.text}
+              <Show when={entry.kind === "input"} fallback={
+                <For each={entry.text.split("\n")}>
+                  {(line) => <div class="console__line">{line}</div>}
+                </For>
+              }>
+                <div class="console__line">{`› ${entry.text}`}</div>
+              </Show>
             </div>
           )}
         </For>

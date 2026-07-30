@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { render, fireEvent } from "@solidjs/testing-library";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { render } from "solid-js/web";
 
 vi.mock("../api/ipc", () => ({
   consoleExec: vi.fn(async () => ({ stdout: "A.md\nB.md\n", stderr: "", code: 0 })),
@@ -9,25 +9,46 @@ vi.mock("../api/ipc", () => ({
 import { ConsolePanel } from "./ConsolePanel";
 import { consoleExec } from "../api/ipc";
 
+const flush = () => new Promise((r) => setTimeout(r, 0));
+
+let dispose: (() => void) | undefined;
+afterEach(() => {
+  dispose?.();
+  dispose = undefined;
+});
+
+function mount(el: () => any) {
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  dispose = render(el, host);
+  return host;
+}
+
+function typeAndSubmit(input: HTMLInputElement, line: string) {
+  input.value = line;
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+}
+
 describe("ConsolePanel", () => {
-  it("runs a line and renders stdout in the scrollback", async () => {
-    const { getByLabelText, findByText } = render(() => <ConsolePanel vaultId="v1" />);
-    const input = getByLabelText("Console input") as HTMLInputElement;
-    fireEvent.input(input, { target: { value: "list" } });
-    fireEvent.keyDown(input, { key: "Enter" });
+  it("runs a line and renders stdout in the scrollback, then clears the input", async () => {
+    const host = mount(() => <ConsolePanel vaultId="v1" />);
+    const input = host.querySelector('[aria-label="Console input"]') as HTMLInputElement;
+    typeAndSubmit(input, "list");
     expect(consoleExec).toHaveBeenCalledWith("v1", "list");
-    await findByText("A.md");
-    await findByText("B.md");
-    expect(input.value).toBe(""); // cleared after submit
+    await flush();
+    const text = host.querySelector(".console__scrollback")!.textContent;
+    expect(text).toContain("A.md");
+    expect(text).toContain("B.md");
+    expect(input.value).toBe("");
   });
 
   it("recalls the previous command with ArrowUp", async () => {
-    const { getByLabelText, findByText } = render(() => <ConsolePanel vaultId="v1" />);
-    const input = getByLabelText("Console input") as HTMLInputElement;
-    fireEvent.input(input, { target: { value: "list" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-    await findByText("A.md");
-    fireEvent.keyDown(input, { key: "ArrowUp" });
+    const host = mount(() => <ConsolePanel vaultId="v1" />);
+    const input = host.querySelector('[aria-label="Console input"]') as HTMLInputElement;
+    typeAndSubmit(input, "list");
+    await flush();
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
     expect(input.value).toBe("list");
   });
 });
