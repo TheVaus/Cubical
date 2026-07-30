@@ -36,7 +36,6 @@ shell-words = "1"
 
 [dev-dependencies]
 tempfile = { workspace = true }
-shell-words = "1"
 
 [features]
 # By default, Tauri runs against the dev server.

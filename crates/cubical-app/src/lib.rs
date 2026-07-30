@@ -688,30 +688,30 @@ struct ConsoleExecRequest {
     line: String,
 }
 
-#[derive(serde::Serialize)]
-struct ConsoleResult {
-    stdout: String,
-    stderr: String,
-    code: i32,
+#[derive(Debug, serde::Serialize)]
+pub struct ConsoleResult {
+    pub stdout: String,
+    pub stderr: String,
+    pub code: i32,
 }
 
-#[tauri::command]
-async fn console_exec(
-    state: tauri::State<'_, AppState>,
-    app: tauri::AppHandle,
-    req: ConsoleExecRequest,
-) -> Result<ConsoleResult, String> {
+pub async fn run_console_line(
+    state: &AppState,
+    sink: &dyn cubical_engine::events::EventSink,
+    vault_id: &str,
+    line: &str,
+) -> ConsoleResult {
     use cubical_engine::api::types::GetVaultInfoRequest;
     use cubical_ipc::parse::{needs_body, to_command, Cli, Parser};
 
-    let tokens = match shell_words::split(&req.line) {
+    let tokens = match shell_words::split(line) {
         Ok(t) => t,
         Err(e) => {
-            return Ok(ConsoleResult {
+            return ConsoleResult {
                 stdout: String::new(),
                 stderr: format!("error: unbalanced quotes: {e}"),
                 code: 2,
-            })
+            }
         }
     };
     let mut tokens: Vec<String> = tokens;
@@ -719,61 +719,87 @@ async fn console_exec(
         tokens.remove(0);
     }
     if tokens.is_empty() {
-        return Ok(ConsoleResult {
+        return ConsoleResult {
             stdout: String::new(),
             stderr: "the console runs cubical verbs; write and --vault are unavailable here"
                 .to_string(),
             code: 2,
-        });
+        };
     }
     if tokens
         .iter()
         .any(|t| t == "--vault" || t.starts_with("--vault="))
     {
-        return Ok(ConsoleResult {
+        return ConsoleResult {
             stdout: String::new(),
             stderr: "error: --vault is not available in the console (bound to the open vault)"
                 .to_string(),
             code: 2,
-        });
+        };
     }
 
     let cli = match Cli::try_parse_from(std::iter::once("cubical".to_string()).chain(tokens)) {
         Ok(cli) => cli,
         Err(e) => {
             let code = e.exit_code();
-            return Ok(ConsoleResult {
-                stdout: String::new(),
-                stderr: e.render().to_string(),
-                code,
-            });
+            let rendered = e.render().to_string();
+            return if code == 0 {
+                ConsoleResult {
+                    stdout: rendered,
+                    stderr: String::new(),
+                    code,
+                }
+            } else {
+                ConsoleResult {
+                    stdout: String::new(),
+                    stderr: rendered,
+                    code,
+                }
+            };
         }
     };
 
     if needs_body(&cli.cmd) {
-        return Ok(ConsoleResult {
+        return ConsoleResult {
             stdout: String::new(),
             stderr:
                 "write is not available in the console — use the editor, or pipe from a terminal"
                     .to_string(),
             code: 1,
-        });
+        };
     }
 
-    let info = cubical_engine::commands::vault::get_vault_info(
-        state.inner(),
+    let info = match cubical_engine::commands::vault::get_vault_info(
+        state,
         GetVaultInfoRequest {
-            vault_id: req.vault_id.clone(),
+            vault_id: vault_id.to_string(),
         },
     )
     .await
-    .map_err(|e| e.to_string())?;
+    {
+        Ok(info) => info,
+        Err(e) => {
+            return ConsoleResult {
+                stdout: String::new(),
+                stderr: format!("error: {e}"),
+                code: 1,
+            }
+        }
+    };
     let vault_root = info.path;
 
-    let command = to_command(cli.cmd, &vault_root, None).map_err(|e| format!("{e:#}"))?;
+    let command = match to_command(cli.cmd, &vault_root, None) {
+        Ok(command) => command,
+        Err(e) => {
+            return ConsoleResult {
+                stdout: String::new(),
+                stderr: format!("error: {e:#}"),
+                code: 1,
+            }
+        }
+    };
 
-    let sink = crate::tauri_sink::TauriEventSink::new(app);
-    let outcome = cubical_ipc::dispatch(&req.vault_id, command, state.inner(), &sink).await;
+    let outcome = cubical_ipc::dispatch(vault_id, command, state, sink).await;
 
     let (mut out, mut err) = (Vec::new(), Vec::new());
     let code = match &outcome {
@@ -783,9 +809,19 @@ async fn console_exec(
             1
         }
     };
-    Ok(ConsoleResult {
+    ConsoleResult {
         stdout: String::from_utf8_lossy(&out).into_owned(),
         stderr: String::from_utf8_lossy(&err).into_owned(),
         code,
-    })
+    }
+}
+
+#[tauri::command]
+async fn console_exec(
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+    req: ConsoleExecRequest,
+) -> Result<ConsoleResult, String> {
+    let sink = crate::tauri_sink::TauriEventSink::new(app);
+    Ok(run_console_line(state.inner(), &sink, &req.vault_id, &req.line).await)
 }
