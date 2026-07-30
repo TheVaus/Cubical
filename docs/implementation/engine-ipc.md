@@ -297,7 +297,7 @@ this section records only why the boundary is shaped this way.
 ### Console: the fourth caller (Phase 3)
 
 `cubical-ipc` owns the text boundary in **both** directions now, not just the
-`Outcome`→text one above: `parse.rs` moved `Cli`/`Cmd`/`build_command` out of
+`Outcome`→text one above: `parse.rs` moved `Cli`/`Cmd`/`to_command` out of
 `cubical-cli`'s `main.rs` into the same crate, alongside `render`/`render_to`.
 Text→`Command` and `Command`→text are the same boundary in opposite
 directions, and both exist so every frontend produces identical parsing and

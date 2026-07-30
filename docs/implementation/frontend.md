@@ -138,9 +138,14 @@ vault state — they are dropped from tab-session `toDto` and start empty on
 every restore, the same way nav history resets for a restored tab (see Tabs,
 above).
 
-Console ids are excluded from the editor keep-alive pool: there is no
-`Editor` behind a console tab, so it never competes for the `live_tab_limit`
-LRU slots that keep-alive editors use.
+Console ids are excluded from the editor keep-alive pool at the accounting
+level, not just at render time: `live()` computes from `liveFileIds`
+(`tabs/lru.ts`), which filters the `mru` list and the active id down to
+file-backed ids *before* applying the `live_tab_limit` cap, so a console tab
+never occupies one of the capped LRU slots and can never evict a warm file
+editor's CodeMirror state. (An earlier version filtered only at the render
+site — `<For each={live()}>` — which kept the console `Editor`-free but
+still let it consume a keep-alive slot; that gap is closed.)
 
 `ipc.ts`'s `consoleExec` is the single chokepoint the panel calls; parsing,
 verb rejection and rendering all happen on the Rust side
