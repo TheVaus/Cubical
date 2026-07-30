@@ -102,7 +102,7 @@ import { activateWithFlush, type ActivationDeps } from "./tabs/activation";
 import {
   DEFAULT_LIVE_TAB_LIMIT,
   clampLimit,
-  liveIds,
+  liveFileIds,
   touch,
 } from "./tabs/lru";
 import { errorMessage } from "./errorMessage";
@@ -484,7 +484,8 @@ const App: Component = () => {
 
   const [mru, setMru] = createSignal<string[]>([]);
   const editorApis = new Map<string, EditorApi>();
-  const live = () => liveIds(mru(), tabs().activeId, liveTabLimit());
+  const live = () =>
+    liveFileIds(mru(), tabs().activeId, liveTabLimit(), (id) => pathForId(id) !== null);
   const editorApi = (): EditorApi | undefined => {
     const id = tabs().activeId;
     return id === null ? undefined : editorApis.get(id);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_LIVE_TAB_LIMIT, clampLimit, liveIds, touch } from "./lru";
+import { DEFAULT_LIVE_TAB_LIMIT, clampLimit, liveFileIds, liveIds, touch } from "./lru";
 
 describe("clampLimit", () => {
   it("keeps sane values", () => {
@@ -40,5 +40,23 @@ describe("liveIds", () => {
 
   it("respects the clamp", () => {
     expect(liveIds(["a", "b"], "a", 0)).toEqual(["a"]);
+  });
+});
+
+describe("liveFileIds", () => {
+  const isFile = (id: string) => !id.startsWith("console");
+
+  it("does not let a non-file active id occupy a slot", () => {
+    expect(liveFileIds(["console", "a", "b"], "console", 2, isFile)).toEqual([
+      "a",
+      "b",
+    ]);
+  });
+
+  it("activating a console id evicts none of the already-warm file ids", () => {
+    const mru = ["a", "b"];
+    const before = liveFileIds(mru, "a", 2, isFile);
+    const after = liveFileIds(["console", ...mru], "console", 2, isFile);
+    expect(after).toEqual(before);
   });
 });
