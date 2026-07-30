@@ -1,11 +1,19 @@
 # CLI frontend Phase 3 — in-app command console (design)
 
 **Date:** 2026-07-25
-**Status:** designed, **blocked on tabs** — see "Dependency" below
+**Status:** built 2026-07-29
 **Supersedes the Phase-3 framing in:** [`../2026-07-24-cli-phase3-handoff.md`](../2026-07-24-cli-phase3-handoff.md)
 **Builds on:** [`2026-07-24-cli-frontend-design.md`](2026-07-24-cli-frontend-design.md) (Phase 1),
 [`2026-07-24-cli-attach-phase2-design.md`](2026-07-24-cli-attach-phase2-design.md) (Phase 2)
 **Durable rationale lands in:** [`../../implementation/engine-ipc.md`](../../implementation/engine-ipc.md)
+
+**What was built:** implemented end-to-end on `feat/cli-console` per
+[`../plans/2026-07-28-cli-console-phase3.md`](../plans/2026-07-28-cli-console-phase3.md);
+durable rationale recorded in
+[`../../implementation/engine-ipc.md`](../../implementation/engine-ipc.md) →
+"Console: the fourth caller" and
+[`../../implementation/frontend.md`](../../implementation/frontend.md) →
+"Console".
 
 ---
 

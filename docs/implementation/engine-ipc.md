@@ -294,6 +294,32 @@ Design and data flow are owned by
 [`docs/superpowers/specs/2026-07-24-cli-attach-phase2-design.md`](../superpowers/specs/2026-07-24-cli-attach-phase2-design.md);
 this section records only why the boundary is shaped this way.
 
+### Console: the fourth caller (Phase 3)
+
+`cubical-ipc` owns the text boundary in **both** directions now, not just the
+`Outcome`→text one above: `parse.rs` moved `Cli`/`Cmd`/`build_command` out of
+`cubical-cli`'s `main.rs` into the same crate, alongside `render`/`render_to`.
+Text→`Command` and `Command`→text are the same boundary in opposite
+directions, and both exist so every frontend produces identical parsing and
+output — the reasoning is one, not two.
+
+The in-app console (`console_exec`, `cubical-app`) is the **fourth caller of
+the one `dispatch`**, joining CLI-local, the app's socket server, and the CLI
+client above. It calls `dispatch` in-process against the app's own `AppState`
+via `TauriEventSink` — no socket, no `cubical` binary, no `#[cfg(unix)]`
+restriction, so it works on Windows where the socket transport is deliberately
+stubbed out.
+
+Being in-process rather than a client of the socket server is also why it
+needs its own rejections instead of inheriting the CLI's: it rejects `write`
+(`needs_body`, checked once in `parse.rs` so a future body-needing verb is
+caught automatically — the console has no stdin to read a body from) and
+`--vault` (the console is bound to the vault the app already has open; the
+socket path's `--vault` handling doesn't apply here since there's no attach
+step to bind at).
+
+Design and rationale: [`docs/superpowers/specs/2026-07-25-cli-console-phase3-design.md`](../superpowers/specs/2026-07-25-cli-console-phase3-design.md).
+
 ## Degrade-not-throw surfaces
 
 Dataview and search deliberately fold failures into a structured result rather
