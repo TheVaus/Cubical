@@ -679,6 +679,20 @@ const App: Component = () => {
     }
   };
 
+  const consoleAvailable = () =>
+    vaultId() !== null &&
+    corePluginEnabled(
+      corePlugins(),
+      CORE_PLUGINS.find((p) => p.id === "console")!,
+    );
+
+  const openConsoleTab = () => {
+    void (async () => {
+      await flushAutosave();
+      setTabs((s) => openTab(s, { kind: "console" }));
+    })();
+  };
+
   const handleCopyBlockRef = async (byteOffset: number): Promise<void> => {
     const id = vaultId();
     const path = selectedPath();
@@ -1422,18 +1436,8 @@ const App: Component = () => {
       "view.openConsole": {
         id: "view.openConsole",
         title: "Open command console",
-        when: () =>
-          vaultId() !== null &&
-          corePluginEnabled(
-            corePlugins(),
-            CORE_PLUGINS.find((p) => p.id === "console")!,
-          ),
-        run: () => {
-          void (async () => {
-            await flushAutosave();
-            setTabs((s) => openTab(s, { kind: "console" }));
-          })();
-        },
+        when: consoleAvailable,
+        run: openConsoleTab,
       },
     };
     const onGlobalKey = (e: KeyboardEvent) => {
@@ -1713,6 +1717,16 @@ const App: Component = () => {
           >
             ›
           </IconButton>
+          <Show when={consoleAvailable()}>
+            <IconButton
+              label="Open command console"
+              onClick={openConsoleTab}
+              active={view().kind === "console"}
+              ariaPressed={view().kind === "console"}
+            >
+              <Icon name="terminal" />
+            </IconButton>
+          </Show>
         </div>
         <div class="topbar__center">
           <TabStrip
