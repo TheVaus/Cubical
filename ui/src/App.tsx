@@ -26,7 +26,13 @@ import Popover from "@ds/components/overlay/Popover/Popover";
 import Icon, { type IconName } from "@ds/components/graphics/Icon/Icon";
 
 import Editor, { type EditorApi } from "./Editor";
-import { ConsolePanel } from "./console/ConsolePanel";
+import {
+  ConsoleButton,
+  ConsolePanel,
+  CONSOLE_COMMAND_ID,
+  createConsoleWiring,
+  isConsoleView,
+} from "./console";
 import Properties from "./Properties";
 import { RecentVaultList } from "./RecentVaultList";
 import ShortcutsPanel from "./settings/ShortcutsPanel";
@@ -88,13 +94,13 @@ import {
   closeTab,
   dropMissingTabs,
   emptyTabs,
+  isPersistableTab,
   moveTab,
   nextTab,
   openTab,
   prevTab,
   remapTabPaths,
   tabId,
-  type Tab,
   type TabSet,
   type TabView,
 } from "./tabs/tabModel";
@@ -496,11 +502,6 @@ const App: Component = () => {
   };
   const [tabsReady, setTabsReady] = createSignal(false);
 
-  const isPersistableTab = (
-    t: Tab,
-  ): t is Tab & { view: { kind: "file"; path: string } | { kind: "tag"; tagPath: string } } =>
-    t.view.kind !== "console";
-
   const toDto = (s: TabSet): TabSessionDto => ({
     active_id: s.activeId,
     tabs: s.tabs
@@ -559,16 +560,6 @@ const App: Component = () => {
   createEffect(() => {
     const id = tabs().activeId;
     if (id !== null) setMru((m) => touch(m, id));
-  });
-
-  createEffect(() => {
-    const enabled = corePluginEnabled(
-      corePlugins(),
-      CORE_PLUGINS.find((p) => p.id === "console")!,
-    );
-    if (!enabled && tabs().tabs.some((t) => t.view.kind === "console")) {
-      void closeTabById("console");
-    }
   });
 
   createEffect(() => {
@@ -677,20 +668,6 @@ const App: Component = () => {
     } finally {
       if (pendingWrite === next) pendingWrite = null;
     }
-  };
-
-  const consoleAvailable = () =>
-    vaultId() !== null &&
-    corePluginEnabled(
-      corePlugins(),
-      CORE_PLUGINS.find((p) => p.id === "console")!,
-    );
-
-  const openConsoleTab = () => {
-    void (async () => {
-      await flushAutosave();
-      setTabs((s) => openTab(s, { kind: "console" }));
-    })();
   };
 
   const handleCopyBlockRef = async (byteOffset: number): Promise<void> => {
@@ -1005,6 +982,15 @@ const App: Component = () => {
     resetDocState();
     if (tabs().activeId !== null) await loadActiveTabContent();
   };
+
+  const consoleTab = createConsoleWiring({
+    vaultId,
+    corePlugins,
+    tabs,
+    setTabs: (updater) => setTabs(updater),
+    closeTab: (id) => closeTabById(id),
+    flushAutosave: () => flushAutosave(),
+  });
 
   const handleSelectFile = async (
     file: FileEntry,
@@ -1433,12 +1419,7 @@ const App: Component = () => {
           if (id !== null) void closeTabById(id);
         },
       },
-      "view.openConsole": {
-        id: "view.openConsole",
-        title: "Open command console",
-        when: consoleAvailable,
-        run: openConsoleTab,
-      },
+      [CONSOLE_COMMAND_ID]: consoleTab.command,
     };
     const onGlobalKey = (e: KeyboardEvent) => {
       const c = resolveGlobal(effectiveBindings(), globalCommands, e);
@@ -1717,16 +1698,11 @@ const App: Component = () => {
           >
             ›
           </IconButton>
-          <Show when={consoleAvailable()}>
-            <IconButton
-              label="Open command console"
-              onClick={openConsoleTab}
-              active={view().kind === "console"}
-              ariaPressed={view().kind === "console"}
-            >
-              <Icon name="terminal" />
-            </IconButton>
-          </Show>
+          <ConsoleButton
+            available={consoleTab.available}
+            onOpen={consoleTab.open}
+            view={view}
+          />
         </div>
         <div class="topbar__center">
           <TabStrip
@@ -2128,7 +2104,7 @@ const App: Component = () => {
             <div class="editor-scroll">
               <div class="editor-inner">
               <Show
-                when={view().kind === "console"}
+                when={isConsoleView(view())}
                 fallback={
                   <Show
                     when={view().kind === "file"}

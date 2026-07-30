@@ -1,3 +1,4 @@
+import { CONSOLE_PLUGIN } from "../console/registration";
 import type { Setting } from "../api/ipc";
 
 export type BooleanSettingKey = Extract<Setting, { value: boolean }>["key"];
@@ -26,13 +27,7 @@ export const CORE_PLUGINS: CorePlugin[] = [
     settingKey: "plugins.property_refs_enabled",
     defaultEnabled: true,
   },
-  {
-    id: "console",
-    name: "Command console",
-    description: "Run cubical commands against the open vault in a tab.",
-    settingKey: "plugins.console_enabled",
-    defaultEnabled: false,
-  },
+  CONSOLE_PLUGIN,
 ];
 
 export function corePluginEnabled(

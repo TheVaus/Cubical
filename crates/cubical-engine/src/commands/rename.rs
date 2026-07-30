@@ -294,6 +294,108 @@ async fn enqueue_referrers_in_tx(
     Ok(touched)
 }
 
+struct RenameCommitInput<'a> {
+    vault: &'a cubical_core::Vault,
+    flush_own_writes: &'a FlushOwnWrites,
+    vault_id: &'a str,
+    from_path: &'a str,
+    to_path: &'a str,
+    kind: &'a str,
+}
+
+struct RenameCommit {
+    rename_op_id: i64,
+    pending_count: i64,
+}
+
+async fn commit_rename(
+    state: &AppState,
+    app: &dyn EventSink,
+    input: RenameCommitInput<'_>,
+) -> Result<RenameCommit, CubicalError> {
+    let RenameCommitInput {
+        vault,
+        flush_own_writes,
+        vault_id,
+        from_path,
+        to_path,
+        kind,
+    } = input;
+    let conn = vault.index().connection();
+    let to_abs = vault.root().join(to_path);
+
+    let rewrite_broken =
+        read_bool_setting(state, vault_id, WIKILINKS_REWRITE_BROKEN_KEY, true).await;
+    let referrers = collect_referrers(conn, from_path, rewrite_broken).await?;
+
+    let rename_op_id = mint_rename_op_id(vault).await?;
+    let now = unix_now_secs();
+
+    let tx = conn.transaction().await?;
+    tx.execute("PRAGMA defer_foreign_keys = 1", ()).await?;
+    let fuse_targets =
+        enqueue_referrers_in_tx(&tx, from_path, to_path, &referrers, now, rename_op_id).await?;
+    rekey_file_in_tx(&tx, from_path, to_path, rewrite_broken).await?;
+    tx.commit().await?;
+
+    if let Err(e) = cubical_core::vault::rename_journal::append_entry(
+        vault.root(),
+        &cubical_core::vault::rename_journal::RenameJournalEntry {
+            op_id: rename_op_id,
+            kind: kind.to_string(),
+            from: from_path.to_string(),
+            to: to_path.to_string(),
+            at: now,
+        },
+    ) {
+        tracing::warn!(error = %e, "rename: failed to write durability journal");
+    }
+
+    let on_disk = tokio::task::spawn_blocking({
+        let to_abs = to_abs.clone();
+        move || std::fs::read_to_string(&to_abs)
+    })
+    .await
+    .map_err(|e| CubicalError::Io(format!("re-extract read join error: {e}")))?
+    .map_err(|e| CubicalError::Io(e.to_string()))?;
+    let _ = refresh_frontmatter(vault, to_path, &on_disk).await;
+    let _ = refresh_links(vault, to_path, &on_disk).await;
+    let _ = refresh_tags(vault, to_path, &on_disk).await;
+    let _ = refresh_blocks(vault, to_path, &on_disk).await;
+    let _ = refresh_block_refs_for_file(vault, to_path).await;
+
+    let _ = delete_search_index(vault, from_path).await;
+    let (mtime_secs, size_bytes) = std::fs::metadata(&to_abs)
+        .map(|m| {
+            let mtime = m
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
+                .unwrap_or(0);
+            (mtime, m.len())
+        })
+        .unwrap_or((0, on_disk.len() as u64));
+    let _ = refresh_search_index(vault, to_path, &on_disk, mtime_secs, size_bytes).await;
+    let _ = vault.search().commit();
+
+    enforce_fifty_per_file_fuse(vault, flush_own_writes, &fuse_targets).await?;
+
+    let pending_count = pending_count_total(vault.index()).await?;
+    emit_pending_rewrites_changed(
+        app,
+        VaultPendingRewritesChanged {
+            vault_id: vault_id.to_string(),
+            count: pending_count,
+        },
+    );
+
+    Ok(RenameCommit {
+        rename_op_id,
+        pending_count,
+    })
+}
+
 pub async fn rename_file(
     state: &AppState,
     app: &dyn EventSink,
@@ -318,27 +420,6 @@ pub async fn rename_file(
         return Err(CubicalError::FileNotFound(req.from_path.clone()));
     }
 
-    let rewrite_broken =
-        read_bool_setting(state, &req.vault_id, WIKILINKS_REWRITE_BROKEN_KEY, true).await;
-    let referrers = collect_referrers(conn, &req.from_path, rewrite_broken).await?;
-
-    let rename_op_id = mint_rename_op_id(&vault).await?;
-    let now = unix_now_secs();
-
-    let tx = conn.transaction().await?;
-    tx.execute("PRAGMA defer_foreign_keys = 1", ()).await?;
-    let fuse_targets = enqueue_referrers_in_tx(
-        &tx,
-        &req.from_path,
-        &req.to_path,
-        &referrers,
-        now,
-        rename_op_id,
-    )
-    .await?;
-    rekey_file_in_tx(&tx, &req.from_path, &req.to_path, rewrite_broken).await?;
-    tx.commit().await?;
-
     if let Some(parent) = to_abs.parent() {
         std::fs::create_dir_all(parent).map_err(|e| CubicalError::Io(e.to_string()))?;
     }
@@ -352,61 +433,23 @@ pub async fn rename_file(
         }
     }
 
-    if let Err(e) = cubical_core::vault::rename_journal::append_entry(
-        vault.root(),
-        &cubical_core::vault::rename_journal::RenameJournalEntry {
-            op_id: rename_op_id,
-            kind: "file".into(),
-            from: req.from_path.clone(),
-            to: req.to_path.clone(),
-            at: now,
-        },
-    ) {
-        tracing::warn!(error = %e, "rename: failed to write durability journal");
-    }
-
-    let on_disk = tokio::task::spawn_blocking({
-        let to_abs = to_abs.clone();
-        move || std::fs::read_to_string(&to_abs)
-    })
-    .await
-    .map_err(|e| CubicalError::Io(format!("re-extract read join error: {e}")))?
-    .map_err(|e| CubicalError::Io(e.to_string()))?;
-    let _ = refresh_frontmatter(&vault, &req.to_path, &on_disk).await;
-    let _ = refresh_links(&vault, &req.to_path, &on_disk).await;
-    let _ = refresh_tags(&vault, &req.to_path, &on_disk).await;
-    let _ = refresh_blocks(&vault, &req.to_path, &on_disk).await;
-    let _ = refresh_block_refs_for_file(&vault, &req.to_path).await;
-
-    let _ = delete_search_index(&vault, &req.from_path).await;
-    let (mtime_secs, size_bytes) = std::fs::metadata(&to_abs)
-        .map(|m| {
-            let mtime = m
-                .modified()
-                .ok()
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
-                .unwrap_or(0);
-            (mtime, m.len())
-        })
-        .unwrap_or((0, on_disk.len() as u64));
-    let _ = refresh_search_index(&vault, &req.to_path, &on_disk, mtime_secs, size_bytes).await;
-    let _ = vault.search().commit();
-
-    enforce_fifty_per_file_fuse(&vault, &flush_own_writes, &fuse_targets).await?;
-
-    let pending_count = pending_count_total(vault.index()).await?;
-    emit_pending_rewrites_changed(
+    let committed = commit_rename(
+        state,
         app,
-        VaultPendingRewritesChanged {
-            vault_id: req.vault_id.clone(),
-            count: pending_count,
+        RenameCommitInput {
+            vault: &vault,
+            flush_own_writes: &flush_own_writes,
+            vault_id: &req.vault_id,
+            from_path: &req.from_path,
+            to_path: &req.to_path,
+            kind: "file",
         },
-    );
+    )
+    .await?;
 
     Ok(RenameFileResponse {
-        rename_op_id,
-        pending_count,
+        rename_op_id: committed.rename_op_id,
+        pending_count: committed.pending_count,
     })
 }
 

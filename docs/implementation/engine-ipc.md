@@ -303,7 +303,7 @@ Text→`Command` and `Command`→text are the same boundary in opposite
 directions, and both exist so every frontend produces identical parsing and
 output — the reasoning is one, not two.
 
-The in-app console (`console_exec`, `cubical-app`) is the **fourth caller of
+The in-app console (`cubical-app/src/console.rs`) is the **fourth caller of
 the one `dispatch`**, joining CLI-local, the app's socket server, and the CLI
 client above. It calls `dispatch` in-process against the app's own `AppState`
 via `TauriEventSink` — no socket, no `cubical` binary, no `#[cfg(unix)]`
@@ -318,7 +318,19 @@ caught automatically — the console has no stdin to read a body from) and
 socket path's `--vault` handling doesn't apply here since there's no attach
 step to bind at).
 
+Everything console-specific on the Rust side lives in that one module —
+`ConsoleResult`, the tokenizer, the `write`/`--vault` rejections and the
+`console_exec` command — and `lib.rs` knows it only as `mod console;`, the
+`console::console_exec` handler entry, and a `pub use` for the integration
+test. `parse`/`dispatch`/`render_to` stay in `cubical-ipc` where all four
+callers share them; moving any of that next to the console would reintroduce
+the drift the shared boundary exists to prevent.
+
 Design and rationale: [`docs/superpowers/specs/2026-07-25-cli-console-phase3-design.md`](../superpowers/specs/2026-07-25-cli-console-phase3-design.md).
+The console is scheduled for removal once the PTY terminal replaces it
+([`2026-07-30-terminal-design.md`](../superpowers/specs/2026-07-30-terminal-design.md)
+→ "Retiring the console"), which is why its surface is deliberately collapsed
+to that single wiring point rather than spread across `lib.rs`.
 
 ## Degrade-not-throw surfaces
 

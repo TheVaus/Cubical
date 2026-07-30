@@ -349,8 +349,12 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) -> O
         WatchEvent::Created(rel) | WatchEvent::Modified(rel) => {
             let abs = vault.root().join(rel);
             let path_str = rel.to_string_lossy().into_owned();
-            let (size, mtime, hash): (i64, i64, String) =
-                read_file_stats(&abs, vault).await.unwrap_or_default();
+            let FileStats {
+                size,
+                mtime,
+                hash,
+                inode,
+            } = read_file_stats(&abs, vault).await.unwrap_or_default();
             let type_id = vault
                 .registry()
                 .handler_for(&abs)
@@ -362,11 +366,12 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) -> O
                     path, type_id, size_bytes, mtime_unix, content_hash,
                     inode, last_seen, created_at, updated_at
                 )
-                VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6, ?6, ?6)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7)
                 ON CONFLICT(path) DO UPDATE SET
                     size_bytes   = excluded.size_bytes,
                     mtime_unix   = excluded.mtime_unix,
                     content_hash = excluded.content_hash,
+                    inode        = excluded.inode,
                     last_seen    = excluded.last_seen,
                     updated_at   = excluded.last_seen
             ";
@@ -379,6 +384,7 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) -> O
                         size,
                         mtime,
                         hash.clone(),
+                        inode,
                         now
                     ],
                 )
@@ -508,7 +514,26 @@ pub(crate) async fn apply_watch_events_batch(
     hashes
 }
 
-async fn read_file_stats(abs: &std::path::Path, vault: &Vault) -> Option<(i64, i64, String)> {
+#[derive(Default)]
+struct FileStats {
+    size: i64,
+    mtime: i64,
+    hash: String,
+    inode: Option<i64>,
+}
+
+#[cfg(unix)]
+fn inode_of(metadata: &std::fs::Metadata) -> Option<i64> {
+    use std::os::unix::fs::MetadataExt;
+    Some(i64::try_from(metadata.ino()).unwrap_or(i64::MAX))
+}
+
+#[cfg(not(unix))]
+fn inode_of(_metadata: &std::fs::Metadata) -> Option<i64> {
+    None
+}
+
+async fn read_file_stats(abs: &std::path::Path, vault: &Vault) -> Option<FileStats> {
     let metadata = match std::fs::metadata(abs) {
         Ok(m) => m,
         Err(e) => {
@@ -523,6 +548,7 @@ async fn read_file_stats(abs: &std::path::Path, vault: &Vault) -> Option<(i64, i
         .and_then(|t| t.duration_since(std::time::SystemTime::UNIX_EPOCH).ok())
         .map(|d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
         .unwrap_or(0);
+    let inode = inode_of(&metadata);
 
     let abs_for_hash = abs.to_path_buf();
     let registry = vault.registry_arc();
@@ -544,7 +570,12 @@ async fn read_file_stats(abs: &std::path::Path, vault: &Vault) -> Option<(i64, i
             return None;
         }
     };
-    Some((size, mtime, hash))
+    Some(FileStats {
+        size,
+        mtime,
+        hash,
+        inode,
+    })
 }
 
 fn audit_payload_for(ev: &WatchEvent) -> (String, String) {
@@ -692,6 +723,83 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&detail).unwrap();
         assert_eq!(parsed["kind"], "created");
         assert_eq!(parsed["path"], "note.md");
+    }
+
+    #[cfg(unix)]
+    async fn read_inode_column(vault: &Vault, path: &str) -> Option<i64> {
+        let conn = vault.index().connection();
+        let mut rows = conn
+            .query("SELECT inode FROM files WHERE path = ?1", params![path])
+            .await
+            .unwrap();
+        let row = rows.next().await.unwrap().expect("files row");
+        row.get(0).unwrap()
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn created_event_records_the_real_inode() {
+        use std::os::unix::fs::MetadataExt;
+
+        let (dir, vault) = fresh_vault_with_one_md("note.md").await;
+        let fresh = dir.path().join("fresh.md");
+        std::fs::write(&fresh, "body\n").unwrap();
+
+        apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("fresh.md"))).await;
+
+        let expected = i64::try_from(std::fs::metadata(&fresh).unwrap().ino()).unwrap();
+        assert_eq!(
+            read_inode_column(&vault, "fresh.md").await,
+            Some(expected),
+            "Created must record the inode the file actually has on disk"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn modified_event_refreshes_the_inode_after_replacement() {
+        use std::os::unix::fs::MetadataExt;
+
+        let (dir, vault) = fresh_vault_with_one_md("note.md").await;
+        let note = dir.path().join("note.md");
+
+        apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("note.md"))).await;
+        let first = read_inode_column(&vault, "note.md")
+            .await
+            .expect("inode set");
+
+        let swap = dir.path().join("swap.tmp");
+        std::fs::write(&swap, "replaced\n").unwrap();
+        std::fs::rename(&swap, &note).unwrap();
+        let replaced = i64::try_from(std::fs::metadata(&note).unwrap().ino()).unwrap();
+        assert_ne!(first, replaced, "replacement must change the inode");
+
+        apply_watch_event_to_db(&vault, &WatchEvent::Modified(PathBuf::from("note.md"))).await;
+
+        assert_eq!(
+            read_inode_column(&vault, "note.md").await,
+            Some(replaced),
+            "ON CONFLICT must refresh inode, not keep the stale one"
+        );
+    }
+
+    #[tokio::test]
+    async fn created_event_on_missing_file_leaves_inode_null() {
+        let (_dir, vault) = fresh_vault_with_one_md("note.md").await;
+
+        apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("ghost.md"))).await;
+
+        let conn = vault.index().connection();
+        let mut rows = conn
+            .query("SELECT inode FROM files WHERE path = 'ghost.md'", ())
+            .await
+            .unwrap();
+        let row = rows.next().await.unwrap().expect("files row");
+        let inode: Option<i64> = row.get(0).unwrap();
+        assert_eq!(
+            inode, None,
+            "a NULL inode stays legal when stats are absent"
+        );
     }
 
     #[tokio::test]
