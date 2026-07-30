@@ -26,6 +26,13 @@ export const CORE_PLUGINS: CorePlugin[] = [
     settingKey: "plugins.property_refs_enabled",
     defaultEnabled: true,
   },
+  {
+    id: "console",
+    name: "Command console",
+    description: "Run cubical commands against the open vault in a tab.",
+    settingKey: "plugins.console_enabled",
+    defaultEnabled: false,
+  },
 ];
 
 export function corePluginEnabled(
