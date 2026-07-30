@@ -1,6 +1,7 @@
 export type TabView =
   | { kind: "file"; path: string }
-  | { kind: "tag"; tagPath: string };
+  | { kind: "tag"; tagPath: string }
+  | { kind: "console" };
 
 export interface Tab {
   id: string;
@@ -15,7 +16,14 @@ export interface TabSet {
 export const emptyTabs: TabSet = { tabs: [], activeId: null };
 
 export function tabId(view: TabView): string {
-  return view.kind === "file" ? `file:${view.path}` : `tag:${view.tagPath}`;
+  switch (view.kind) {
+    case "file":
+      return `file:${view.path}`;
+    case "tag":
+      return `tag:${view.tagPath}`;
+    case "console":
+      return "console";
+  }
 }
 
 export function activeTab(s: TabSet): Tab | null {

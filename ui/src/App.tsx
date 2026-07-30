@@ -26,6 +26,7 @@ import Popover from "@ds/components/overlay/Popover/Popover";
 import Icon, { type IconName } from "@ds/components/graphics/Icon/Icon";
 
 import Editor, { type EditorApi } from "./Editor";
+import { ConsolePanel } from "./console/ConsolePanel";
 import Properties from "./Properties";
 import { RecentVaultList } from "./RecentVaultList";
 import ShortcutsPanel from "./settings/ShortcutsPanel";
@@ -93,6 +94,7 @@ import {
   prevTab,
   remapTabPaths,
   tabId,
+  type Tab,
   type TabSet,
   type TabView,
 } from "./tabs/tabModel";
@@ -493,14 +495,21 @@ const App: Component = () => {
   };
   const [tabsReady, setTabsReady] = createSignal(false);
 
+  const isPersistableTab = (
+    t: Tab,
+  ): t is Tab & { view: { kind: "file"; path: string } | { kind: "tag"; tagPath: string } } =>
+    t.view.kind !== "console";
+
   const toDto = (s: TabSet): TabSessionDto => ({
     active_id: s.activeId,
-    tabs: s.tabs.map((t) => ({
-      id: t.id,
-      kind: t.view.kind,
-      path: t.view.kind === "file" ? t.view.path : null,
-      tag_path: t.view.kind === "tag" ? t.view.tagPath : null,
-    })),
+    tabs: s.tabs
+      .filter(isPersistableTab)
+      .map((t) => ({
+        id: t.id,
+        kind: t.view.kind,
+        path: t.view.kind === "file" ? t.view.path : null,
+        tag_path: t.view.kind === "tag" ? t.view.tagPath : null,
+      })),
   });
 
   const fromDto = (dto: TabSessionDto): TabSet => {
@@ -549,6 +558,18 @@ const App: Component = () => {
   createEffect(() => {
     const id = tabs().activeId;
     if (id !== null) setMru((m) => touch(m, id));
+  });
+
+  createEffect(() => {
+    const enabled = corePluginEnabled(
+      corePlugins(),
+      CORE_PLUGINS.find((p) => p.id === "console")!,
+    );
+    if (!enabled) {
+      setTabs((s) =>
+        s.tabs.some((t) => t.view.kind === "console") ? closeTab(s, "console") : s,
+      );
+    }
   });
 
   createEffect(() => {
@@ -1399,6 +1420,17 @@ const App: Component = () => {
           if (id !== null) void closeTabById(id);
         },
       },
+      "view.openConsole": {
+        id: "view.openConsole",
+        title: "Open command console",
+        when: () =>
+          vaultId() !== null &&
+          corePluginEnabled(
+            corePlugins(),
+            CORE_PLUGINS.find((p) => p.id === "console")!,
+          ),
+        run: () => setTabs((s) => openTab(s, { kind: "console" })),
+      },
     };
     const onGlobalKey = (e: KeyboardEvent) => {
       const c = resolveGlobal(effectiveBindings(), globalCommands, e);
@@ -2078,19 +2110,22 @@ const App: Component = () => {
             <div class="editor-scroll">
               <div class="editor-inner">
               <Show
-                when={view().kind === "file"}
+                when={view().kind === "console"}
                 fallback={
-                  <TagPage
-                    vaultId={vaultId()}
-                    tagPath={(view() as { kind: "tag"; tagPath: string }).tagPath}
-                    refreshSignal={tagRefreshTick()}
-                    onSelectFile={(path) =>
-                      void handleNavigateWikilink(path, null)
+                  <Show
+                    when={view().kind === "file"}
+                    fallback={
+                      <TagPage
+                        vaultId={vaultId()}
+                        tagPath={(view() as { kind: "tag"; tagPath: string }).tagPath}
+                        refreshSignal={tagRefreshTick()}
+                        onSelectFile={(path) =>
+                          void handleNavigateWikilink(path, null)
+                        }
+                        onBack={handleExitTagView}
+                      />
                     }
-                    onBack={handleExitTagView}
-                  />
-                }
-              >
+                  >
               <Show
                 when={selectedContent() !== null}
                 fallback={
@@ -2204,7 +2239,7 @@ const App: Component = () => {
                     tagsKeyAsTags={tagsKeyAsTags()}
                   />
                 </Show>
-                <For each={live()}>
+                <For each={live().filter((id) => pathForId(id) !== null)}>
                   {(id) => (
                     <div
                       style={{
@@ -2256,6 +2291,10 @@ const App: Component = () => {
                   )}
                 </For>
               </Show>
+                  </Show>
+                }
+              >
+                <ConsolePanel vaultId={vaultId()!} />
               </Show>
               </div>
             </div>
