@@ -33,7 +33,12 @@ Each tab owns one PTY and one child process. This collides with the tabs model i
 
 `portable-pty` on the Rust side; **xterm.js** in the webview. The Rust side stays thin: spawn, stream bytes over a Tauri channel, forward keystrokes, propagate resize.
 
-xterm.js rather than a hand-written emulator because `claude` and any TUI need the full VT surface — alt-screen, cursor addressing, 256-colour, mouse. Writing that is the single largest piece of work available here and every gap shows up as a corrupted screen. It is a browser library, not a Node runtime, so it does not violate the no-Node rule. Cost accepted: a heavy frontend dep the design system does not own, needing a theming shim to read DS tokens.
+xterm.js rather than a hand-written emulator because `claude` and any TUI need the full VT surface — alt-screen, cursor addressing, 256-colour, mouse. Writing that is the single largest piece of work available here, and every gap shows up as a corrupted screen in exactly the case this feature exists for. It is a browser library, not a Node runtime, so it does not violate the no-Node rule.
+
+The real cost is a heavy frontend dependency the design system does not own. Two mitigations, both required:
+
+- **Adapter boundary.** No module outside `ui/src/terminal/` imports xterm.js. The terminal component talks to a thin adapter exposing only what is needed (write bytes, resize, focus, dispose, key handler). If xterm.js ever has to be replaced, the blast radius is one directory.
+- **Theming shim, not style leakage.** xterm.js is configured with a theme object *derived from* DS tokens at mount, and re-derived on theme change. Its stylesheet is scoped to the terminal container. DS tokens stay the single source of truth for colour; xterm.js never contributes a colour of its own.
 
 ### Child environment
 
