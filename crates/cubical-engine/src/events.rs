@@ -8,6 +8,7 @@ use tokio::sync::{mpsc, Mutex, RwLock};
 
 use cubical_core::vault::links::read_source_off_executor;
 use cubical_core::vault::pending::materialize_on_read;
+use cubical_core::vault::settings::SettingsMap;
 use cubical_core::{
     refresh_block_refs_for_file, refresh_blocks, refresh_frontmatter, refresh_links, refresh_tags,
     scan, ScanProgress, Vault, VaultError, WatchEvent,
@@ -270,12 +271,20 @@ pub fn spawn_scan_dispatcher(
     });
 }
 
+pub(crate) struct WatchContext<'a> {
+    pub sink: &'a dyn EventSink,
+    pub vault_id: &'a str,
+    pub flush_own_writes: &'a FlushOwnWrites,
+    pub settings: &'a RwLock<SettingsMap>,
+}
+
 pub fn spawn_watcher_dispatcher(
     sink: Arc<dyn EventSink>,
     vault_id: String,
     vault: Vault,
     mut events_rx: tokio::sync::mpsc::Receiver<WatchEvent>,
     flush_own_writes: FlushOwnWrites,
+    settings: Arc<RwLock<SettingsMap>>,
 ) {
     tokio::spawn(async move {
         while let Some(first) = events_rx.recv().await {
@@ -283,22 +292,25 @@ pub fn spawn_watcher_dispatcher(
             while let Ok(next) = events_rx.try_recv() {
                 batch.push(next);
             }
-            handle_watch_batch(sink.as_ref(), &vault_id, &vault, batch, &flush_own_writes).await;
+            let ctx = WatchContext {
+                sink: sink.as_ref(),
+                vault_id: &vault_id,
+                flush_own_writes: &flush_own_writes,
+                settings: settings.as_ref(),
+            };
+            handle_watch_batch(&vault, batch, &ctx).await;
         }
         tracing::debug!(vault_id = %vault_id, "watcher dispatcher: channel closed");
     });
 }
 
-async fn handle_watch_batch(
-    sink: &dyn EventSink,
-    vault_id: &str,
-    vault: &Vault,
-    batch: Vec<WatchEvent>,
-    flush_own_writes: &FlushOwnWrites,
-) {
+async fn handle_watch_batch(vault: &Vault, batch: Vec<WatchEvent>, ctx: &WatchContext<'_>) {
     let arrived = Instant::now();
+    let sink = ctx.sink;
+    let vault_id = ctx.vault_id;
+    let flush_own_writes = ctx.flush_own_writes;
 
-    let hashes = apply_watch_events_batch(vault, &batch).await;
+    let hashes = apply_watch_events_batch(vault, &batch, Some(ctx)).await;
 
     for (ev, new_content_hash) in batch.iter().zip(hashes) {
         if consume_own_write_hash(flush_own_writes, ev, new_content_hash.as_deref()).await {
@@ -320,7 +332,11 @@ async fn handle_watch_batch(
     }
 }
 
-pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) -> Option<String> {
+pub(crate) async fn apply_watch_event_to_db(
+    vault: &Vault,
+    ev: &WatchEvent,
+    ctx: Option<&WatchContext<'_>>,
+) -> Option<String> {
     let now = unix_now_secs();
     let conn = vault.index().connection();
 
@@ -460,21 +476,35 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) -> O
             }
             None
         }
-        WatchEvent::Renamed { from, to: _ } => {
+        WatchEvent::Renamed { from, to } => {
             let from_str = from.to_string_lossy().into_owned();
-            if let Err(e) = conn
-                .execute(
-                    "UPDATE files SET last_seen = ?1 WHERE path = ?2",
-                    params![now, from_str.clone()],
-                )
-                .await
-            {
-                tracing::warn!(path = %from_str, error = %e, "watcher: rename last_seen update failed");
-            }
-            if let Err(e) =
-                cubical_core::vault::search_refresh::delete_search_index(vault, &from_str).await
-            {
-                tracing::warn!(path = %from_str, error = %e, "watcher: search delete (rename old) failed");
+            let to_str = to.to_string_lossy().into_owned();
+
+            if try_adopt_external_rename(vault, ctx, &from_str, &to_str).await {
+                if let Err(e) = conn
+                    .execute(
+                        "UPDATE files SET last_seen = ?1, updated_at = ?1 WHERE path = ?2",
+                        params![now, to_str.clone()],
+                    )
+                    .await
+                {
+                    tracing::warn!(path = %to_str, error = %e, "watcher: adopted rename last_seen update failed");
+                }
+            } else {
+                if let Err(e) = conn
+                    .execute(
+                        "UPDATE files SET last_seen = ?1 WHERE path = ?2",
+                        params![now, from_str.clone()],
+                    )
+                    .await
+                {
+                    tracing::warn!(path = %from_str, error = %e, "watcher: rename last_seen update failed");
+                }
+                if let Err(e) =
+                    cubical_core::vault::search_refresh::delete_search_index(vault, &from_str).await
+                {
+                    tracing::warn!(path = %from_str, error = %e, "watcher: search delete (rename old) failed");
+                }
             }
             None
         }
@@ -495,13 +525,57 @@ pub(crate) async fn apply_watch_event_to_db(vault: &Vault, ev: &WatchEvent) -> O
     new_content_hash
 }
 
+async fn try_adopt_external_rename(
+    vault: &Vault,
+    ctx: Option<&WatchContext<'_>>,
+    from: &str,
+    to: &str,
+) -> bool {
+    let Some(ctx) = ctx else {
+        return false;
+    };
+    let rewrite_broken = ctx
+        .settings
+        .read()
+        .await
+        .get(crate::commands::rename::WIKILINKS_REWRITE_BROKEN_KEY)
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(true);
+
+    match crate::commands::rename::adopt_external_rename(
+        ctx.sink,
+        crate::commands::rename::AdoptExternalRenameInput {
+            vault,
+            flush_own_writes: ctx.flush_own_writes,
+            vault_id: ctx.vault_id,
+            from_path: from,
+            to_path: to,
+            rewrite_broken,
+        },
+    )
+    .await
+    {
+        Ok(adopted) => adopted,
+        Err(e) => {
+            tracing::warn!(
+                from = %from,
+                to = %to,
+                error = %e,
+                "watcher: external rename adoption failed; leaving the old path to degrade",
+            );
+            false
+        }
+    }
+}
+
 pub(crate) async fn apply_watch_events_batch(
     vault: &Vault,
     events: &[WatchEvent],
+    ctx: Option<&WatchContext<'_>>,
 ) -> Vec<Option<String>> {
     let mut hashes = Vec::with_capacity(events.len());
     for ev in events {
-        hashes.push(apply_watch_event_to_db(vault, ev).await);
+        hashes.push(apply_watch_event_to_db(vault, ev, ctx).await);
     }
     if let Err(e) = vault.search().commit() {
         tracing::warn!(error = %e, "watcher: batch search commit failed");
@@ -685,7 +759,8 @@ mod tests {
         let (_dir, vault) = fresh_vault_with_one_md("note.md").await;
 
         let hash =
-            apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("note.md"))).await;
+            apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("note.md")), None)
+                .await;
         assert!(hash.is_some(), "Created on a real file returns its hash");
 
         let conn = vault.index().connection();
@@ -745,7 +820,12 @@ mod tests {
         let fresh = dir.path().join("fresh.md");
         std::fs::write(&fresh, "body\n").unwrap();
 
-        apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("fresh.md"))).await;
+        apply_watch_event_to_db(
+            &vault,
+            &WatchEvent::Created(PathBuf::from("fresh.md")),
+            None,
+        )
+        .await;
 
         let expected = i64::try_from(std::fs::metadata(&fresh).unwrap().ino()).unwrap();
         assert_eq!(
@@ -763,7 +843,7 @@ mod tests {
         let (dir, vault) = fresh_vault_with_one_md("note.md").await;
         let note = dir.path().join("note.md");
 
-        apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("note.md"))).await;
+        apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("note.md")), None).await;
         let first = read_inode_column(&vault, "note.md")
             .await
             .expect("inode set");
@@ -774,7 +854,12 @@ mod tests {
         let replaced = i64::try_from(std::fs::metadata(&note).unwrap().ino()).unwrap();
         assert_ne!(first, replaced, "replacement must change the inode");
 
-        apply_watch_event_to_db(&vault, &WatchEvent::Modified(PathBuf::from("note.md"))).await;
+        apply_watch_event_to_db(
+            &vault,
+            &WatchEvent::Modified(PathBuf::from("note.md")),
+            None,
+        )
+        .await;
 
         assert_eq!(
             read_inode_column(&vault, "note.md").await,
@@ -787,7 +872,12 @@ mod tests {
     async fn created_event_on_missing_file_leaves_inode_null() {
         let (_dir, vault) = fresh_vault_with_one_md("note.md").await;
 
-        apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("ghost.md"))).await;
+        apply_watch_event_to_db(
+            &vault,
+            &WatchEvent::Created(PathBuf::from("ghost.md")),
+            None,
+        )
+        .await;
 
         let conn = vault.index().connection();
         let mut rows = conn
@@ -809,13 +899,18 @@ mod tests {
         std::fs::write(&p, "---\ntitle: Old\n---\n\nbody\n").unwrap();
         let vault = Vault::open(dir.path()).await.expect("vault open");
 
-        let h1 = apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("note.md")))
-            .await
-            .expect("Created hash");
+        let h1 =
+            apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("note.md")), None)
+                .await
+                .expect("Created hash");
         std::fs::write(&p, "---\ntitle: New\nstatus: ready\n---\n\nbody\n").unwrap();
-        let h2 = apply_watch_event_to_db(&vault, &WatchEvent::Modified(PathBuf::from("note.md")))
-            .await
-            .expect("Modified hash");
+        let h2 = apply_watch_event_to_db(
+            &vault,
+            &WatchEvent::Modified(PathBuf::from("note.md")),
+            None,
+        )
+        .await
+        .expect("Modified hash");
         assert_ne!(h1, h2, "hash must change after content changes");
 
         let conn = vault.index().connection();
@@ -848,8 +943,13 @@ mod tests {
         std::fs::write(dir.path().join("Daily.md"), "body\n").unwrap();
         let vault = Vault::open(dir.path()).await.expect("vault open");
 
-        apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("a.md"))).await;
-        apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("Daily.md"))).await;
+        apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("a.md")), None).await;
+        apply_watch_event_to_db(
+            &vault,
+            &WatchEvent::Created(PathBuf::from("Daily.md")),
+            None,
+        )
+        .await;
 
         enqueue_pending(
             vault.index(),
@@ -865,9 +965,10 @@ mod tests {
         .await
         .unwrap();
 
-        let hash = apply_watch_event_to_db(&vault, &WatchEvent::Modified(PathBuf::from("a.md")))
-            .await
-            .expect("Modified hash");
+        let hash =
+            apply_watch_event_to_db(&vault, &WatchEvent::Modified(PathBuf::from("a.md")), None)
+                .await
+                .expect("Modified hash");
 
         let rows = links_from(vault.index(), "a.md").await.expect("query");
         assert_eq!(rows.len(), 1);
@@ -884,8 +985,12 @@ mod tests {
         std::fs::create_dir(dir.path().join("projects")).unwrap();
         let vault = Vault::open(dir.path()).await.expect("vault open");
 
-        let hash =
-            apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("projects"))).await;
+        let hash = apply_watch_event_to_db(
+            &vault,
+            &WatchEvent::Created(PathBuf::from("projects")),
+            None,
+        )
+        .await;
         assert!(hash.is_none(), "a directory carries no content hash");
 
         let folders = cubical_index::list_folders(vault.index()).await.unwrap();
@@ -905,7 +1010,12 @@ mod tests {
         let dir = tempdir().unwrap();
         std::fs::create_dir(dir.path().join("projects")).unwrap();
         let vault = Vault::open(dir.path()).await.expect("vault open");
-        apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("projects"))).await;
+        apply_watch_event_to_db(
+            &vault,
+            &WatchEvent::Created(PathBuf::from("projects")),
+            None,
+        )
+        .await;
         assert_eq!(
             cubical_index::list_folders(vault.index())
                 .await
@@ -915,7 +1025,12 @@ mod tests {
         );
 
         std::fs::remove_dir(dir.path().join("projects")).unwrap();
-        apply_watch_event_to_db(&vault, &WatchEvent::Removed(PathBuf::from("projects"))).await;
+        apply_watch_event_to_db(
+            &vault,
+            &WatchEvent::Removed(PathBuf::from("projects")),
+            None,
+        )
+        .await;
         assert!(
             cubical_index::list_folders(vault.index())
                 .await
@@ -935,6 +1050,7 @@ mod tests {
                 from: PathBuf::from("a.md"),
                 to: PathBuf::from("b.md"),
             },
+            None,
         )
         .await;
         assert!(hash.is_none(), "Renamed must not carry a hash");
@@ -961,10 +1077,11 @@ mod tests {
     #[tokio::test]
     async fn removed_event_returns_no_hash() {
         let (_dir, vault) = fresh_vault_with_one_md("note.md").await;
-        apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("note.md"))).await;
+        apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("note.md")), None).await;
 
         let hash =
-            apply_watch_event_to_db(&vault, &WatchEvent::Removed(PathBuf::from("note.md"))).await;
+            apply_watch_event_to_db(&vault, &WatchEvent::Removed(PathBuf::from("note.md")), None)
+                .await;
         assert!(hash.is_none(), "Removed must not carry a hash");
     }
 
@@ -975,7 +1092,7 @@ mod tests {
         std::fs::write(&p, "---\ntitle: Hi\n---\n\n#planning body\n").unwrap();
         let vault = Vault::open(dir.path()).await.expect("vault open");
 
-        apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("note.md"))).await;
+        apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("note.md")), None).await;
         let conn = vault.index().connection();
         let count = |sql: &'static str| {
             let conn = conn.clone();
@@ -996,7 +1113,7 @@ mod tests {
         );
 
         std::fs::remove_file(&p).unwrap();
-        apply_watch_event_to_db(&vault, &WatchEvent::Removed(PathBuf::from("note.md"))).await;
+        apply_watch_event_to_db(&vault, &WatchEvent::Removed(PathBuf::from("note.md")), None).await;
 
         assert_eq!(
             count("SELECT COUNT(*) FROM files WHERE path='note.md'").await,
@@ -1128,9 +1245,19 @@ mod tests {
         std::fs::write(&p, "old body\n").unwrap();
         let vault = Vault::open(dir.path()).await.expect("vault open");
 
-        apply_watch_events_batch(&vault, &[WatchEvent::Created(PathBuf::from("note.md"))]).await;
+        apply_watch_events_batch(
+            &vault,
+            &[WatchEvent::Created(PathBuf::from("note.md"))],
+            None,
+        )
+        .await;
         std::fs::write(&p, "freshly indexed unicorn token\n").unwrap();
-        apply_watch_events_batch(&vault, &[WatchEvent::Modified(PathBuf::from("note.md"))]).await;
+        apply_watch_events_batch(
+            &vault,
+            &[WatchEvent::Modified(PathBuf::from("note.md"))],
+            None,
+        )
+        .await;
 
         assert_eq!(vault.search().doc_count().unwrap(), 1);
 
@@ -1171,14 +1298,24 @@ mod tests {
     #[tokio::test]
     async fn removed_event_drops_doc_from_search_index() {
         let (_dir, vault) = fresh_vault_with_one_md("gone.md").await;
-        apply_watch_events_batch(&vault, &[WatchEvent::Created(PathBuf::from("gone.md"))]).await;
+        apply_watch_events_batch(
+            &vault,
+            &[WatchEvent::Created(PathBuf::from("gone.md"))],
+            None,
+        )
+        .await;
         assert_eq!(
             vault.search().doc_count().unwrap(),
             1,
             "Created should seed exactly one search doc",
         );
 
-        apply_watch_events_batch(&vault, &[WatchEvent::Removed(PathBuf::from("gone.md"))]).await;
+        apply_watch_events_batch(
+            &vault,
+            &[WatchEvent::Removed(PathBuf::from("gone.md"))],
+            None,
+        )
+        .await;
         assert_eq!(
             vault.search().doc_count().unwrap(),
             0,
@@ -1189,7 +1326,7 @@ mod tests {
     #[tokio::test]
     async fn renamed_event_drops_old_path_from_search_index() {
         let (_dir, vault) = fresh_vault_with_one_md("a.md").await;
-        apply_watch_events_batch(&vault, &[WatchEvent::Created(PathBuf::from("a.md"))]).await;
+        apply_watch_events_batch(&vault, &[WatchEvent::Created(PathBuf::from("a.md"))], None).await;
         assert_eq!(vault.search().doc_count().unwrap(), 1);
 
         apply_watch_events_batch(
@@ -1198,6 +1335,7 @@ mod tests {
                 from: PathBuf::from("a.md"),
                 to: PathBuf::from("b.md"),
             }],
+            None,
         )
         .await;
         assert_eq!(
@@ -1224,7 +1362,7 @@ mod tests {
         let vault = Vault::open(dir.path()).await.expect("vault open");
 
         let before = vault.search().commit_count();
-        apply_watch_events_batch(&vault, &events).await;
+        apply_watch_events_batch(&vault, &events, None).await;
         let delta = vault.search().commit_count() - before;
 
         assert_eq!(
@@ -1236,5 +1374,352 @@ mod tests {
             n as u64,
             "all batched docs must be searchable after the single commit",
         );
+    }
+
+    mod adoption {
+        use super::*;
+        use crate::api::types::{FlushPendingRewritesRequest, RenameFileRequest};
+        use crate::commands::rename::{flush_pending_rewrites, rename_file};
+        use crate::state::AppState;
+        use cubical_core::vault::rename_journal::{read_entries, RenameJournalEntry};
+        use cubical_core::{start_watcher, WatcherHandle};
+        use std::time::Duration;
+        use tempfile::TempDir;
+
+        const POLL_STEP: Duration = Duration::from_millis(25);
+
+        const POLL_LIMIT: usize = 240;
+
+        const SETTLE: Duration = Duration::from_millis(500);
+
+        const VAULT_ID: &str = "v1";
+
+        struct LiveVault {
+            state: AppState,
+            vault: Vault,
+            _watcher: WatcherHandle,
+        }
+
+        async fn live_vault(dir: &TempDir, seed: &[&str]) -> LiveVault {
+            let vault = Vault::open(dir.path()).await.expect("vault open");
+            for rel in seed {
+                apply_watch_events_batch(&vault, &[WatchEvent::Created(PathBuf::from(rel))], None)
+                    .await;
+            }
+
+            let state = AppState::new();
+            let open = OpenVault::new(
+                vault.clone(),
+                CancellationToken::new(),
+                ScanStatusBackend::Complete,
+                None,
+                SettingsMap::new(),
+            );
+            let flush_own_writes = open.flush_own_writes.clone();
+            let settings = open.settings.clone();
+            state.vaults().write().await.insert(VAULT_ID.into(), open);
+
+            let (tx, rx) = mpsc::channel::<WatchEvent>(256);
+            let watcher =
+                start_watcher(&vault, CancellationToken::new(), tx).expect("start watcher");
+            spawn_watcher_dispatcher(
+                Arc::new(NoopEventSink),
+                VAULT_ID.into(),
+                vault.clone(),
+                rx,
+                flush_own_writes,
+                settings,
+            );
+            tokio::time::sleep(SETTLE).await;
+
+            LiveVault {
+                state,
+                vault,
+                _watcher: watcher,
+            }
+        }
+
+        async fn wait_for_file_row(vault: &Vault, path: &str) {
+            for _ in 0..POLL_LIMIT {
+                if file_row_exists(vault, path).await {
+                    return;
+                }
+                tokio::time::sleep(POLL_STEP).await;
+            }
+        }
+
+        async fn file_row_exists(vault: &Vault, path: &str) -> bool {
+            let mut rows = vault
+                .index()
+                .connection()
+                .query("SELECT 1 FROM files WHERE path = ?1", params![path])
+                .await
+                .unwrap();
+            rows.next().await.unwrap().is_some()
+        }
+
+        async fn flush(state: &AppState) {
+            flush_pending_rewrites(
+                state,
+                &NoopEventSink,
+                FlushPendingRewritesRequest {
+                    vault_id: VAULT_ID.into(),
+                },
+            )
+            .await
+            .expect("flush");
+        }
+
+        fn watch_ctx<'a>(
+            flush_own_writes: &'a FlushOwnWrites,
+            settings: &'a RwLock<SettingsMap>,
+        ) -> WatchContext<'a> {
+            WatchContext {
+                sink: &NoopEventSink,
+                vault_id: VAULT_ID,
+                flush_own_writes,
+                settings,
+            }
+        }
+
+        async fn wait_for_journal_entry(vault: &Vault, from: &str) -> Vec<RenameJournalEntry> {
+            for _ in 0..POLL_LIMIT {
+                let entries = read_entries(vault.root());
+                if entries.iter().any(|e| e.from == from) {
+                    return entries;
+                }
+                tokio::time::sleep(POLL_STEP).await;
+            }
+            read_entries(vault.root())
+        }
+
+        #[tokio::test]
+        async fn real_watcher_adopts_an_out_of_band_rename_and_rewrites_referrers_on_disk() {
+            let dir = tempdir().unwrap();
+            std::fs::write(dir.path().join("Seed.md"), "# Daily\n").unwrap();
+            let live = live_vault(&dir, &["Seed.md"]).await;
+
+            std::fs::rename(dir.path().join("Seed.md"), dir.path().join("Daily.md"))
+                .expect("warm-up move");
+            wait_for_file_row(&live.vault, "Daily.md").await;
+            assert!(
+                file_row_exists(&live.vault, "Daily.md").await,
+                "the warm-up move must leave the file tracked at Daily.md",
+            );
+
+            std::fs::write(dir.path().join("Project.md"), "see [[Daily]] today\n").unwrap();
+            wait_for_file_row(&live.vault, "Project.md").await;
+
+            std::fs::rename(dir.path().join("Daily.md"), dir.path().join("Journal.md"))
+                .expect("out-of-band move");
+
+            let entries = wait_for_journal_entry(&live.vault, "Daily.md").await;
+            let adopted: Vec<_> = entries.iter().filter(|e| e.from == "Daily.md").collect();
+            assert_eq!(
+                adopted.len(),
+                1,
+                "the external move is adopted and journalled exactly once (entries: {entries:?})",
+            );
+            assert_eq!(adopted[0].to, "Journal.md");
+            assert_eq!(adopted[0].kind, "file");
+
+            assert!(file_row_exists(&live.vault, "Journal.md").await);
+            assert!(!file_row_exists(&live.vault, "Daily.md").await);
+
+            flush(&live.state).await;
+            assert_eq!(
+                std::fs::read_to_string(dir.path().join("Project.md")).unwrap(),
+                "see [[Journal]] today\n",
+                "the referrer wikilink is rewritten on disk",
+            );
+        }
+
+        #[tokio::test]
+        async fn real_watcher_does_not_double_apply_an_in_app_rename() {
+            let dir = tempdir().unwrap();
+            std::fs::write(dir.path().join("Daily.md"), "# Daily\n").unwrap();
+            std::fs::write(dir.path().join("Project.md"), "see [[Daily]] today\n").unwrap();
+            let live = live_vault(&dir, &["Daily.md", "Project.md"]).await;
+
+            rename_file(
+                &live.state,
+                &NoopEventSink,
+                RenameFileRequest {
+                    vault_id: VAULT_ID.into(),
+                    from_path: "Daily.md".into(),
+                    to_path: "Journal.md".into(),
+                },
+            )
+            .await
+            .expect("in-app rename");
+
+            tokio::time::sleep(Duration::from_millis(1000)).await;
+
+            let flush_own_writes: FlushOwnWrites = Arc::new(Mutex::new(HashSet::new()));
+            let settings = RwLock::new(SettingsMap::new());
+            apply_watch_event_to_db(
+                &live.vault,
+                &WatchEvent::Renamed {
+                    from: PathBuf::from("Daily.md"),
+                    to: PathBuf::from("Journal.md"),
+                },
+                Some(&watch_ctx(&flush_own_writes, &settings)),
+            )
+            .await;
+
+            let entries = read_entries(live.vault.root());
+            assert_eq!(
+                entries.len(),
+                1,
+                "the in-app rename is journalled once and never re-adopted (entries: {entries:?})",
+            );
+
+            let pending = cubical_index::pending_for_target(live.vault.index(), "Project.md")
+                .await
+                .unwrap();
+            assert_eq!(pending.len(), 1, "exactly one queued rewrite");
+            assert_eq!(pending[0].old_token, "Daily");
+            assert_eq!(pending[0].new_token, "Journal");
+
+            flush(&live.state).await;
+            assert_eq!(
+                std::fs::read_to_string(dir.path().join("Project.md")).unwrap(),
+                "see [[Journal]] today\n",
+                "the referrer is rewritten exactly once",
+            );
+        }
+
+        #[tokio::test]
+        async fn renamed_event_adopts_an_external_move_and_rewrites_referrers_on_disk() {
+            let dir = tempdir().unwrap();
+            std::fs::write(dir.path().join("Daily.md"), "# Daily\n").unwrap();
+            std::fs::write(dir.path().join("Project.md"), "see [[Daily]] today\n").unwrap();
+            let live = live_vault(&dir, &["Daily.md", "Project.md"]).await;
+
+            std::fs::rename(dir.path().join("Daily.md"), dir.path().join("Journal.md")).unwrap();
+
+            let flush_own_writes: FlushOwnWrites = Arc::new(Mutex::new(HashSet::new()));
+            let settings = RwLock::new(SettingsMap::new());
+            let hash = apply_watch_event_to_db(
+                &live.vault,
+                &WatchEvent::Renamed {
+                    from: PathBuf::from("Daily.md"),
+                    to: PathBuf::from("Journal.md"),
+                },
+                Some(&watch_ctx(&flush_own_writes, &settings)),
+            )
+            .await;
+            assert!(hash.is_none(), "Renamed must not carry a hash");
+
+            assert!(file_row_exists(&live.vault, "Journal.md").await);
+            assert!(!file_row_exists(&live.vault, "Daily.md").await);
+
+            let entries = read_entries(live.vault.root());
+            assert_eq!(entries.len(), 1, "the adoption is journalled");
+            assert_eq!(entries[0].from, "Daily.md");
+            assert_eq!(entries[0].to, "Journal.md");
+            assert_eq!(entries[0].kind, "file");
+
+            flush(&live.state).await;
+            assert_eq!(
+                std::fs::read_to_string(dir.path().join("Project.md")).unwrap(),
+                "see [[Journal]] today\n",
+                "the referrer wikilink is rewritten on disk",
+            );
+        }
+
+        #[tokio::test]
+        async fn already_committed_rename_is_not_adopted_again() {
+            let dir = tempdir().unwrap();
+            std::fs::write(dir.path().join("Journal.md"), "# Daily\n").unwrap();
+            let vault = Vault::open(dir.path()).await.expect("vault open");
+            apply_watch_event_to_db(
+                &vault,
+                &WatchEvent::Created(PathBuf::from("Journal.md")),
+                None,
+            )
+            .await;
+
+            let flush_own_writes: FlushOwnWrites = Arc::new(Mutex::new(HashSet::new()));
+            let settings = RwLock::new(SettingsMap::new());
+            apply_watch_event_to_db(
+                &vault,
+                &WatchEvent::Renamed {
+                    from: PathBuf::from("Daily.md"),
+                    to: PathBuf::from("Journal.md"),
+                },
+                Some(&watch_ctx(&flush_own_writes, &settings)),
+            )
+            .await;
+
+            assert!(
+                read_entries(vault.root()).is_empty(),
+                "an index that already reflects the move must not be re-adopted",
+            );
+        }
+
+        #[tokio::test]
+        async fn binary_file_rename_is_adopted_and_rekeys_the_file_row() {
+            let dir = tempdir().unwrap();
+            let png = [0x89u8, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0xFF, 0xFE];
+            std::fs::write(dir.path().join("logo.png"), png).unwrap();
+            let vault = Vault::open(dir.path()).await.expect("vault open");
+            apply_watch_event_to_db(
+                &vault,
+                &WatchEvent::Created(PathBuf::from("logo.png")),
+                None,
+            )
+            .await;
+            assert!(file_row_exists(&vault, "logo.png").await);
+
+            std::fs::rename(dir.path().join("logo.png"), dir.path().join("brand.png")).unwrap();
+
+            let flush_own_writes: FlushOwnWrites = Arc::new(Mutex::new(HashSet::new()));
+            let settings = RwLock::new(SettingsMap::new());
+            let hash = apply_watch_event_to_db(
+                &vault,
+                &WatchEvent::Renamed {
+                    from: PathBuf::from("logo.png"),
+                    to: PathBuf::from("brand.png"),
+                },
+                Some(&watch_ctx(&flush_own_writes, &settings)),
+            )
+            .await;
+            assert!(hash.is_none(), "Renamed must not carry a hash");
+
+            assert!(
+                file_row_exists(&vault, "brand.png").await,
+                "a non-UTF-8 file is rekeyed rather than erroring out",
+            );
+            assert!(!file_row_exists(&vault, "logo.png").await);
+            assert_eq!(read_entries(vault.root()).len(), 1);
+        }
+
+        #[tokio::test]
+        async fn folder_rename_is_not_adopted() {
+            let dir = tempdir().unwrap();
+            std::fs::create_dir(dir.path().join("notes")).unwrap();
+            let vault = Vault::open(dir.path()).await.expect("vault open");
+            apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("notes")), None)
+                .await;
+            std::fs::rename(dir.path().join("notes"), dir.path().join("archive")).unwrap();
+
+            let flush_own_writes: FlushOwnWrites = Arc::new(Mutex::new(HashSet::new()));
+            let settings = RwLock::new(SettingsMap::new());
+            apply_watch_event_to_db(
+                &vault,
+                &WatchEvent::Renamed {
+                    from: PathBuf::from("notes"),
+                    to: PathBuf::from("archive"),
+                },
+                Some(&watch_ctx(&flush_own_writes, &settings)),
+            )
+            .await;
+
+            assert!(
+                read_entries(vault.root()).is_empty(),
+                "folder renames stay out of scope for v1 adoption",
+            );
+        }
     }
 }

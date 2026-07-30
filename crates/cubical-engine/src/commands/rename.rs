@@ -301,6 +301,7 @@ struct RenameCommitInput<'a> {
     from_path: &'a str,
     to_path: &'a str,
     kind: &'a str,
+    rewrite_broken: bool,
 }
 
 struct RenameCommit {
@@ -309,7 +310,6 @@ struct RenameCommit {
 }
 
 async fn commit_rename(
-    state: &AppState,
     app: &dyn EventSink,
     input: RenameCommitInput<'_>,
 ) -> Result<RenameCommit, CubicalError> {
@@ -320,12 +320,11 @@ async fn commit_rename(
         from_path,
         to_path,
         kind,
+        rewrite_broken,
     } = input;
     let conn = vault.index().connection();
     let to_abs = vault.root().join(to_path);
 
-    let rewrite_broken =
-        read_bool_setting(state, vault_id, WIKILINKS_REWRITE_BROKEN_KEY, true).await;
     let referrers = collect_referrers(conn, from_path, rewrite_broken).await?;
 
     let rename_op_id = mint_rename_op_id(vault).await?;
@@ -351,32 +350,43 @@ async fn commit_rename(
         tracing::warn!(error = %e, "rename: failed to write durability journal");
     }
 
-    let on_disk = tokio::task::spawn_blocking({
+    let raw_bytes = tokio::task::spawn_blocking({
         let to_abs = to_abs.clone();
-        move || std::fs::read_to_string(&to_abs)
+        move || std::fs::read(&to_abs)
     })
     .await
     .map_err(|e| CubicalError::Io(format!("re-extract read join error: {e}")))?
     .map_err(|e| CubicalError::Io(e.to_string()))?;
-    let _ = refresh_frontmatter(vault, to_path, &on_disk).await;
-    let _ = refresh_links(vault, to_path, &on_disk).await;
-    let _ = refresh_tags(vault, to_path, &on_disk).await;
-    let _ = refresh_blocks(vault, to_path, &on_disk).await;
-    let _ = refresh_block_refs_for_file(vault, to_path).await;
+    let byte_len = raw_bytes.len() as u64;
+    let text = String::from_utf8(raw_bytes).ok();
 
     let _ = delete_search_index(vault, from_path).await;
-    let (mtime_secs, size_bytes) = std::fs::metadata(&to_abs)
-        .map(|m| {
-            let mtime = m
-                .modified()
-                .ok()
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
-                .unwrap_or(0);
-            (mtime, m.len())
-        })
-        .unwrap_or((0, on_disk.len() as u64));
-    let _ = refresh_search_index(vault, to_path, &on_disk, mtime_secs, size_bytes).await;
+
+    if let Some(on_disk) = text.as_deref() {
+        let _ = refresh_frontmatter(vault, to_path, on_disk).await;
+        let _ = refresh_links(vault, to_path, on_disk).await;
+        let _ = refresh_tags(vault, to_path, on_disk).await;
+        let _ = refresh_blocks(vault, to_path, on_disk).await;
+        let _ = refresh_block_refs_for_file(vault, to_path).await;
+
+        let (mtime_secs, size_bytes) = std::fs::metadata(&to_abs)
+            .map(|m| {
+                let mtime = m
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
+                    .unwrap_or(0);
+                (mtime, m.len())
+            })
+            .unwrap_or((0, byte_len));
+        let _ = refresh_search_index(vault, to_path, on_disk, mtime_secs, size_bytes).await;
+    } else {
+        tracing::debug!(
+            path = %to_path,
+            "rename: destination is not valid UTF-8; skipping content re-extraction",
+        );
+    }
     let _ = vault.search().commit();
 
     enforce_fifty_per_file_fuse(vault, flush_own_writes, &fuse_targets).await?;
@@ -433,8 +443,9 @@ pub async fn rename_file(
         }
     }
 
+    let rewrite_broken =
+        read_bool_setting(state, &req.vault_id, WIKILINKS_REWRITE_BROKEN_KEY, true).await;
     let committed = commit_rename(
-        state,
         app,
         RenameCommitInput {
             vault: &vault,
@@ -443,6 +454,7 @@ pub async fn rename_file(
             from_path: &req.from_path,
             to_path: &req.to_path,
             kind: "file",
+            rewrite_broken,
         },
     )
     .await?;
@@ -451,6 +463,56 @@ pub async fn rename_file(
         rename_op_id: committed.rename_op_id,
         pending_count: committed.pending_count,
     })
+}
+
+pub(crate) struct AdoptExternalRenameInput<'a> {
+    pub vault: &'a cubical_core::Vault,
+    pub flush_own_writes: &'a FlushOwnWrites,
+    pub vault_id: &'a str,
+    pub from_path: &'a str,
+    pub to_path: &'a str,
+    pub rewrite_broken: bool,
+}
+
+pub(crate) async fn adopt_external_rename(
+    app: &dyn EventSink,
+    input: AdoptExternalRenameInput<'_>,
+) -> Result<bool, CubicalError> {
+    let AdoptExternalRenameInput {
+        vault,
+        flush_own_writes,
+        vault_id,
+        from_path,
+        to_path,
+        rewrite_broken,
+    } = input;
+
+    if from_path == to_path || from_path.is_empty() || to_path.is_empty() {
+        return Ok(false);
+    }
+    if !vault.root().join(to_path).is_file() || vault.root().join(from_path).exists() {
+        return Ok(false);
+    }
+
+    let conn = vault.index().connection();
+    if !path_tracked(conn, from_path).await? || path_tracked(conn, to_path).await? {
+        return Ok(false);
+    }
+
+    commit_rename(
+        app,
+        RenameCommitInput {
+            vault,
+            flush_own_writes,
+            vault_id,
+            from_path,
+            to_path,
+            kind: "file",
+            rewrite_broken,
+        },
+    )
+    .await?;
+    Ok(true)
 }
 
 type FolderRenamePlan = (String, String, Vec<(String, String)>);

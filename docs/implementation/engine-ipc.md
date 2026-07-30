@@ -44,7 +44,10 @@ the transport, keeping the pure handlers clean.
   `get_vault_info` calls agree.
 - **Watcher dispatcher** — persists each event to the index, writes an
   `audit_log` row, and emits the file-changed event. Errors are logged and the
-  loop continues; one failed event must not take the watcher down.
+  loop continues; one failed event must not take the watcher down. It carries a
+  per-vault context (sink, vault id, own-write gate, settings) so the `Renamed`
+  arm can adopt an external rename — see [Adopting an external
+  rename](#adopting-an-external-rename).
 
 On a delete the file's row is dropped so it leaves the tree, and the cascading
 foreign keys carry its **outbound** rows with it. **Inbound** references from
@@ -96,6 +99,55 @@ onto one row instead of stacking, and when the resulting `new_token` equals
 The effect: an `A → B → A` round trip cancels to zero rather than doubling. The
 count reflects *net* edits. Coalescing runs inside the caller's transaction so
 it is atomic with the FK rekeys.
+
+### Adopting an external rename
+
+`rename_file` is `validate_forward + fs::rename + commit_rename`;
+`adopt_external_rename` is `validate_adopted + commit_rename`. `commit_rename`
+performs **no filesystem mutation** — that is the invariant that lets one
+sequence serve both a rename Cubical is about to perform and one it is
+discovering after the fact (a shell `mv`, Finder, vim). Duplicating the commit
+sequence for the watcher path would guarantee the two drift.
+
+Validation inverts: the destination must exist on disk, the source must be
+gone. The watcher's `Renamed` arm calls it, so an external move keeps its
+referrer rewrite, its journal entry and its index rekey instead of silently
+dangling every `[[wikilink]]` that named the file.
+
+**Idempotency is by construction, not bookkeeping.** An in-app rename also
+produces a `Renamed` watch event, and the hash-keyed own-write gate is the wrong
+instrument (`Renamed` deliberately carries no hash). Adoption instead requires
+`files` to have a row at `from` and **no** row at `to`:
+
+- in-app rename — `commit_rename` already moved the row, so the arriving event
+  finds no row at `from` and skips;
+- external rename — the row is still at `from` and none exists at `to`, so it
+  adopts;
+- a source that was never tracked, or a destination that already is (an
+  external move that clobbered a tracked file), fails the predicate and
+  degrades rather than risking a wrong rewrite or a `files.path` uniqueness
+  violation mid-transaction.
+
+Adoption is skipped, never fatal: a failed or inapplicable adoption logs and
+falls back to the arm's previous behaviour. Directory renames fail the
+destination-is-a-file check, which is how folder-rename adoption stays out of
+scope for v1.
+
+**Non-UTF-8 destinations are tolerated.** `commit_rename` reads the destination
+as bytes and only runs the content-derived refreshes (frontmatter, links, tags,
+blocks, block refs, search) when the bytes are valid UTF-8. A moved PNG or PDF
+still gets its `files` row rekeyed and its rename journalled; treating the read
+as fatal would abort *after* the index transaction had already committed,
+leaving exactly the inconsistency adoption exists to prevent.
+
+**Platform caveat.** `WatchEvent::Renamed` depends on `notify-debouncer-full`
+pairing the two halves. On macOS FSEvents re-reports a stale `ItemCreated` flag
+on the **first** move of a file after the watcher starts, and the debouncer
+collapses that pair into a bare `Created(dest)` — the source side never arrives
+at all, so neither adoption nor a tombstone buffer can see it. Subsequent moves
+of the same file pair correctly. Linux inotify pairs reliably via rename
+cookies. This is why the end-to-end adoption test performs a warm-up move
+before the move under test.
 
 ### Journal replay
 
