@@ -12,8 +12,6 @@ function label(tab: Tab): string {
   switch (tab.view.kind) {
     case "tag":
       return `#${tab.view.tagPath}`;
-    case "console":
-      return "Console";
     case "terminal":
       return "Terminal";
     case "file": {

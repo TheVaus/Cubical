@@ -239,7 +239,6 @@ export type Setting =
   | { key: "pending_rewrites.flush_interval_secs"; value: number }
   | { key: "plugins.dataview_enabled"; value: boolean }
   | { key: "plugins.property_refs_enabled"; value: boolean }
-  | { key: "plugins.console_enabled"; value: boolean }
   | { key: "plugins.terminal_enabled"; value: boolean }
   | { key: "properties.typed_enabled"; value: boolean }
   | { key: "properties.date_format_default"; value: string }
@@ -668,18 +667,6 @@ export function setSetting<K extends Setting["key"]>(
   value: SettingValue<K>,
 ): Promise<void> {
   return invoke("set_setting", { req: { vault_id: vaultId, key, value } });
-}
-
-export interface ConsoleResult {
-  stdout: string;
-  stderr: string;
-  code: number;
-}
-
-export function consoleExec(vaultId: string, line: string): Promise<ConsoleResult> {
-  return invoke<ConsoleResult>("console_exec", {
-    req: { vault_id: vaultId, line },
-  });
 }
 
 export interface TerminalExit {

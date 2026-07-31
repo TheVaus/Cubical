@@ -359,15 +359,6 @@ describe("new bindable commands (#7)", () => {
       expect(ids.filter((x) => x === id)).toHaveLength(1);
     }
   });
-  it("registers the open-console command with a default and no conflict", () => {
-    expect(COMMAND_DEFAULTS).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: "view.openConsole", scope: "global", defaultKey: "Mod-Shift-c" }),
-      ]),
-    );
-    expect(findDuplicateBindings(resolveBindings({}))).toEqual([]);
-    expect(ids.filter((x) => x === "view.openConsole")).toHaveLength(1);
-  });
   it("registers the open-terminal command with a default and no conflict", () => {
     expect(COMMAND_DEFAULTS).toEqual(
       expect.arrayContaining([

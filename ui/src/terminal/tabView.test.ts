@@ -19,14 +19,14 @@ describe("terminal tab views", () => {
 
   it("recognises only terminal views", () => {
     expect(isTerminalView(terminalView("1"))).toBe(true);
-    expect(isTerminalView({ kind: "console" })).toBe(false);
+    expect(isTerminalView({ kind: "tag", tagPath: "x" })).toBe(false);
     expect(isTerminalView({ kind: "file", path: "a.md" })).toBe(false);
   });
 
   it("lists the terminal tabs and nothing else", () => {
     const s = openTab(
       openTab(openTab(emptyTabs, { kind: "file", path: "a.md" }), terminalView("1")),
-      { kind: "console" },
+      { kind: "tag", tagPath: "x" },
     );
 
     expect(terminalTabIds(s.tabs)).toEqual(["terminal:1"]);

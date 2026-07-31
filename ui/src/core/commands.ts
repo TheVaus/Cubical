@@ -88,12 +88,6 @@ export const COMMAND_DEFAULTS: readonly BindingDefault[] = [
     defaultKey: "Mod-Shift-w",
   },
   {
-    id: "view.openConsole",
-    title: "Open command console",
-    scope: "global",
-    defaultKey: "Mod-Shift-c",
-  },
-  {
     id: "view.openTerminal",
     title: "Open terminal",
     scope: "global",

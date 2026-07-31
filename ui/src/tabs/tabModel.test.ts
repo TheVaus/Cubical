@@ -44,13 +44,6 @@ describe("openTab", () => {
     openTab(before, fileView("b.md"));
     expect(JSON.stringify(before)).toBe(snapshot);
   });
-
-  it("console tabs share one constant id (singleton)", () => {
-    const a = openTab(emptyTabs, { kind: "console" });
-    const b = openTab(a, { kind: "console" });
-    expect(b.tabs.length).toBe(1);
-    expect(b.activeId).toBe("console");
-  });
 });
 
 describe("closeTab", () => {

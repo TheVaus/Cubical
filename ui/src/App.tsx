@@ -29,13 +29,6 @@ import Icon, { type IconName } from "@ds/components/graphics/Icon/Icon";
 
 import Editor, { type EditorApi } from "./Editor";
 import {
-  ConsoleButton,
-  ConsolePanel,
-  CONSOLE_COMMAND_ID,
-  createConsoleWiring,
-  isConsoleView,
-} from "./console";
-import {
   TERMINAL_COMMAND_ID,
   TerminalButton,
   TerminalCloseDialog,
@@ -1002,15 +995,6 @@ const App: Component = () => {
     if (tabs().activeId !== null) await loadActiveTabContent();
   };
 
-  const consoleTab = createConsoleWiring({
-    vaultId,
-    corePlugins,
-    tabs,
-    setTabs: (updater) => setTabs(updater),
-    closeTab: (id) => closeTabById(id),
-    flushAutosave: () => flushAutosave(),
-  });
-
   const terminalTab = createTerminalWiring({
     vaultId,
     corePlugins,
@@ -1447,7 +1431,6 @@ const App: Component = () => {
           if (id !== null) void closeTabById(id);
         },
       },
-      [CONSOLE_COMMAND_ID]: consoleTab.command,
       [TERMINAL_COMMAND_ID]: terminalTab.command,
     };
     const onGlobalKey = (e: KeyboardEvent) => {
@@ -1727,11 +1710,6 @@ const App: Component = () => {
           >
             ›
           </IconButton>
-          <ConsoleButton
-            available={consoleTab.available}
-            onOpen={consoleTab.open}
-            view={view}
-          />
           <TerminalButton
             available={terminalTab.available}
             onOpen={terminalTab.open}
@@ -2138,9 +2116,6 @@ const App: Component = () => {
             <div class="editor-scroll">
               <div class="editor-inner">
               <Show when={!isTerminalView(view())}>
-              <Show
-                when={isConsoleView(view())}
-                fallback={
                   <Show
                     when={view().kind === "file"}
                     fallback={
@@ -2321,10 +2296,6 @@ const App: Component = () => {
                 </For>
               </Show>
                   </Show>
-                }
-              >
-                <ConsolePanel vaultId={vaultId()!} />
-              </Show>
               </Show>
               <For each={terminalTabIds(tabs().tabs)}>
                 {(id) => (

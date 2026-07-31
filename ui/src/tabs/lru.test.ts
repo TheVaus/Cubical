@@ -44,19 +44,19 @@ describe("liveIds", () => {
 });
 
 describe("liveFileIds", () => {
-  const isFile = (id: string) => !id.startsWith("console");
+  const isFile = (id: string) => !id.startsWith("tag:");
 
   it("does not let a non-file active id occupy a slot", () => {
-    expect(liveFileIds(["console", "a", "b"], "console", 2, isFile)).toEqual([
+    expect(liveFileIds(["tag:x", "a", "b"], "tag:x", 2, isFile)).toEqual([
       "a",
       "b",
     ]);
   });
 
-  it("activating a console id evicts none of the already-warm file ids", () => {
+  it("activating a non-file id evicts none of the already-warm file ids", () => {
     const mru = ["a", "b"];
     const before = liveFileIds(mru, "a", 2, isFile);
-    const after = liveFileIds(["console", ...mru], "console", 2, isFile);
+    const after = liveFileIds(["tag:x", ...mru], "tag:x", 2, isFile);
     expect(after).toEqual(before);
   });
 

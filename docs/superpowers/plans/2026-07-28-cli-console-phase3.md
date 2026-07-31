@@ -1,5 +1,10 @@
 # CLI frontend Phase 3 — in-app command console — Implementation Plan
 
+> **Superseded 2026-07-31.** This plan was executed and merged, then the console
+> it built was removed when the PTY terminal replaced it. Do not execute it.
+> Kept as the record of the work; see
+> [`../specs/2026-07-25-cli-console-phase3-design.md`](../specs/2026-07-25-cli-console-phase3-design.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a Cubical command console — a tab in the center workspace with an input line and a scrollback log — that runs the same verbs as the `cubical` binary against the already-open vault, in-process.

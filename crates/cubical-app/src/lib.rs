@@ -1,13 +1,10 @@
 #![forbid(unsafe_code)]
 
 mod agent_instructions;
-mod console;
 mod recent_vaults;
 mod tab_sessions;
 mod tauri_sink;
 mod terminal;
-
-pub use console::{run_console_line, ConsoleResult};
 
 use cubical_engine::api::types::{
     BlockIdAutocompleteRequest, BlockIdAutocompleteResponse, CancelVaultScanRequest,
@@ -131,7 +128,6 @@ pub fn run() {
             dataview_query,
             reload_settings,
             close_vault,
-            console::console_exec,
             terminal::terminal_open,
             terminal::terminal_write,
             terminal::terminal_resize,
