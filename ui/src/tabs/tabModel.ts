@@ -1,7 +1,8 @@
 export type TabView =
   | { kind: "file"; path: string }
   | { kind: "tag"; tagPath: string }
-  | { kind: "console" };
+  | { kind: "console" }
+  | { kind: "terminal"; key: string };
 
 export interface Tab {
   id: string;
@@ -23,6 +24,8 @@ export function tabId(view: TabView): string {
       return `tag:${view.tagPath}`;
     case "console":
       return "console";
+    case "terminal":
+      return `terminal:${view.key}`;
   }
 }
 

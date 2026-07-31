@@ -684,7 +684,7 @@ export function consoleExec(vaultId: string, line: string): Promise<ConsoleResul
 
 export interface TerminalExit {
   code: number | null;
-  signal: number | null;
+  signal: string | null;
 }
 
 export interface TerminalChunk {
@@ -724,8 +724,47 @@ export function terminalResize(
   return invoke("terminal_resize", { terminalId, cols, rows });
 }
 
+export function terminalBusy(terminalId: string): Promise<boolean> {
+  return invoke<boolean>("terminal_busy", { terminalId });
+}
+
 export function terminalClose(terminalId: string): Promise<void> {
   return invoke("terminal_close", { terminalId });
+}
+
+export function terminalReapAll(): Promise<void> {
+  return invoke("terminal_reap_all", {});
+}
+
+export interface AgentInstructionsStatus {
+  offered: boolean;
+  canonical_path: string;
+  existing_pointers: string[];
+}
+
+export interface AgentInstructionsAccepted {
+  created: string[];
+  skipped: string[];
+}
+
+export function agentInstructionsStatus(
+  vaultId: string,
+): Promise<AgentInstructionsStatus> {
+  return invoke<AgentInstructionsStatus>("agent_instructions_status", {
+    req: { vault_id: vaultId },
+  });
+}
+
+export function agentInstructionsAccept(
+  vaultId: string,
+): Promise<AgentInstructionsAccepted> {
+  return invoke<AgentInstructionsAccepted>("agent_instructions_accept", {
+    req: { vault_id: vaultId },
+  });
+}
+
+export function agentInstructionsDecline(vaultId: string): Promise<void> {
+  return invoke("agent_instructions_decline", { req: { vault_id: vaultId } });
 }
 
 export interface VaultScanProgress {

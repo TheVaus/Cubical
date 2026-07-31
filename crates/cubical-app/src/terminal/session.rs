@@ -5,13 +5,12 @@ use portable_pty::{native_pty_system, PtySize};
 
 use super::reap::{ChildReaper, SharedMaster};
 use super::spawn::{build_command, OpenSpec};
-use super::TerminalChunk;
+use super::{TerminalChunk, TerminalExit};
 
-pub const EXIT_NOTICE: &[u8] = b"\r\n\x1b[2m[process exited]\x1b[0m\r\n";
 const READ_BUF: usize = 8192;
 
 pub type ChunkSink = Box<dyn FnMut(TerminalChunk) -> bool + Send + 'static>;
-pub type ExitHook = Box<dyn FnOnce() + Send + 'static>;
+pub type ExitHook = Box<dyn FnOnce() -> TerminalExit + Send + 'static>;
 
 pub struct TerminalSession {
     reaper: ChildReaper,
@@ -59,8 +58,27 @@ impl TerminalSession {
         })
     }
 
+    #[cfg(test)]
     pub fn process_id(&self) -> Option<u32> {
         self.reaper.process_id()
+    }
+
+    pub fn wait_exit(&mut self) -> TerminalExit {
+        self.reaper.wait_exit()
+    }
+
+    #[cfg(unix)]
+    pub fn has_foreground_child(&self) -> bool {
+        let leader = lock(&self.master).process_group_leader();
+        match (leader, self.reaper.process_id()) {
+            (Some(fg), Some(pid)) => fg >= 0 && fg as u32 != pid,
+            _ => false,
+        }
+    }
+
+    #[cfg(not(unix))]
+    pub fn has_foreground_child(&self) -> bool {
+        false
     }
 
     pub fn write(&self, data: &[u8]) -> Result<(), String> {
@@ -114,6 +132,5 @@ fn pump(mut reader: Box<dyn Read + Send>, mut sink: ChunkSink, on_exit: ExitHook
             Err(_) => break,
         }
     }
-    sink(TerminalChunk::from_bytes(EXIT_NOTICE));
-    on_exit();
+    sink(TerminalChunk::exited(on_exit()));
 }

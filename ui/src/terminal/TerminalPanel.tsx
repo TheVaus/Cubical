@@ -26,6 +26,8 @@ const FALLBACK_SIZE: TerminalSize = { cols: 80, rows: 24 };
 export interface TerminalPanelProps {
   vaultId: string;
   resolvedTheme: ResolvedTheme;
+  onOpened?: (terminalId: string) => void;
+  onClosed?: () => void;
 }
 
 export function TerminalPanel(props: TerminalPanelProps): JSXElement {
@@ -57,13 +59,17 @@ export function TerminalPanel(props: TerminalPanelProps): JSXElement {
       try {
         const opened = await openSession(props.vaultId, measure(), {
           onBytes: (bytes) => emulator?.write(bytes),
-          onExit: (exit) => dispatch({ type: "exited", exit }),
+          onExit: (exit) => {
+            props.onClosed?.();
+            dispatch({ type: "exited", exit });
+          },
         });
         if (emulator === undefined) {
           void opened.close();
           return;
         }
         session = opened;
+        props.onOpened?.(opened.id);
         emulator.onData((data) => opened.write(data));
         dispatch({ type: "opened" });
         syncSize();
@@ -88,6 +94,7 @@ export function TerminalPanel(props: TerminalPanelProps): JSXElement {
   onCleanup(() => {
     const closing = session;
     session = undefined;
+    props.onClosed?.();
     emulator?.dispose();
     emulator = undefined;
     void closing?.close();

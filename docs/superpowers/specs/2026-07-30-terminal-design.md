@@ -1,8 +1,8 @@
 # Embedded terminal — a real shell in a tab
 
 **Date:** 2026-07-30
-**Status:** design approved, **not started** — blocked on Spec A
-**Depends on:** [`2026-07-30-vault-convergence-design.md`](2026-07-30-vault-convergence-design.md) (Spec A)
+**Status:** **built on `feat/terminal`** 2026-07-31, gate green, GUI smoke unrun — see "What was built"
+**Depends on:** [`2026-07-30-vault-convergence-design.md`](2026-07-30-vault-convergence-design.md) (Spec A), merged 2026-07-30
 
 ## Why
 
@@ -85,6 +85,18 @@ The Phase-2 socket is `#[cfg(unix)]` only. On Windows the terminal itself would 
 - An MCP server exposing engine verbs as typed tools to AI CLIs. Genuinely attractive and a much stronger steering mechanism, but it is a whole second project and gets its own spec.
 - Splits, terminal panes, or a bottom-drawer terminal. It is a tab.
 - Windows socket support.
+
+## What was built
+
+Everything above, behind `plugins.terminal_enabled` (default off). Task-by-task state, the two integration defects found, and the settled IPC contract live in the [plan](../plans/2026-07-30-terminal.md) — not repeated here.
+
+Three decisions worth carrying forward, because they are not obvious from the design:
+
+- **Terminal panels mount for every open terminal tab, not just the active one.** Solid's `<Show>` would unmount an inactive tab, and unmounting closes the PTY — switching tabs would kill a running `claude`. They render into the same `display: contents | none` slot the live-editor LRU already uses.
+- **A dead terminal tab cannot be restored, and nothing tries to.** T6's allowlist `isPersistableTab` excluded `terminal` for free, and `liveFileIds`' file-path predicate excludes terminals from the keep-alive LRU for free. Both are now asserted rather than assumed.
+- **Consent is asked after the tab opens, not before.** The PTY is spawning either way; what the answer controls is only whether two pointer files appear at the vault root. Asking first would make a shell wait on a modal for no reason.
+
+The console keeps working and keeps its tab. Removing it is still a separate later commit, per Sequencing step 4 — the terminal is not yet proven in a GUI.
 
 ## Testing
 

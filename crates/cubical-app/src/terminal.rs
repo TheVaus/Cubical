@@ -3,6 +3,9 @@ mod registry;
 mod session;
 mod spawn;
 
+#[cfg(test)]
+mod tests;
+
 pub use registry::TerminalRegistry;
 
 use base64::Engine as _;
@@ -11,15 +14,31 @@ use registry::Entry;
 use spawn::OpenSpec;
 use tauri::ipc::Channel;
 
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize)]
+pub struct TerminalExit {
+    pub code: Option<u32>,
+    pub signal: Option<String>,
+}
+
 #[derive(Clone, serde::Serialize)]
 pub struct TerminalChunk {
     pub base64: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exit: Option<TerminalExit>,
 }
 
 impl TerminalChunk {
     fn from_bytes(bytes: &[u8]) -> Self {
         Self {
             base64: base64::engine::general_purpose::STANDARD.encode(bytes),
+            exit: None,
+        }
+    }
+
+    fn exited(exit: TerminalExit) -> Self {
+        Self {
+            base64: String::new(),
+            exit: Some(exit),
         }
     }
 
@@ -54,6 +73,10 @@ pub async fn terminal_open(
     .await
     .map_err(|e| e.to_string())?;
 
+    if let Err(e) = cubical_ipc::agent_instructions::sync_canonical(&info.path) {
+        tracing::warn!("could not refresh the agent instructions file: {e}");
+    }
+
     let spec = OpenSpec::shell(info.path, cols, rows);
     let sink = Box::new(move |chunk| on_output.send(chunk).is_ok());
     let terminal_id = registry.open(&vault_id, spec, sink)?;
@@ -80,11 +103,25 @@ pub async fn terminal_resize(
 }
 
 #[tauri::command]
+pub async fn terminal_busy(
+    registry: tauri::State<'_, TerminalRegistry>,
+    terminal_id: String,
+) -> Result<bool, String> {
+    Ok(registry.has_foreground_child(&terminal_id))
+}
+
+#[tauri::command]
 pub async fn terminal_close(
     registry: tauri::State<'_, TerminalRegistry>,
     terminal_id: String,
 ) -> Result<(), String> {
     reap(registry.take(&terminal_id).into_iter().collect()).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn terminal_reap_all(registry: tauri::State<'_, TerminalRegistry>) -> Result<(), String> {
+    reap_all(registry.inner()).await;
     Ok(())
 }
 

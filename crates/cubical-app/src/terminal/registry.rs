@@ -48,6 +48,12 @@ impl TerminalRegistry {
         entry(&sessions, terminal_id)?.session.resize(cols, rows)
     }
 
+    pub fn has_foreground_child(&self, terminal_id: &str) -> bool {
+        lock(&self.sessions)
+            .get(terminal_id)
+            .is_some_and(|e| e.session.has_foreground_child())
+    }
+
     pub fn take(&self, terminal_id: &str) -> Option<Entry> {
         lock(&self.sessions).remove(terminal_id)
     }
@@ -84,15 +90,24 @@ impl TerminalRegistry {
             .get(terminal_id)
             .and_then(|e| e.session.process_id())
     }
+
+    #[cfg(test)]
+    pub fn winsize(&self, terminal_id: &str) -> Result<(u16, u16), String> {
+        let sessions = lock(&self.sessions);
+        entry(&sessions, terminal_id)?.session.winsize()
+    }
 }
 
 fn exit_hook(sessions: Weak<Sessions>, terminal_id: String) -> super::session::ExitHook {
     Box::new(move || {
         let Some(sessions) = sessions.upgrade() else {
-            return;
+            return super::TerminalExit::default();
         };
         let removed = lock(&sessions).remove(&terminal_id);
-        drop(removed);
+        let Some(mut entry) = removed else {
+            return super::TerminalExit::default();
+        };
+        entry.session.wait_exit()
     })
 }
 

@@ -3,6 +3,8 @@ use std::time::{Duration, Instant};
 
 use portable_pty::{Child, MasterPty};
 
+use super::TerminalExit;
+
 pub type SharedMaster = Arc<Mutex<Box<dyn MasterPty + Send>>>;
 
 const POLL_INTERVAL: Duration = Duration::from_millis(20);
@@ -25,6 +27,16 @@ impl ChildReaper {
 
     pub fn process_id(&self) -> Option<u32> {
         self.child.process_id()
+    }
+
+    pub fn wait_exit(&mut self) -> TerminalExit {
+        match self.child.wait() {
+            Ok(status) => TerminalExit {
+                code: Some(status.exit_code()),
+                signal: status.signal().map(str::to_string),
+            },
+            Err(_) => TerminalExit::default(),
+        }
     }
 
     fn has_exited(&mut self) -> bool {

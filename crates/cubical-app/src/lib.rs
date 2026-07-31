@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+mod agent_instructions;
 mod console;
 mod recent_vaults;
 mod tab_sessions;
@@ -134,7 +135,12 @@ pub fn run() {
             terminal::terminal_open,
             terminal::terminal_write,
             terminal::terminal_resize,
+            terminal::terminal_busy,
             terminal::terminal_close,
+            terminal::terminal_reap_all,
+            agent_instructions::agent_instructions_status,
+            agent_instructions::agent_instructions_accept,
+            agent_instructions::agent_instructions_decline,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

@@ -335,6 +335,7 @@ mod tests {
             Some(&serde_json::Value::Bool(true))
         );
 
+        drop(state);
         let (_reopened, fresh) = reopen(dir).await;
         assert!(status(&fresh, "v1").await.unwrap().offered);
     }

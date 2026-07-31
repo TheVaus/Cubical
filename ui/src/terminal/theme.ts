@@ -100,8 +100,11 @@ const THEME_MAP: Record<TerminalThemeKey, (typeof COLOR_TOKENS)[number]> = {
   brightWhite: "--term-ansi-bright-white",
 };
 
-function positiveNumber(raw: string, fallback: number): number {
-  const parsed = Number.parseFloat(raw);
+function positive(raw: string, unit: "px" | "", fallback: number): number {
+  const pattern = unit === "px" ? /^(\d*\.?\d+)(?:px)?$/ : /^(\d*\.?\d+)$/;
+  const match = pattern.exec(raw.trim());
+  if (match === null) return fallback;
+  const parsed = Number.parseFloat(match[1]!);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
@@ -121,9 +124,10 @@ export function deriveTerminalAppearance(
   return {
     theme: deriveTerminalTheme(tokens),
     fontFamily: fontFamily === "" ? "monospace" : fontFamily,
-    fontSize: positiveNumber(tokens["--text-sm"] ?? "", DEFAULT_FONT_SIZE),
-    lineHeight: positiveNumber(
+    fontSize: positive(tokens["--text-sm"] ?? "", "px", DEFAULT_FONT_SIZE),
+    lineHeight: positive(
       tokens["--leading-tight"] ?? "",
+      "",
       DEFAULT_LINE_HEIGHT,
     ),
   };
