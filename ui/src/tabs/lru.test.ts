@@ -59,4 +59,20 @@ describe("liveFileIds", () => {
     const after = liveFileIds(["console", ...mru], "console", 2, isFile);
     expect(after).toEqual(before);
   });
+
+  it("never keeps a terminal id alive — eviction would kill a running process", () => {
+    const isFilePath = (id: string) => !id.startsWith("terminal:");
+
+    expect(
+      liveFileIds(["terminal:1", "a", "terminal:2", "b"], "terminal:1", 4, isFilePath),
+    ).toEqual(["a", "b"]);
+  });
+
+  it("opening a terminal does not evict a warm file tab", () => {
+    const isFilePath = (id: string) => !id.startsWith("terminal:");
+    const before = liveFileIds(["a", "b"], "a", 2, isFilePath);
+    const after = liveFileIds(["terminal:1", "a", "b"], "terminal:1", 2, isFilePath);
+
+    expect(after).toEqual(before);
+  });
 });
