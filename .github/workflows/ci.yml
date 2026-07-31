@@ -54,10 +54,19 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: ui/package-lock.json
+          cache-dependency-path: |
+            ui/package-lock.json
+            design-system/package-lock.json
 
       - name: Install frontend dependencies
         working-directory: ui
+        run: npm ci
+
+      # check.sh gates the design system's tsc too, and npx resolves the local
+      # binary or silently fetches a same-named package off the registry — so a
+      # missing install here is both a dead gate and a supply-chain hole.
+      - name: Install design-system dependencies
+        working-directory: design-system
         run: npm ci
 
       - name: Set up Python
