@@ -93,6 +93,12 @@ export const COMMAND_DEFAULTS: readonly BindingDefault[] = [
     scope: "global",
     defaultKey: "Mod-Shift-c",
   },
+  {
+    id: "view.openTerminal",
+    title: "Open terminal",
+    scope: "global",
+    defaultKey: "Mod-Shift-t",
+  },
 ];
 
 export const DEFAULT_BINDINGS: readonly KeyBinding[] = COMMAND_DEFAULTS.map(

@@ -368,6 +368,15 @@ describe("new bindable commands (#7)", () => {
     expect(findDuplicateBindings(resolveBindings({}))).toEqual([]);
     expect(ids.filter((x) => x === "view.openConsole")).toHaveLength(1);
   });
+  it("registers the open-terminal command with a default and no conflict", () => {
+    expect(COMMAND_DEFAULTS).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "view.openTerminal", scope: "global", defaultKey: "Mod-Shift-t" }),
+      ]),
+    );
+    expect(findDuplicateBindings(resolveBindings({}))).toEqual([]);
+    expect(ids.filter((x) => x === "view.openTerminal")).toHaveLength(1);
+  });
   it("renders the Tab key with a readable label", () => {
     expect(formatChordForDisplay("Mod-Tab")).toEqual(["⌘/Ctrl", "Tab"]);
   });
