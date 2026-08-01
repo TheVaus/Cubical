@@ -1,0 +1,51 @@
+.terminal {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  background: var(--c-bg-primary);
+}
+
+.terminal__screen {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-2) var(--space-3);
+}
+
+.terminal__screen .xterm .xterm-viewport {
+  background: transparent;
+}
+
+.terminal__notice {
+  border-top: 1px solid var(--c-border-subtle);
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-mono, monospace);
+  font-size: var(--text-xs);
+  color: var(--c-fg-muted);
+}
+
+.terminal-dialog {
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.terminal-dialog__body {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal, 1.5);
+  color: var(--c-fg-primary);
+}
+
+.terminal-dialog__body code {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--text-xs);
+  color: var(--c-fg-secondary, var(--c-fg-primary));
+}
+
+.terminal-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}

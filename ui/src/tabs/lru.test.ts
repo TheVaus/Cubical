@@ -44,19 +44,35 @@ describe("liveIds", () => {
 });
 
 describe("liveFileIds", () => {
-  const isFile = (id: string) => !id.startsWith("console");
+  const isFile = (id: string) => !id.startsWith("tag:");
 
   it("does not let a non-file active id occupy a slot", () => {
-    expect(liveFileIds(["console", "a", "b"], "console", 2, isFile)).toEqual([
+    expect(liveFileIds(["tag:x", "a", "b"], "tag:x", 2, isFile)).toEqual([
       "a",
       "b",
     ]);
   });
 
-  it("activating a console id evicts none of the already-warm file ids", () => {
+  it("activating a non-file id evicts none of the already-warm file ids", () => {
     const mru = ["a", "b"];
     const before = liveFileIds(mru, "a", 2, isFile);
-    const after = liveFileIds(["console", ...mru], "console", 2, isFile);
+    const after = liveFileIds(["tag:x", ...mru], "tag:x", 2, isFile);
+    expect(after).toEqual(before);
+  });
+
+  it("never keeps a terminal id alive — eviction would kill a running process", () => {
+    const isFilePath = (id: string) => !id.startsWith("terminal:");
+
+    expect(
+      liveFileIds(["terminal:1", "a", "terminal:2", "b"], "terminal:1", 4, isFilePath),
+    ).toEqual(["a", "b"]);
+  });
+
+  it("opening a terminal does not evict a warm file tab", () => {
+    const isFilePath = (id: string) => !id.startsWith("terminal:");
+    const before = liveFileIds(["a", "b"], "a", 2, isFilePath);
+    const after = liveFileIds(["terminal:1", "a", "b"], "terminal:1", 2, isFilePath);
+
     expect(after).toEqual(before);
   });
 });

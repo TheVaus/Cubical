@@ -29,12 +29,15 @@ import Icon, { type IconName } from "@ds/components/graphics/Icon/Icon";
 
 import Editor, { type EditorApi } from "./Editor";
 import {
-  ConsoleButton,
-  ConsolePanel,
-  CONSOLE_COMMAND_ID,
-  createConsoleWiring,
-  isConsoleView,
-} from "./console";
+  TERMINAL_COMMAND_ID,
+  TerminalButton,
+  TerminalCloseDialog,
+  TerminalConsentDialog,
+  TerminalPanel,
+  createTerminalWiring,
+  isTerminalView,
+  terminalTabIds,
+} from "./terminal";
 import Properties from "./Properties";
 import { RecentVaultList } from "./RecentVaultList";
 import ShortcutsPanel from "./settings/ShortcutsPanel";
@@ -978,6 +981,11 @@ const App: Component = () => {
   };
 
   const closeTabById = async (id: string) => {
+    if (!(await terminalTab.confirmClose(id))) return;
+    await forceCloseTabById(id);
+  };
+
+  const forceCloseTabById = async (id: string) => {
     const wasActive = tabs().activeId === id;
     if (wasActive) await flushAutosave();
     setTabs((s) => closeTab(s, id));
@@ -987,12 +995,12 @@ const App: Component = () => {
     if (tabs().activeId !== null) await loadActiveTabContent();
   };
 
-  const consoleTab = createConsoleWiring({
+  const terminalTab = createTerminalWiring({
     vaultId,
     corePlugins,
     tabs,
     setTabs: (updater) => setTabs(updater),
-    closeTab: (id) => closeTabById(id),
+    closeTab: (id) => forceCloseTabById(id),
     flushAutosave: () => flushAutosave(),
   });
 
@@ -1423,7 +1431,7 @@ const App: Component = () => {
           if (id !== null) void closeTabById(id);
         },
       },
-      [CONSOLE_COMMAND_ID]: consoleTab.command,
+      [TERMINAL_COMMAND_ID]: terminalTab.command,
     };
     const onGlobalKey = (e: KeyboardEvent) => {
       const c = resolveGlobal(effectiveBindings(), globalCommands, e);
@@ -1702,9 +1710,9 @@ const App: Component = () => {
           >
             ›
           </IconButton>
-          <ConsoleButton
-            available={consoleTab.available}
-            onOpen={consoleTab.open}
+          <TerminalButton
+            available={terminalTab.available}
+            onOpen={terminalTab.open}
             view={view}
           />
         </div>
@@ -2107,9 +2115,7 @@ const App: Component = () => {
           <main class="editor-layer">
             <div class="editor-scroll">
               <div class="editor-inner">
-              <Show
-                when={isConsoleView(view())}
-                fallback={
+              <Show when={!isTerminalView(view())}>
                   <Show
                     when={view().kind === "file"}
                     fallback={
@@ -2290,10 +2296,25 @@ const App: Component = () => {
                 </For>
               </Show>
                   </Show>
-                }
-              >
-                <ConsolePanel vaultId={vaultId()!} />
               </Show>
+              <For each={terminalTabIds(tabs().tabs)}>
+                {(id) => (
+                  <div
+                    style={{
+                      display: id === tabs().activeId ? "contents" : "none",
+                    }}
+                  >
+                    <TerminalPanel
+                      vaultId={vaultId()!}
+                      resolvedTheme={resolvedTheme()}
+                      onOpened={(terminalId) =>
+                        terminalTab.register(id, terminalId)
+                      }
+                      onClosed={() => terminalTab.forget(id)}
+                    />
+                  </div>
+                )}
+              </For>
               </div>
             </div>
           </main>
@@ -3058,6 +3079,17 @@ topics:         # type:list
           </Modal>
         )}
       </Show>
+
+      <TerminalConsentDialog
+        prompt={terminalTab.consentPrompt}
+        onAccept={terminalTab.acceptConsent}
+        onDecline={terminalTab.declineConsent}
+      />
+
+      <TerminalCloseDialog
+        tabId={terminalTab.busyTabId}
+        onAnswer={terminalTab.answerBusyClose}
+      />
 
       <ToastHost />
     </div>

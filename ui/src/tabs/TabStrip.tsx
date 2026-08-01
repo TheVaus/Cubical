@@ -12,8 +12,8 @@ function label(tab: Tab): string {
   switch (tab.view.kind) {
     case "tag":
       return `#${tab.view.tagPath}`;
-    case "console":
-      return "Console";
+    case "terminal":
+      return "Terminal";
     case "file": {
       const base = tab.view.path.slice(tab.view.path.lastIndexOf("/") + 1);
       return base.endsWith(".md") ? base.slice(0, -3) : base;

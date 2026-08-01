@@ -1,8 +1,8 @@
 # Embedded terminal — a real shell in a tab
 
 **Date:** 2026-07-30
-**Status:** design approved, **not started** — blocked on Spec A
-**Depends on:** [`2026-07-30-vault-convergence-design.md`](2026-07-30-vault-convergence-design.md) (Spec A)
+**Status:** **built and GUI-verified** on `feat/terminal` 2026-07-31 — see "What was built"
+**Depends on:** [`2026-07-30-vault-convergence-design.md`](2026-07-30-vault-convergence-design.md) (Spec A), merged 2026-07-30
 
 ## Why
 
@@ -72,6 +72,10 @@ Opt-in core plugin `plugins.terminal_enabled`, **default off**, matching the con
 
 The Phase-2 socket is `#[cfg(unix)]` only. On Windows the terminal itself would work (ConPTY via `portable-pty`), but `cubical` inside it would hit the exit-2 decline, since the app holds the vault lock and there is no socket to attach to. Windows is already deferred; **recorded, not solved.**
 
+## Known packaging gap
+
+**`cubical` on the child `PATH` does not survive bundling.** The prepended directory is `current_exe().parent()` — under `cargo tauri dev` that is `target/debug/`, which holds both `cubical-app` and `cubical`, so the win above is real in development. A bundled `.app` ships only `cubical-app` in `Contents/MacOS/`, and `tauri.conf.json` declares no `externalBin`, so in a release build `cubical` resolves only if the user installed it separately. Fixing it is release tooling — sidecar naming with a target-triple suffix and a build step to place the CLI — not terminal work. **Recorded, not solved.**
+
 ## Sequencing
 
 1. **Spec A lands first.** Non-negotiable — it is the safety net.
@@ -86,6 +90,18 @@ The Phase-2 socket is `#[cfg(unix)]` only. On Windows the terminal itself would 
 - Splits, terminal panes, or a bottom-drawer terminal. It is a tab.
 - Windows socket support.
 
+## What was built
+
+Everything above, behind `plugins.terminal_enabled` (default off). Task-by-task state, the two integration defects found, and the settled IPC contract live in the [plan](../plans/2026-07-30-terminal.md) — not repeated here.
+
+Three decisions worth carrying forward, because they are not obvious from the design:
+
+- **Terminal panels mount for every open terminal tab, not just the active one.** Solid's `<Show>` would unmount an inactive tab, and unmounting closes the PTY — switching tabs would kill a running `claude`. They render into the same `display: contents | none` slot the live-editor LRU already uses.
+- **A dead terminal tab cannot be restored, and nothing tries to.** T6's allowlist `isPersistableTab` excluded `terminal` for free, and `liveFileIds`' file-path predicate excludes terminals from the keep-alive LRU for free. Both are now asserted rather than assumed.
+- **Consent is asked after the tab opens, not before.** The PTY is spawning either way; what the answer controls is only whether two pointer files appear at the vault root. Asking first would make a shell wait on a modal for no reason.
+
+The console keeps working and keeps its tab. Sequencing step 4 — removing it — is now unblocked (the terminal is proven in a GUI) but deliberately still a separate commit.
+
 ## Testing
 
 - PTY lifecycle: spawn, stream, resize, reap on tab close, reap on vault switch, reap on plugin disable.
@@ -93,4 +109,4 @@ The Phase-2 socket is `#[cfg(unix)]` only. On Windows the terminal itself would 
 - Terminal tabs excluded from LRU eviction and from session persistence (mirrors the existing console `liveFileIds` suite).
 - `cubical` resolves on the child `PATH` and reaches the live engine.
 - Agent-instructions consent: declining writes nothing to the vault root; accepting writes the pointer files exactly once and never rewrites them.
-- **Verification caveat:** the terminal is vault-gated and the plain `vite` preview has no Tauri backend, so the interactive surface cannot be exercised in a non-interactive session. Rust-side PTY lifecycle and reaping are testable without the GUI and are where the process-leak risk lives.
+- **Verification caveat (resolved by the user, 2026-07-31):** the terminal is vault-gated and the plain `vite` preview has no Tauri backend, so the interactive surface cannot be exercised in a non-interactive session — Rust-side PTY lifecycle and reaping are testable without the GUI and are where the process-leak risk lives. The remaining interactive surface was smoke-tested by hand in the running app and works. The caveat still applies to *future* sessions touching this code.

@@ -118,6 +118,17 @@ a vault switch clears the tab set to empty *before* restore reads the saved
 session, and an ungated persist effect would save that empty set — which the
 Rust side reads as "forget this vault" — and wipe the session before it is read.
 
+**Non-file tabs are excluded from both the keep-alive pool and persistence, by
+allow-list rather than deny-list.** `live()` computes from `liveFileIds`
+(`tabs/lru.ts`), which filters the `mru` list and the active id down to
+file-backed ids *before* applying the `live_tab_limit` cap — so a non-file tab
+never occupies a capped LRU slot and can never evict a warm file editor's
+CodeMirror state. Filtering only at the render site (`<For each={live()}>`)
+is not enough: that keeps the tab `Editor`-free while still letting it consume
+a slot. `isPersistableTab` likewise allow-lists `file`/`tag` instead of naming
+the kinds to exclude, so any future non-file tab is left out of session
+persistence by default rather than by remembering to add it.
+
 **Known exposure, unchanged from single-file editing:** if the flush write
 fails, activation still proceeds with unflushed content. Today's file-switch has
 exactly this exposure; tabs neither widen nor narrow it.
@@ -145,63 +156,6 @@ and a title explaining that the note has to be relinked by hand.
 After a repair the panel reloads itself and calls `onRepaired`, which nudges the
 shared right-sidebar refresh tick so Backlinks and Mentions re-read the vault
 they no longer agree with.
-
-## Console
-
-The console is a `{ kind: "console" }` tab with a fixed, singleton id
-(`"console"`) — opening it while it's already open activates the existing tab
-rather than duplicating it, the same rule as `file:<path>`/`tag:<path>` ids
-above. It is gated on the `console` core plugin
-(`plugins.console_enabled`, `defaultEnabled: false`); switching the plugin off
-while the tab is open closes it, per the "a feature toggles without touching
-the vault" non-negotiable.
-
-Scrollback (`console/scrollback.ts`, 500-entry cap, one `Entry` per command's
-output) and command history (`console/history.ts`) are ephemeral signals, not
-vault state — they are dropped from tab-session `toDto` and start empty on
-every restore, the same way nav history resets for a restored tab (see Tabs,
-above).
-
-Console ids are excluded from the editor keep-alive pool at the accounting
-level, not just at render time: `live()` computes from `liveFileIds`
-(`tabs/lru.ts`), which filters the `mru` list and the active id down to
-file-backed ids *before* applying the `live_tab_limit` cap, so a console tab
-never occupies one of the capped LRU slots and can never evict a warm file
-editor's CodeMirror state. (An earlier version filtered only at the render
-site — `<For each={live()}>` — which kept the console `Editor`-free but
-still let it consume a keep-alive slot; that gap is closed.)
-
-`ipc.ts`'s `consoleExec` is the single chokepoint the panel calls; parsing,
-verb rejection and rendering all happen on the Rust side
-(`docs/implementation/engine-ipc.md` → "Console: the fourth caller").
-
-### The console is isolated on purpose
-
-A PTY terminal will replace the console
-([`2026-07-30-terminal-design.md`](../superpowers/specs/2026-07-30-terminal-design.md)
-→ "Retiring the console"), so its surface is deliberately collapsed into
-`ui/src/console/` and kept there: `registration.ts` owns the plugin descriptor,
-`tabView.ts` the singleton tab identity, `wiring.ts` the availability check,
-the flush-then-open action, the command object and the close-on-disable
-effect, `ConsoleButton.tsx` the topbar control, and `console.css` its styles.
-`App.tsx` holds one `createConsoleWiring` call and two placements
-(`<ConsoleButton>`, `<ConsolePanel>`); no console *logic* lives there.
-
-Two things stay outside on purpose. `ui/src/core/commands.ts` keeps its own
-`view.openConsole` default entry rather than importing one, because the command
-registry is substrate that must not import a feature (see "Command registry is
-pure substrate" below) — the console module owns only the id and title
-constants the adapters restate, exactly as every other command does.
-`ipc.ts` keeps `consoleExec` and the `plugins.console_enabled` key, because
-that file is the one typed IPC surface and the setting union mirrors the Rust
-`Setting` enum.
-
-`tabModel.ts` and `TabStrip.tsx` still name the `console` tab kind, and should:
-the closed `TabView` union is what makes removal safe — drop the variant and
-every exhaustive `switch` becomes a compile error listing the sites. What is
-*not* console-specific any more is `isPersistableTab`, which now allow-lists
-`file`/`tag` instead of deny-listing `console`, so any future non-file tab
-(the terminal included) is excluded from session persistence by default.
 
 ## Command registry is pure substrate
 

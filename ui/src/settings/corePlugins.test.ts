@@ -25,4 +25,12 @@ describe("CORE_PLUGINS", () => {
     expect(pr.settingKey).toBe("plugins.property_refs_enabled");
     expect(pr.defaultEnabled).toBe(true);
   });
+
+  test("ships the terminal entry, default-OFF — it grants an unsandboxed capability", () => {
+    const terminal = CORE_PLUGINS.find((p) => p.id === "terminal")!;
+    expect(terminal).toBeDefined();
+    expect(terminal.settingKey).toBe("plugins.terminal_enabled");
+    expect(terminal.defaultEnabled).toBe(false);
+    expect(corePluginEnabled({}, terminal)).toBe(false);
+  });
 });

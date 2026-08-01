@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod agent_instructions;
 mod dispatch;
 pub mod parse;
 mod protocol;

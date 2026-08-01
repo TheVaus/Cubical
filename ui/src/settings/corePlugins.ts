@@ -1,4 +1,4 @@
-import { CONSOLE_PLUGIN } from "../console/registration";
+import { TERMINAL_PLUGIN } from "../terminal/registration";
 import type { Setting } from "../api/ipc";
 
 export type BooleanSettingKey = Extract<Setting, { value: boolean }>["key"];
@@ -27,7 +27,7 @@ export const CORE_PLUGINS: CorePlugin[] = [
     settingKey: "plugins.property_refs_enabled",
     defaultEnabled: true,
   },
-  CONSOLE_PLUGIN,
+  TERMINAL_PLUGIN,
 ];
 
 export function corePluginEnabled(

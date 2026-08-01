@@ -1,7 +1,11 @@
 # CLI frontend Phase 3 — in-app command console (design)
 
 **Date:** 2026-07-25
-**Status:** built 2026-07-29
+**Status:** built 2026-07-29 — **shipped, then removed 2026-07-31.** The PTY
+terminal replaced it ([`2026-07-30-terminal-design.md`](2026-07-30-terminal-design.md)
+→ "Retiring the console"); the code described below no longer exists. Kept as
+the record of why it was built and what it taught the IPC boundary — the
+bidirectional `parse.rs` split it forced is still load-bearing.
 **Supersedes the Phase-3 framing in:** [`../2026-07-24-cli-phase3-handoff.md`](../2026-07-24-cli-phase3-handoff.md)
 **Builds on:** [`2026-07-24-cli-frontend-design.md`](2026-07-24-cli-frontend-design.md) (Phase 1),
 [`2026-07-24-cli-attach-phase2-design.md`](2026-07-24-cli-attach-phase2-design.md) (Phase 2)

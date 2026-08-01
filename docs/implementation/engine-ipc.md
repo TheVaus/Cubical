@@ -447,43 +447,27 @@ Design and data flow are owned by
 [`docs/superpowers/specs/2026-07-24-cli-attach-phase2-design.md`](../superpowers/specs/2026-07-24-cli-attach-phase2-design.md);
 this section records only why the boundary is shaped this way.
 
-### Console: the fourth caller (Phase 3)
+### The text boundary runs both ways (Phase 3)
 
-`cubical-ipc` owns the text boundary in **both** directions now, not just the
-`Outcome`→text one above: `parse.rs` moved `Cli`/`Cmd`/`to_command` out of
-`cubical-cli`'s `main.rs` into the same crate, alongside `render`/`render_to`.
+`cubical-ipc` owns the text boundary in **both** directions, not just the
+`Outcome`→text one above: `parse.rs` holds `Cli`/`Cmd`/`to_command` alongside
+`render`/`render_to`, moved there out of `cubical-cli`'s `main.rs`.
 Text→`Command` and `Command`→text are the same boundary in opposite
 directions, and both exist so every frontend produces identical parsing and
 output — the reasoning is one, not two.
 
-The in-app console (`cubical-app/src/console.rs`) is the **fourth caller of
-the one `dispatch`**, joining CLI-local, the app's socket server, and the CLI
-client above. It calls `dispatch` in-process against the app's own `AppState`
-via `TauriEventSink` — no socket, no `cubical` binary, no `#[cfg(unix)]`
-restriction, so it works on Windows where the socket transport is deliberately
-stubbed out.
+`needs_body` lives in `parse.rs` for the same reason, checked once rather than
+at each call site: a frontend with no stdin to read a body from rejects `write`
+without restating the rule, and a future body-needing verb is caught
+automatically.
 
-Being in-process rather than a client of the socket server is also why it
-needs its own rejections instead of inheriting the CLI's: it rejects `write`
-(`needs_body`, checked once in `parse.rs` so a future body-needing verb is
-caught automatically — the console has no stdin to read a body from) and
-`--vault` (the console is bound to the vault the app already has open; the
-socket path's `--vault` handling doesn't apply here since there's no attach
-step to bind at).
-
-Everything console-specific on the Rust side lives in that one module —
-`ConsoleResult`, the tokenizer, the `write`/`--vault` rejections and the
-`console_exec` command — and `lib.rs` knows it only as `mod console;`, the
-`console::console_exec` handler entry, and a `pub use` for the integration
-test. `parse`/`dispatch`/`render_to` stay in `cubical-ipc` where all four
-callers share them; moving any of that next to the console would reintroduce
-the drift the shared boundary exists to prevent.
-
-Design and rationale: [`docs/superpowers/specs/2026-07-25-cli-console-phase3-design.md`](../superpowers/specs/2026-07-25-cli-console-phase3-design.md).
-The console is scheduled for removal once the PTY terminal replaces it
-([`2026-07-30-terminal-design.md`](../superpowers/specs/2026-07-30-terminal-design.md)
-→ "Retiring the console"), which is why its surface is deliberately collapsed
-to that single wiring point rather than spread across `lib.rs`.
+An in-app command console was briefly a fourth caller of `dispatch`, calling it
+in-process against the app's own `AppState`. It was removed when the PTY
+terminal replaced it ([`2026-07-30-terminal-design.md`](../superpowers/specs/2026-07-30-terminal-design.md)
+→ "Retiring the console"); the terminal reaches the same verbs by putting
+`cubical` on the child's `PATH`, so it is a client of the socket server rather
+than a fifth in-process caller. That the removal touched only one wiring point
+in `lib.rs` is the payoff of having collapsed its surface in the first place.
 
 ## Degrade-not-throw surfaces
 
