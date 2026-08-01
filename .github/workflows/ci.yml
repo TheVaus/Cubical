@@ -54,10 +54,16 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: ui/package-lock.json
+          cache-dependency-path: |
+            ui/package-lock.json
+            design-system/package-lock.json
 
       - name: Install frontend dependencies
         working-directory: ui
+        run: npm ci
+
+      - name: Install design-system dependencies
+        working-directory: design-system
         run: npm ci
 
       - name: Set up Python
