@@ -17,7 +17,14 @@ runtime.
 
 The settings union is the frontend's **typed view** of a deliberately generic
 backend config table (any key, any JSON value), so a mistyped key fails to
-compile instead of silently reading `undefined`.
+compile instead of silently reading `undefined`. It is also the only registry of
+setting keys in the codebase — adding a setting starts here.
+
+What the union does **not** protect you from is storage routing: a key beginning
+`ui.` is written to the transient per-machine index instead of the durable
+`config.toml`, and nothing about that failure is visible at compile time or in
+tests. The rule and its consequence are owned by
+[`../architecture/ui.md`](../architecture/ui.md) §12.1.
 
 ## The frontmatter splitter mirrors Rust byte-for-byte
 

@@ -17,6 +17,7 @@ This is the docs index. The session primer is [`CLAUDE.md`](../CLAUDE.md) — st
 | I'm touching IPC / Tauri | [`migration-touchpoints.md`](migration-touchpoints.md) |
 | User wants a `.gitignore` for their vault | [`vault-gitignore.md`](vault-gitignore.md) |
 | What's been explicitly cut from scope? | [`architecture/constraints.md`](architecture/constraints.md) |
+| How fast must it be? How do I measure it? | [`architecture/foundation.md`](architecture/foundation.md) §1 (commitment 2) |
 
 ## Layer status
 
@@ -39,6 +40,9 @@ cubical/
 │   ├── cubical-cli/        # `cubical` terminal frontend (runs standalone, or attaches to the running app)
 │   └── cubical-app/        # Tauri app, depends on the above; hosts the cubical-ipc socket server
 ├── ui/                     # Solid + TypeScript + Vite frontend
+│   └── dist/               # build artifact left in the tree by the `build` gate — gitignored,
+│                           # but shell `grep -r` still walks it and returns minified bundle.
+│                           # Search with ripgrep (honours .gitignore), not `grep -r`.
 ├── design-system/          # @ds — SolidJS component library + canonical design tokens; ui/ borrows from here (architecture/ui.md §11.6)
 ├── docs/                   # this index
 ├── scripts/                # check.sh (the gate set) + check_docs.py
@@ -74,7 +78,9 @@ This is enforced by `scripts/check_docs.py` (in the gate set — see `CLAUDE.md`
 | Layer status / tags / dates | [`build-order.md`](build-order.md) — Layer status & tags |
 | Build-order ladder + v1.0 cut | [`build-order.md`](build-order.md) |
 | Locked design + DB schemas | [`architecture/`](architecture/) (doc-wins precedence owned by [`architecture/README.md`](architecture/README.md)) |
-| Per-layer intent + what landed | `layer-N-spec.md` |
+| Performance bar, method, medians, harness | [`architecture/foundation.md`](architecture/foundation.md) §1 (commitment 2) |
+| Per-layer intent + what landed | `layer-N-spec.md` (L0–L4 only; **L5 has no spec file** — its record is the [L5 design spec](superpowers/specs/2026-06-25-layer-5-daily-driver-polish-design.md) → What landed) |
+| The list of setting keys | `ui/src/api/ipc.ts` — the `Setting` union; storage routing owned by [`architecture/ui.md`](architecture/ui.md) §12.1 |
 | Implementation invariants (why the code is shaped this way) | [`implementation/`](implementation/) |
 | Code style, commits, tests | [`conventions.md`](conventions.md) |
 | Tauri-coupled surfaces | [`migration-touchpoints.md`](migration-touchpoints.md) |

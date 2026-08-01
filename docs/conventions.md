@@ -126,6 +126,12 @@ change.** Pick the lightest row that fits:
 | Standard feature surface | **one** working doc — design + task list together, written once — then record what landed in the layer spec at session end | 1 |
 | Layer / novel / architectural | full brainstorm → spec → plan → closeout | the `superpowers/` set |
 
+- **Don't copy the existing `superpowers/` pairs as the template for a standard
+  feature.** Every archived feature there has a matching `specs/*-design.md` +
+  `plans/*.md` pair, because they predate this table — they are layer-scale
+  process applied to standard-scale work, which is the habit this table exists
+  to stop. A standard surface gets **one** doc; put it in `specs/` and let it
+  carry the task list.
 - **Write outcomes once, at the end — capture the *why*, not the *what*.**
   Don't live-update the layer spec mid-session. In its §"What was built",
   record **decisions** (including rejected alternatives), **deviations from

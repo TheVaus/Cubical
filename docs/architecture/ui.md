@@ -65,18 +65,28 @@ Some surfaces stayed **deliberately bespoke** where no design-system component f
 
 ## 12. Settings
 
-User-facing settings, organized by category:
+The **shipped** Settings modal is tab-based. The authoritative list of tabs is
+`SETTINGS_TABS` in `ui/src/App.tsx`, and the authoritative list of setting *keys*
+is the `Setting` union in `ui/src/api/ipc.ts` — the frontend's typed view of a
+deliberately generic backend config table. Neither is restated here: a doc that
+mirrored either would rot every time a toggle shipped, and did.
 
-**Files & Core.** Vault path. `.cubical/recovery/` retention window (default 30 days). Pending Rewrites flush cadence (default 5 min). Auto-save debounce (default 300ms). Asset destination is locked to `.assets/` (not configurable).
+Locked product decisions about settings, which are what this section owns:
 
-**Editor & Export.** Live Preview vs Raw Source default. Export sanitization rules (display only — sanitization is mandatory).
+- Asset destination is locked to `.assets/` and is **not** user-configurable.
+- Export sanitization is **mandatory**; only its rules are surfaced for display.
+- Categories reserved for later layers: per-plugin WASI permission toggles (L6),
+  local P2P / E2EE keys / relay configuration (L7), Time Machine snapshot
+  retention (L8).
 
-**Appearance.** Theme picker (built-in + user themes from `<vault>/.cubical/themes/` + plugin-distributed themes). Font family, font size overrides.
+### 12.1 Where a setting is stored — routing is by key prefix
 
-**Search.** Tantivy indexing controls.
+Two tiers, per [`vault.md`](vault.md) §3: `config.toml` is durable and travels
+with the vault; the libSQL `config` table is transient, per-machine workspace
+state. The tier is chosen by a **literal key prefix** — any key beginning `ui.`
+is routed to the index, everything else to `config.toml`
+(`cubical_core::vault::settings::is_workspace_key`).
 
-**Sync & Network.** (L7+) Local P2P toggle, E2EE key generation and management, relay configuration.
-
-**Plugins & Security.** (L6+) Per-plugin WASI permission toggles.
-
-**Time Machine.** (L8+) Snapshot retention window, manual snapshot trigger.
+This is a silent trap: naming a durable preference `ui.something` compiles, type-checks,
+passes tests, and quietly makes the setting per-machine and non-portable. Choosing
+the prefix chooses the storage.
