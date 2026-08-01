@@ -7,13 +7,15 @@
 Cubical is a Personal Knowledge Management application built on four commitments:
 
 1. **The user's vault is sovereign.** It is plain markdown, fully portable, and survives the app being uninstalled, the company shutting down, or the user editing files in any external tool. The vault works without Cubical; Cubical only works because the vault works.
-2. **Performance is a feature, not a polish item.** Every architectural choice is measured against latency at the keystroke, scroll, and search. "Fast enough" is not the bar. "Imperceptible" is.
+2. **Performance is a feature, not a polish item.** Every architectural choice is measured against latency at the keystroke, scroll, and search. "Fast enough" is not the bar. "Imperceptible" is. This commitment is held to a measured number, not an adjective — the bar below is the owner; `CLAUDE.md` links to it.
+
+   **The bar.** A cold scan-and-index (`Vault::open` + full `scan`) of a synthetic fixture vault must stay under **13 s** at 10,000 notes and **1.5 s** at 1,000 notes. Measured medians on a 10-core M1 Pro at the time of writing: **6.6 s** and **0.69 s** — the ceilings are set at roughly 2x observed so they pass today and ratchet down, never up. Reproduce with `cargo run --release -p cubical-core --example scan_bench -- <fixture-dir> <note-count>`; the harness generates its own deterministic fixture. It deletes `.cubical/` before every run, so it refuses any directory that is non-empty and lacks its own `.scan-bench-fixture` marker — pointed at a real vault it would destroy exactly the non-derivable state named in commitment 1. Tantivy is ~a third of the budget and scales with core count, so a CI ceiling must be measured on the runner rather than inheriting this number.
 3. **The app does not lock the user in.** No proprietary file formats for content. No required cloud account. No data inside Cubical that the user cannot export, inspect, or take elsewhere.
 4. **Features are composable building blocks.** Most user-facing capabilities are independent, toggleable blocks the user stacks to taste — not a fused monolith. The user decides which parts of Cubical are switched on; the design pressure on every new feature is "can this be a block that turns off cleanly?"
 
 These commitments produce hard rules that downstream decisions must respect:
 
-- Plain `.md` files are the source of truth. Indexes, caches, CRDT logs, and snapshots are derived state — they can be deleted at any time and the vault remains intact.
+- Plain `.md` files are the source of truth. Indexes, caches, CRDT logs, and snapshots are derived state — they can be deleted at any time and the vault remains intact, with **one exception**: the pending-rewrites queue lives in the index and is not re-derivable, which is why the durable rename journal (`.cubical/renames.jsonl`) exists. Deleting the index without replaying it strands referrer links — see [`../implementation/vault-core.md`](../implementation/vault-core.md). Durable user config (`config.toml`, `themes/`) is not derived state at all; the split is owned by [`vault.md`](vault.md) §3.
 - The app must gracefully handle external modifications to the vault (renames in Finder, edits in vim, file additions by Dropbox sync) made while Cubical is closed.
 - No legacy runtimes (Electron, Node) are part of the shipped product.
 - Plugin code is hardware-sandboxed by default; capability grants are explicit and granular. The sandbox governs **third-party** code. First-party core features may use native capabilities — see §2.1.

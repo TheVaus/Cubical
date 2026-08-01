@@ -62,8 +62,8 @@ Treat these as code. Any future comment sweep must preserve them and re-run
 
 - `cubical-core`, `cubical-ast`, `cubical-index` have unit tests.
 - The app crate has integration tests against a temp vault.
-- UI has vitest coverage (live since L3). Current gate counts live in
-  `CLAUDE.md`'s Tests block.
+- UI has vitest coverage (live since L3). Counts are a query, not a recorded
+  fact — run `scripts/check.sh`.
 
 ## Continuous integration & dependencies
 
@@ -158,6 +158,5 @@ needs no GUI smoke.
 
 ## Documentation
 
-- Every public Rust item has rustdoc.
-- Every Tauri command has a doc comment.
 - The architecture docs in [`architecture/`](architecture/) and layer specs in `layer-N-spec.md` are the canonical reference. The doc-wins-over-code precedence rule is owned by [`architecture/README.md`](architecture/README.md).
+- Comment rules, doc-comments (`///`, `//!`, JSDoc) included, are owned solely by §Comments above.

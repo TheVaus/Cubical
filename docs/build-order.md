@@ -31,7 +31,7 @@ update this table on layer close, nowhere else.
 | 2 — Editing | Closed | `l2` (05-22) | [`layer-2-spec.md`](layer-2-spec.md) |
 | 3 — Knowledge Graph | Closed | `l3` (06-01) | [`layer-3-spec.md`](layer-3-spec.md) |
 | 4 — Search | Sub-layers merged; `l4` close-tag pending operator GUI smoke | `l4a` (06-03) · `l4a-fix`/`.1` (06-06) · `l4b`/`l4c`/`l4a-fix.2` (06-08) · `l4d` (06-15) | [`layer-4-spec.md`](layer-4-spec.md) |
-| 5 — Daily-Driver Polish | Not started (v1.0 cut) | — | — |
+| 5 — Daily-Driver Polish | In progress (v1.0 cut) — keymap registry landed; theme picker + Copy-as-Markdown not started; perf pass open | — | [design spec](superpowers/specs/2026-06-25-layer-5-daily-driver-polish-design.md) |
 
 ## Known open perf debt
 

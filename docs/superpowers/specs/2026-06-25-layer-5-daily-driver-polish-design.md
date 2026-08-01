@@ -1,8 +1,12 @@
 # Layer 5 — Daily-Driver Polish — Design
 
 **Date:** 2026-06-25
-**Status:** Designed, not started. Umbrella design covering all four L5 surfaces;
-built incrementally (implementation plan to follow).
+**Status:** In progress. Umbrella design covering all four L5 surfaces, built
+incrementally; canonical per-layer status is owned by
+[`build-order.md`](../../build-order.md) → Layer status & tags.
+**Deviation:** the keymap registry shipped *beyond* this spec — §6 lists
+user-remappable bindings as out of scope, but configurable shortcuts shipped
+2026-07-06.
 **Scope:** This is the **public v1.0 cut** ([`build-order.md`](../../build-order.md)).
 Post-L5 is L6 Plugins.
 

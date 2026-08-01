@@ -4,9 +4,9 @@
 > built this way, what exists today, and what ships next. This is a **synthesis**
 > of the canonical docs (`CLAUDE.md`, `docs/architecture/`, `docs/build-order.md`,
 > the layer specs); where it disagrees with them, **they win** — owning docs are
-> linked inline. **Status (2026-06-25):** Layers 0–4 built & merged; Layer 5 (the
-> v1.0 cut) in progress on `feat/layer-5-daily-driver-polish`. Tests green: 604
-> frontend + 555 Rust.
+> linked inline. Layers 0–4 are built & merged; Layer 5 (the v1.0 cut) is in
+> progress. Canonical status, tags and dates →
+> [`build-order.md`](docs/build-order.md).
 
 **Contents:** [1 Summary](#1-summary) · [2 Problem](#2-problem--users) ·
 [3 Principles](#3-principles-non-negotiables) · [4 Mental model](#4-how-it-works--mental-model) ·
@@ -24,8 +24,9 @@
 editor, a knowledge graph (links, backlinks, tags, embeds), and full-text +
 structured search. The defining stance: **your Markdown files are the absolute
 source of truth** — search indexes, the link graph, and caches are *derived state*
-that can be deleted and rebuilt without losing a byte. No Electron, no Node.js, no
-required cloud account.
+that can be deleted and rebuilt without losing a byte (the one exception being a
+rename's queued referrer rewrites, which are journalled separately). No Electron,
+no Node.js runtime in the shipped app, no required cloud account.
 
 - **Platform (v1):** desktop only (macOS/Windows/Linux), via Tauri.
 - **Stack:** Tauri 2.x + Rust; Solid + TypeScript + Vite; CodeMirror 6 editor;
@@ -65,21 +66,30 @@ teams, and users wanting cross-app import baked into core (left to plugins).
 
 Load-bearing decisions; changing one is an architecture event, not a code change.
 
-1. **Plain `.md` is the absolute source of truth** — everything else is
-   rebuildable derived state.
+1. **Plain `.md` is the absolute source of truth** — derived state (index,
+   caches) is rebuildable from it, with one exception: the pending-rewrites
+   queue, which is why a durable rename journal exists. User config
+   (`config.toml`, `themes/`) is neither derived nor rebuildable.
 2. **The vault is 100% portable** — no external service needed to open it; you
    can zip it and send it.
-3. **No Electron, no Node runtime, no centralized cloud DB** for core storage.
-4. **Files survive external edits** in vim/Finder/Dropbox while the app is closed.
-5. **No file-identity UUIDs in any `.md` before Layer 7** — the vault is yours
+3. **Performance is measured, not asserted** — a cold scan-and-index of a
+   10,000-note vault stays under 13 s, a 1,000-note vault under 1.5 s.
+4. **No Electron, no Node runtime, no centralized cloud DB** for core storage
+   **in the shipped product** — Node is build-time tooling (Vite, npm) only.
+5. **Files survive external edits** in vim/Finder/Dropbox while the app is closed.
+6. **No file-identity UUIDs in any `.md` before Layer 7** — the vault is yours
    byte-for-byte until sync onboarding.
-6. **Plugins are sandboxed** — the ABI is WASI/WASM; JavaScript is a *source
-   language* (compiled to WASM via Javy/QuickJS), never an unsandboxed runtime.
-7. **Desktop only for v1** — mobile deferred, but architecture must not preclude it.
-8. **Features are composable on/off blocks**, not a monolith — a small always-on
-   substrate (vault, AST, index, IPC) underpins toggleable blocks that switch off
-   cleanly without touching `.md`. Blocks form a dependency graph (backlinks need
-   the link index, etc.).
+7. **Third-party plugins are sandboxed** — the ABI is WASI/WASM; JavaScript is a
+   *source language* (compiled to WASM via Javy/QuickJS), never an unsandboxed
+   runtime. First-party features may use native capabilities, but a **gateway**
+   — one handing an unsandboxed capability to arbitrary external code, as the
+   embedded terminal does — must be opt-in/default-off, unable to compromise
+   vault integrity when abused, and auditable.
+8. **Desktop only for v1** — mobile deferred, but architecture must not preclude it.
+9. **Most features are composable on/off blocks** — most, not all. A small
+   always-on substrate (vault, AST, index, IPC) underpins toggleable blocks that
+   switch off cleanly without touching `.md`. Blocks form a dependency graph
+   (backlinks need the link index, etc.).
 
 > Owner: [`CLAUDE.md`](CLAUDE.md); composability → [`foundation.md`](docs/architecture/foundation.md) §1.
 
@@ -176,7 +186,7 @@ window.
 
 | Concern | Choice | Why |
 |---|---|---|
-| Shell / backend | **Tauri 2.x + Rust** | No Electron/Node; strict IPC allowlist; heavy work in Rust |
+| Shell / backend | **Tauri 2.x + Rust** | No Electron/Node runtime ships (Node is build-time only); strict IPC allowlist; heavy work in Rust |
 | Frontend | **Solid + TS + Vite** | Fine-grained reactivity; clean interop with DOM-owning libs |
 | Editor | **CodeMirror 6 + Lezer** | Input/IME/a11y + incremental Markdown parsing for Live Preview |
 | Measurement / virtualization | **Pretext** | Height/layout for the editor scroller & large lists |
@@ -270,15 +280,17 @@ incrementally. > Owner: [`2026-06-25-layer-5-...-design.md`](docs/superpowers/sp
    sanitize module built now. *Out:* HTML/PDF, selection-scoped copy.
 3. **Keyboard shortcuts — command/keymap registry** (the one new substrate, in
    `core/`). A command `{id, title, run(), when?()}` + bindings mapping a key to a
-   command id within a scope (`global|editor`); **static const table** in v1 (no
-   user remapping). The CM6 keymap is generated from editor-scope bindings (one
-   source of truth); a dev-time test forbids duplicate keys per scope. *Partly
-   landed:* registry types + binding table, key-chord matching, `when()`-guarded
-   resolver. *Out:* remappable bindings, command palette, `?` cheat-sheet.
+   command id within a scope (`global|editor`). The CM6 keymap is generated from
+   editor-scope bindings (one source of truth); a dev-time test forbids duplicate
+   keys per scope. *Landed:* registry types + binding table, key-chord matching,
+   `when()`-guarded resolver, and **user-remappable bindings** (per-vault
+   `shortcuts.overrides`) — the last of these shipped 2026-07-06, beyond the
+   original v1 scope. *Out:* command palette, `?` cheat-sheet.
 4. **Perf pass** — fix the four still-open anti-patterns: N+1 in vault scan,
-   full-tree decoration walk, row-at-a-time INSERTs, sequential async. *Honest
-   bar:* verified by the structural change + green suite, **not** a measured
-   speedup (no benchmark harness in scope). > Owner: [`anti-patterns-2026-06-01.md`](docs/anti-patterns-2026-06-01.md).
+   full-tree decoration walk, row-at-a-time INSERTs, sequential async. *Bar:* a
+   scan benchmark harness now exists and performance is held to a measured
+   number — see [`foundation.md`](docs/architecture/foundation.md) §1
+   (commitment 2). > Owner: [`anti-patterns-2026-06-01.md`](docs/anti-patterns-2026-06-01.md).
 
 **Cut bar — L5 done when:** mode×skin switch live with CM6 in sync; registry owns
 app-level shortcuts (scattered handlers consolidated); Copy-as-Markdown works with
@@ -334,8 +346,9 @@ at L7); 4-tier external-edit recovery waterfall (→ `.cubical/recovery/`);
   `unwrap()`/`expect()` outside tests/`main`; `thiserror` (libs) / `anyhow` (app).
 - **TypeScript:** strict, no `any`, Prettier + ESLint, Solid idioms.
 - **Tauri commands:** coarse-grained, verb-noun, typed structs.
-- **Tests (current gate):** **604 vitest + 555 Rust.** Core/ast/index unit-tested;
-  app crate integration-tested against a temp vault; UI vitest since L3.
+- **Tests (current gate):** core/ast/index unit-tested; app crate
+  integration-tested against a temp vault; UI vitest since L3. Counts are a
+  query, not a documented fact — run `scripts/check.sh`.
 - **Gate:** `scripts/check.sh` (fmt/clippy/test, tsc, vitest, build, docs) — all
   green.
 - **Doc discipline:** every fact has one owner; others link, never restate

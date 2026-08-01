@@ -41,10 +41,12 @@ architecture doc or a spec, these notes link to it rather than restating it.
   tags, blocks, search) logs and continues on failure. One malformed file must
   never abort a scan or take the watcher dispatcher down; the next scan or
   modify event heals it.
-- **Derived state is disposable.** Everything in `.cubical/` is rebuildable
-  from the `.md` files — with exactly one exception, the pending-rewrites
-  queue, which is why the durable rename journal exists (see
-  [`vault-core.md`](vault-core.md)).
+- **Derived state is disposable.** The rebuildable cache in `.cubical/`
+  (`index.db`, `search/`, `recovery/`) is derivable from the `.md` files — with
+  one exception, the pending-rewrites queue, which is why the durable rename
+  journal exists (see [`vault-core.md`](vault-core.md)). `config.toml` and
+  `themes/` are durable user config, not derived state; the split is owned by
+  [`../architecture/vault.md`](../architecture/vault.md) §3.
 - **`cubical-sync` is an empty placeholder.** It has no public items until the
   `CrdtBackend` trait + Loro land at L7
   ([`../architecture/planned.md`](../architecture/planned.md)). Nothing depends
