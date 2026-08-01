@@ -62,9 +62,6 @@ jobs:
         working-directory: ui
         run: npm ci
 
-      # check.sh gates the design system's tsc too, and npx resolves the local
-      # binary or silently fetches a same-named package off the registry — so a
-      # missing install here is both a dead gate and a supply-chain hole.
       - name: Install design-system dependencies
         working-directory: design-system
         run: npm ci
