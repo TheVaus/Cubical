@@ -73,6 +73,13 @@ Treat these as code. Any future comment sweep must preserve them and re-run
   (fmt, clippy, Rust tests, tsc, vitest, UI build, docs check). Add or remove a
   gate in `check.sh` and CI follows automatically; don't duplicate the gate list
   in the workflow.
+- **A gate that reaches into a new workspace still needs an install step**, which
+  is the one thing CI does *not* follow automatically. Adding the design-system
+  `tsc` gate without one left `npx` in a directory with no local typescript, so
+  it fetched a registry package of the same name and failed — silently killing
+  every downstream gate for twelve days (fixed 2026-07-31). Two rules follow: a
+  new gate directory gets a matching `npm ci` in the workflow, and a green run
+  after such a change must be confirmed on the PR, not assumed from local.
 - **Gate order is load-bearing: the frontend gates run first.** Tauri's
   `generate_context!()` embeds `ui/dist` at compile time, so the bundle must
   exist before any cargo step that builds `cubical-app`. Building it up front

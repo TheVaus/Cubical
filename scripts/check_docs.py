@@ -29,6 +29,19 @@ def tracked_md() -> list[Path]:
     return [ROOT / line for line in out.splitlines() if line]
 
 
+def is_generated(p: Path) -> bool:
+    # Both spellings: a dir-only .gitignore pattern ("graphify-out/") matches
+    # only when the trailing slash marks the path as a directory, which git
+    # cannot infer for a path that does not exist in the checkout.
+    return any(
+        subprocess.call(
+            ["git", "check-ignore", "-q", cand],
+            cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        ) == 0
+        for cand in (str(p), str(p) + "/")
+    )
+
+
 def is_doc_link(target: str) -> bool:
     """True only for navigation links into the doc graph (md / html / directory)."""
     if target.endswith((".md", ".html", "/")):
@@ -50,7 +63,8 @@ for f in tracked_md():
         target = target.split("#", 1)[0]
         if not target or not is_doc_link(target):
             continue
-        if not (f.parent / target).exists():
+        resolved = f.parent / target
+        if not resolved.exists() and not is_generated(resolved):
             fails.append(f"broken link: {rel(f)} -> {target}")
 
 
