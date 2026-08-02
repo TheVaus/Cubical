@@ -16,6 +16,7 @@ emits no timestamps and no absolute paths. Nothing under target/, ui/dist/,
 node_modules/ or graphify-out/ is touched, so a fresh clone generates the same
 bytes.
 """
+import argparse
 import re
 import subprocess
 import sys
@@ -387,12 +388,27 @@ def build() -> str:
 
 
 def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--check", action="store_true")
+    args = ap.parse_args()
+
     if not COMMAND_CRATE.is_dir() or not WIRE_CRATE.is_dir():
         print("error: expected crates/cubical-app and crates/cubical-ipc",
               file=sys.stderr)
         return 1
+
+    text = build()
+    if args.check:
+        current = OUT.read_text(encoding="utf-8") if OUT.exists() else ""
+        if current != text:
+            print(f"{rel(OUT)} is stale — run "
+                  f"python3 scripts/gen_ipc_surface.py")
+            return 1
+        print(f"{rel(OUT)} is up to date.")
+        return 0
+
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(build(), encoding="utf-8")
+    OUT.write_text(text, encoding="utf-8")
     print(f"wrote {rel(OUT)}")
     return 0
 

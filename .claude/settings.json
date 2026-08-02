@@ -39,7 +39,22 @@
       "Bash(gh label list:*)",
       "Bash(gh api /repos/TheVaus/Cubical/dependabot/alerts:*)",
       "Bash(gh run list:*)",
-      "Bash(gh run view:*)"
+      "Bash(gh run view:*)",
+      "Bash(python3 scripts/gates/:*)"
+    ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "scripts/session.sh end",
+            "timeout": 900
+          }
+        ]
+      }
     ]
   }
 }

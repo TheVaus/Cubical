@@ -37,3 +37,7 @@ Thumbs.db
 
 # graphify knowledge graph (generated, ~9MB)
 graphify-out/
+
+# Python bytecode from scripts/
+__pycache__/
+*.pyc

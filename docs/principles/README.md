@@ -6,7 +6,7 @@ One rule per file, fixed skeleton, stable id. The **Rule** line is the
 entire principle — read this table, then open only the file you need.
 A gate failure names its principle file; that file is the explanation.
 
-19 principles. 5 enforced by a gate today.
+22 principles. 10 enforced by a gate today.
 
 | Principle | Rule | Gate |
 |---|---|---|
@@ -19,11 +19,14 @@ A gate failure names its principle file; that file is the explanation.
 | [`crate-separation`](crate-separation.md) | Keep every other crate buildable and testable without the app harness. | `scripts/check.sh` |
 | [`dependencies`](dependencies.md) | Pin third-party Actions to commit SHAs, keep the Rust toolchain pinned, and enable only the features you use. | `scripts/check.sh` |
 | [`derived-state-disposable`](derived-state-disposable.md) | Never make the vault's correctness depend on state you cannot regenerate from the `.md` files. | — |
-| [`design-system`](design-system.md) | Check the component inventory before writing a raw `<button>`, `<input>`, `<select>` or `<dialog>`. | planned: `ds-components` |
+| [`design-system`](design-system.md) | Check the component inventory before writing a raw `<button>`, `<input>`, `<select>` or `<dialog>`. | `scripts/gates/ds_components.py` |
+| [`generated-artifacts`](generated-artifacts.md) | Never hand-edit a file carrying a do-not-edit banner; change the generator instead. | `scripts/gates/generated.py` |
+| [`implementation-anchors`](implementation-anchors.md) | Anchor every invariant in `implementation/**` to symbols that still exist. | `scripts/gates/symbol_anchors.py` |
 | [`native-capability-gateway`](native-capability-gateway.md) | Any feature whose purpose is handing an unsandboxed capability to arbitrary external code must satisfy all three conditions before it ships. | — |
-| [`no-comments`](no-comments.md) | Write the explanation in the owning doc, not in the code. | planned: `comments` |
+| [`no-comments`](no-comments.md) | Write the explanation in the owning doc, not in the code. | `scripts/gates/comments.py` |
 | [`performance`](performance.md) | Hold every change to the measured scan bar; ratchet it down, never up. | planned: `perf` |
 | [`rust-style`](rust-style.md) | `cargo fmt` and `cargo clippy -- -D warnings` must be clean, and `unwrap()`/`expect()` stay out of library code. | `scripts/check.sh` |
+| [`single-owner-facts`](single-owner-facts.md) | Link to the doc that owns a fact; never restate it. | `scripts/check_docs.py` |
 | [`subagents`](subagents.md) | Send a subagent to explore or to verify; do the building yourself. | — |
 | [`tauri-commands`](tauri-commands.md) | Every command takes a typed request struct and returns a typed response struct. | — |
 | [`techstack`](techstack.md) | Declare a new runtime dependency in the architecture stack section before installing it. | planned: `techstack` |

@@ -25,6 +25,8 @@ it in core; that placement is not achievable and the divergence is deliberate.
 
 ## Event sink
 
+**Anchors:** EventSink
+
 The engine produces transport-agnostic events and hands them to an
 `EventSink`. Tauri supplies one forwarding to `AppHandle::emit`, the CLI a
 no-op, tests a collector. This is what lets handlers and background tasks carry
@@ -35,6 +37,8 @@ Handlers never emit directly; they call the `emit_*` helpers. A transport
 migration touches this one file.
 
 ## Dispatchers
+
+**Anchors:** dispatch
 
 Both are spawned by `open_vault` and live beside the sink because they touch
 the transport, keeping the pure handlers clean.
@@ -55,6 +59,8 @@ other files have no FK and are left intact, so they correctly degrade to broken
 links.
 
 ## Own-write hash gate
+
+**Anchors:** flush_own_writes
 
 A flush inserts `(path, content_hash)` into a per-vault gate **before** the
 atomic write. The watcher dispatcher, after hashing the post-write file,
@@ -102,12 +108,17 @@ it is atomic with the FK rekeys.
 
 ### Adopting an external rename
 
-`rename_file` is `validate_forward + fs::rename + commit_rename`;
-`adopt_external_rename` is `validate_adopted + commit_rename`. `commit_rename`
-performs **no filesystem mutation** — that is the invariant that lets one
-sequence serve both a rename Cubical is about to perform and one it is
-discovering after the fact (a shell `mv`, Finder, vim). Duplicating the commit
-sequence for the watcher path would guarantee the two drift.
+**Anchors:** rename_file · adopt_external_rename · commit_rename · path_tracked · rekey_file_in_tx · enqueue_referrers_in_tx
+
+`rename_file` validates, performs `fs::rename`, then calls `commit_rename`.
+`adopt_external_rename` validates and calls `commit_rename` — nothing else.
+Each does its validation inline; there is no shared validator function, and the
+only extracted piece is `commit_rename` itself.
+
+`commit_rename` performs **no filesystem mutation** — that is the invariant
+that lets one sequence serve both a rename Cubical is about to perform and one
+it is discovering after the fact (a shell `mv`, Finder, vim). Duplicating the
+commit sequence for the watcher path would guarantee the two drift.
 
 Validation inverts: the destination must exist on disk, the source must be
 gone. The watcher's `Renamed` arm calls it, so an external move keeps its
@@ -212,6 +223,8 @@ is skipped outright, which is what makes an in-app rename (already rekeyed by
 
 ### Journal replay
 
+**Anchors:** replay_rename_journal · prune_materialized_journal
+
 After a scan, each surviving journal entry whose `from` is gone but whose `to`
 is tracked reconnects referrer links still naming `from` and re-enqueues their
 rewrites under a fresh op. This is what makes "wipe the disposable index
@@ -262,6 +275,8 @@ There is deliberately **no repair-all**: an unconfirmed guess writes wrong links
 into the source of truth.
 
 ## Audit log retention
+
+**Anchors:** audit_log
 
 `audit_log` is capped at the newest `AUDIT_LOG_MAX_ROWS` (10 000) rows, per
 layer-0-spec §7. `cubical_index::prune_audit_log` is called from two places,

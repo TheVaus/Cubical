@@ -12,6 +12,8 @@ a node type is a document-model decision, not a parser tweak.
 
 ## Serialization shape is an IPC contract
 
+**Anchors:** Inline · Block · Document
+
 `Inline` and `Block` variants are **struct-shaped (named fields), never tuple
 newtypes.** This is load-bearing, not style: with serde's internally-tagged
 representation (`#[serde(tag = "kind")]`) a newtype variant whose inner type is
@@ -22,12 +24,16 @@ Field renames are breaking changes — the shape is consumed by the frontend.
 
 ## Spans
 
+**Anchors:** body_offset
+
 Block-level nodes carry a half-open byte range `[start, end)` into the original
 source, **frontmatter included** (spans are shifted by `body_offset`). Inline
 nodes carry no spans; adding them would roughly double the AST's footprint and
 is a deliberate decision for whichever layer first needs it.
 
 ## Frontmatter detection is strict on purpose
+
+**Anchors:** parse · Frontmatter
 
 Frontmatter must start at **byte offset 0** — the opening `---` is the very
 first line, no leading whitespace or blank lines — with a matching closing
@@ -99,6 +105,8 @@ union keyed on `kind` with `snake_case` tags, matching the Rust serde
 representation. Change one side and the other in the **same commit**.
 
 ## Cross-language parity harness
+
+**Anchors:** CUBICAL_UPDATE_PARITY_FIXTURES
 
 `crates/cubical-ast/tests/parity_fixtures.rs` owns the ground truth: parsing
 each fixture and serializing to JSON must equal its `expected` field. The same

@@ -5,6 +5,8 @@ This file records query-layer and search-layer invariants only.
 
 ## Migrations (`cubical-index`)
 
+**Anchors:** open_index · SchemaTooNew · IndexError
+
 Linear `(version, sql)` pairs applied in ascending order. `open_index` is the
 only entry point: it opens or creates the database and brings the schema up to
 date.
@@ -42,6 +44,8 @@ Fix it forward with a new one.**
 
 ## Dataview queries (`cubical-query`)
 
+**Anchors:** json_extract
+
 A small `LIST` / `TABLE` / `COUNT` DSL with `FROM` / `WHERE` / `SORT`, compiled
 to parameterized SQL over the index tables.
 
@@ -55,6 +59,8 @@ Two invariants:
   format" a value into the SQL string.
 
 ## Full-text search (`cubical-search`)
+
+**Anchors:** SearchIndex
 
 One Tantivy document per `.md` file with structural fields (title, headings,
 body, code, tags, frontmatter). Default-scope boosts are
@@ -86,6 +92,8 @@ rendered structurally, so removing a stray `^foo` from the searchable text is
 the correct outcome anyway.
 
 ### Result contract
+
+**Anchors:** total_estimated
 
 - **`total_estimated` is not a match count.** It is the size of the top-K
   window the runner pulled (`min(matches, limit + offset)`). Frontends must

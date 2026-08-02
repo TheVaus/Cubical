@@ -5,6 +5,8 @@ rules live there (§11.6); this file records frontend implementation invariants.
 
 ## IPC is a single chokepoint
 
+**Anchors:** invoke · Channel · UnlistenFn
+
 Components call typed functions from `ui/src/api/ipc.ts` — **never raw
 `invoke()`, never `@tauri-apps/api/*` directly.** The module is named `ipc.ts`
 rather than `tauri.ts` so a transport swap doesn't leave a misleading filename;
@@ -27,6 +29,8 @@ tests. The rule and its consequence are owned by
 [`../architecture/ui.md`](../architecture/ui.md) §12.1.
 
 ## The frontmatter splitter mirrors Rust byte-for-byte
+
+**Anchors:** splitFrontmatter
 
 `ui/src/ast/frontmatter.ts` must agree with the Rust splitter exactly: opener
 at byte 0 on the first line, no leading whitespace, no BOM tolerance; closer
@@ -71,6 +75,8 @@ jumps the viewport. Other-file changes and genuine external edits still
 invalidate.
 
 ## Tabs
+
+**Anchors:** TabStrip
 
 The active-document model lives in an immutable `TabSet` (`tabs/tabModel.ts`),
 in the style of `navHistory.ts` — `App` holds one `tabs` signal and derives the
@@ -142,6 +148,8 @@ exactly this exposure; tabs neither widen nor narrow it.
 
 ## Integrity panel
 
+**Anchors:** IntegrityPanel
+
 Third right-sidebar tab, alongside Backlinks and Mentions (which is why that
 body is a `<Switch>`/`<Match>` now — two panels fit a `<Show>` fallback, three
 do not). It reads `list_dangling_links` and is otherwise the same shape as
@@ -165,6 +173,8 @@ shared right-sidebar refresh tick so Backlinks and Mentions re-read the vault
 they no longer agree with.
 
 ## Command registry is pure substrate
+
+**Anchors:** COMMAND_DEFAULTS
 
 `ui/src/core/commands.ts` holds types, the default binding table, key-string
 matching and command resolution — **no DOM, no Solid, and no import from any
@@ -224,6 +234,8 @@ buffer via a deferred effect, so a scroll issued right after selecting a file
 would race the load. A queued request supersedes any previous one.
 
 ## Decorations
+
+**Anchors:** EditorView · Decoration
 
 Decoration source is **Lezer exclusively** — a deliberate deviation from the
 canonical Rust-mirrored AST, which abstracts away the byte-precise marker token

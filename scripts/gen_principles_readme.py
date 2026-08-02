@@ -2,8 +2,10 @@
 """Generate docs/principles/README.md — the one-read table of every principle.
 
 Run from anywhere: python3 scripts/gen_principles_readme.py
+With --check: regenerate in memory and exit 1 if the tracked file differs.
 Deterministic: same inputs produce a byte-identical file.
 """
+import argparse
 import re
 import subprocess
 import sys
@@ -49,7 +51,11 @@ def gate_cell(gate: str) -> str:
     return f"`{enforced.group(1)}`" if enforced else gate
 
 
-def main() -> None:
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--check", action="store_true")
+    args = ap.parse_args()
+
     entries = [parse(p) for p in sorted(PRINCIPLES.glob("*.md"))
                if p.name != "README.md"]
     if not entries:
@@ -74,9 +80,20 @@ def main() -> None:
         lines.append(f"| [`{e['id']}`]({e['id']}.md) | {e['rule']} | {gate_cell(e['gate'])} |")
     lines.append("")
 
-    OUT.write_text("\n".join(lines), encoding="utf-8")
+    text = "\n".join(lines)
+    if args.check:
+        current = OUT.read_text(encoding="utf-8") if OUT.exists() else ""
+        if current != text:
+            print(f"{OUT.relative_to(ROOT)} is stale — run "
+                  f"python3 scripts/gen_principles_readme.py")
+            return 1
+        print(f"{OUT.relative_to(ROOT)} is up to date.")
+        return 0
+
+    OUT.write_text(text, encoding="utf-8")
     print(f"wrote {OUT.relative_to(ROOT)} ({len(entries)} principles)")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

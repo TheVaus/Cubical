@@ -12,6 +12,7 @@ bytes as a fully built tree. The local filesystem is walked for ONE purpose —
 warning on stderr about a top-level directory this generator does not know
 about — and that warning never reaches the output file.
 """
+import argparse
 import subprocess
 import sys
 import tomllib
@@ -284,9 +285,23 @@ def build() -> str:
 
 
 def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--check", action="store_true")
+    args = ap.parse_args()
+
     warn_unknown_top_level()
+    text = build()
+    if args.check:
+        current = OUT.read_text(encoding="utf-8") if OUT.exists() else ""
+        if current != text:
+            print(f"{rel(OUT)} is stale — run "
+                  f"python3 scripts/gen_repo_layout.py")
+            return 1
+        print(f"{rel(OUT)} is up to date.")
+        return 0
+
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(build(), encoding="utf-8")
+    OUT.write_text(text, encoding="utf-8")
     print(f"wrote {rel(OUT)}")
     return 0
 
