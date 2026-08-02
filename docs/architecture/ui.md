@@ -59,24 +59,36 @@ Two locked rules govern how it grows:
 - **Extend additively.** When a component lacks a prop the app needs, add it to the design system and default it to the component's prior behavior — never fork the component or work around the gap app-side.
 - **Components are self-contained.** A design-system component may not depend on the playground's global stylesheets (its `base.css` control reset or `layout.css` utilities); it sets its own control reset and layout in its own CSS. The app imports neither global.
 
-Some surfaces stayed **deliberately bespoke** where no design-system component fit at migration time — but that set has since shrunk. Issue #35 authored the net-new primitives that unblocked most of them: `Select` (the native `<select>`s), `DatePicker` (the native date pickers), `Popover` (the VaultSwitcher / Pending Rewrites / set-info positioned dropdowns), `Link` (the "Open as raw" text links), and a richer pill `Tag` (ChipList's multi-control chips) — all merged 2026-07-19 — plus `TwoPaneModal` (the nav+body Settings modal), merged 2026-07-20. One surface remains bespoke, awaiting the last net-new primitive still parked in #35: the ranked multi-kind **OmniBar** palette (needs a richer `CommandPalette` — the flat `{id,label,onRun}` DS one would regress its fuzzy rank, kind badges, and recency). The migration record and the full bespoke rationale live in the campaign handoff [`../superpowers/2026-07-17-ds-migration-progress.md`](../superpowers/2026-07-17-ds-migration-progress.md); the net-new-primitive backlog (6 done, 1 remaining) is GitHub issue #35, and the deferred migratable inline tail is #34.
+**This section is prose, not the allowlist.** The machine-readable per-file budgets for raw controls live in `scripts/ds-raw-controls.json`, which `scripts/gates/ds_components.py` reads — one source, two readers. That separation exists because this section described *one* bespoke surface while 17 raw controls existed across 6 files; the prose was right about the exception and silent about the debt.
+
+Some surfaces stayed **deliberately bespoke** where no design-system component fit at migration time — but that set has since shrunk. Issue #35 authored the net-new primitives that unblocked most of them: `Select` (the native `<select>`s), `DatePicker` (the native date pickers), `Popover` (the VaultSwitcher / Pending Rewrites / set-info positioned dropdowns), `Link` (the "Open as raw" text links), and a richer pill `Tag` (ChipList's multi-control chips) — all merged 2026-07-19 — plus `TwoPaneModal` (the nav+body Settings modal), merged 2026-07-20. One surface remains bespoke, awaiting the last net-new primitive still parked in #35: the ranked multi-kind **OmniBar** palette (needs a richer `CommandPalette` — the flat `{id,label,onRun}` DS one would regress its fuzzy rank, kind badges, and recency). The migration record and the full bespoke rationale live in the campaign handoff [`../archive/work/handoffs/2026-07-17-ds-migration-progress.md`](../archive/work/handoffs/2026-07-17-ds-migration-progress.md); the net-new-primitive backlog (6 done, 1 remaining) is GitHub issue #35, and the deferred migratable inline tail is #34.
 
 ---
 
 ## 12. Settings
 
-User-facing settings, organized by category:
+The **shipped** Settings modal is tab-based. The authoritative list of tabs is
+`SETTINGS_TABS` in `ui/src/App.tsx`, and the authoritative list of setting *keys*
+is the `Setting` union in `ui/src/api/ipc.ts` — the frontend's typed view of a
+deliberately generic backend config table. Neither is restated here: a doc that
+mirrored either would rot every time a toggle shipped, and did.
 
-**Files & Core.** Vault path. `.cubical/recovery/` retention window (default 30 days). Pending Rewrites flush cadence (default 5 min). Auto-save debounce (default 300ms). Asset destination is locked to `.assets/` (not configurable).
+Locked product decisions about settings, which are what this section owns:
 
-**Editor & Export.** Live Preview vs Raw Source default. Export sanitization rules (display only — sanitization is mandatory).
+- Asset destination is locked to `.assets/` and is **not** user-configurable.
+- Export sanitization is **mandatory**; only its rules are surfaced for display.
+- Categories reserved for later layers: per-plugin WASI permission toggles (L6),
+  local P2P / E2EE keys / relay configuration (L7), Time Machine snapshot
+  retention (L8).
 
-**Appearance.** Theme picker (built-in + user themes from `<vault>/.cubical/themes/` + plugin-distributed themes). Font family, font size overrides.
+### 12.1 Where a setting is stored — routing is by key prefix
 
-**Search.** Tantivy indexing controls.
+Two tiers, per [`vault.md`](vault.md) §3: `config.toml` is durable and travels
+with the vault; the libSQL `config` table is transient, per-machine workspace
+state. The tier is chosen by a **literal key prefix** — any key beginning `ui.`
+is routed to the index, everything else to `config.toml`
+(`cubical_core::vault::settings::is_workspace_key`).
 
-**Sync & Network.** (L7+) Local P2P toggle, E2EE key generation and management, relay configuration.
-
-**Plugins & Security.** (L6+) Per-plugin WASI permission toggles.
-
-**Time Machine.** (L8+) Snapshot retention window, manual snapshot trigger.
+This is a silent trap: naming a durable preference `ui.something` compiles, type-checks,
+passes tests, and quietly makes the setting per-machine and non-portable. Choosing
+the prefix chooses the storage.

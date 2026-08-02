@@ -6,6 +6,8 @@ records the CSS-layer implementation rules.
 
 ## Token re-export
 
+**Anchors:** tokens
+
 `design-system/src/styles/tokens.css` is the canonical palette. The app's
 `ui/src/styles/tokens.css` re-exports it and defines nothing of its own, so a
 value edited in the design system propagates to every instance in the app.

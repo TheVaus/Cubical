@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Formatting only. Deliberately.
+#
+# A full gate here manufactures `--no-verify` habits: the moment a hook costs
+# more than the commit it guards, people learn a flag that disables ALL hooks,
+# including the ones that mattered. The full gate belongs to CI.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+if git diff --cached --name-only --diff-filter=ACM | grep -q '\.rs$'; then
+  if ! cargo fmt --all --check >/dev/null 2>&1; then
+    echo "pre-commit: rustfmt would change staged files."
+    echo "  run: cargo fmt --all"
+    echo "  rule: docs/principles/rust-style.md"
+    exit 1
+  fi
+fi

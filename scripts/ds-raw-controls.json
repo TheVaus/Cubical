@@ -1,0 +1,55 @@
+{
+  "_": [
+    "Per-file budgets for raw HTML controls in ui/src, read by",
+    "scripts/gates/ds_components.py. THIS FILE IS THE ALLOWLIST — it is the one",
+    "source, and docs/architecture/ui.md 11.6 links here rather than restating it.",
+    "",
+    "A budget is a ceiling, not a target. The gate fails when a file exceeds its",
+    "budget, and when a file not listed here uses a raw control at all. It does",
+    "NOT fail when a count drops: ratchet the number down as the debt clears.",
+    "",
+    "'bespoke' means a deliberate exception — no DS component fits.",
+    "'debt' means deferred migration tracked by an issue. Debt is not an",
+    "exception; it is a number that should be going down."
+  ],
+  "controls": ["button", "input", "select", "dialog", "textarea"],
+  "budgets": {
+    "ui/src/App.tsx": {
+      "button": 7,
+      "input": 4,
+      "kind": "debt",
+      "issue": 34,
+      "note": "Settings info buttons, vault switcher, tree-row rename input, doc-title input."
+    },
+    "ui/src/Properties.tsx": {
+      "button": 2,
+      "kind": "debt",
+      "issue": 34,
+      "note": "Property row add/remove affordances."
+    },
+    "ui/src/omnibar/OmniBar.tsx": {
+      "input": 1,
+      "kind": "bespoke",
+      "issue": 35,
+      "note": "The ranked multi-kind palette. The flat DS CommandPalette would regress fuzzy rank, kind badges and recency. This is the one surface architecture/ui.md 11.6 names."
+    },
+    "ui/src/sidebar/IntegrityPanel.tsx": {
+      "button": 1,
+      "kind": "debt",
+      "issue": 34,
+      "note": "Occurrence row, opens the source file."
+    },
+    "ui/src/sidebar/SearchPanel.tsx": {
+      "button": 1,
+      "kind": "debt",
+      "issue": 34,
+      "note": "Result row with roving tabindex."
+    },
+    "ui/src/tabs/TabStrip.tsx": {
+      "button": 1,
+      "kind": "debt",
+      "issue": 34,
+      "note": "Tab close affordance."
+    }
+  }
+}

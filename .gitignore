@@ -32,8 +32,14 @@ Thumbs.db
 # Logs
 *.log
 
-# Superpowers session scaffolding (brainstorm server state, etc.)
+# Agent scratch. Task briefs, agent reports and raw .diff files that no human
+# reviews and nothing keeps accurate. Never cite it as a source — the session
+# contract in CLAUDE.md says so explicitly.
 .superpowers/
 
 # graphify knowledge graph (generated, ~9MB)
 graphify-out/
+
+# Python bytecode from scripts/
+__pycache__/
+*.pyc

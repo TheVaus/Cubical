@@ -1,9 +1,19 @@
 name: CI
 
-# Runs the project's single gate set — scripts/check.sh — on every PR to main
-# and every push to main. The script (fmt, clippy, Rust tests, tsc, vitest, UI
-# build, docs check) is the source of truth; CI just sets up toolchains and runs
-# it, so adding or removing a gate in check.sh updates CI automatically.
+# Two jobs, deliberately:
+#
+#   static — the gates that need no build. Seconds, and they are the ones most
+#            likely to be the real reason a change is wrong (a restated fact, a
+#            stale generated artifact, a doc naming a deleted symbol). Running
+#            them alongside the slow job means that feedback arrives in well
+#            under a minute instead of after a full Rust build.
+#   gates  — scripts/check.sh, the single source of truth for what "green"
+#            means. It re-runs the static gates; they are cheap, and this keeps
+#            one authoritative definition rather than two partial ones.
+#
+# Add or remove a gate in check.sh and the `gates` job follows automatically.
+# The `static` job lists its gates explicitly because it is a fast subset, not
+# a second definition — if the two ever disagree, check.sh wins.
 
 on:
   push:
@@ -16,7 +26,38 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
+  static:
+    name: Static gates (no build)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.x"
+
+      # Each of these prints the principle file that explains it when it fails.
+      - name: comments
+        run: python3 scripts/gates/comments.py
+      - name: generated
+        run: python3 scripts/gates/generated.py
+      - name: ds-components
+        run: python3 scripts/gates/ds_components.py
+      - name: dependency-boundary
+        run: python3 scripts/gates/dependency_boundary.py
+      - name: techstack
+        run: python3 scripts/gates/techstack.py
+      - name: symbol-anchors
+        run: python3 scripts/gates/symbol_anchors.py
+      - name: docs
+        run: python3 scripts/check_docs.py
+
   gates:
     name: Gate set (scripts/check.sh)
     runs-on: ubuntu-latest
@@ -58,6 +99,10 @@ jobs:
             ui/package-lock.json
             design-system/package-lock.json
 
+      # A gate reaching into a new workspace directory needs its own install
+      # step — the one thing CI does NOT follow automatically when check.sh
+      # changes. Omitting one left npx resolving a registry package of the same
+      # name, silently killing every downstream gate for twelve days.
       - name: Install frontend dependencies
         working-directory: ui
         run: npm ci
@@ -71,5 +116,11 @@ jobs:
         with:
           python-version: "3.x"
 
+      # The perf gate inside check.sh is opt-out by default (CUBICAL_PERF unset)
+      # and is deliberately not enabled here: roughly a third of the scan budget
+      # is Tantivy at min(cores, 8) threads, so a small hosted runner would flake
+      # against a budget measured on a 10-core machine. The gate refuses to
+      # assert below its declared machine class rather than scaling by a guess.
+      # See scripts/perf-budget.json.
       - name: Run all gates
         run: bash scripts/check.sh

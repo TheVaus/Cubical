@@ -1,0 +1,28 @@
+{
+  "_": [
+    "Read by scripts/gates/dependency_boundary.py. This file is the one source",
+    "for the boundary exceptions; docs link here rather than restating them.",
+    "",
+    "It replaces the hand-maintained inventory in docs/migration-touchpoints.md.",
+    "A list nothing checks is a list that is already wrong."
+  ],
+
+  "tauri_crates": ["cubical-app"],
+
+  "ipc_surface": ["ui/src/api/"],
+
+  "ui_exceptions": {
+    "ui/src/App.tsx:@tauri-apps/plugin-dialog": {
+      "reason": [
+        "The native file/folder picker used to open a vault. It is a shell",
+        "capability, not a vault operation: it returns a path and touches no",
+        "engine state, so routing it through cubical-ipc would add a command",
+        "whose whole body is 'ask the OS for a path'.",
+        "",
+        "Declared rather than silently tolerated. If a second native shell",
+        "capability wants the same treatment, that is the signal to build a",
+        "proper shell-capability seam instead of extending this list."
+      ]
+    }
+  }
+}

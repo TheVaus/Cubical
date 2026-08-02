@@ -5,6 +5,8 @@ Design owner: [`../architecture/vault.md`](../architecture/vault.md) and
 
 ## Atomic writes
 
+**Anchors:** atomic_write · VaultError
+
 Temp-file → write → `fsync` → `rename` over the target. On Windows the rename
 retries with exponential backoff before surfacing failure (antivirus and
 OneDrive hold transient locks); the temp file is preserved on final failure so
@@ -20,12 +22,16 @@ already exist.
 
 ## File-type registry
 
+**Anchors:** FileTypeRegistry · BinaryHandler
+
 Handlers are queried in **registration order**; the first whose `matches`
 returns true claims the file. `BinaryHandler` matches unconditionally, so it
 **must be registered last** or it shadows every specific handler. Custom
 registries (tests, headless tooling) may omit it and accept `None`.
 
 ## Scan
+
+**Anchors:** scan · open_vault · last_seen
 
 - **Batched commits.** Autocommitting per file means one `fsync` per file —
   tens of thousands on a large vault, the difference between seconds and
@@ -52,6 +58,8 @@ open; the walk runs separately, which is what keeps vault-open time independent
 of vault size.
 
 ## Watcher
+
+**Anchors:** WatchEvent · Vault · scan
 
 Wraps `notify` behind `notify-debouncer-full` for inode-based rename
 correlation and event coalescing. **`notify` types never leak across the crate
@@ -88,6 +96,8 @@ path leaks into the `files` table before the rename.
 
 ## Refreshers
 
+**Anchors:** refresh_frontmatter · refresh_links · refresh_tags · refresh_blocks
+
 `frontmatter`, `links`, `tags`, `blocks` and the search doc all follow one
 shape: **delete-then-insert keyed on the file path**. Idempotent across
 re-scans, naturally drops keys the user removed, no diff bookkeeping.
@@ -102,6 +112,8 @@ runtime.
 
 ### Materialize-on-read
 
+**Anchors:** materialize_on_read · content_hash
+
 Both write paths read each markdown file **once** and apply any pending
 rewrites before handing the text to every extractor. Without this, scan-derived
 tables reflect the *old* tokens until flush, so backlinks and tag listings
@@ -112,6 +124,8 @@ and left untouched by materialization — it tracks the unrewritten file for
 change detection.
 
 ## Link resolution order
+
+**Anchors:** PathResolver · resolve_target · keeps_link_row
 
 1. Exact vault-relative path (with or without `.md`).
 2. Unique case-insensitive basename.
@@ -128,6 +142,8 @@ broken, so the UI can surface it and a later rename can re-resolve it.
 
 ## Tags
 
+**Anchors:** extract_tags · TagExtraction
+
 Two declaration sources feed one extraction: inline `#tag` tokens and
 frontmatter `tags:` entries, discriminated by a `source` field. Within a file,
 rows dedupe by `(lowercase(tag), source)` — case-insensitive matching,
@@ -138,6 +154,8 @@ Frontmatter `tags:` accepts hand-written shapes beyond a YAML list:
 individual tags, and a leading `#` is stripped if present.
 
 ## Pending rewrites
+
+**Anchors:** apply_pending · PendingRewriteRow · extract_block_ids
 
 `apply_pending` is pure: source + rows in `created_at` order → rewritten
 source. Each rewrite produces a new full string feeding the next, i.e.
@@ -158,6 +176,8 @@ O(rewrites × len) — fine under the per-file ceiling.
 
 ## Rename durability journal
 
+**Anchors:** RenameJournalEntry · serialize_entry · parse_all · compact · append_entry
+
 `pending_rewrites` is the one piece of index state that is **not derivable**
 from the `.md` files, while the file move itself is committed to disk
 immediately. So wiping the (otherwise disposable) index mid-rename would lose
@@ -170,6 +190,8 @@ pure (serialize / parse / compact); file I/O and scan integration live with the
 command layer. See [`engine-ipc.md`](engine-ipc.md) for replay.
 
 ## Unlinked mentions
+
+**Anchors:** extract_text_runs · find_mention_occurrences · MentionHit
 
 Pure, on-demand, no index table: walk the source for plain-text regions
 (skipping frontmatter, fenced and inline code, wiki-links and markdown links),

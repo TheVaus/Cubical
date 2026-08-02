@@ -9,5 +9,7 @@ Locked decisions. These are the result of deliberate review. They can be changed
 | Document model | `document-model.md` | Frontmatter, wiki-links, block refs, canonical AST, tags, Pending Rewrites |
 | Concurrency + IPC | `concurrency.md` | Three-lane model, command design |
 | UI + settings | `ui.md` | Layout, Live Preview, theming, settings |
-| Future layers | `planned.md` | Sync (L7), Plugins (L6), Time Machine (L8), open questions |
+| Navigation | `navigation.md` | Entry points, tab semantics, history, how each surface dispatches |
+| Layers | `layers.md` | Which layers closed, what each delivered, where its frozen spec is |
+| Constraints from unbuilt layers | `planned.md` | Only what constrains work *today*; the designs themselves are GitHub issues |
 | Out of scope | `constraints.md` | Explicit non-features (and why) |

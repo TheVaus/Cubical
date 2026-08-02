@@ -7,7 +7,7 @@ search. Your Markdown files are the **absolute source of truth**; every index,
 graph, and cache is derived state that can be deleted and rebuilt without losing
 a byte.
 
-No Electron. No Node.js runtime. No required cloud account. Built on Tauri + Rust.
+No Electron. No Node.js runtime in the shipped app. No required cloud account. Built on Tauri + Rust.
 
 > Obsidian-class local Markdown PKM — but with performance, sandboxing, and
 > no-lock-in treated as architectural non-negotiables, not features.
@@ -58,7 +58,7 @@ and merged; Layer 5 (the v1.0 polish cut) is in progress.
   `.cubical/config.toml`.
 
 A fuller, always-current status lives in the [Master PRD](prd.md) and
-[`docs/build-order.md`](docs/build-order.md).
+[`docs/architecture/layers.md`](docs/architecture/layers.md).
 
 ### On the roadmap
 
@@ -78,10 +78,15 @@ cubical/
 │   ├── cubical-core/    # vault, file watcher, file-type registry, frontmatter I/O
 │   ├── cubical-ast/     # canonical Markdown AST (no Tauri deps)
 │   ├── cubical-index/   # libSQL schema and queries
+│   ├── cubical-query/   # dataview-style query parser + evaluator
 │   ├── cubical-search/  # Tantivy full-text search
 │   ├── cubical-sync/    # CrdtBackend trait + Loro impl (sync lands later)
+│   ├── cubical-engine/  # transport-free engine: commands, AppState, EventSink
+│   ├── cubical-ipc/     # wire boundary: Command/Outcome/Response, dispatch()
+│   ├── cubical-cli/     # `cubical` terminal frontend
 │   └── cubical-app/     # Tauri app, depends on the above
 ├── ui/                  # Solid + TypeScript + Vite frontend
+├── design-system/       # @ds — component library + canonical design tokens
 ├── docs/                # architecture, conventions, layer specs (start here)
 └── prd.md               # the single authoritative product read
 ```
@@ -92,7 +97,8 @@ without the app harness.
 
 The defining stance — *Markdown is truth, everything else is derived* — is what
 makes the vault portable and the app crash-safe: delete the index, reopen the
-vault, and it rebuilds.
+vault, and it rebuilds. One caveat: a rename whose referrer rewrites are still
+queued is not re-derivable, so that queue is journalled to disk separately.
 
 ---
 

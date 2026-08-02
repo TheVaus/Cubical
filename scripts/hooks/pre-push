@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# Fast checks only — the ones that are cheap and that CI cannot recover from
+# afterwards. The full gate belongs to CI; duplicating it here just makes push
+# slow enough that people reach for --no-verify.
+set -uo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+fail=0
+remote_ref=""
+while read -r _local_ref _local_sha rref _rsha; do
+  [ -n "$rref" ] && remote_ref="$rref"
+done
+
+# ---- direct pushes to main ----
+# This repo is private on a free personal account, so GitHub branch protection
+# and rulesets are unavailable (they need Pro, or a public repo). CI runs on
+# pushes to main, but it runs AFTER the push — it reports, it cannot refuse.
+#
+# This hook is the only place a direct push to main can be stopped, so it stops
+# it. It is bypassable (--no-verify, or the override below) exactly like every
+# other client-side check; the point is to make pushing to main a deliberate act
+# rather than an accident, which is what the server-side rule would have bought.
+if [ "$remote_ref" = "refs/heads/main" ]; then
+  if [ "${ALLOW_DIRECT_PUSH_TO_MAIN:-}" != "1" ]; then
+    echo "pre-push: refusing a direct push to main."
+    echo
+    echo "  Open a PR instead — CI gates PRs, and the PR template is the session"
+    echo "  contract. Server-side protection is unavailable on a private repo"
+    echo "  under a free plan, so this hook is the only thing enforcing it."
+    echo
+    echo "  Deliberate exception:  ALLOW_DIRECT_PUSH_TO_MAIN=1 git push"
+    echo "  rule: docs/principles/branches.md"
+    exit 1
+  fi
+  echo "pre-push: ALLOW_DIRECT_PUSH_TO_MAIN=1 — pushing to main deliberately."
+fi
+
+# ---- generated-doc drift ----
+# Cheap (no build), and pushing a stale artifact means the next reader trusts a
+# file that no longer describes the tree.
+for g in gen_repo_layout gen_ipc_surface gen_ds_inventory gen_principles_readme; do
+  if ! python3 "scripts/$g.py" --check >/dev/null 2>&1; then
+    echo "pre-push: a generated artifact is stale — run: python3 scripts/$g.py"
+    echo "  rule: docs/principles/generated-artifacts.md"
+    fail=1
+  fi
+done
+
+# ---- docs ownership + primer budget ----
+# Seconds, and it is the check most likely to be the real reason a change is
+# wrong. Catching it here saves a full CI round-trip.
+if ! python3 scripts/check_docs.py >/dev/null 2>&1; then
+  echo "pre-push: the docs gate fails — run: python3 scripts/check_docs.py"
+  echo "  rule: docs/principles/single-owner-facts.md"
+  fail=1
+fi
+
+# ---- graph staleness: a warning, not a block ----
+# It costs money to fix and cannot break anything being pushed.
+GRAPH="graphify-out/graph.json"
+if [ -f "$GRAPH" ]; then
+  if stat -f %m "$GRAPH" >/dev/null 2>&1; then gm=$(stat -f %m "$GRAPH"); else gm=$(stat -c %Y "$GRAPH"); fi
+  if [ "$gm" -lt "$(git log -1 --format=%ct)" ]; then
+    echo "pre-push: warn — the knowledge graph is older than HEAD; scripts/graph.sh will refuse."
+  fi
+fi
+
+if [ "$fail" -ne 0 ]; then
+  echo
+  echo "Blocked on correctness. Bookkeeping warnings above do not block."
+  exit 1
+fi

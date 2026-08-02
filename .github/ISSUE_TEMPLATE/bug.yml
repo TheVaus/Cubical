@@ -1,0 +1,55 @@
+name: Bug
+description: Something behaves differently from what the owning doc says it does.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: observed
+    attributes:
+      label: What happens
+      description: The observed behaviour, and how reliably it reproduces.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What should happen
+      description: >-
+        Link the doc that says so. If no doc says so, this may be a feature
+        request or an `arch-review` instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: >-
+        Steps, or the failing test. If it is intermittent, say what makes it
+        more likely and add the `flake` label.
+    validations:
+      required: true
+
+  - type: input
+    id: anchors
+    attributes:
+      label: Suspected code
+      description: >-
+        `path/to/file.rs:120-140`, or the symbol name. Best guess is fine —
+        say that it is a guess.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - "area:editor"
+        - "area:index"
+        - "area:search"
+        - "area:ui"
+        - "area:plugins"
+        - "area:sync"
+        - "area:cli"
+        - "area:docs"
+    validations:
+      required: true
