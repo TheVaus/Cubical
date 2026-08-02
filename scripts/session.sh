@@ -61,7 +61,50 @@ cmd_start() {
   note "the contract is in CLAUDE.md. The rule that constrains you is in docs/principles/README.md."
 }
 
+# The Stop hook fires at the end of every assistant turn, but this check is a
+# session-end check: running the full gate per turn costs minutes each time and
+# trains people to disable the hook, which is worse than not having it.
+#
+# So: latch it to once per session. The session id arrives on stdin as hook JSON
+# (Stop is the only hook event verified available here; SessionEnd could not be
+# confirmed, and a hook event that silently never fires is the failure mode this
+# whole system exists to avoid).
+#
+# Two guards, both cheap:
+#   1. Nothing to check yet — no commits ahead of main — exit instantly.
+#   2. Already run for this session — exit instantly.
+already_ran_this_session() {
+  local payload="" sid="" latch_dir latch base
+  if [ ! -t 0 ]; then
+    payload=$(head -c 65536 2>/dev/null || true)
+  fi
+  sid=$(printf '%s' "$payload" \
+        | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+        | head -1)
+  [ -z "$sid" ] && sid="no-session-id-$(date +%Y%m%d)"
+
+  base=$(git merge-base HEAD origin/main 2>/dev/null || git merge-base HEAD main 2>/dev/null || echo "")
+  if [ -n "$base" ] && [ "$(git rev-list --count "$base"..HEAD 2>/dev/null || echo 0)" = "0" ]; then
+    echo "session end: nothing committed on this branch yet — skipping the gate."
+    return 0
+  fi
+
+  latch_dir="${TMPDIR:-/tmp}/cubical-session-end"
+  mkdir -p "$latch_dir" 2>/dev/null || return 1
+  latch="$latch_dir/$(printf '%s' "$sid" | tr -c 'A-Za-z0-9._-' '_')"
+  if [ -f "$latch" ]; then
+    echo "session end: already run this session ($(cat "$latch")). Re-run by hand: scripts/session.sh end --force"
+    return 0
+  fi
+  date -u +"%Y-%m-%dT%H:%M:%SZ" > "$latch"
+  return 1
+}
+
 cmd_end() {
+  if [ "${1:-}" != "--force" ]; then
+    already_ran_this_session && return 0
+  fi
+
   echo "== session end =="
 
   echo
@@ -103,15 +146,23 @@ cmd_end() {
 
   echo
   echo "-- issues --"
+  # Only a CLOSING keyword against a still-open issue is an inconsistency worth
+  # warning about. Merely mentioning #N is normal — filing an issue names it,
+  # and a warning that fires on every mention is a warning people stop reading.
   if command -v gh >/dev/null 2>&1 && [ -n "$base" ]; then
-    local refs
-    refs=$(git log "$base"..HEAD --format='%s%n%b' | grep -oE '#[0-9]+' | sort -u | tr -d '#')
-    if [ -n "$refs" ]; then
-      for n in $refs; do
-        local state
-        state=$(gh issue view "$n" --json state --jq .state 2>/dev/null || echo "")
-        [ "$state" = "OPEN" ] && warn "#$n is referenced by this branch and still open — close it or say why it stays open."
-      done
+    local body closing mentioned
+    body=$(git log "$base"..HEAD --format='%s%n%b')
+    closing=$(printf '%s' "$body" \
+      | grep -ioE '(close[sd]?|fixe?[sd]?|resolve[sd]?)[[:space:]]+#[0-9]+' \
+      | grep -oE '[0-9]+' | sort -u)
+    mentioned=$(printf '%s' "$body" | grep -oE '#[0-9]+' | tr -d '#' | sort -u)
+
+    for n in $closing; do
+      [ "$(gh issue view "$n" --json state --jq .state 2>/dev/null)" = "OPEN" ] &&
+        warn "a commit says it closes #$n, but #$n is still open."
+    done
+    if [ -n "$mentioned" ]; then
+      note "issues referenced: $(printf '%s' "$mentioned" | tr '\n' ' ')"
     else
       warn "no issue referenced in any commit on this branch. Future work belongs in an issue, not in doc prose."
     fi
@@ -128,6 +179,6 @@ cmd_end() {
 
 case "${1:-}" in
   start) shift; cmd_start "${1:-}" ;;
-  end)   cmd_end ;;
-  *) echo "usage: scripts/session.sh start [area:label] | end" >&2; exit 2 ;;
+  end)   shift; cmd_end "${1:-}" ;;
+  *) echo "usage: scripts/session.sh start [area:label] | end [--force]" >&2; exit 2 ;;
 esac
