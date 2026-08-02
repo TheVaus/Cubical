@@ -8,4 +8,4 @@
 
 **Exceptions:** none.
 
-**Detail:** [`../conventions.md`](../conventions.md) → TypeScript · [`../implementation/frontend.md`](../implementation/frontend.md).
+**Detail:** [`../implementation/frontend.md`](../implementation/frontend.md).

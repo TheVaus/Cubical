@@ -8,4 +8,4 @@
 
 **Exceptions:** none. No crate cycles either.
 
-**Detail:** [`../README.md`](../README.md) → Repository layout · [`../migration-touchpoints.md`](../migration-touchpoints.md) inventories the Tauri-coupled surfaces.
+**Detail:** [`../README.md`](../README.md) → Repository layout · `scripts/dependency-boundary.json` inventories the Tauri-coupled surfaces.

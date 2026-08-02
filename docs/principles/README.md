@@ -6,7 +6,7 @@ One rule per file, fixed skeleton, stable id. The **Rule** line is the
 entire principle — read this table, then open only the file you need.
 A gate failure names its principle file; that file is the explanation.
 
-22 principles. 10 enforced by a gate today.
+23 principles. 11 enforced by a gate today.
 
 | Principle | Rule | Gate |
 |---|---|---|
@@ -26,6 +26,7 @@ A gate failure names its principle file; that file is the explanation.
 | [`no-comments`](no-comments.md) | Write the explanation in the owning doc, not in the code. | `scripts/gates/comments.py` |
 | [`performance`](performance.md) | Hold every change to the measured scan bar; ratchet it down, never up. | planned: `perf` |
 | [`rust-style`](rust-style.md) | `cargo fmt` and `cargo clippy -- -D warnings` must be clean, and `unwrap()`/`expect()` stay out of library code. | `scripts/check.sh` |
+| [`sessions`](sessions.md) | Pick the lightest process that fits, and record the *why* once, at the end. | `scripts/session.sh` |
 | [`single-owner-facts`](single-owner-facts.md) | Link to the doc that owns a fact; never restate it. | `scripts/check_docs.py` |
 | [`subagents`](subagents.md) | Send a subagent to explore or to verify; do the building yourself. | — |
 | [`tauri-commands`](tauri-commands.md) | Every command takes a typed request struct and returns a typed response struct. | — |

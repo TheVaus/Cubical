@@ -1,7 +1,7 @@
 # Implementation — engine command + event layer (`cubical-engine`)
 
 Boundary inventory owner:
-[`../migration-touchpoints.md`](../migration-touchpoints.md).
+`scripts/dependency-boundary.json` + [`../generated/ipc-surface.md`](../generated/ipc-surface.md).
 
 ## Handler pattern
 
@@ -459,7 +459,7 @@ for a body it will never use at an interactive terminal. The check is a plain
 `is_dir`, and it applies to every subcommand rather than just `write`.
 
 Design and data flow are owned by
-[`docs/superpowers/specs/2026-07-24-cli-attach-phase2-design.md`](../superpowers/specs/2026-07-24-cli-attach-phase2-design.md);
+[`docs/superpowers/specs/2026-07-24-cli-attach-phase2-design.md`](../archive/work/specs/2026-07-24-cli-attach-phase2-design.md);
 this section records only why the boundary is shaped this way.
 
 ### The text boundary runs both ways (Phase 3)
@@ -478,7 +478,7 @@ automatically.
 
 An in-app command console was briefly a fourth caller of `dispatch`, calling it
 in-process against the app's own `AppState`. It was removed when the PTY
-terminal replaced it ([`2026-07-30-terminal-design.md`](../superpowers/specs/2026-07-30-terminal-design.md)
+terminal replaced it ([`2026-07-30-terminal-design.md`](../archive/work/specs/2026-07-30-terminal-design.md)
 → "Retiring the console"); the terminal reaches the same verbs by putting
 `cubical` on the child's `PATH`, so it is a client of the socket server rather
 than a fifth in-process caller. That the removal touched only one wiring point

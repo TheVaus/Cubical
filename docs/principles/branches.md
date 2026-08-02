@@ -8,4 +8,4 @@
 
 **Exceptions:** none. Note that large structural work (mass file relocation) must wait for outstanding feature branches to merge first — resolving a moved-path conflict against an open branch means fixing conflicts on paths that no longer exist.
 
-**Detail:** [`../conventions.md`](../conventions.md) → Branches.
+**Detail:** [`sessions.md`](sessions.md) for how much process a branch warrants.

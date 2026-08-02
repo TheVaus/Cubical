@@ -8,4 +8,4 @@
 
 **Exceptions:** none, and the terminal is not one. Rust owns the PTY and the child process; the webview receives an opaque byte stream and sends keystrokes. The capability is granted to the *child process*, by the Rust core, at the user's explicit request — see [`native-capability-gateway.md`](native-capability-gateway.md).
 
-**Detail:** [`../architecture/foundation.md`](../architecture/foundation.md) §2 · [`../implementation/engine-ipc.md`](../implementation/engine-ipc.md) · [`../migration-touchpoints.md`](../migration-touchpoints.md).
+**Detail:** [`../architecture/foundation.md`](../architecture/foundation.md) §2 · [`../implementation/engine-ipc.md`](../implementation/engine-ipc.md) · `scripts/dependency-boundary.json`.

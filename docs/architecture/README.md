@@ -10,5 +10,6 @@ Locked decisions. These are the result of deliberate review. They can be changed
 | Concurrency + IPC | `concurrency.md` | Three-lane model, command design |
 | UI + settings | `ui.md` | Layout, Live Preview, theming, settings |
 | Navigation | `navigation.md` | Entry points, tab semantics, history, how each surface dispatches |
-| Future layers | `planned.md` | Sync (L7), Plugins (L6), Time Machine (L8), open questions |
+| Layers | `layers.md` | Which layers closed, what each delivered, where its frozen spec is |
+| Constraints from unbuilt layers | `planned.md` | Only what constrains work *today*; the designs themselves are GitHub issues |
 | Out of scope | `constraints.md` | Explicit non-features (and why) |

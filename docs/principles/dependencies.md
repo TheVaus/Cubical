@@ -8,4 +8,4 @@
 
 **Exceptions:** An advisory may be deferred **with a recorded cause** — genuinely upstream-blocked, or platform-irrelevant. "Deferred" is not "ignored": the cause is written down and revisited. Alert IDs are not issue numbers and must not be written as `#N`.
 
-**Detail:** [`../conventions.md`](../conventions.md) → Continuous integration & dependencies.
+**Detail:** `.github/dependabot.yml`, `rust-toolchain.toml`, and `scripts/techstack-declared.json` (the declared runtime set).

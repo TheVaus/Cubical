@@ -8,4 +8,4 @@
 
 **Exceptions:** none. Note that command *handlers* live in `cubical-engine` and `cubical-app` holds only thin shims — that split is what [`crate-separation.md`](crate-separation.md) protects, and it is why a new command is two small edits rather than one.
 
-**Detail:** [`../conventions.md`](../conventions.md) → Tauri commands · [`../implementation/engine-ipc.md`](../implementation/engine-ipc.md).
+**Detail:** [`../implementation/engine-ipc.md`](../implementation/engine-ipc.md).

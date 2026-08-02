@@ -58,7 +58,7 @@ and merged; Layer 5 (the v1.0 polish cut) is in progress.
   `.cubical/config.toml`.
 
 A fuller, always-current status lives in the [Master PRD](prd.md) and
-[`docs/build-order.md`](docs/build-order.md).
+[`docs/architecture/layers.md`](docs/architecture/layers.md).
 
 ### On the roadmap
 

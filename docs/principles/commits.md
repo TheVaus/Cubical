@@ -8,4 +8,4 @@
 
 **Exceptions:** Layer transitions also get a tag (`l0`, `l1`, …); structural-fix sessions use a descriptive suffix (`l4a-fix`). A toolchain bump goes in its own commit so the clippy gate re-validates against it alone.
 
-**Detail:** [`../conventions.md`](../conventions.md) → Commits.
+**Detail:** [`sessions.md`](sessions.md) for when a commit needs a doc alongside it.

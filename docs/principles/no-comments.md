@@ -8,4 +8,4 @@
 
 **Exceptions:** Comment-shaped lines the toolchain *reads* are code, not prose, and must survive any sweep — `// @vitest-environment jsdom` (first line of DOM-touching tests) and `/// <reference types="vitest" />` (`ui/vite.config.ts`). Two pragma types across 19 files: 18 carry the vitest environment pragma, 1 carries the type reference. Consequences of the rule, both deliberate: `#![warn(missing_docs)]` is not used, and clap help text is written as `#[arg(help = "…")]` data rather than doc comments.
 
-**Detail:** [`../conventions.md`](../conventions.md) → Comments.
+**Detail:** [`implementation-anchors.md`](implementation-anchors.md) — the rule that keeps the relocated rationale honest.

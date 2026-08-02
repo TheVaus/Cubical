@@ -8,4 +8,4 @@
 
 **Exceptions:** Tests and `main` may panic. Edition 2021. Note that `examples/` binaries are held to the same no-`expect` standard — `crates/cubical-search/examples/bench.rs` has zero, and `crates/cubical-core/examples/scan_bench.rs` currently violates this with 24 and is known debt.
 
-**Detail:** [`../conventions.md`](../conventions.md) → Rust.
+**Detail:** `rust-toolchain.toml` for the pin; `Cargo.toml` for the `thiserror`/`anyhow` split.

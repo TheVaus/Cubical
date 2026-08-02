@@ -8,4 +8,4 @@
 
 **Exceptions:** One known flake — `cubical-core`'s `watcher::…dropping_handle_stops_event_delivery_within_100ms` fails under full-workspace load and passes in isolation. Because `set -e` aborts the script there, the crates after it do not run; re-run them explicitly before claiming green. A gate reaching into a new workspace directory also needs a matching `npm ci` in CI — omitting one silently killed every downstream gate for twelve days.
 
-**Detail:** [`../conventions.md`](../conventions.md) → Tests, Continuous integration.
+**Detail:** `scripts/check.sh` is the list; `.github/workflows/ci.yml` runs it. Unit tests live in `cubical-core`, `cubical-ast` and `cubical-index`; the app crate has integration tests against a temp vault; the frontend has vitest coverage.
