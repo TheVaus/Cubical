@@ -1,0 +1,80 @@
+name: Feature
+description: A surface to build, with its design and its task graph.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        This issue replaces the spec/plan pair that used to live in a working
+        doc. In-flight design lives here so it cannot go stale in the tree.
+        **Do not add a milestone** unless the work is genuinely inside the v1.0
+        cut — an issue with no milestone is the record, not a backlog item
+        awaiting scheduling.
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: >-
+        The problem, in terms of what a user or an agent cannot do today.
+        Not the solution.
+    validations:
+      required: true
+
+  - type: textarea
+    id: design
+    attributes:
+      label: Design
+      description: >-
+        The shape of the change: the seams it touches, the invariants it must
+        hold, and the alternatives rejected. Link the owning doc in
+        `docs/architecture/` or `docs/implementation/` rather than restating it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: tasks
+    attributes:
+      label: Task graph
+      description: >-
+        Checklist, ordered only where there is a real dependency. Split into
+        native sub-issues when a task is big enough to be worked separately.
+      value: |
+        - [ ]
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: >-
+        What a `verifier` pass checks against. Written so it can be evaluated
+        without reading the author's mind.
+    validations:
+      required: true
+
+  - type: input
+    id: blocked
+    attributes:
+      label: Blocked by
+      description: >-
+        `Blocked by #N`, or leave blank. Add the `blocked` label when this is
+        filled in, and remove it when the blocker closes.
+      placeholder: "Blocked by #N"
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - "area:editor"
+        - "area:index"
+        - "area:search"
+        - "area:ui"
+        - "area:plugins"
+        - "area:sync"
+        - "area:cli"
+        - "area:docs"
+    validations:
+      required: true

@@ -1,0 +1,54 @@
+name: Performance debt
+description: A measured cost, not a suspicion.
+labels: ["perf"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        The performance bar, the measurement method and the current medians are
+        owned by `docs/architecture/foundation.md` §1 (commitment 2). The harness
+        is `crates/cubical-core/examples/scan_bench.rs`. **Measure before
+        filing** — an unmeasured suspicion is an `idea`, not perf debt.
+
+  - type: textarea
+    id: cost
+    attributes:
+      label: Measured cost
+      description: >-
+        The number, the vault size it was taken at, and the command that
+        produced it. State the share of the total budget it represents.
+      placeholder: "~1.9 s of 6.4 s at 10,000 notes, via `cargo run --release --example scan_bench`"
+    validations:
+      required: true
+
+  - type: textarea
+    id: cause
+    attributes:
+      label: Cause
+      description: The specific work being done redundantly or serially, with file anchors.
+    validations:
+      required: true
+
+  - type: textarea
+    id: fix
+    attributes:
+      label: Shape of the fix
+      description: >-
+        And what it would risk. A perf fix that trades away an invariant is an
+        `arch-review`, not perf debt.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - "area:editor"
+        - "area:index"
+        - "area:search"
+        - "area:ui"
+        - "area:plugins"
+        - "area:sync"
+        - "area:cli"
+        - "area:docs"
+    validations:
+      required: true

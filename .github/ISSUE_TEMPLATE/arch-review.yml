@@ -1,0 +1,46 @@
+name: Architecture review
+description: Two locked decisions disagree, or a locked decision has no owner.
+labels: ["correctness"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Use this when the docs are internally inconsistent, when a
+        non-negotiable turns out not to hold, or when a decision is about to be
+        made permanent without having been made deliberately. This is the
+        category the docs checker **cannot** detect: it finds duplicated facts,
+        not contradictory ones.
+
+  - type: textarea
+    id: conflict
+    attributes:
+      label: The conflict
+      description: >-
+        Quote both halves, with their owning files and sections. If one half is
+        code and the other is a doc, say which is currently true.
+    validations:
+      required: true
+
+  - type: textarea
+    id: consequence
+    attributes:
+      label: What goes wrong if nobody resolves it
+      description: >-
+        Specifically: what would an agent reading only one half build?
+    validations:
+      required: true
+
+  - type: textarea
+    id: unspecified
+    attributes:
+      label: Genuinely unspecified
+      description: >-
+        Separate the parts that are merely undocumented from the parts nobody
+        has decided. Only the second kind needs a decision.
+
+  - type: input
+    id: owner
+    attributes:
+      label: Proposed owner
+      description: Which file should own the resolution, once there is one.
+      placeholder: docs/architecture/foundation.md

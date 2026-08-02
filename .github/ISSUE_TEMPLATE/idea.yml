@@ -1,0 +1,59 @@
+name: Idea
+description: Something we would build, with no claim about when.
+labels: ["idea"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        An idea carries the **what**, never the **when**. No milestone, no
+        ordering, no "ships after". If you find yourself writing a sequence,
+        that sequence belongs in the issue body as a dependency (`Blocked by
+        #N`), not as a position in a ladder.
+
+
+        Before starting work in an area, list its open ideas first:
+        `gh issue list --label area:plugins`.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What
+      description: The capability, described so it is recognisable years from now.
+    validations:
+      required: true
+
+  - type: textarea
+    id: constrains
+    attributes:
+      label: What it constrains today
+      description: >-
+        If this idea forces a decision on work happening now — a seam to
+        reserve, a door not to close — say so, and make sure the constraint
+        itself is written in `docs/architecture/` where it will be read.
+        If it constrains nothing today, write "nothing".
+    validations:
+      required: true
+
+  - type: textarea
+    id: unknowns
+    attributes:
+      label: Genuinely unspecified
+      description: >-
+        The questions that are open, as questions. This is the part that makes
+        an idea useful later — not the part that sounds like a plan.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - "area:editor"
+        - "area:index"
+        - "area:search"
+        - "area:ui"
+        - "area:plugins"
+        - "area:sync"
+        - "area:cli"
+        - "area:docs"
+    validations:
+      required: true

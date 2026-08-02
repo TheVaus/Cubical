@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Dependency vulnerability
+    url: https://github.com/TheVaus/Cubical/security/dependabot
+    about: >-
+      Dependency alerts are already GitHub alerts. Do not mirror them into an
+      issue — open one only when clearing an alert is its own piece of work
+      (an API migration, an index rebuild), and describe that work, not the alert.
+  - name: What rule constrains me?
+    url: https://github.com/TheVaus/Cubical/blob/main/docs/principles/README.md
+    about: Every rule in one table, with the gate that enforces it.
