@@ -10,5 +10,8 @@ chmod +x scripts/hooks/pre-commit scripts/hooks/pre-push
 git config core.hooksPath scripts/hooks
 echo "core.hooksPath -> scripts/hooks"
 echo "  pre-commit: formatting only"
-echo "  pre-push:   generated-doc drift (blocks), graph staleness (warns)"
+echo "  pre-push:   refuses a direct push to main (the only place that can be"
+echo "              enforced — branch protection needs Pro or a public repo);"
+echo "              blocks on generated-doc drift and the docs gate;"
+echo "              warns on a stale knowledge graph"
 echo "  the full gate is scripts/check.sh, run by CI on every PR and push to main"

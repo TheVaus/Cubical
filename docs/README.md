@@ -17,6 +17,7 @@ The docs index. The session primer is [`CLAUDE.md`](../CLAUDE.md) — start ther
 | What constrains me today because of a layer we haven't built? | [`architecture/planned.md`](architecture/planned.md) |
 | What's been explicitly cut from scope? | [`architecture/constraints.md`](architecture/constraints.md) |
 | What should we build next? What's broken? | GitHub Issues — **not a file in this tree** |
+| How do we use Issues, labels and PRs? | [`principles/sessions.md`](principles/sessions.md) |
 | User wants a `.gitignore` for their vault | [`vault-gitignore.md`](vault-gitignore.md) |
 | What did we used to think? | [`archive/`](archive/) — frozen, never current truth |
 
@@ -109,6 +110,10 @@ unbuilt-layer-constraints | docs/architecture/planned.md               | -
 impl-invariants           | docs/implementation/                       | -
 the-rules                 | docs/principles/                           | -
 gate-list                 | scripts/check.sh                           | -
+issue-taxonomy            | docs/principles/sessions.md                | -
+ci-definition             | .github/workflows/ci.yml                   | -
+issue-templates           | .github/ISSUE_TEMPLATE/                    | -
+pr-contract               | .github/pull_request_template.md           | -
 ```
 
 ### What the checker cannot do
