@@ -35,7 +35,7 @@ For non-features explicitly cut from scope, see [`docs/architecture/constraints.
 
 ## Session protocol
 
-**Loading:** Auto-loaded every session. Start at the index [`docs/README.md`](docs/README.md) for the doc map. If the task touches design, load `docs/architecture/README.md` and the relevant sub-file; if editing code, `docs/conventions.md`; if touching IPC / Tauri, `docs/migration-touchpoints.md`; if editing docs, follow **Doc discipline** in the index.
+**Loading:** Auto-loaded every session. **Read [`docs/principles/README.md`](docs/principles/README.md) before changing code** — one table, every rule, then open only the file you need. Start at the index [`docs/README.md`](docs/README.md) for the doc map. If the task touches design, load `docs/architecture/README.md` and the relevant sub-file; if touching IPC / Tauri, `docs/migration-touchpoints.md`; if editing docs, follow **Doc discipline** in the index.
 
 **Orienting in the codebase — run `scripts/graph.sh query "<question>"` before fanning out reads.** It answers "how does X work / what calls Y / where does Z live" from a prebuilt knowledge graph instead of opening files, and **refuses when the graph is older than `HEAD`** — a stale graph describes deleted code as live, confidently and without warning. Also `path "A" "B"` and `explain "<node>"`. Rebuilding (`graphify . --update`) costs money; `graphify-out/` is generated, untracked, never hand-edited, and absent on a fresh clone — the wrapper says so and you fall back to ripgrep. Full usage: `~/.claude/skills/graphify/SKILL.md`.
 

@@ -2,6 +2,13 @@
 
 Code-style rules enforced by review and (where noted) by tooling. Load this when editing code; not required reading for every session.
 
+> **The rules themselves are owned by [`principles/`](principles/)** — one file
+> per rule, with the imperative form, the gate that enforces it, and the
+> exceptions. Start at [`principles/README.md`](principles/README.md); it lists
+> every rule in one table. This file holds the *extended detail* behind those
+> rules and is being distributed into `principles/` — where the two appear to
+> disagree, the principle file is the rule.
+
 ## Comments
 
 **Source files carry no explanatory comments.** Rationale, invariants and
