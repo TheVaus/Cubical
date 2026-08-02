@@ -11,16 +11,16 @@
   },
   "dependencies": {
     "@codemirror/commands": "^6.6.0",
-    "@codemirror/lang-markdown": "^6.2.5",
+    "@codemirror/lang-markdown": "^6.5.1",
     "@codemirror/language-data": "^6.4.1",
     "@codemirror/state": "^6.4.1",
-    "@codemirror/view": "^6.28.0",
+    "@codemirror/view": "^6.43.7",
     "solid-js": "^1.9.0"
   },
   "devDependencies": {
-    "lucide-static": "^1.25.0",
+    "lucide-static": "^1.28.0",
     "typescript": "^5.5.2",
     "vite": "^7.3.6",
-    "vite-plugin-solid": "^2.11.12"
+    "vite-plugin-solid": "^2.11.14"
   }
 }
