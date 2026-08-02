@@ -146,15 +146,23 @@ cmd_end() {
 
   echo
   echo "-- issues --"
+  # Only a CLOSING keyword against a still-open issue is an inconsistency worth
+  # warning about. Merely mentioning #N is normal — filing an issue names it,
+  # and a warning that fires on every mention is a warning people stop reading.
   if command -v gh >/dev/null 2>&1 && [ -n "$base" ]; then
-    local refs
-    refs=$(git log "$base"..HEAD --format='%s%n%b' | grep -oE '#[0-9]+' | sort -u | tr -d '#')
-    if [ -n "$refs" ]; then
-      for n in $refs; do
-        local state
-        state=$(gh issue view "$n" --json state --jq .state 2>/dev/null || echo "")
-        [ "$state" = "OPEN" ] && warn "#$n is referenced by this branch and still open — close it or say why it stays open."
-      done
+    local body closing mentioned
+    body=$(git log "$base"..HEAD --format='%s%n%b')
+    closing=$(printf '%s' "$body" \
+      | grep -ioE '(close[sd]?|fixe?[sd]?|resolve[sd]?)[[:space:]]+#[0-9]+' \
+      | grep -oE '[0-9]+' | sort -u)
+    mentioned=$(printf '%s' "$body" | grep -oE '#[0-9]+' | tr -d '#' | sort -u)
+
+    for n in $closing; do
+      [ "$(gh issue view "$n" --json state --jq .state 2>/dev/null)" = "OPEN" ] &&
+        warn "a commit says it closes #$n, but #$n is still open."
+    done
+    if [ -n "$mentioned" ]; then
+      note "issues referenced: $(printf '%s' "$mentioned" | tr '\n' ' ')"
     else
       warn "no issue referenced in any commit on this branch. Future work belongs in an issue, not in doc prose."
     fi

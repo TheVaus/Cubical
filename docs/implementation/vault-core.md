@@ -70,6 +70,17 @@ Dropping the handle tears down the OS watch and aborts the bridge task; no
 further events arrive. The cancel token is a softer signal: the bridge stops
 forwarding, but the OS watch stays up until the handle drops.
 
+**The drop test asserts the property, not a latency.** It verifies that the
+channel closes and that a write afterwards delivers nothing — never *how fast*
+that happens. An earlier version measured wall-clock elapsed against a 500 ms
+bound (while being named `…_within_100ms`) and failed routinely: the assertion
+fired with `Ok(None)` already returned and the 500 ms `timeout` not yet
+triggered, which is the signature of executor starvation, not a watcher defect.
+`t0.elapsed()` spans an `await` on a runtime sharing cores with ~190 other
+tests, so it measured the machine. Observed values ranged past 6 s under gate
+load. The remaining `timeout` is a **liveness** bound set far clear of
+scheduling noise — if it ever fires, the bridge genuinely did not close.
+
 **Exclusions** mirror the scan's skip set: anything under `.cubical/`, `.git/`,
 `node_modules/`, or any dot-prefixed directory. Without this every libSQL write
 under `.cubical/` echoes back as an event and re-triggers a write.
