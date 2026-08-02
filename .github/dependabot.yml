@@ -24,6 +24,20 @@ updates:
       npm-minor-patch:
         update-types: [minor, patch]
 
+  # Design system (design-system/package.json / package-lock.json).
+  # It is a second npm workspace with its own lockfile and its own CI gate
+  # (tsc). Without an entry here it received *security* PRs only — automated
+  # security fixes work off alerts regardless of this file — so routine version
+  # updates silently never arrived for the component library that ui/ consumes.
+  - package-ecosystem: npm
+    directory: /design-system
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor-patch:
+        update-types: [minor, patch]
+
   # Pinned GitHub Actions in .github/workflows
   - package-ecosystem: github-actions
     directory: /
