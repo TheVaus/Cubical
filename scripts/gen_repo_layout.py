@@ -11,6 +11,10 @@ clone (no target/, node_modules/, graphify-out/, ui/dist/) produces the same
 bytes as a fully built tree. The local filesystem is walked for ONE purpose —
 warning on stderr about a top-level directory this generator does not know
 about — and that warning never reaches the output file.
+
+The curated tables are data, so they can drift from the repo without `--check`
+noticing; `check_nested()` holds the nested rows to the git index for that
+reason.
 """
 import argparse
 import subprocess
@@ -68,20 +72,25 @@ DIR_PURPOSES = {
 GENERATED_DIRS = [".superpowers", ".vite", "graphify-out", "node_modules", "target"]
 
 # Nested directories worth calling out; `generated` mirrors GENERATED_DIRS.
+# Every row whose second field is False is verified against the git index by
+# check_nested() — a curated row for a directory that no longer exists is an
+# error, not a silently-emitted lie.
 NESTED = [
     (".agents/skills", False, "Skill definitions (`grill-me`, `grilling`), pinned by `skills-lock.json`."),
+    (".claude/agents", False, "Subagent definitions (`explorer`, `implementer`, `verifier`) the session contract dispatches to."),
     (".claude/skills", False, "Symlinks into `.agents/skills/` so Claude Code picks them up."),
     (".claude/worktrees", True, "Scratch git worktrees. Contains full repo checkouts — exclude it from any recursive search."),
+    (".github/ISSUE_TEMPLATE", False, "Issue forms — the taxonomy is owned by `docs/principles/sessions.md`."),
     (".github/workflows", False, "GitHub Actions definitions."),
-    ("design-system/docs", False, "The design system's own `superpowers/` plans + specs — a second doc tree, not covered by `docs/README.md`."),
     ("design-system/dist", True, "Built `@ds` bundle consumed by `ui/`."),
     ("design-system/src", False, "Component + token sources."),
     ("docs/architecture", False, "Locked design and DB schemas."),
+    ("docs/archive", False, "Frozen history — what was believed at the time, current truth about nothing. Exempt from the ownership rules; never edited to 'correct' it."),
     ("docs/generated", False, "Machine-generated docs (this file included). Never hand-edited."),
     ("docs/implementation", False, "Per-domain implementation invariants — where the code's explanatory comments live instead."),
     ("docs/principles", False, "One file per rule, stable id — the imperative form of each convention."),
-    ("docs/reviews", False, "Past workflow reviews."),
-    ("docs/superpowers", False, "Process artifacts: `plans/`, `specs/`, `archive/`."),
+    ("scripts/gates", False, "One module per gate, run by `check.sh`; a failure names the principle file it enforces."),
+    ("scripts/hooks", False, "Git hooks (`pre-commit`, `pre-push`) plus `install.sh` to wire them up."),
     ("ui/dist", True, "Vite build output left in the tree by the `build` gate. Minified bundles — search with `rg` (honours .gitignore), never `grep -r`."),
     ("ui/src", False, "Frontend sources."),
 ]
@@ -183,6 +192,25 @@ def role_of(c: dict) -> tuple[str, str]:
     return "", "**none — no `description`, no carried-over wording**"
 
 
+def check_nested(tracked: list[str]) -> None:
+    """Fails when a curated `tracked` NESTED row names a directory git no longer
+    has. Because NESTED is a literal, `--check` compares the generator's output
+    against itself and passes however wrong the rows are; three rows for deleted
+    doc trees survived that way. The git index — not a filesystem scan — is the
+    authority, so this stays reproducible on a fresh clone.
+    """
+    stale = [
+        path for path, generated, _ in NESTED
+        if not generated and not any(p.startswith(path + "/") for p in tracked)
+    ]
+    if stale:
+        raise SystemExit(
+            "gen_repo_layout: NESTED rows name directories absent from the git "
+            "index: " + ", ".join(f"{p}/" for p in sorted(stale)) +
+            "\nDelete the row (or mark it generated) in scripts/gen_repo_layout.py."
+        )
+
+
 def warn_unknown_top_level() -> None:
     """Filesystem walk used only to flag drift; never reaches the output file."""
     known = set(DIR_PURPOSES) | {".git"}
@@ -204,6 +232,7 @@ def build() -> str:
     crates = load_crates()
     reasons = tauri_coupled(crates)
     tracked = tracked_paths()
+    check_nested(tracked)
 
     tracked_top_dirs = sorted({p.split("/", 1)[0] for p in tracked if "/" in p})
     tracked_top_files = sorted(p for p in tracked if "/" not in p)

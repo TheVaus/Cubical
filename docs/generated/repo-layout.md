@@ -67,18 +67,20 @@ Derived from the git index plus a listed set of gitignored directories — delib
 | Directory | Status | Purpose |
 |---|---|---|
 | `.agents/skills/` | tracked | Skill definitions (`grill-me`, `grilling`), pinned by `skills-lock.json`. |
+| `.claude/agents/` | tracked | Subagent definitions (`explorer`, `implementer`, `verifier`) the session contract dispatches to. |
 | `.claude/skills/` | tracked | Symlinks into `.agents/skills/` so Claude Code picks them up. |
 | `.claude/worktrees/` | generated / untracked | Scratch git worktrees. Contains full repo checkouts — exclude it from any recursive search. |
+| `.github/ISSUE_TEMPLATE/` | tracked | Issue forms — the taxonomy is owned by `docs/principles/sessions.md`. |
 | `.github/workflows/` | tracked | GitHub Actions definitions. |
 | `design-system/dist/` | generated / untracked | Built `@ds` bundle consumed by `ui/`. |
-| `design-system/docs/` | tracked | The design system's own `superpowers/` plans + specs — a second doc tree, not covered by `docs/README.md`. |
 | `design-system/src/` | tracked | Component + token sources. |
 | `docs/architecture/` | tracked | Locked design and DB schemas. |
+| `docs/archive/` | tracked | Frozen history — what was believed at the time, current truth about nothing. Exempt from the ownership rules; never edited to 'correct' it. |
 | `docs/generated/` | tracked | Machine-generated docs (this file included). Never hand-edited. |
 | `docs/implementation/` | tracked | Per-domain implementation invariants — where the code's explanatory comments live instead. |
 | `docs/principles/` | tracked | One file per rule, stable id — the imperative form of each convention. |
-| `docs/reviews/` | tracked | Past workflow reviews. |
-| `docs/superpowers/` | tracked | Process artifacts: `plans/`, `specs/`, `archive/`. |
+| `scripts/gates/` | tracked | One module per gate, run by `check.sh`; a failure names the principle file it enforces. |
+| `scripts/hooks/` | tracked | Git hooks (`pre-commit`, `pre-push`) plus `install.sh` to wire them up. |
 | `ui/dist/` | generated / untracked | Vite build output left in the tree by the `build` gate. Minified bundles — search with `rg` (honours .gitignore), never `grep -r`. |
 | `ui/src/` | tracked | Frontend sources. |
 

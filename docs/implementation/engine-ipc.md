@@ -459,7 +459,7 @@ for a body it will never use at an interactive terminal. The check is a plain
 `is_dir`, and it applies to every subcommand rather than just `write`.
 
 Design and data flow are owned by
-[`docs/superpowers/specs/2026-07-24-cli-attach-phase2-design.md`](../archive/work/specs/2026-07-24-cli-attach-phase2-design.md);
+[`2026-07-24-cli-attach-phase2-design.md`](../archive/work/specs/2026-07-24-cli-attach-phase2-design.md);
 this section records only why the boundary is shaped this way.
 
 ### The text boundary runs both ways (Phase 3)
