@@ -4,7 +4,7 @@ use std::time::Duration;
 use notify::event::{ModifyKind, RenameMode};
 use notify::{EventKind, RecommendedWatcher, RecursiveMode};
 use notify_debouncer_full::{
-    new_debouncer, DebounceEventResult, DebouncedEvent, Debouncer, FileIdMap,
+    new_debouncer, DebounceEventResult, DebouncedEvent, Debouncer, RecommendedCache,
 };
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -25,7 +25,7 @@ pub enum WatchEvent {
 }
 
 pub struct WatcherHandle {
-    debouncer: Option<Debouncer<RecommendedWatcher, FileIdMap>>,
+    debouncer: Option<Debouncer<RecommendedWatcher, RecommendedCache>>,
     bridge: JoinHandle<()>,
 }
 
