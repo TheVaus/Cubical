@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use notify::event::{ModifyKind, RenameMode};
-use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{EventKind, RecommendedWatcher, RecursiveMode};
 use notify_debouncer_full::{
     new_debouncer, DebounceEventResult, DebouncedEvent, Debouncer, FileIdMap,
 };
@@ -69,8 +69,7 @@ pub fn start_watcher(
         },
     )?;
 
-    debouncer.watcher().watch(&root, RecursiveMode::Recursive)?;
-    debouncer.cache().add_root(&root, RecursiveMode::Recursive);
+    debouncer.watch(&root, RecursiveMode::Recursive)?;
 
     let bridge = tokio::spawn(async move {
         loop {

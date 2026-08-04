@@ -1,3 +1,5 @@
+use std::fmt::Write as _;
+
 use cubical_core::vault::blocks::refresh_blocks;
 use cubical_index::broken_block_refs;
 use sha2::{Digest, Sha256};
@@ -93,7 +95,13 @@ fn unique_id(path: &str, position: u64, existing: &[String]) -> String {
     hasher.update(path.as_bytes());
     hasher.update(b":");
     hasher.update(position.to_le_bytes());
-    let hex = format!("{:x}", hasher.finalize());
+    let hex = hasher
+        .finalize()
+        .iter()
+        .fold(String::with_capacity(64), |mut s, b| {
+            let _ = write!(s, "{b:02x}");
+            s
+        });
     let base = format!("b{}", &hex[..6]);
     if !existing.contains(&base) {
         return base;
@@ -231,5 +239,10 @@ mod tests {
         .expect("ok");
         assert_eq!(resp.refs.len(), 1);
         assert_eq!(resp.refs[0].target_block_id, "gone");
+    }
+
+    #[test]
+    fn generated_ids_are_stable_across_hasher_upgrades() {
+        assert_eq!(unique_id("notes/a.md", 42, &[]), "bd064a2");
     }
 }
