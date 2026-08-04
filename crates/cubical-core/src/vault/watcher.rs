@@ -2,9 +2,9 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use notify::event::{ModifyKind, RenameMode};
-use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{EventKind, RecommendedWatcher, RecursiveMode};
 use notify_debouncer_full::{
-    new_debouncer, DebounceEventResult, DebouncedEvent, Debouncer, FileIdMap,
+    new_debouncer, DebounceEventResult, DebouncedEvent, Debouncer, RecommendedCache,
 };
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -25,7 +25,7 @@ pub enum WatchEvent {
 }
 
 pub struct WatcherHandle {
-    debouncer: Option<Debouncer<RecommendedWatcher, FileIdMap>>,
+    debouncer: Option<Debouncer<RecommendedWatcher, RecommendedCache>>,
     bridge: JoinHandle<()>,
 }
 
@@ -69,8 +69,7 @@ pub fn start_watcher(
         },
     )?;
 
-    debouncer.watcher().watch(&root, RecursiveMode::Recursive)?;
-    debouncer.cache().add_root(&root, RecursiveMode::Recursive);
+    debouncer.watch(&root, RecursiveMode::Recursive)?;
 
     let bridge = tokio::spawn(async move {
         loop {

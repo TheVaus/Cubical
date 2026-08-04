@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 use tantivy::collector::TopDocs;
 use tantivy::query::{BooleanQuery, FuzzyTermQuery, Occur, Query, QueryParser, TermQuery};
 use tantivy::schema::{Field, IndexRecordOption, TantivyDocument, Value};
-use tantivy::{DocAddress, Order, Searcher, SnippetGenerator, Term};
+use tantivy::snippet::SnippetGenerator;
+use tantivy::{DocAddress, Order, Searcher, Term};
 
 pub const LIMIT_MAX: usize = 500;
 pub const LIMIT_DEFAULT: usize = 50;
@@ -155,15 +156,16 @@ pub fn run_search(idx: &SearchIndex, q: &SearchQuery) -> Result<SearchResponse, 
 
     let pulled: Vec<(f32, DocAddress)> = match q.sort {
         SortMode::Relevance => {
-            let top = TopDocs::with_limit(limit + q.offset);
+            let top = TopDocs::with_limit(limit + q.offset).order_by_score();
             searcher.search(final_query.as_ref(), &top)?
         }
         SortMode::RecencyDesc => {
             let top = TopDocs::with_limit(limit + q.offset)
                 .order_by_fast_field::<i64>("mtime_secs", Order::Desc);
-            let raw: Vec<(i64, DocAddress)> = searcher.search(final_query.as_ref(), &top)?;
+            let raw: Vec<(Option<i64>, DocAddress)> =
+                searcher.search(final_query.as_ref(), &top)?;
             raw.into_iter()
-                .map(|(mtime, addr)| (mtime as f32, addr))
+                .map(|(mtime, addr)| (mtime.unwrap_or(0) as f32, addr))
                 .collect()
         }
     };
