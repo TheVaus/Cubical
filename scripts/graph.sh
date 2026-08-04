@@ -19,19 +19,8 @@ if [ ! -f "$GRAPH" ]; then
   exit 1
 fi
 
-if stat -f %m "$GRAPH" >/dev/null 2>&1; then
-  graph_mtime=$(stat -f %m "$GRAPH")
-else
-  graph_mtime=$(stat -c %Y "$GRAPH")
-fi
-head_time=$(git log -1 --format=%ct)
-
-if [ "$graph_mtime" -lt "$head_time" ]; then
-  hours=$(((head_time - graph_mtime) / 3600))
-  echo "graph.sh: REFUSING — the graph is ${hours}h older than HEAD." >&2
-  echo "  A stale graph reports deleted code as live, confidently and without warning." >&2
-  echo "  Rebuild:  graphify . --update   (costs money, see graphify-out/cost.json)" >&2
-  echo "  Override: GRAPH_STALE_OK=1 scripts/graph.sh $*" >&2
+if ! python3 scripts/graph_freshness.py; then
+  echo "  (checked by scripts/graph_freshness.py — content, not timestamps)" >&2
   if [ "${GRAPH_STALE_OK:-}" != "1" ]; then
     exit 1
   fi
