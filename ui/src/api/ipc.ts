@@ -137,6 +137,17 @@ export interface ReadFileTextResponse {
   content: string;
 }
 
+export interface ReadFileBytesRequest {
+  vault_id: string;
+  path: string;
+}
+
+export interface ReadFileBytesResponse {
+  base64: string;
+  mime: string;
+  size_bytes: number;
+}
+
 export interface GetCanonicalAstRequest {
   vault_id: string;
   path: string;
@@ -159,8 +170,7 @@ export interface WriteFileTextResponse {
 }
 
 export type ResolvedAnchor =
-  | { kind: "heading"; value: string }
-  | { kind: "block"; value: string };
+  { kind: "heading"; value: string } | { kind: "block"; value: string };
 
 export interface ResolveLinkRequest {
   vault_id: string;
@@ -391,7 +401,9 @@ export function listRecentVaults(): Promise<ListRecentVaultsResponse> {
   return invoke("list_recent_vaults");
 }
 
-export function removeRecentVault(req: RemoveRecentVaultRequest): Promise<void> {
+export function removeRecentVault(
+  req: RemoveRecentVaultRequest,
+): Promise<void> {
   return invoke("remove_recent_vault", { req });
 }
 
@@ -456,6 +468,12 @@ export function readFileText(
   req: ReadFileTextRequest,
 ): Promise<ReadFileTextResponse> {
   return invoke("read_file_text", { req });
+}
+
+export function readFileBytes(
+  req: ReadFileBytesRequest,
+): Promise<ReadFileBytesResponse> {
+  return invoke("read_file_bytes", { req });
 }
 
 export function getCanonicalAst(
@@ -575,11 +593,7 @@ export interface GetEmbedRequest {
 }
 
 export type EmbedKind =
-  | "note"
-  | "section"
-  | "block"
-  | "unresolved"
-  | "missing-anchor";
+  "note" | "section" | "block" | "unresolved" | "missing-anchor";
 
 export interface GetEmbedResponse {
   kind: EmbedKind;
@@ -597,7 +611,8 @@ export interface GetPropertyRequest {
   property: string;
 }
 
-export type PropertyRefKind = "resolved" | "note_unresolved" | "property_missing";
+export type PropertyRefKind =
+  "resolved" | "note_unresolved" | "property_missing";
 
 export interface GetPropertyResponse {
   kind: PropertyRefKind;
@@ -771,10 +786,7 @@ export interface VaultScanCancelled {
 }
 
 export type VaultFileChangeKind =
-  | "created"
-  | "modified"
-  | "removed"
-  | "renamed";
+  "created" | "modified" | "removed" | "renamed";
 
 export interface VaultFileChanged {
   vault_id: string;
@@ -816,7 +828,9 @@ export function onVaultFileChanged(
   );
 }
 
-export function renameFile(req: RenameFileRequest): Promise<RenameFileResponse> {
+export function renameFile(
+  req: RenameFileRequest,
+): Promise<RenameFileResponse> {
   return invoke("rename_file", { req });
 }
 
@@ -1051,9 +1065,7 @@ export function searchRebuildIndex(req: SearchVaultRequest): Promise<void> {
   return invoke("search_rebuild_index", { req });
 }
 
-export function searchGetHealth(
-  req: SearchVaultRequest,
-): Promise<IndexHealth> {
+export function searchGetHealth(req: SearchVaultRequest): Promise<IndexHealth> {
   return invoke("search_get_health", { req });
 }
 

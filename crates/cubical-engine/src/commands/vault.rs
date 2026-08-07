@@ -10,9 +10,10 @@ use crate::api::types::{
     DeletePathRequest, FileEntry, FrontmatterEntry, GetCanonicalAstRequest,
     GetCanonicalAstResponse, GetFrontmatterRequest, GetFrontmatterResponse, GetSettingRequest,
     GetSettingResponse, GetVaultInfoRequest, GetVaultInfoResponse, ListFilesRequest,
-    ListFilesResponse, OpenVaultRequest, OpenVaultResponse, ReadFileTextRequest,
-    ReadFileTextResponse, ReloadSettingsRequest, ReloadSettingsResponse, ScanStatus,
-    SetSettingRequest, SetSettingResponse, WriteFileTextRequest, WriteFileTextResponse,
+    ListFilesResponse, OpenVaultRequest, OpenVaultResponse, ReadFileBytesRequest,
+    ReadFileBytesResponse, ReadFileTextRequest, ReadFileTextResponse, ReloadSettingsRequest,
+    ReloadSettingsResponse, ScanStatus, SetSettingRequest, SetSettingResponse,
+    WriteFileTextRequest, WriteFileTextResponse,
 };
 use crate::error::CubicalError;
 use crate::events::{spawn_scan_dispatcher, spawn_watcher_dispatcher, EventSink};
@@ -511,6 +512,86 @@ pub async fn read_file_text(
             .await?;
 
     Ok(ReadFileTextResponse { content })
+}
+
+pub const MAX_READ_FILE_BYTES: u64 = 64 * 1024 * 1024;
+
+pub fn mime_for_extension(path: &str) -> &'static str {
+    let ext = std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "txt" | "text" | "log" => "text/plain",
+        "csv" => "text/csv",
+        "tsv" => "text/tab-separated-values",
+        _ => "application/octet-stream",
+    }
+}
+
+pub async fn read_file_bytes(
+    state: &AppState,
+    req: ReadFileBytesRequest,
+) -> Result<ReadFileBytesResponse, CubicalError> {
+    let abs_path = {
+        let guard = state.vaults().read().await;
+        let open = guard
+            .get(&req.vault_id)
+            .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
+        let conn = open.vault.index().connection();
+
+        let mut rows = conn
+            .query(
+                "SELECT type_id, size_bytes FROM files WHERE path = ?1",
+                libsql::params![req.path.clone()],
+            )
+            .await?;
+        let row = rows
+            .next()
+            .await?
+            .ok_or_else(|| CubicalError::FileNotFound(req.path.clone()))?;
+        let type_id: String = row.get(0)?;
+        if type_id == "markdown" {
+            return Err(CubicalError::InvalidRequest(format!(
+                "read_file_bytes does not serve markdown (path '{}'); use read_file_text, which applies pending rewrites",
+                req.path,
+            )));
+        }
+        let size_bytes: i64 = row.get(1)?;
+        let size_bytes = u64::try_from(size_bytes).unwrap_or(0);
+        if size_bytes > MAX_READ_FILE_BYTES {
+            return Err(CubicalError::InvalidRequest(format!(
+                "file '{}' is {size_bytes} bytes, over the {MAX_READ_FILE_BYTES}-byte read_file_bytes limit",
+                req.path,
+            )));
+        }
+        open.vault.root().join(&req.path)
+    };
+
+    let bytes = tokio::task::spawn_blocking(move || std::fs::read(&abs_path))
+        .await
+        .map_err(|e| CubicalError::Io(format!("read task join error: {e}")))?
+        .map_err(|e| CubicalError::Io(e.to_string()))?;
+
+    let size_bytes = u64::try_from(bytes.len()).unwrap_or(0);
+    if size_bytes > MAX_READ_FILE_BYTES {
+        return Err(CubicalError::InvalidRequest(format!(
+            "file '{}' is {size_bytes} bytes on disk, over the {MAX_READ_FILE_BYTES}-byte read_file_bytes limit",
+            req.path,
+        )));
+    }
+
+    Ok(ReadFileBytesResponse {
+        base64: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes),
+        mime: mime_for_extension(&req.path).to_string(),
+        size_bytes,
+    })
 }
 
 pub async fn write_file_text(
@@ -1265,6 +1346,128 @@ mod tests {
         .await
         .expect_err("should be FileNotFound");
         assert!(matches!(err, CubicalError::FileNotFound(p) if p == "missing.md"));
+    }
+
+    #[tokio::test]
+    async fn read_file_bytes_round_trips_binary_content() {
+        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        let png_magic: &[u8] = &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+        let abs = vault.root().join("icon.png");
+        std::fs::write(&abs, png_magic).expect("write");
+        vault
+            .index()
+            .connection()
+            .execute(
+                "INSERT INTO files (
+                    path, type_id, size_bytes, mtime_unix, content_hash,
+                    inode, last_seen, created_at, updated_at
+                ) VALUES ('icon.png', 'binary', 8, 0, '', NULL, 0, 0, 0)",
+                (),
+            )
+            .await
+            .expect("seed");
+
+        let resp = read_file_bytes(
+            &state,
+            ReadFileBytesRequest {
+                vault_id: "v1".into(),
+                path: "icon.png".into(),
+            },
+        )
+        .await
+        .expect("ok");
+
+        assert_eq!(resp.mime, "image/png");
+        assert_eq!(resp.size_bytes, 8);
+        let decoded =
+            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &resp.base64)
+                .expect("valid base64");
+        assert_eq!(decoded, png_magic);
+    }
+
+    #[tokio::test]
+    async fn read_file_bytes_rejects_markdown_so_pending_rewrites_stay_authoritative() {
+        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        seed_file_on_disk(&vault, "note.md", "body\n", "markdown").await;
+
+        let err = read_file_bytes(
+            &state,
+            ReadFileBytesRequest {
+                vault_id: "v1".into(),
+                path: "note.md".into(),
+            },
+        )
+        .await
+        .expect_err("should be InvalidRequest");
+        match err {
+            CubicalError::InvalidRequest(msg) => assert!(msg.contains("read_file_text")),
+            other => panic!("expected InvalidRequest, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn read_file_bytes_rejects_a_file_over_the_size_cap() {
+        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        std::fs::write(vault.root().join("huge.bin"), b"small on disk").expect("write");
+        let oversize = MAX_READ_FILE_BYTES + 1;
+        vault
+            .index()
+            .connection()
+            .execute(
+                "INSERT INTO files (
+                    path, type_id, size_bytes, mtime_unix, content_hash,
+                    inode, last_seen, created_at, updated_at
+                ) VALUES ('huge.bin', 'binary', ?1, 0, '', NULL, 0, 0, 0)",
+                libsql::params![i64::try_from(oversize).unwrap()],
+            )
+            .await
+            .expect("seed");
+
+        let err = read_file_bytes(
+            &state,
+            ReadFileBytesRequest {
+                vault_id: "v1".into(),
+                path: "huge.bin".into(),
+            },
+        )
+        .await
+        .expect_err("should be InvalidRequest");
+        match err {
+            CubicalError::InvalidRequest(msg) => assert!(msg.contains("limit")),
+            other => panic!("expected InvalidRequest, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn read_file_bytes_errors_for_unknown_path() {
+        let (_dir, _vault, state) = fresh_state_with_vault("v1").await;
+        let err = read_file_bytes(
+            &state,
+            ReadFileBytesRequest {
+                vault_id: "v1".into(),
+                path: "missing.png".into(),
+            },
+        )
+        .await
+        .expect_err("should be FileNotFound");
+        assert!(matches!(err, CubicalError::FileNotFound(p) if p == "missing.png"));
+    }
+
+    #[test]
+    fn mime_for_extension_covers_the_supported_viewer_types() {
+        let cases: &[(&str, &str)] = &[
+            ("a/b/photo.png", "image/png"),
+            ("photo.JPG", "image/jpeg"),
+            ("photo.jpeg", "image/jpeg"),
+            ("logo.svg", "image/svg+xml"),
+            ("notes.txt", "text/plain"),
+            ("data.csv", "text/csv"),
+            ("archive.tar.gz", "application/octet-stream"),
+            ("noext", "application/octet-stream"),
+        ];
+        for (path, expected) in cases {
+            assert_eq!(mime_for_extension(path), *expected, "mime for {path}");
+        }
     }
 
     #[tokio::test]

@@ -137,6 +137,19 @@ pub struct ReadFileTextResponse {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct ReadFileBytesRequest {
+    pub vault_id: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ReadFileBytesResponse {
+    pub base64: String,
+    pub mime: String,
+    pub size_bytes: u64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct GetCanonicalAstRequest {
     pub vault_id: String,
     pub path: String,

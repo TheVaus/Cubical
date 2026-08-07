@@ -78,11 +78,7 @@ import {
 } from "./api/ipc";
 import { createVaultSession } from "./core/vaultSession";
 import { persistSetting, seedSetting } from "./core/settings";
-import {
-  resolveBindings,
-  resolveGlobal,
-  type Command,
-} from "./core/commands";
+import { resolveBindings, resolveGlobal, type Command } from "./core/commands";
 import {
   emptyNav,
   navPush,
@@ -94,6 +90,7 @@ import {
   type NavState,
 } from "./navHistory";
 import TabStrip from "./tabs/TabStrip";
+import { FileViewer, hasViewer } from "./viewer";
 import {
   activeTab,
   closeTab,
@@ -130,10 +127,7 @@ import {
   type PropertyResolver,
 } from "./editor/propertyResolver";
 import { isValidNoteName, noteNameError } from "./vault/noteName";
-import {
-  createDataviewRunner,
-  type DataviewRunner,
-} from "./editor/dataview";
+import { createDataviewRunner, type DataviewRunner } from "./editor/dataview";
 import { isOwnWriteEcho } from "./ownWrite";
 import {
   createAutocompleteProvider,
@@ -320,11 +314,7 @@ const App: Component = () => {
   const [rewriteBrokenLinks, setRewriteBrokenLinks] = createSignal(true);
   const setRewriteBrokenLinksValue = (val: boolean) => {
     setRewriteBrokenLinks(val);
-    persistSetting(
-      vaultId(),
-      "wikilinks.rewrite_broken_links_on_rename",
-      val,
-    );
+    persistSetting(vaultId(), "wikilinks.rewrite_broken_links_on_rename", val);
   };
 
   const [typedProps, setTypedProps] = createSignal(false);
@@ -339,8 +329,9 @@ const App: Component = () => {
   const [wikilinkResolver, setWikilinkResolver] =
     createSignal<WikiLinkResolver | null>(null);
 
-  const [embedResolver, setEmbedResolver] =
-    createSignal<EmbedResolver | null>(null);
+  const [embedResolver, setEmbedResolver] = createSignal<EmbedResolver | null>(
+    null,
+  );
 
   const [propertyResolver, setPropertyResolver] =
     createSignal<PropertyResolver | null>(null);
@@ -386,7 +377,9 @@ const App: Component = () => {
   const [settingsTab, setSettingsTab] = createSignal<SettingsTab>("appearance");
   const [openInfo, setOpenInfo] = createSignal<InfoId | null>(null);
   const flipInfo = (id: InfoId) => setOpenInfo((cur) => toggleInfo(cur, id));
-  const [corePlugins, setCorePlugins] = createSignal<Record<string, boolean>>({});
+  const [corePlugins, setCorePlugins] = createSignal<Record<string, boolean>>(
+    {},
+  );
   const [statusbarConfig, setStatusbarConfig] = createSignal<
     Record<string, boolean>
   >({});
@@ -497,7 +490,18 @@ const App: Component = () => {
   const [mru, setMru] = createSignal<string[]>([]);
   const editorApis = new Map<string, EditorApi>();
   const live = () =>
-    liveFileIds(mru(), tabs().activeId, liveTabLimit(), (id) => pathForId(id) !== null);
+    liveFileIds(mru(), tabs().activeId, liveTabLimit(), (id) => {
+      const p = pathForId(id);
+      return p !== null && !hasViewer(p);
+    });
+  const viewerPath = createMemo(() => {
+    const path = selectedPath();
+    return path !== null && vaultId() && hasViewer(path) ? path : null;
+  });
+  const viewerEntry = (): FileEntry | undefined => {
+    const path = viewerPath();
+    return path === null ? undefined : files().find((f) => f.path === path);
+  };
   const editorApi = (): EditorApi | undefined => {
     const id = tabs().activeId;
     return id === null ? undefined : editorApis.get(id);
@@ -510,14 +514,12 @@ const App: Component = () => {
 
   const toDto = (s: TabSet): TabSessionDto => ({
     active_id: s.activeId,
-    tabs: s.tabs
-      .filter(isPersistableTab)
-      .map((t) => ({
-        id: t.id,
-        kind: t.view.kind,
-        path: t.view.kind === "file" ? t.view.path : null,
-        tag_path: t.view.kind === "tag" ? t.view.tagPath : null,
-      })),
+    tabs: s.tabs.filter(isPersistableTab).map((t) => ({
+      id: t.id,
+      kind: t.view.kind,
+      path: t.view.kind === "file" ? t.view.path : null,
+      tag_path: t.view.kind === "tag" ? t.view.tagPath : null,
+    })),
   });
 
   const fromDto = (dto: TabSessionDto): TabSet => {
@@ -760,9 +762,17 @@ const App: Component = () => {
     setRenamingPath(null);
     try {
       if (isFolder) {
-        await renameFolder({ vault_id: id, from_path: fromPath, to_path: target });
+        await renameFolder({
+          vault_id: id,
+          from_path: fromPath,
+          to_path: target,
+        });
       } else {
-        await renameFile({ vault_id: id, from_path: fromPath, to_path: target });
+        await renameFile({
+          vault_id: id,
+          from_path: fromPath,
+          to_path: target,
+        });
       }
       const renamedId = (oldId: string): string => {
         if (!oldId.startsWith("file:")) return oldId;
@@ -772,7 +782,9 @@ const App: Component = () => {
           : p === fromPath
             ? target
             : null;
-        return to === null || to === p ? oldId : tabId({ kind: "file", path: to });
+        return to === null || to === p
+          ? oldId
+          : tabId({ kind: "file", path: to });
       };
       setTabs((s) =>
         remapTabPaths(s, (p) =>
@@ -940,6 +952,7 @@ const App: Component = () => {
     const id = vaultId();
     const path = selectedPath();
     if (!id || path === null) return;
+    if (hasViewer(path)) return;
     try {
       const resp = await readFileText({ vault_id: id, path });
       setSelectedContent(resp.content);
@@ -1009,7 +1022,8 @@ const App: Component = () => {
     knownHash?: string,
     opts?: { fromHistory?: boolean },
   ) => {
-    if (file.type_id !== "markdown") return;
+    const isMarkdown = file.type_id === "markdown";
+    if (!isMarkdown && !hasViewer(file.path)) return;
     const id = vaultId();
     if (!id) return;
     if (selectedPath() === file.path) return;
@@ -1019,6 +1033,7 @@ const App: Component = () => {
     resetDocState();
     setTabs((s) => openTab(s, { kind: "file", path: file.path }));
     if (!opts?.fromHistory) setNavState((s) => navPush(s, file.path));
+    if (!isMarkdown) return;
     seenHash = knownHash ?? null;
     lastWrittenHash = knownHash ?? null;
     await loadActiveTabContent();
@@ -1584,9 +1599,11 @@ const App: Component = () => {
       setVaultPath(path);
       setTabsReady(false);
       setTabs(emptyTabs);
-      setContents(produce((c) => {
-        for (const k of Object.keys(c)) delete c[k];
-      }));
+      setContents(
+        produce((c) => {
+          for (const k of Object.keys(c)) delete c[k];
+        }),
+      );
       setMru([]);
       setPropertiesFrontmatter(null);
       setBlockCount(0);
@@ -1620,8 +1637,9 @@ const App: Component = () => {
       setEmbedResolver(createEmbedResolver(resp.vault_id));
       setPropertyResolver(createPropertyResolver(resp.vault_id));
       setDataviewRunner(
-        createDataviewRunner(resp.vault_id, (p) =>
-          void handleNavigateWikilink(p, null),
+        createDataviewRunner(
+          resp.vault_id,
+          (p) => void handleNavigateWikilink(p, null),
         ),
       );
       setAutocompleteProvider(createAutocompleteProvider(resp.vault_id));
@@ -1803,272 +1821,298 @@ const App: Component = () => {
                 onNavigate={(path) => void handleNavigateWikilink(path, null)}
                 refreshSignal={searchRefreshTick()}
               >
-              <div
-                class="tree-header"
-                style={{
-                  display: "flex",
-                  "align-items": "center",
-                  "justify-content": "space-between",
-                  gap: "var(--space-2)",
-                  padding: "var(--space-1) var(--space-2)",
-                }}
-              >
-                <span
+                <div
+                  class="tree-header"
                   style={{
-                    "font-size": "var(--text-xs)",
-                    "text-transform": "uppercase",
-                    "letter-spacing": "0.05em",
-                    color: "var(--c-fg-muted)",
+                    display: "flex",
+                    "align-items": "center",
+                    "justify-content": "space-between",
+                    gap: "var(--space-2)",
+                    padding: "var(--space-1) var(--space-2)",
                   }}
                 >
-                  Files
-                </span>
-                <span style={{ display: "flex", gap: "var(--space-1)" }}>
-                  <IconButton
-                    label="New file"
-                    size="sm"
-                    disabled={!vaultId()}
-                    onClick={() => void handleNewFile()}
-                    style={{ "font-size": "var(--text-sm)" }}
-                  >
-                    <Icon name="plus" />
-                  </IconButton>
-                  <IconButton
-                    label="New folder"
-                    size="sm"
-                    disabled={!vaultId()}
-                    onClick={() => void handleNewFolder()}
-                    style={{ "font-size": "var(--text-sm)" }}
-                  >
-                    <Icon name="folder-plus" />
-                  </IconButton>
-                </span>
-              </div>
-              <div
-              role="listbox"
-              aria-label="Vault files"
-              ref={(el) => setViewportHeight(el.clientHeight || 600)}
-              onScroll={(e) => {
-                setScrollTop(e.currentTarget.scrollTop);
-                setViewportHeight(e.currentTarget.clientHeight);
-              }}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                setContextMenu({ kind: "empty", path: "", x: e.clientX, y: e.clientY });
-              }}
-              style={{
-                "overflow-y": "auto",
-                position: "relative",
-                flex: 1,
-                "min-height": 0,
-                "min-width": 0,
-              }}
-            >
-              <Show
-                when={treeRows().length > 0}
-                fallback={
-                  <div
+                  <span
                     style={{
-                      padding: "var(--space-3)",
-                      "font-size": "var(--text-sm)",
+                      "font-size": "var(--text-xs)",
+                      "text-transform": "uppercase",
+                      "letter-spacing": "0.05em",
                       color: "var(--c-fg-muted)",
                     }}
                   >
-                    No files yet…
-                  </div>
-                }
-              >
+                    Files
+                  </span>
+                  <span style={{ display: "flex", gap: "var(--space-1)" }}>
+                    <IconButton
+                      label="New file"
+                      size="sm"
+                      disabled={!vaultId()}
+                      onClick={() => void handleNewFile()}
+                      style={{ "font-size": "var(--text-sm)" }}
+                    >
+                      <Icon name="plus" />
+                    </IconButton>
+                    <IconButton
+                      label="New folder"
+                      size="sm"
+                      disabled={!vaultId()}
+                      onClick={() => void handleNewFolder()}
+                      style={{ "font-size": "var(--text-sm)" }}
+                    >
+                      <Icon name="folder-plus" />
+                    </IconButton>
+                  </span>
+                </div>
                 <div
+                  role="listbox"
+                  aria-label="Vault files"
+                  ref={(el) => setViewportHeight(el.clientHeight || 600)}
+                  onScroll={(e) => {
+                    setScrollTop(e.currentTarget.scrollTop);
+                    setViewportHeight(e.currentTarget.clientHeight);
+                  }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setContextMenu({
+                      kind: "empty",
+                      path: "",
+                      x: e.clientX,
+                      y: e.clientY,
+                    });
+                  }}
                   style={{
-                    height: `${fileWindow().totalHeight}px`,
+                    "overflow-y": "auto",
                     position: "relative",
+                    flex: 1,
+                    "min-height": 0,
+                    "min-width": 0,
                   }}
                 >
-                  <div
-                    style={{
-                      transform: `translateY(${fileWindow().offsetY}px)`,
-                    }}
+                  <Show
+                    when={treeRows().length > 0}
+                    fallback={
+                      <div
+                        style={{
+                          padding: "var(--space-3)",
+                          "font-size": "var(--text-sm)",
+                          color: "var(--c-fg-muted)",
+                        }}
+                      >
+                        No files yet…
+                      </div>
+                    }
                   >
-                    <For each={visibleRows()}>
-                      {(row) => {
-                        const folderPad = `calc(var(--space-2) + ${row.depth} * var(--space-4))`;
-                        if (row.kind === "folder") {
-                          const isRenamingFolder = () => renamingPath() === row.path;
-                          return (
-                            <div
-                              class="tree-row tree-row--folder"
-                              role="treeitem"
-                              aria-expanded={!row.collapsed}
-                              style={{
-                                height: `${FILE_ROW_HEIGHT}px`,
-                                "padding-left": folderPad,
-                              }}
-                              onClick={() => {
-                                if (isRenamingFolder()) return;
-                                toggleFolder(row.path);
-                              }}
-                              onContextMenu={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                setContextMenu({
-                                  kind: "folder",
-                                  path: row.path,
-                                  x: e.clientX,
-                                  y: e.clientY,
-                                });
-                              }}
-                            >
-                              <span class="tree-row__twisty">
-                                <Icon
-                                  name={
-                                    row.collapsed
-                                      ? "chevron-right"
-                                      : "chevron-down"
-                                  }
-                                  size={14}
-                                />
-                              </span>
-                              <Show
-                                when={isRenamingFolder()}
-                                fallback={
-                                  <span class="tree-row__name">{row.name}</span>
-                                }
-                              >
-                                <input
-                                  type="text"
-                                  class="tree-row__input"
-                                  value={row.name}
-                                  autofocus
-                                  onClick={(e) => e.stopPropagation()}
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter") {
-                                      e.preventDefault();
-                                      void handleRenameCommit(
-                                        row.path,
-                                        renameTarget(row.path, e.currentTarget.value),
-                                        true,
-                                      );
-                                    } else if (e.key === "Escape") {
-                                      e.preventDefault();
-                                      setRenamingPath(null);
+                    <div
+                      style={{
+                        height: `${fileWindow().totalHeight}px`,
+                        position: "relative",
+                      }}
+                    >
+                      <div
+                        style={{
+                          transform: `translateY(${fileWindow().offsetY}px)`,
+                        }}
+                      >
+                        <For each={visibleRows()}>
+                          {(row) => {
+                            const folderPad = `calc(var(--space-2) + ${row.depth} * var(--space-4))`;
+                            if (row.kind === "folder") {
+                              const isRenamingFolder = () =>
+                                renamingPath() === row.path;
+                              return (
+                                <div
+                                  class="tree-row tree-row--folder"
+                                  role="treeitem"
+                                  aria-expanded={!row.collapsed}
+                                  style={{
+                                    height: `${FILE_ROW_HEIGHT}px`,
+                                    "padding-left": folderPad,
+                                  }}
+                                  onClick={() => {
+                                    if (isRenamingFolder()) return;
+                                    toggleFolder(row.path);
+                                  }}
+                                  onContextMenu={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setContextMenu({
+                                      kind: "folder",
+                                      path: row.path,
+                                      x: e.clientX,
+                                      y: e.clientY,
+                                    });
+                                  }}
+                                >
+                                  <span class="tree-row__twisty">
+                                    <Icon
+                                      name={
+                                        row.collapsed
+                                          ? "chevron-right"
+                                          : "chevron-down"
+                                      }
+                                      size={14}
+                                    />
+                                  </span>
+                                  <Show
+                                    when={isRenamingFolder()}
+                                    fallback={
+                                      <span class="tree-row__name">
+                                        {row.name}
+                                      </span>
                                     }
-                                  }}
-                                  onBlur={(e) =>
-                                    void handleRenameCommit(
-                                      row.path,
-                                      renameTarget(row.path, e.currentTarget.value),
-                                      true,
-                                    )
-                                  }
-                                />
-                              </Show>
-                            </div>
-                          );
-                        }
-                        const isMarkdown = row.typeId === "markdown";
-                        const isSelected = () => selectedPath() === row.path;
-                        const isRenaming = () => renamingPath() === row.path;
-                        const parts = () => splitFileName(row.name);
-                        return (
-                          <div
-                            class="tree-row tree-row--file"
-                            classList={{
-                              "tree-row--selected": isSelected(),
-                            }}
-                            role="option"
-                            aria-selected={isSelected()}
-                            style={{
-                              height: `${FILE_ROW_HEIGHT}px`,
-                              "padding-left": `calc(${folderPad} + 1rem + var(--space-1))`,
-                            }}
-                            onClick={() => {
-                              if (isRenaming()) return;
-                              const entry = files().find(
-                                (f) => f.path === row.path,
+                                  >
+                                    <input
+                                      type="text"
+                                      class="tree-row__input"
+                                      value={row.name}
+                                      autofocus
+                                      onClick={(e) => e.stopPropagation()}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter") {
+                                          e.preventDefault();
+                                          void handleRenameCommit(
+                                            row.path,
+                                            renameTarget(
+                                              row.path,
+                                              e.currentTarget.value,
+                                            ),
+                                            true,
+                                          );
+                                        } else if (e.key === "Escape") {
+                                          e.preventDefault();
+                                          setRenamingPath(null);
+                                        }
+                                      }}
+                                      onBlur={(e) =>
+                                        void handleRenameCommit(
+                                          row.path,
+                                          renameTarget(
+                                            row.path,
+                                            e.currentTarget.value,
+                                          ),
+                                          true,
+                                        )
+                                      }
+                                    />
+                                  </Show>
+                                </div>
                               );
-                              if (entry) void handleSelectFile(entry);
-                            }}
-                            onContextMenu={(e) => {
-                              if (!isMarkdown) return;
-                              e.preventDefault();
-                              e.stopPropagation();
-                              setContextMenu({
-                                kind: "file",
-                                path: row.path,
-                                x: e.clientX,
-                                y: e.clientY,
-                              });
-                            }}
-                          >
-                            <Show
-                              when={isRenaming()}
-                              fallback={
-                                <span
-                                  class="tree-row__name"
-                                  classList={{
-                                    "tree-row__name--dotted":
-                                      isMarkdown && !isValidNoteName(row.name),
-                                  }}
-                                  title={
-                                    isMarkdown && !isValidNoteName(row.name)
-                                      ? noteNameError(row.name)
-                                      : undefined
+                            }
+                            const isMarkdown = row.typeId === "markdown";
+                            const isSelected = () =>
+                              selectedPath() === row.path;
+                            const isRenaming = () =>
+                              renamingPath() === row.path;
+                            const parts = () => splitFileName(row.name);
+                            return (
+                              <div
+                                class="tree-row tree-row--file"
+                                classList={{
+                                  "tree-row--selected": isSelected(),
+                                }}
+                                role="option"
+                                aria-selected={isSelected()}
+                                style={{
+                                  height: `${FILE_ROW_HEIGHT}px`,
+                                  "padding-left": `calc(${folderPad} + 1rem + var(--space-1))`,
+                                }}
+                                onClick={() => {
+                                  if (isRenaming()) return;
+                                  const entry = files().find(
+                                    (f) => f.path === row.path,
+                                  );
+                                  if (entry) void handleSelectFile(entry);
+                                }}
+                                onContextMenu={(e) => {
+                                  if (!isMarkdown) return;
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setContextMenu({
+                                    kind: "file",
+                                    path: row.path,
+                                    x: e.clientX,
+                                    y: e.clientY,
+                                  });
+                                }}
+                              >
+                                <Show
+                                  when={isRenaming()}
+                                  fallback={
+                                    <span
+                                      class="tree-row__name"
+                                      classList={{
+                                        "tree-row__name--dotted":
+                                          isMarkdown &&
+                                          !isValidNoteName(row.name),
+                                      }}
+                                      title={
+                                        isMarkdown && !isValidNoteName(row.name)
+                                          ? noteNameError(row.name)
+                                          : undefined
+                                      }
+                                    >
+                                      {parts().stem}
+                                      <Show when={parts().ext !== ""}>
+                                        <span class="tree-row__ext">
+                                          .{parts().ext}
+                                        </span>
+                                      </Show>
+                                      <Show
+                                        when={
+                                          isMarkdown &&
+                                          !isValidNoteName(row.name)
+                                        }
+                                      >
+                                        <span
+                                          class="tree-row__dotted-badge"
+                                          aria-hidden="true"
+                                        >
+                                          {" "}
+                                          <Icon name="warning" />
+                                        </span>
+                                      </Show>
+                                    </span>
                                   }
                                 >
-                                  {parts().stem}
-                                  <Show when={parts().ext !== ""}>
-                                    <span class="tree-row__ext">
-                                      .{parts().ext}
-                                    </span>
-                                  </Show>
-                                  <Show
-                                    when={isMarkdown && !isValidNoteName(row.name)}
-                                  >
-                                    <span
-                                      class="tree-row__dotted-badge"
-                                      aria-hidden="true"
-                                    >
-                                      {" "}
-                                      <Icon name="warning" />
-                                    </span>
-                                  </Show>
-                                </span>
-                              }
-                            >
-                              <input
-                                type="text"
-                                class="tree-row__input"
-                                value={row.name}
-                                autofocus
-                                onClick={(e) => e.stopPropagation()}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") {
-                                    e.preventDefault();
-                                    void handleRenameCommit(
-                                      row.path,
-                                      renameTarget(row.path, e.currentTarget.value),
-                                    );
-                                  } else if (e.key === "Escape") {
-                                    e.preventDefault();
-                                    setRenamingPath(null);
-                                  }
-                                }}
-                                onBlur={(e) =>
-                                  void handleRenameCommit(
-                                    row.path,
-                                    renameTarget(row.path, e.currentTarget.value),
-                                  )
-                                }
-                              />
-                            </Show>
-                          </div>
-                        );
-                      }}
-                    </For>
-                  </div>
+                                  <input
+                                    type="text"
+                                    class="tree-row__input"
+                                    value={row.name}
+                                    autofocus
+                                    onClick={(e) => e.stopPropagation()}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") {
+                                        e.preventDefault();
+                                        void handleRenameCommit(
+                                          row.path,
+                                          renameTarget(
+                                            row.path,
+                                            e.currentTarget.value,
+                                          ),
+                                        );
+                                      } else if (e.key === "Escape") {
+                                        e.preventDefault();
+                                        setRenamingPath(null);
+                                      }
+                                    }}
+                                    onBlur={(e) =>
+                                      void handleRenameCommit(
+                                        row.path,
+                                        renameTarget(
+                                          row.path,
+                                          e.currentTarget.value,
+                                        ),
+                                      )
+                                    }
+                                  />
+                                </Show>
+                              </div>
+                            );
+                          }}
+                        </For>
+                      </div>
+                    </div>
+                  </Show>
                 </div>
-              </Show>
-            </div>
               </SearchPanel>
               <div class="side__footer">
                 <div class="vault-switcher-anchor">
@@ -2096,7 +2140,9 @@ const App: Component = () => {
                       )}
                       onSwitch={(path) => void openVaultByPath(path)}
                       onRemove={(path) =>
-                        void removeRecentVault({ path }).then(refreshRecentVaults)
+                        void removeRecentVault({ path }).then(
+                          refreshRecentVaults,
+                        )
                       }
                       onOpenFolder={() => void handleOpen()}
                       onDismiss={() => setVaultSwitcherOpen(false)}
@@ -2115,13 +2161,15 @@ const App: Component = () => {
           <main class="editor-layer">
             <div class="editor-scroll">
               <div class="editor-inner">
-              <Show when={!isTerminalView(view())}>
+                <Show when={!isTerminalView(view())}>
                   <Show
                     when={view().kind === "file"}
                     fallback={
                       <TagPage
                         vaultId={vaultId()}
-                        tagPath={(view() as { kind: "tag"; tagPath: string }).tagPath}
+                        tagPath={
+                          (view() as { kind: "tag"; tagPath: string }).tagPath
+                        }
                         refreshSignal={tagRefreshTick()}
                         onSelectFile={(path) =>
                           void handleNavigateWikilink(path, null)
@@ -2130,191 +2178,224 @@ const App: Component = () => {
                       />
                     }
                   >
-              <Show
-                when={selectedContent() !== null}
-                fallback={
-                  <div
-                    style={{
-                      flex: 1,
-                      display: "flex",
-                      "align-items": "center",
-                      "justify-content": "center",
-                      color: "var(--c-fg-muted)",
-                      "font-size": "var(--text-sm)",
-                    }}
-                  >
-                    Select a markdown file to open it.
-                  </div>
-                }
-              >
-                <Show when={selectedPath()} keyed>
-                  {(path) => (
-                    <input
-                      class="doc-title"
-                      aria-label="File name"
-                      spellcheck={false}
-                      value={fileStem(path)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          e.currentTarget.blur();
-                        } else if (e.key === "Escape") {
-                          e.preventDefault();
-                          e.currentTarget.value = fileStem(path);
-                          e.currentTarget.blur();
-                        }
-                      }}
-                      onBlur={(e) =>
-                        commitTitleRename(path, e.currentTarget.value)
+                    <Show
+                      when={viewerPath()}
+                      keyed
+                      fallback={
+                        <Show
+                          when={selectedContent() !== null}
+                          fallback={
+                            <div
+                              style={{
+                                flex: 1,
+                                display: "flex",
+                                "align-items": "center",
+                                "justify-content": "center",
+                                color: "var(--c-fg-muted)",
+                                "font-size": "var(--text-sm)",
+                              }}
+                            >
+                              Select a file to open it.
+                            </div>
+                          }
+                        >
+                          <Show when={selectedPath()} keyed>
+                            {(path) => (
+                              <input
+                                class="doc-title"
+                                aria-label="File name"
+                                spellcheck={false}
+                                value={fileStem(path)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    e.preventDefault();
+                                    e.currentTarget.blur();
+                                  } else if (e.key === "Escape") {
+                                    e.preventDefault();
+                                    e.currentTarget.value = fileStem(path);
+                                    e.currentTarget.blur();
+                                  }
+                                }}
+                                onBlur={(e) =>
+                                  commitTitleRename(path, e.currentTarget.value)
+                                }
+                              />
+                            )}
+                          </Show>
+                          <Show when={conflictExternalHash() !== null}>
+                            <div
+                              role="alert"
+                              style={{
+                                display: "flex",
+                                "align-items": "center",
+                                "justify-content": "space-between",
+                                gap: "var(--space-3)",
+                                padding: "var(--space-2) var(--space-3)",
+                                border:
+                                  "1px solid var(--c-warning, var(--c-border-subtle))",
+                                "border-left":
+                                  "var(--space-1) solid var(--c-warning, var(--c-accent))",
+                                "border-radius": "var(--radius-md)",
+                                background: "var(--c-bg-secondary)",
+                                "font-size": "var(--text-sm)",
+                              }}
+                            >
+                              <span>
+                                This file was changed outside Cubical.
+                              </span>
+                              <span
+                                style={{
+                                  display: "flex",
+                                  gap: "var(--space-2)",
+                                }}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={reloadFromDisk}
+                                  style={{
+                                    padding: "var(--space-1) var(--space-3)",
+                                    "font-size": "var(--text-xs)",
+                                    "font-family": "var(--font-body)",
+                                    color: "var(--c-fg-primary)",
+                                    background: "var(--c-bg-tertiary)",
+                                    border: "1px solid var(--c-border-subtle)",
+                                    "border-radius":
+                                      "var(--radius-sm, var(--radius-md))",
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  Reload from disk
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={keepMyEdits}
+                                  style={{
+                                    padding: "var(--space-1) var(--space-3)",
+                                    "font-size": "var(--text-xs)",
+                                    "font-family": "var(--font-body)",
+                                    color: "var(--c-fg-inverse)",
+                                    background: "var(--c-accent)",
+                                    border: "none",
+                                    "border-radius":
+                                      "var(--radius-sm, var(--radius-md))",
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  Keep my edits
+                                </button>
+                              </span>
+                            </div>
+                          </Show>
+                          <Show when={!effectiveRaw()}>
+                            <Properties
+                              frontmatter={propertiesFrontmatter()}
+                              path={selectedPath() ?? ""}
+                              getSource={() => editorApi()?.getContent() ?? ""}
+                              applyEdit={(from, to, text) =>
+                                editorApi()?.replaceRange(from, to, text)
+                              }
+                              onOpenRaw={() => setRawOverride(true)}
+                              onNavigateTag={(tagPath) =>
+                                void handleNavigateTag(tagPath)
+                              }
+                              typedEnabled={typedProps()}
+                              dateDefault={dateDefault()}
+                              currencyDefault={currencyDefault()}
+                              tagsKeyAsTags={tagsKeyAsTags()}
+                            />
+                          </Show>
+                          <For each={live()}>
+                            {(id) => (
+                              <div
+                                style={{
+                                  display:
+                                    id === tabs().activeId
+                                      ? "contents"
+                                      : "none",
+                                }}
+                              >
+                                <Editor
+                                  value={contents[id] ?? ""}
+                                  resolvedTheme={resolvedTheme()}
+                                  rawSource={effectiveRaw()}
+                                  minimapEnabled={minimapEnabled()}
+                                  colorizeSource={colorizeSource()}
+                                  wikilinkResolver={wikilinkResolver()}
+                                  embedResolver={embedResolver()}
+                                  propertyResolver={propertyResolver()}
+                                  propertyRefsEnabled={corePluginEnabled(
+                                    corePlugins(),
+                                    CORE_PLUGINS.find(
+                                      (p) => p.id === "property-refs",
+                                    )!,
+                                  )}
+                                  dataviewRunner={
+                                    corePluginEnabled(
+                                      corePlugins(),
+                                      CORE_PLUGINS.find(
+                                        (p) => p.id === "dataview",
+                                      )!,
+                                    )
+                                      ? dataviewRunner()
+                                      : null
+                                  }
+                                  openNotePath={pathForId(id)}
+                                  autocompleteProvider={autocompleteProvider()}
+                                  editorBindings={effectiveBindings()}
+                                  onNavigateWikilink={(path, anchor) =>
+                                    void handleNavigateWikilink(path, anchor)
+                                  }
+                                  onOfferCreateWikilink={(path) =>
+                                    handleOfferCreateWikilink(path)
+                                  }
+                                  onAnchorNotFound={notifyAnchorNotFound}
+                                  onNavigateTag={(tagPath) =>
+                                    void handleNavigateTag(tagPath)
+                                  }
+                                  onToggleRawSource={toggleRawSource}
+                                  onAstChange={handleAstChange}
+                                  onContentChange={handleContentChange}
+                                  onBlur={() => void flushAutosave()}
+                                  onCopyBlockRef={(off) =>
+                                    void handleCopyBlockRef(off)
+                                  }
+                                  ref={(api) => editorApis.set(id, api)}
+                                />
+                              </div>
+                            )}
+                          </For>
+                        </Show>
                       }
-                    />
-                  )}
+                    >
+                      {(path) => (
+                        <FileViewer
+                          vaultId={vaultId()!}
+                          path={path}
+                          sizeBytes={viewerEntry()?.size_bytes ?? 0}
+                          mtimeUnix={viewerEntry()?.mtime_unix ?? 0}
+                        />
+                      )}
+                    </Show>
+                  </Show>
                 </Show>
-                <Show when={conflictExternalHash() !== null}>
-                  <div
-                    role="alert"
-                    style={{
-                      display: "flex",
-                      "align-items": "center",
-                      "justify-content": "space-between",
-                      gap: "var(--space-3)",
-                      padding: "var(--space-2) var(--space-3)",
-                      border:
-                        "1px solid var(--c-warning, var(--c-border-subtle))",
-                      "border-left":
-                        "var(--space-1) solid var(--c-warning, var(--c-accent))",
-                      "border-radius": "var(--radius-md)",
-                      background: "var(--c-bg-secondary)",
-                      "font-size": "var(--text-sm)",
-                    }}
-                  >
-                    <span>This file was changed outside Cubical.</span>
-                    <span style={{ display: "flex", gap: "var(--space-2)" }}>
-                      <button
-                        type="button"
-                        onClick={reloadFromDisk}
-                        style={{
-                          padding: "var(--space-1) var(--space-3)",
-                          "font-size": "var(--text-xs)",
-                          "font-family": "var(--font-body)",
-                          color: "var(--c-fg-primary)",
-                          background: "var(--c-bg-tertiary)",
-                          border: "1px solid var(--c-border-subtle)",
-                          "border-radius": "var(--radius-sm, var(--radius-md))",
-                          cursor: "pointer",
-                        }}
-                      >
-                        Reload from disk
-                      </button>
-                      <button
-                        type="button"
-                        onClick={keepMyEdits}
-                        style={{
-                          padding: "var(--space-1) var(--space-3)",
-                          "font-size": "var(--text-xs)",
-                          "font-family": "var(--font-body)",
-                          color: "var(--c-fg-inverse)",
-                          background: "var(--c-accent)",
-                          border: "none",
-                          "border-radius": "var(--radius-sm, var(--radius-md))",
-                          cursor: "pointer",
-                        }}
-                      >
-                        Keep my edits
-                      </button>
-                    </span>
-                  </div>
-                </Show>
-                <Show when={!effectiveRaw()}>
-                  <Properties
-                    frontmatter={propertiesFrontmatter()}
-                    path={selectedPath() ?? ""}
-                    getSource={() => editorApi()?.getContent() ?? ""}
-                    applyEdit={(from, to, text) =>
-                      editorApi()?.replaceRange(from, to, text)
-                    }
-                    onOpenRaw={() => setRawOverride(true)}
-                    onNavigateTag={(tagPath) =>
-                      void handleNavigateTag(tagPath)
-                    }
-                    typedEnabled={typedProps()}
-                    dateDefault={dateDefault()}
-                    currencyDefault={currencyDefault()}
-                    tagsKeyAsTags={tagsKeyAsTags()}
-                  />
-                </Show>
-                <For each={live()}>
+                <For each={terminalTabIds(tabs().tabs)}>
                   {(id) => (
                     <div
                       style={{
                         display: id === tabs().activeId ? "contents" : "none",
                       }}
                     >
-                      <Editor
-                        value={contents[id] ?? ""}
+                      <TerminalPanel
+                        vaultId={vaultId()!}
                         resolvedTheme={resolvedTheme()}
-                        rawSource={effectiveRaw()}
-                        minimapEnabled={minimapEnabled()}
-                        colorizeSource={colorizeSource()}
-                        wikilinkResolver={wikilinkResolver()}
-                        embedResolver={embedResolver()}
-                        propertyResolver={propertyResolver()}
-                        propertyRefsEnabled={corePluginEnabled(
-                          corePlugins(),
-                          CORE_PLUGINS.find((p) => p.id === "property-refs")!,
-                        )}
-                        dataviewRunner={
-                          corePluginEnabled(
-                            corePlugins(),
-                            CORE_PLUGINS.find((p) => p.id === "dataview")!,
-                          )
-                            ? dataviewRunner()
-                            : null
+                        onOpened={(terminalId) =>
+                          terminalTab.register(id, terminalId)
                         }
-                        openNotePath={pathForId(id)}
-                        autocompleteProvider={autocompleteProvider()}
-                        editorBindings={effectiveBindings()}
-                        onNavigateWikilink={(path, anchor) =>
-                          void handleNavigateWikilink(path, anchor)
-                        }
-                        onOfferCreateWikilink={(path) =>
-                          handleOfferCreateWikilink(path)
-                        }
-                        onAnchorNotFound={notifyAnchorNotFound}
-                        onNavigateTag={(tagPath) =>
-                          void handleNavigateTag(tagPath)
-                        }
-                        onToggleRawSource={toggleRawSource}
-                        onAstChange={handleAstChange}
-                        onContentChange={handleContentChange}
-                        onBlur={() => void flushAutosave()}
-                        onCopyBlockRef={(off) => void handleCopyBlockRef(off)}
-                        ref={(api) => editorApis.set(id, api)}
+                        onClosed={() => terminalTab.forget(id)}
                       />
                     </div>
                   )}
                 </For>
-              </Show>
-                  </Show>
-              </Show>
-              <For each={terminalTabIds(tabs().tabs)}>
-                {(id) => (
-                  <div
-                    style={{
-                      display: id === tabs().activeId ? "contents" : "none",
-                    }}
-                  >
-                    <TerminalPanel
-                      vaultId={vaultId()!}
-                      resolvedTheme={resolvedTheme()}
-                      onOpened={(terminalId) =>
-                        terminalTab.register(id, terminalId)
-                      }
-                      onClosed={() => terminalTab.forget(id)}
-                    />
-                  </div>
-                )}
-              </For>
               </div>
             </div>
           </main>
@@ -2427,179 +2508,175 @@ const App: Component = () => {
           setOpenInfo(null);
         }}
       >
-              <Show when={settingsTab() === "appearance"}>
-                <h2 class="set-h2">Appearance</h2>
-                <div class="set-row">
-                  <div>
-                    <div class="set-row__lab">Theme</div>
-                    <div class="set-row__desc">
-                      Follow the system, or force light / dark.
-                    </div>
-                  </div>
-                  <SegmentedControl
-                    variant="pill"
-                    role="radiogroup"
-                    options={(["system", "light", "dark"] as ThemeMode[]).map(
-                      (m) => ({ label: m, value: m, icon: THEME_ICON[m] }),
-                    )}
-                    value={themeMode()}
-                    onChange={(v) => setTheme(v as ThemeMode)}
-                  />
-                </div>
-              </Show>
-              <Show when={settingsTab() === "editor"}>
-                <h2 class="set-h2">Editor</h2>
-                <div class="set-row">
-                  <div>
-                    <div class="set-row__lab">
-                      Open notes in raw source by default
-                    </div>
-                    <div class="set-row__desc">
-                      Otherwise notes open in Live Preview.
-                    </div>
-                  </div>
-                  <OnOffControl
-                    value={rawDefault()}
-                    onChange={setRawDefaultValue}
-                  />
-                </div>
-                <div class="set-row">
-                  <div>
-                    <div class="set-row__lab">Minimap</div>
-                    <div class="set-row__desc">
-                      Show a document overview strip beside the editor.
-                    </div>
-                  </div>
-                  <OnOffControl
-                    value={minimapEnabled()}
-                    onChange={setMinimapEnabledValue}
-                  />
-                </div>
-                <div class="set-row">
-                  <div>
-                    <div class="set-row__lab">Live editor tabs</div>
-                    <div class="set-row__desc">
-                      How many open tabs keep a live editor. Tabs beyond this
-                      reload from disk when you return to them.
-                    </div>
-                  </div>
-                  <input
-                    class="set-row__num"
-                    type="number"
-                    min="1"
-                    step="1"
-                    value={liveTabLimit()}
-                    onChange={(e) =>
-                      setLiveTabLimitValue(Number(e.currentTarget.value))
+        <Show when={settingsTab() === "appearance"}>
+          <h2 class="set-h2">Appearance</h2>
+          <div class="set-row">
+            <div>
+              <div class="set-row__lab">Theme</div>
+              <div class="set-row__desc">
+                Follow the system, or force light / dark.
+              </div>
+            </div>
+            <SegmentedControl
+              variant="pill"
+              role="radiogroup"
+              options={(["system", "light", "dark"] as ThemeMode[]).map(
+                (m) => ({ label: m, value: m, icon: THEME_ICON[m] }),
+              )}
+              value={themeMode()}
+              onChange={(v) => setTheme(v as ThemeMode)}
+            />
+          </div>
+        </Show>
+        <Show when={settingsTab() === "editor"}>
+          <h2 class="set-h2">Editor</h2>
+          <div class="set-row">
+            <div>
+              <div class="set-row__lab">
+                Open notes in raw source by default
+              </div>
+              <div class="set-row__desc">
+                Otherwise notes open in Live Preview.
+              </div>
+            </div>
+            <OnOffControl value={rawDefault()} onChange={setRawDefaultValue} />
+          </div>
+          <div class="set-row">
+            <div>
+              <div class="set-row__lab">Minimap</div>
+              <div class="set-row__desc">
+                Show a document overview strip beside the editor.
+              </div>
+            </div>
+            <OnOffControl
+              value={minimapEnabled()}
+              onChange={setMinimapEnabledValue}
+            />
+          </div>
+          <div class="set-row">
+            <div>
+              <div class="set-row__lab">Live editor tabs</div>
+              <div class="set-row__desc">
+                How many open tabs keep a live editor. Tabs beyond this reload
+                from disk when you return to them.
+              </div>
+            </div>
+            <input
+              class="set-row__num"
+              type="number"
+              min="1"
+              step="1"
+              value={liveTabLimit()}
+              onChange={(e) =>
+                setLiveTabLimitValue(Number(e.currentTarget.value))
+              }
+            />
+          </div>
+          <div class="set-row">
+            <div>
+              <div class="set-row__lab">Colorize raw source</div>
+              <div class="set-row__desc">
+                In Raw Source mode, tint wiki-links, links and tags with
+                rendered-mode colors. Nothing is hidden or rendered — only
+                colors change.
+              </div>
+            </div>
+            <OnOffControl
+              value={colorizeSource()}
+              onChange={setColorizeSourceValue}
+            />
+          </div>
+          <div class="set-row">
+            <div>
+              <div class="set-row__lab">Typed properties</div>
+              <div class="set-row__desc">
+                Give frontmatter properties a type (number, currency, date &amp;
+                time, list, …) for type-aware editors.
+              </div>
+            </div>
+            <div class="set-row__control">
+              <InfoButton id="typed-props">
+                <p style={{ margin: "0 0 var(--space-1) 0" }}>
+                  <strong>How it works.</strong> Pick a type from the{" "}
+                  <code>▾</code> menu on any property row. The Properties panel
+                  then shows the right editor — a <code>$</code> field for
+                  currency, a date picker, a dropdown for an enum, and so on.
+                  The type is saved as a plain comment <em>inside the note</em>,
+                  so it travels with the file and any tool can read it. Nothing
+                  is stored outside the vault.
+                </p>
+
+                <div
+                  style={{
+                    display: "grid",
+                    "grid-template-columns": "auto 1fr",
+                    "column-gap": "var(--space-2)",
+                    "row-gap": "var(--space-1)",
+                    "align-items": "baseline",
+                    margin: "var(--space-2) 0",
+                  }}
+                >
+                  <For
+                    each={
+                      [
+                        ["# type:text", "Text."],
+                        ["# type:int", "Whole number."],
+                        ["# type:float", "Decimal number."],
+                        [
+                          "# type:float/currency/usd",
+                          "Currency — usd · nis · eur (symbol only; value stays a number).",
+                        ],
+                        ["# type:boolean", "True / false toggle."],
+                        [
+                          "# type:enum(alive,dead)",
+                          "One of a fixed set of values.",
+                        ],
+                        [
+                          "# type:date",
+                          "A date. Formats: YYYY-MM-DD, YYYY-MM-DD HH:MM, YYYY, DD-MM-YYYY, MM/DD/YYYY, … — e.g. # type:date:DD-MM-YY.",
+                        ],
+                        [
+                          "# type:list",
+                          "A list of strings; items starting with # become clickable tags.",
+                        ],
+                      ] as [string, string][]
                     }
-                  />
-                </div>
-                <div class="set-row">
-                  <div>
-                    <div class="set-row__lab">Colorize raw source</div>
-                    <div class="set-row__desc">
-                      In Raw Source mode, tint wiki-links, links and tags with
-                      rendered-mode colors. Nothing is hidden or rendered — only
-                      colors change.
-                    </div>
-                  </div>
-                  <OnOffControl
-                    value={colorizeSource()}
-                    onChange={setColorizeSourceValue}
-                  />
-                </div>
-                <div class="set-row">
-                  <div>
-                    <div class="set-row__lab">Typed properties</div>
-                    <div class="set-row__desc">
-                      Give frontmatter properties a type (number, currency,
-                      date &amp; time, list, …) for type-aware editors.
-                    </div>
-                  </div>
-                  <div class="set-row__control">
-                    <InfoButton id="typed-props">
-                      <p style={{ margin: "0 0 var(--space-1) 0" }}>
-                        <strong>How it works.</strong> Pick a type from the{" "}
-                        <code>▾</code> menu on any property row. The Properties
-                        panel then shows the right editor — a <code>$</code>{" "}
-                        field for currency, a date picker, a dropdown for an
-                        enum, and so on. The type is saved as a plain comment{" "}
-                        <em>inside the note</em>, so it travels with the file and
-                        any tool can read it. Nothing is stored outside the
-                        vault.
-                      </p>
-
-                      <div
-                        style={{
-                          display: "grid",
-                          "grid-template-columns": "auto 1fr",
-                          "column-gap": "var(--space-2)",
-                          "row-gap": "var(--space-1)",
-                          "align-items": "baseline",
-                          margin: "var(--space-2) 0",
-                        }}
-                      >
-                        <For
-                          each={
-                            [
-                              ["# type:text", "Text."],
-                              ["# type:int", "Whole number."],
-                              ["# type:float", "Decimal number."],
-                              [
-                                "# type:float/currency/usd",
-                                "Currency — usd · nis · eur (symbol only; value stays a number).",
-                              ],
-                              ["# type:boolean", "True / false toggle."],
-                              [
-                                "# type:enum(alive,dead)",
-                                "One of a fixed set of values.",
-                              ],
-                              [
-                                "# type:date",
-                                "A date. Formats: YYYY-MM-DD, YYYY-MM-DD HH:MM, YYYY, DD-MM-YYYY, MM/DD/YYYY, … — e.g. # type:date:DD-MM-YY.",
-                              ],
-                              [
-                                "# type:list",
-                                "A list of strings; items starting with # become clickable tags.",
-                              ],
-                            ] as [string, string][]
-                          }
+                  >
+                    {([token, desc]) => (
+                      <>
+                        <code
+                          style={{
+                            "font-family": "var(--font-mono)",
+                            "font-size": "var(--text-xs)",
+                            color: "var(--c-accent)",
+                            "white-space": "nowrap",
+                          }}
                         >
-                          {([token, desc]) => (
-                            <>
-                              <code
-                                style={{
-                                  "font-family": "var(--font-mono)",
-                                  "font-size": "var(--text-xs)",
-                                  color: "var(--c-accent)",
-                                  "white-space": "nowrap",
-                                }}
-                              >
-                                {token}
-                              </code>
-                              <span style={{ "font-size": "var(--text-xs)" }}>
-                                {desc}
-                              </span>
-                            </>
-                          )}
-                        </For>
-                      </div>
+                          {token}
+                        </code>
+                        <span style={{ "font-size": "var(--text-xs)" }}>
+                          {desc}
+                        </span>
+                      </>
+                    )}
+                  </For>
+                </div>
 
-                      <p style={{ margin: "0 0 var(--space-1) 0" }}>
-                        Example frontmatter:
-                      </p>
-                      <pre
-                        style={{
-                          margin: "0 0 var(--space-1) 0",
-                          padding: "var(--space-2)",
-                          "font-family": "var(--font-mono)",
-                          "font-size": "var(--text-xs)",
-                          background: "var(--c-bg-primary)",
-                          border: "1px solid var(--c-border-subtle)",
-                          "border-radius": "var(--radius-sm)",
-                          "white-space": "pre-wrap",
-                        }}
-                      >{`---
+                <p style={{ margin: "0 0 var(--space-1) 0" }}>
+                  Example frontmatter:
+                </p>
+                <pre
+                  style={{
+                    margin: "0 0 var(--space-1) 0",
+                    padding: "var(--space-2)",
+                    "font-family": "var(--font-mono)",
+                    "font-size": "var(--text-xs)",
+                    background: "var(--c-bg-primary)",
+                    border: "1px solid var(--c-border-subtle)",
+                    "border-radius": "var(--radius-sm)",
+                    "white-space": "pre-wrap",
+                  }}
+                >{`---
 name: Ann       # type:text
 price: 9.99     # type:float/currency/eur
 status: alive   # type:enum(alive,dead)
@@ -2607,224 +2684,222 @@ meeting: 2026-06-17 14:30  # type:date:YYYY-MM-DD HH:MM
 topics:         # type:list
   - "#draft"
 ---`}</pre>
-                      <p style={{ margin: 0 }}>
-                        A date using the default format, or a currency using the
-                        default code, is written without the extra detail — only
-                        a different one is written inline. Turning this off
-                        leaves any existing <code># type:</code> comments
-                        untouched.
-                      </p>
-                    </InfoButton>
-                    <OnOffControl
-                      value={typedProps()}
-                      onChange={setTypedPropsValue}
-                    />
-                  </div>
+                <p style={{ margin: 0 }}>
+                  A date using the default format, or a currency using the
+                  default code, is written without the extra detail — only a
+                  different one is written inline. Turning this off leaves any
+                  existing <code># type:</code> comments untouched.
+                </p>
+              </InfoButton>
+              <OnOffControl
+                value={typedProps()}
+                onChange={setTypedPropsValue}
+              />
+            </div>
+          </div>
+          <Show when={typedProps()}>
+            <div class="set-row">
+              <div>
+                <div class="set-row__lab">Default date format</div>
+                <div class="set-row__desc">
+                  Applied to every date property; override per-property from the
+                  type menu.
                 </div>
-                <Show when={typedProps()}>
-                  <div class="set-row">
-                    <div>
-                      <div class="set-row__lab">Default date format</div>
-                      <div class="set-row__desc">
-                        Applied to every date property; override per-property
-                        from the type menu.
-                      </div>
-                    </div>
-                    <Select
-                      options={DATE_FORMAT_TOKENS.map((t) => ({ value: t }))}
-                      value={dateDefault()}
-                      onChange={(v) => setDateDefaultValue(v)}
-                      ariaLabel="Default date format"
-                    />
-                  </div>
-                  <div class="set-row">
-                    <div>
-                      <div class="set-row__lab">Default currency</div>
-                      <div class="set-row__desc">
-                        Applied to currency properties; override per-property
-                        from the type menu.
-                      </div>
-                    </div>
-                    <Select
-                      options={CURRENCY_CODES.map((c) => ({ value: c, label: c.toUpperCase() }))}
-                      value={currencyDefault()}
-                      onChange={(v) => setCurrencyDefaultValue(v)}
-                      ariaLabel="Default currency"
-                    />
-                  </div>
-                  <div class="set-row">
-                    <div>
-                      <div class="set-row__lab">Render “tags” as tags</div>
-                      <div class="set-row__desc">
-                        Show the <code>tags</code> property's list as tag chips
-                        even when items don't start with <code>#</code>.
-                      </div>
-                    </div>
-                    <OnOffControl
-                      value={tagsKeyAsTags()}
-                      onChange={setTagsKeyAsTagsValue}
-                    />
-                  </div>
-                </Show>
-              </Show>
-              <Show when={settingsTab() === "wikilinks"}>
-                <h2 class="set-h2">Wiki links</h2>
+              </div>
+              <Select
+                options={DATE_FORMAT_TOKENS.map((t) => ({ value: t }))}
+                value={dateDefault()}
+                onChange={(v) => setDateDefaultValue(v)}
+                ariaLabel="Default date format"
+              />
+            </div>
+            <div class="set-row">
+              <div>
+                <div class="set-row__lab">Default currency</div>
+                <div class="set-row__desc">
+                  Applied to currency properties; override per-property from the
+                  type menu.
+                </div>
+              </div>
+              <Select
+                options={CURRENCY_CODES.map((c) => ({
+                  value: c,
+                  label: c.toUpperCase(),
+                }))}
+                value={currencyDefault()}
+                onChange={(v) => setCurrencyDefaultValue(v)}
+                ariaLabel="Default currency"
+              />
+            </div>
+            <div class="set-row">
+              <div>
+                <div class="set-row__lab">Render “tags” as tags</div>
+                <div class="set-row__desc">
+                  Show the <code>tags</code> property's list as tag chips even
+                  when items don't start with <code>#</code>.
+                </div>
+              </div>
+              <OnOffControl
+                value={tagsKeyAsTags()}
+                onChange={setTagsKeyAsTagsValue}
+              />
+            </div>
+          </Show>
+        </Show>
+        <Show when={settingsTab() === "wikilinks"}>
+          <h2 class="set-h2">Wiki links</h2>
+          <div class="set-row">
+            <div>
+              <div class="set-row__lab">Repair broken links on rename</div>
+              <div class="set-row__desc">
+                When you rename a file, also fix links that point at its old
+                name but had already broken (e.g. from an earlier rename). Off
+                limits a rename to links that still resolve to the file.
+              </div>
+            </div>
+            <div class="set-row__control">
+              <InfoButton id="wiki-repair">
+                <p>
+                  <strong>On:</strong> renaming a file also fixes links that
+                  point at its old name but had already broken from an earlier
+                  rename.
+                </p>
+                <p>
+                  <strong>Off:</strong> a rename only updates links that still
+                  resolve to the file.
+                </p>
+              </InfoButton>
+              <OnOffControl
+                value={rewriteBrokenLinks()}
+                onChange={setRewriteBrokenLinksValue}
+              />
+            </div>
+          </div>
+        </Show>
+        <Show when={settingsTab() === "plugins"}>
+          <h2 class="set-h2">Core Plugins</h2>
+          <For each={CORE_PLUGINS}>
+            {(p) => {
+              const on = () => corePlugins()[p.id] ?? p.defaultEnabled;
+              return (
                 <div class="set-row">
                   <div>
-                    <div class="set-row__lab">
-                      Repair broken links on rename
-                    </div>
-                    <div class="set-row__desc">
-                      When you rename a file, also fix links that point at
-                      its old name but had already broken (e.g. from an
-                      earlier rename). Off limits a rename to links that
-                      still resolve to the file.
-                    </div>
+                    <div class="set-row__lab">{p.name}</div>
+                    <div class="set-row__desc">{p.description}</div>
                   </div>
                   <div class="set-row__control">
-                    <InfoButton id="wiki-repair">
-                      <p>
-                        <strong>On:</strong> renaming a file also fixes links
-                        that point at its old name but had already broken from
-                        an earlier rename.
-                      </p>
-                      <p>
-                        <strong>Off:</strong> a rename only updates links that
-                        still resolve to the file.
-                      </p>
-                    </InfoButton>
+                    <Show when={p.id === "dataview"}>
+                      <InfoButton id="dataview">
+                        <p>
+                          A <code>query</code> block renders live results from
+                          your vault as a table, list, or count — it updates as
+                          notes change.
+                        </p>
+                        <pre>
+                          {
+                            '```query\nfrom #project where status = "active"\n```'
+                          }
+                        </pre>
+                      </InfoButton>
+                    </Show>
+                    <Show when={p.id === "property-refs"}>
+                      <InfoButton id="property-refs">
+                        <p>
+                          <code>[[note.prop]]</code> shows a value from another
+                          note's frontmatter inline; <code>[[.prop]]</code>{" "}
+                          reads the current note's own.
+                        </p>
+                        <pre>
+                          {
+                            "# In Ann.md\n---\nrole: Engineer\n---\n\n# In any note\nAnn is a [[Ann.role]]."
+                          }
+                        </pre>
+                      </InfoButton>
+                    </Show>
                     <OnOffControl
-                      value={rewriteBrokenLinks()}
-                      onChange={setRewriteBrokenLinksValue}
+                      value={on()}
+                      onChange={(v) => setCorePlugin(p.id, p.settingKey, v)}
                     />
                   </div>
                 </div>
-              </Show>
-              <Show when={settingsTab() === "plugins"}>
-                <h2 class="set-h2">Core Plugins</h2>
-                <For each={CORE_PLUGINS}>
-                  {(p) => {
-                    const on = () => corePlugins()[p.id] ?? p.defaultEnabled;
-                    return (
-                      <div class="set-row">
-                        <div>
-                          <div class="set-row__lab">{p.name}</div>
-                          <div class="set-row__desc">{p.description}</div>
-                        </div>
-                        <div class="set-row__control">
-                          <Show when={p.id === "dataview"}>
-                            <InfoButton id="dataview">
-                              <p>
-                                A <code>query</code> block renders live results
-                                from your vault as a table, list, or count — it
-                                updates as notes change.
-                              </p>
-                              <pre>{'```query\nfrom #project where status = "active"\n```'}</pre>
-                            </InfoButton>
-                          </Show>
-                          <Show when={p.id === "property-refs"}>
-                            <InfoButton id="property-refs">
-                              <p>
-                                <code>[[note.prop]]</code> shows a value from
-                                another note's frontmatter inline;{" "}
-                                <code>[[.prop]]</code> reads the current note's
-                                own.
-                              </p>
-                              <pre>{"# In Ann.md\n---\nrole: Engineer\n---\n\n# In any note\nAnn is a [[Ann.role]]."}</pre>
-                            </InfoButton>
-                          </Show>
-                          <OnOffControl
-                            value={on()}
-                            onChange={(v) =>
-                              setCorePlugin(p.id, p.settingKey, v)
-                            }
-                          />
-                        </div>
-                      </div>
-                    );
+              );
+            }}
+          </For>
+        </Show>
+        <Show when={settingsTab() === "statusbar"}>
+          <h2 class="set-h2">Status bar</h2>
+          <div class="set-row">
+            <div>
+              <div class="set-row__lab">Show status bar</div>
+              <div class="set-row__desc">
+                The bar along the bottom. When off, it disappears entirely.
+              </div>
+            </div>
+            <OnOffControl
+              value={statusbarEnabled()}
+              onChange={(v) => setStatusbarSetting(STATUSBAR_ENABLED_KEY, v)}
+            />
+          </div>
+          <For each={STATUSBAR_SEGMENTS}>
+            {(seg) => {
+              const on = () => segVisible(seg);
+              return (
+                <div
+                  class="set-row"
+                  style={{
+                    opacity: statusbarEnabled() ? 1 : 0.5,
+                    "pointer-events": statusbarEnabled() ? "auto" : "none",
                   }}
-                </For>
-              </Show>
-              <Show when={settingsTab() === "statusbar"}>
-                <h2 class="set-h2">Status bar</h2>
-                <div class="set-row">
+                >
                   <div>
-                    <div class="set-row__lab">Show status bar</div>
-                    <div class="set-row__desc">
-                      The bar along the bottom. When off, it disappears entirely.
-                    </div>
+                    <div class="set-row__lab">{seg.name}</div>
+                    <div class="set-row__desc">{seg.description}</div>
                   </div>
                   <OnOffControl
-                    value={statusbarEnabled()}
-                    onChange={(v) =>
-                      setStatusbarSetting(STATUSBAR_ENABLED_KEY, v)
-                    }
+                    value={on()}
+                    onChange={(v) => setStatusbarSetting(seg.settingKey, v)}
                   />
                 </div>
-                <For each={STATUSBAR_SEGMENTS}>
-                  {(seg) => {
-                    const on = () => segVisible(seg);
-                    return (
-                      <div
-                        class="set-row"
-                        style={{
-                          opacity: statusbarEnabled() ? 1 : 0.5,
-                          "pointer-events": statusbarEnabled() ? "auto" : "none",
-                        }}
-                      >
-                        <div>
-                          <div class="set-row__lab">{seg.name}</div>
-                          <div class="set-row__desc">{seg.description}</div>
-                        </div>
-                        <OnOffControl
-                          value={on()}
-                          onChange={(v) =>
-                            setStatusbarSetting(seg.settingKey, v)
-                          }
-                        />
-                      </div>
-                    );
-                  }}
-                </For>
-              </Show>
-              <Show when={settingsTab() === "vault"}>
-                <h2 class="set-h2">Vault</h2>
-                <div class="set-row">
-                  <div>
-                    <div class="set-row__lab">Current vault</div>
-                    <div class="set-row__desc">{vaultPath() ?? "—"}</div>
-                  </div>
-                  <Button
-                    variant="primary"
-                    onClick={handleOpen}
-                    disabled={busy()}
-                  >
-                    Open another…
-                  </Button>
-                </div>
-              </Show>
-              <Show when={settingsTab() === "shortcuts"}>
-                <div
-                  class="set-row__control"
-                  style={{ "justify-content": "flex-end", "margin-bottom": "var(--space-2)" }}
-                >
-                  <InfoButton id="shortcuts">
-                    <p>
-                      Click <strong>Change</strong> on any row, then press the
-                      key combination you want. Escape cancels; a combo
-                      already used in the same scope is rejected. New in this
-                      release: follow the link under the cursor (Alt+Enter),
-                      toggle the left sidebar (⌘/Ctrl+Shift+L), new note
-                      (⌘/Ctrl+N), and navigate back/forward
-                      (⌘/Ctrl+Alt+←/→).
-                    </p>
-                  </InfoButton>
-                </div>
-                <ShortcutsPanel
-                  overrides={shortcutOverrides()}
-                  onChange={setShortcutOverridesValue}
-                />
-              </Show>
+              );
+            }}
+          </For>
+        </Show>
+        <Show when={settingsTab() === "vault"}>
+          <h2 class="set-h2">Vault</h2>
+          <div class="set-row">
+            <div>
+              <div class="set-row__lab">Current vault</div>
+              <div class="set-row__desc">{vaultPath() ?? "—"}</div>
+            </div>
+            <Button variant="primary" onClick={handleOpen} disabled={busy()}>
+              Open another…
+            </Button>
+          </div>
+        </Show>
+        <Show when={settingsTab() === "shortcuts"}>
+          <div
+            class="set-row__control"
+            style={{
+              "justify-content": "flex-end",
+              "margin-bottom": "var(--space-2)",
+            }}
+          >
+            <InfoButton id="shortcuts">
+              <p>
+                Click <strong>Change</strong> on any row, then press the key
+                combination you want. Escape cancels; a combo already used in
+                the same scope is rejected. New in this release: follow the link
+                under the cursor (Alt+Enter), toggle the left sidebar
+                (⌘/Ctrl+Shift+L), new note (⌘/Ctrl+N), and navigate back/forward
+                (⌘/Ctrl+Alt+←/→).
+              </p>
+            </InfoButton>
+          </div>
+          <ShortcutsPanel
+            overrides={shortcutOverrides()}
+            onChange={setShortcutOverridesValue}
+          />
+        </Show>
       </TwoPaneModal>
 
       <Show when={createOffer() !== null}>
@@ -2882,7 +2957,11 @@ topics:         # type:list
                 "justify-content": "flex-end",
               }}
             >
-              <Button variant="secondary" size="sm" onClick={dismissCreateOffer}>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={dismissCreateOffer}
+              >
                 Cancel
               </Button>
               <Button

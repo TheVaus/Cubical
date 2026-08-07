@@ -22,14 +22,14 @@ use cubical_engine::api::types::{
     LinkAutocompleteResponse, ListDanglingLinksRequest, ListDanglingLinksResponse,
     ListFilesRequest, ListFilesResponse, ListRecentRenameOpsRequest, ListRecentRenameOpsResponse,
     ListTagsRequest, ListTagsResponse, OpenVaultRequest, OpenVaultResponse, QueryTagPageRequest,
-    QueryTagPageResponse, ReadFileTextRequest, ReadFileTextResponse, ReloadSettingsRequest,
-    ReloadSettingsResponse, RenameBlockIdRequest, RenameBlockIdResponse, RenameFileRequest,
-    RenameFileResponse, RenameFolderRequest, RenameFolderResponse, RenameTagRequest,
-    RenameTagResponse, RepairDanglingLinkRequest, RepairDanglingLinkResponse, ResolveLinkRequest,
-    ResolveLinkResponse, SearchHealthDto, SearchIndexStatusDto, SearchRequest, SearchResponse,
-    SearchVaultRequest, SetSettingRequest, SetSettingResponse, TagAutocompleteRequest,
-    TagAutocompleteResponse, UndoRenameRequest, UndoRenameResponse, WriteFileTextRequest,
-    WriteFileTextResponse,
+    QueryTagPageResponse, ReadFileBytesRequest, ReadFileBytesResponse, ReadFileTextRequest,
+    ReadFileTextResponse, ReloadSettingsRequest, ReloadSettingsResponse, RenameBlockIdRequest,
+    RenameBlockIdResponse, RenameFileRequest, RenameFileResponse, RenameFolderRequest,
+    RenameFolderResponse, RenameTagRequest, RenameTagResponse, RepairDanglingLinkRequest,
+    RepairDanglingLinkResponse, ResolveLinkRequest, ResolveLinkResponse, SearchHealthDto,
+    SearchIndexStatusDto, SearchRequest, SearchResponse, SearchVaultRequest, SetSettingRequest,
+    SetSettingResponse, TagAutocompleteRequest, TagAutocompleteResponse, UndoRenameRequest,
+    UndoRenameResponse, WriteFileTextRequest, WriteFileTextResponse,
 };
 use cubical_engine::commands;
 use cubical_engine::error::CubicalError;
@@ -92,6 +92,7 @@ pub fn run() {
             delete_path,
             get_frontmatter,
             read_file_text,
+            read_file_bytes,
             write_file_text,
             get_setting,
             set_setting,
@@ -369,6 +370,14 @@ async fn read_file_text(
     req: ReadFileTextRequest,
 ) -> Result<ReadFileTextResponse, CubicalError> {
     commands::vault::read_file_text(state.inner(), req).await
+}
+
+#[tauri::command]
+async fn read_file_bytes(
+    state: tauri::State<'_, AppState>,
+    req: ReadFileBytesRequest,
+) -> Result<ReadFileBytesResponse, CubicalError> {
+    commands::vault::read_file_bytes(state.inner(), req).await
 }
 
 #[tauri::command]
