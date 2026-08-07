@@ -471,11 +471,25 @@ pub async fn get_frontmatter(
     Ok(GetFrontmatterResponse { entries })
 }
 
+pub fn extension_of(path: &str) -> String {
+    std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default()
+}
+
+pub const EDITABLE_TEXT_EXTENSIONS: &[&str] = &["txt", "text", "log"];
+
+pub fn editable_as_text(path: &str, type_id: &str) -> bool {
+    type_id == "markdown" || EDITABLE_TEXT_EXTENSIONS.contains(&extension_of(path).as_str())
+}
+
 pub async fn read_file_text(
     state: &AppState,
     req: ReadFileTextRequest,
 ) -> Result<ReadFileTextResponse, CubicalError> {
-    let (abs_path, vault) = {
+    let (abs_path, vault, is_markdown) = {
         let guard = state.vaults().read().await;
         let open = guard
             .get(&req.vault_id)
@@ -493,19 +507,29 @@ pub async fn read_file_text(
             .await?
             .ok_or_else(|| CubicalError::FileNotFound(req.path.clone()))?;
         let type_id: String = row.get(0)?;
-        if type_id != "markdown" {
+        if !editable_as_text(&req.path, &type_id) {
             return Err(CubicalError::InvalidRequest(format!(
-                "read_file_text only supports markdown files (path '{}' has type_id '{}')",
+                "read_file_text only supports markdown and plain-text files \
+                 (path '{}' has type_id '{}')",
                 req.path, type_id,
             )));
         }
-        (open.vault.root().join(&req.path), open.vault.clone())
+        (
+            open.vault.root().join(&req.path),
+            open.vault.clone(),
+            type_id == "markdown",
+        )
     };
 
     let on_disk = tokio::task::spawn_blocking(move || std::fs::read_to_string(&abs_path))
         .await
         .map_err(|e| CubicalError::Io(format!("read task join error: {e}")))?
         .map_err(|e| CubicalError::Io(e.to_string()))?;
+
+    // Pending rewrites only ever target markdown wikilinks; never touch plain text.
+    if !is_markdown {
+        return Ok(ReadFileTextResponse { content: on_disk });
+    }
 
     let content =
         cubical_core::vault::pending::materialize_on_read(vault.index(), &req.path, &on_disk)
@@ -616,9 +640,10 @@ pub async fn write_file_text(
             .await?
             .ok_or_else(|| CubicalError::FileNotFound(req.path.clone()))?;
         let type_id: String = row.get(0)?;
-        if type_id != "markdown" {
+        if !editable_as_text(&req.path, &type_id) {
             return Err(CubicalError::InvalidRequest(format!(
-                "write_file_text only supports markdown files (path '{}' has type_id '{}')",
+                "write_file_text only supports markdown and plain-text files \
+                 (path '{}' has type_id '{}')",
                 req.path, type_id,
             )));
         }
@@ -1275,6 +1300,93 @@ mod tests {
         .await
         .expect("ok");
         assert_eq!(resp.content, body);
+    }
+
+    #[test]
+    fn editable_as_text_admits_markdown_and_plain_text_only() {
+        assert!(editable_as_text("note.md", "markdown"));
+        assert!(editable_as_text("notes.txt", "binary"));
+        assert!(editable_as_text("run.LOG", "binary"));
+        // A viewer is not an editor: these stay read-only.
+        assert!(!editable_as_text("data.csv", "binary"));
+        assert!(!editable_as_text("data.tsv", "binary"));
+        assert!(!editable_as_text("photo.png", "binary"));
+        assert!(!editable_as_text("archive.tar.gz", "binary"));
+        assert!(!editable_as_text("LICENSE", "binary"));
+    }
+
+    #[tokio::test]
+    async fn read_file_text_returns_content_for_plain_text() {
+        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        let body = "line one\nline two\n";
+        seed_file_on_disk(&vault, "notes.txt", body, "binary").await;
+
+        let resp = read_file_text(
+            &state,
+            ReadFileTextRequest {
+                vault_id: "v1".into(),
+                path: "notes.txt".into(),
+            },
+        )
+        .await
+        .expect("ok");
+        assert_eq!(resp.content, body);
+    }
+
+    #[tokio::test]
+    async fn read_file_text_still_refuses_a_csv_or_binary() {
+        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        seed_file_on_disk(&vault, "data.csv", "a,b\n1,2\n", "binary").await;
+        seed_file_on_disk(&vault, "photo.png", "\u{0}bytes", "binary").await;
+
+        for path in ["data.csv", "photo.png"] {
+            let err = read_file_text(
+                &state,
+                ReadFileTextRequest {
+                    vault_id: "v1".into(),
+                    path: path.into(),
+                },
+            )
+            .await
+            .expect_err("must stay read-only");
+            assert!(matches!(err, CubicalError::InvalidRequest(_)), "{path}");
+        }
+    }
+
+    #[tokio::test]
+    async fn write_file_text_writes_plain_text_but_still_refuses_a_binary() {
+        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        seed_file_on_disk(&vault, "notes.txt", "before\n", "binary").await;
+        seed_file_on_disk(&vault, "photo.png", "\u{0}bytes", "binary").await;
+
+        write_file_text(
+            &state,
+            WriteFileTextRequest {
+                vault_id: "v1".into(),
+                path: "notes.txt".into(),
+                content: "after\n".into(),
+                expected_seen_hash: None,
+            },
+        )
+        .await
+        .expect("plain text is writable");
+        assert_eq!(
+            std::fs::read_to_string(vault.root().join("notes.txt")).unwrap(),
+            "after\n",
+        );
+
+        let err = write_file_text(
+            &state,
+            WriteFileTextRequest {
+                vault_id: "v1".into(),
+                path: "photo.png".into(),
+                content: "clobbered".into(),
+                expected_seen_hash: None,
+            },
+        )
+        .await
+        .expect_err("a binary must never be writable as text");
+        assert!(matches!(err, CubicalError::InvalidRequest(_)));
     }
 
     #[tokio::test]
