@@ -1,22 +1,19 @@
-import {
-  For,
-  Match,
-  Show,
-  Switch,
-  createResource,
-  type JSXElement,
-} from "solid-js";
+import { Show, createEffect, createResource, type JSXElement } from "solid-js";
 
 import Callout from "@ds/components/feedback/Callout/Callout";
 
 import { readFileBytes } from "../api/ipc";
 import { errorMessage } from "../errorMessage";
-import { base64ToText, dataUrl } from "./decode";
-import { padRows, parseDelimited } from "./delimited";
+import { base64ToText } from "./decode";
+import {
+  renderDelimitedTable,
+  renderImage,
+  renderPlainText,
+  replaceChildren,
+} from "./render";
 import {
   delimiterForPath,
   formatBytes,
-  MAX_DELIMITED_VIEWER_ROWS,
   maxBytesForKind,
   viewerKindForPath,
   type ViewerKind,
@@ -30,7 +27,7 @@ export interface FileViewerProps {
   mtimeUnix: number;
 }
 
-interface Payload {
+export interface Payload {
   kind: ViewerKind;
   mime: string;
   base64: string;
@@ -40,6 +37,25 @@ const KEY_SEP = "\u0000";
 
 function fileName(path: string): string {
   return path.slice(path.lastIndexOf("/") + 1);
+}
+
+export function renderViewerPayload(
+  payload: Payload,
+  path: string,
+): DocumentFragment {
+  switch (payload.kind) {
+    case "image":
+      return renderImage(payload.mime, payload.base64, fileName(path));
+    case "delimited":
+      return renderDelimitedTable(
+        base64ToText(payload.base64),
+        delimiterForPath(path),
+      );
+    case "text":
+      return renderPlainText(base64ToText(payload.base64));
+    case "unsupported":
+      return renderPlainText("");
+  }
 }
 
 export function FileViewer(props: FileViewerProps): JSXElement {
@@ -69,20 +85,15 @@ export function FileViewer(props: FileViewerProps): JSXElement {
     },
   );
 
-  const text = (): string => {
-    if (payload.state !== "ready") return "";
-    const p = payload();
-    return p ? base64ToText(p.base64) : "";
-  };
+  let stage: HTMLDivElement | undefined;
 
-  const table = () => {
-    const rows = padRows(parseDelimited(text(), delimiterForPath(props.path)));
-    return {
-      header: rows[0] ?? [],
-      body: rows.slice(1, MAX_DELIMITED_VIEWER_ROWS + 1),
-      truncated: Math.max(0, rows.length - 1 - MAX_DELIMITED_VIEWER_ROWS),
-    };
-  };
+  createEffect(() => {
+    if (stage === undefined) return;
+    if (payload.state !== "ready") return;
+    const p = payload();
+    if (p === undefined) return;
+    replaceChildren(stage, renderViewerPayload(p, props.path));
+  });
 
   return (
     <div class="viewer" data-viewer-kind={kind()}>
@@ -109,54 +120,7 @@ export function FileViewer(props: FileViewerProps): JSXElement {
           </div>
         </Show>
 
-        <Show when={payload.state === "ready" && payload()}>
-          {(p) => (
-            <Switch>
-              <Match when={p().kind === "image"}>
-                <div class="viewer__image-stage">
-                  <img
-                    class="viewer__image"
-                    src={dataUrl(p().mime, p().base64)}
-                    alt={fileName(props.path)}
-                  />
-                </div>
-              </Match>
-
-              <Match when={p().kind === "text"}>
-                <pre class="viewer__text">{text()}</pre>
-              </Match>
-
-              <Match when={p().kind === "delimited"}>
-                <div class="viewer__table-scroll">
-                  <table class="viewer__table">
-                    <thead>
-                      <tr>
-                        <For each={table().header}>
-                          {(cell) => <th>{cell}</th>}
-                        </For>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <For each={table().body}>
-                        {(row) => (
-                          <tr>
-                            <For each={row}>{(cell) => <td>{cell}</td>}</For>
-                          </tr>
-                        )}
-                      </For>
-                    </tbody>
-                  </table>
-                  <Show when={table().truncated > 0}>
-                    <p class="viewer__truncated">
-                      Showing the first {MAX_DELIMITED_VIEWER_ROWS} rows —{" "}
-                      {table().truncated} more in the file.
-                    </p>
-                  </Show>
-                </div>
-              </Match>
-            </Switch>
-          )}
-        </Show>
+        <div class="viewer__stage" ref={stage} />
       </Show>
     </div>
   );

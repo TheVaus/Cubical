@@ -347,6 +347,7 @@ pub enum EmbedKind {
     Note,
     Section,
     Block,
+    File,
     Unresolved,
     MissingAnchor,
 }
@@ -356,6 +357,8 @@ pub struct GetEmbedResponse {
     pub kind: EmbedKind,
     pub target_path: Option<String>,
     pub content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mime: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

@@ -339,6 +339,18 @@ ceiling owned by [`../architecture/document-model.md`](../architecture/document-
 cycles are caught by growing a chain of resolved paths, seeded with the open
 note's path so a self-embed is detected.
 
+## One renderer per viewer format
+
+`viewer/render.ts` holds framework-free DOM builders — table, plain text,
+image. Three surfaces consume them and none of them owns a second copy: the
+file tab (`viewer/FileViewer.tsx`, which mounts a fragment rather than
+duplicating the markup in JSX), the embed body (`editor/embedRender.ts`), and
+the ` ```csv ` widget (`editor/csvBlock.ts`).
+
+That is what makes "an embed looks like the file's own tab" a property of the
+code rather than a convention to maintain — both call `renderViewerPayload`.
+A new viewer format is added once, in `render.ts`, and appears in all three.
+
 ## WKWebView event quirks
 
 Two platform behaviours shape every click interceptor (wiki-link, tag,
