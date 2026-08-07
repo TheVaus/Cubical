@@ -1453,6 +1453,75 @@ mod tests {
         assert!(matches!(err, CubicalError::FileNotFound(p) if p == "missing.png"));
     }
 
+    #[tokio::test]
+    async fn read_file_bytes_serves_every_viewer_format_after_a_real_scan() {
+        let (dir, vault, state) = fresh_state_with_vault("v1").await;
+
+        let png: &[u8] = &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0xFF, 0x00];
+        let jpeg: &[u8] = &[0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10];
+        let svg = b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>\n";
+        let txt = "plain text\nwith \u{2014} unicode\n".as_bytes();
+        let csv = b"name,role\nGandalf,\"Wizard, grey\"\n";
+        let pdf = b"%PDF-1.4\n";
+
+        let cases: &[(&str, &[u8], &str)] = &[
+            ("photo.png", png, "image/png"),
+            ("photo.jpg", jpeg, "image/jpeg"),
+            ("logo.svg", svg, "image/svg+xml"),
+            ("notes.txt", txt, "text/plain"),
+            ("data.csv", csv, "text/csv"),
+            ("manual.pdf", pdf, "application/octet-stream"),
+        ];
+        for (name, bytes, _) in cases {
+            std::fs::write(dir.path().join(name), bytes).expect("write fixture");
+        }
+        std::fs::write(dir.path().join("note.md"), b"# a real note\n").expect("write note");
+
+        let (tx, mut rx) = tokio::sync::mpsc::channel(64);
+        tokio::spawn(async move { while rx.recv().await.is_some() {} });
+        cubical_core::scan(
+            vault.clone(),
+            tokio_util::sync::CancellationToken::new(),
+            tx,
+        )
+        .await
+        .expect("scan");
+
+        for (name, expected_bytes, expected_mime) in cases {
+            let resp = read_file_bytes(
+                &state,
+                ReadFileBytesRequest {
+                    vault_id: "v1".into(),
+                    path: (*name).into(),
+                },
+            )
+            .await
+            .unwrap_or_else(|e| panic!("read {name}: {e:?}"));
+
+            assert_eq!(resp.mime, *expected_mime, "mime for {name}");
+            assert_eq!(
+                resp.size_bytes,
+                expected_bytes.len() as u64,
+                "size for {name}"
+            );
+            let decoded =
+                base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &resp.base64)
+                    .unwrap_or_else(|e| panic!("base64 for {name}: {e:?}"));
+            assert_eq!(decoded, *expected_bytes, "bytes for {name}");
+        }
+
+        let err = read_file_bytes(
+            &state,
+            ReadFileBytesRequest {
+                vault_id: "v1".into(),
+                path: "note.md".into(),
+            },
+        )
+        .await
+        .expect_err("markdown stays with read_file_text");
+        assert!(matches!(err, CubicalError::InvalidRequest(_)));
+    }
+
     #[test]
     fn mime_for_extension_covers_the_supported_viewer_types() {
         let cases: &[(&str, &str)] = &[
