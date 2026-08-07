@@ -90,7 +90,13 @@ import {
   type NavState,
 } from "./navHistory";
 import TabStrip from "./tabs/TabStrip";
-import { FileViewer, hasViewer } from "./viewer";
+import {
+  FileViewer,
+  hasViewer,
+  isEditableText,
+  supportsSourceView,
+  viewerKindForPath,
+} from "./viewer";
 import {
   activeTab,
   closeTab,
@@ -251,11 +257,21 @@ const App: Component = () => {
     if (value === null) setContents(produce((c) => delete c[id]));
     else setContents(id, value);
   };
-  const [propertiesFrontmatter, setPropertiesFrontmatter] =
-    createSignal<Frontmatter | null>(null);
-
-  const [blockCount, setBlockCount] = createSignal(0);
-  const [wordCount, setWordCount] = createSignal(0);
+  interface DocSummary {
+    frontmatter: Frontmatter | null;
+    blocks: number;
+    words: number;
+  }
+  const [docSummaries, setDocSummaries] = createStore<
+    Record<string, DocSummary>
+  >({});
+  const activeSummary = (): DocSummary | undefined => {
+    const id = tabs().activeId;
+    return id === null ? undefined : docSummaries[id];
+  };
+  const propertiesFrontmatter = () => activeSummary()?.frontmatter ?? null;
+  const blockCount = () => activeSummary()?.blocks ?? 0;
+  const wordCount = () => activeSummary()?.words ?? 0;
 
   const [scrollTop, setScrollTop] = createSignal(0);
   const [viewportHeight, setViewportHeight] = createSignal(600);
@@ -489,14 +505,25 @@ const App: Component = () => {
 
   const [mru, setMru] = createSignal<string[]>([]);
   const editorApis = new Map<string, EditorApi>();
+  // A path the editor can hold: markdown, or a plain-text file the engine
+  // will write back. Everything else belongs to the read-only viewer.
+  const isEditablePath = (p: string) => !hasViewer(p) || isEditableText(p);
   const live = () =>
     liveFileIds(mru(), tabs().activeId, liveTabLimit(), (id) => {
       const p = pathForId(id);
-      return p !== null && !hasViewer(p);
+      return p !== null && isEditablePath(p);
     });
+  // Plain text hands off to the editor in source mode; the viewer keeps it
+  // read-only otherwise.
   const viewerPath = createMemo(() => {
     const path = selectedPath();
-    return path !== null && vaultId() && hasViewer(path) ? path : null;
+    if (path === null || !vaultId() || !hasViewer(path)) return null;
+    if (isEditableText(path) && effectiveRaw()) return null;
+    return path;
+  });
+  const sourceViewAvailable = createMemo(() => {
+    const p = viewerPath();
+    return p === null || supportsSourceView(viewerKindForPath(p));
   });
   const viewerEntry = (): FileEntry | undefined => {
     const path = viewerPath();
@@ -568,6 +595,22 @@ const App: Component = () => {
   createEffect(() => {
     const id = tabs().activeId;
     if (id !== null) setMru((m) => touch(m, id));
+  });
+
+  createEffect(() => {
+    const open = new Set(tabs().tabs.map((t) => t.id));
+    setMru((m) =>
+      m.every((id) => open.has(id)) ? m : m.filter((id) => open.has(id)),
+    );
+    untrack(() => {
+      const stale = Object.keys(docSummaries).filter((id) => !open.has(id));
+      if (stale.length === 0) return;
+      setDocSummaries(
+        produce((s: Record<string, DocSummary>) => {
+          for (const id of stale) delete s[id];
+        }),
+      );
+    });
   });
 
   createEffect(() => {
@@ -829,12 +872,20 @@ const App: Component = () => {
     }
   };
 
-  const commitTitleRename = (fromPath: string, newStem: string) => {
-    const stem = newStem.trim();
-    if (!stem) return;
+  // Markdown titles are shown stem-only and get .md reattached. A plain-text
+  // file carries its extension in the title, so it renames to what was typed —
+  // reattaching .md would turn notes.txt into notes.txt.md.
+  const titleValue = (path: string) =>
+    path.endsWith(".md") ? fileStem(path) : (path.split("/").pop() ?? path);
+
+  const commitTitleRename = (fromPath: string, typed: string) => {
+    const name = typed.trim();
+    if (!name) return;
     const slash = fromPath.lastIndexOf("/");
     const dir = slash >= 0 ? fromPath.slice(0, slash + 1) : "";
-    const target = `${dir}${stem}.md`;
+    const target = fromPath.endsWith(".md")
+      ? `${dir}${name}.md`
+      : `${dir}${name}`;
     if (target === fromPath) return;
     void handleRenameCommit(fromPath, target);
   };
@@ -850,12 +901,15 @@ const App: Component = () => {
     scheduleAutosave();
   };
 
-  const handleAstChange = (doc: CanonicalDocument) => {
-    setPropertiesFrontmatter(doc.frontmatter);
-    setBlockCount(doc.blocks.length);
-    const text = editorApi()?.getContent() ?? selectedContent() ?? "";
+  const handleAstChange = (tabIdOfDoc: string, doc: CanonicalDocument) => {
+    const text =
+      editorApis.get(tabIdOfDoc)?.getContent() ?? contents[tabIdOfDoc] ?? "";
     const trimmed = text.trim();
-    setWordCount(trimmed ? trimmed.split(/\s+/).length : 0);
+    setDocSummaries(tabIdOfDoc, {
+      frontmatter: doc.frontmatter,
+      blocks: doc.blocks.length,
+      words: trimmed ? trimmed.split(/\s+/).length : 0,
+    });
   };
 
   const setTheme = (mode: ThemeMode) => {
@@ -864,15 +918,30 @@ const App: Component = () => {
     persistSetting(vaultId(), "appearance.theme_mode", mode);
   };
 
+  // Leaving source mode unmounts the editor for a plain-text file, so any edit
+  // still inside the autosave debounce has to land before the mode flips.
+  const withRawFlush = (apply: () => void) => {
+    const path = selectedPath();
+    if (path === null || !isEditableText(path)) {
+      apply();
+      return;
+    }
+    void flushAutosave().then(apply);
+  };
+
   const toggleRawSource = () => {
-    setRawOverride(!effectiveRaw());
+    if (!sourceViewAvailable()) return;
+    const next = !effectiveRaw();
+    withRawFlush(() => setRawOverride(next));
   };
 
   const setRawAsDefault = () => {
     const next = !effectiveRaw();
-    setRawDefault(next);
-    setRawOverride(null);
-    persistSetting(vaultId(), "editor.raw_source_default", next);
+    withRawFlush(() => {
+      setRawDefault(next);
+      setRawOverride(null);
+      persistSetting(vaultId(), "editor.raw_source_default", next);
+    });
   };
 
   const setRawDefaultValue = (val: boolean) => {
@@ -952,7 +1021,7 @@ const App: Component = () => {
     const id = vaultId();
     const path = selectedPath();
     if (!id || path === null) return;
-    if (hasViewer(path)) return;
+    if (!isEditablePath(path)) return;
     try {
       const resp = await readFileText({ vault_id: id, path });
       setSelectedContent(resp.content);
@@ -966,7 +1035,6 @@ const App: Component = () => {
     setError(null);
     setConflictExternalHash(null);
     setRawOverride(null);
-    setPropertiesFrontmatter(null);
     seenHash = null;
     lastWrittenHash = null;
     dirty = false;
@@ -1033,7 +1101,7 @@ const App: Component = () => {
     resetDocState();
     setTabs((s) => openTab(s, { kind: "file", path: file.path }));
     if (!opts?.fromHistory) setNavState((s) => navPush(s, file.path));
-    if (!isMarkdown) return;
+    if (!isMarkdown && !isEditableText(file.path)) return;
     seenHash = knownHash ?? null;
     lastWrittenHash = knownHash ?? null;
     await loadActiveTabContent();
@@ -1605,9 +1673,11 @@ const App: Component = () => {
         }),
       );
       setMru([]);
-      setPropertiesFrontmatter(null);
-      setBlockCount(0);
-      setWordCount(0);
+      setDocSummaries(
+        produce((s: Record<string, DocSummary>) => {
+          for (const k of Object.keys(s)) delete s[k];
+        }),
+      );
       setConflictExternalHash(null);
       setRawOverride(null);
       setCreateOffer(null);
@@ -1745,15 +1815,18 @@ const App: Component = () => {
             <IconButton
               label="Toggle raw source"
               mono
-              active={effectiveRaw()}
-              ariaPressed={effectiveRaw()}
+              active={effectiveRaw() && sourceViewAvailable()}
+              ariaPressed={effectiveRaw() && sourceViewAvailable()}
+              disabled={!sourceViewAvailable()}
               onClick={(e) =>
                 e.shiftKey ? setRawAsDefault() : toggleRawSource()
               }
               title={
-                effectiveRaw()
-                  ? "Raw source (Cmd/Ctrl+E · Shift-click sets default)"
-                  : "Live preview (Cmd/Ctrl+E · Shift-click sets default)"
+                !sourceViewAvailable()
+                  ? "This file has no source view"
+                  : effectiveRaw()
+                    ? "Raw source (Cmd/Ctrl+E · Shift-click sets default)"
+                    : "Live preview (Cmd/Ctrl+E · Shift-click sets default)"
               }
             >
               &lt;/&gt;
@@ -1998,6 +2071,8 @@ const App: Component = () => {
                               );
                             }
                             const isMarkdown = row.typeId === "markdown";
+                            const isUnsupported =
+                              !isMarkdown && !hasViewer(row.path);
                             const isSelected = () =>
                               selectedPath() === row.path;
                             const isRenaming = () =>
@@ -2008,6 +2083,7 @@ const App: Component = () => {
                                 class="tree-row tree-row--file"
                                 classList={{
                                   "tree-row--selected": isSelected(),
+                                  "tree-row--unsupported": isUnsupported,
                                 }}
                                 role="option"
                                 aria-selected={isSelected()}
@@ -2043,11 +2119,15 @@ const App: Component = () => {
                                         "tree-row__name--dotted":
                                           isMarkdown &&
                                           !isValidNoteName(row.name),
+                                        "tree-row__name--unsupported":
+                                          isUnsupported,
                                       }}
                                       title={
                                         isMarkdown && !isValidNoteName(row.name)
                                           ? noteNameError(row.name)
-                                          : undefined
+                                          : isUnsupported
+                                            ? `Cubical has no viewer for .${splitFileName(row.name).ext} files — the file is untouched on disk.`
+                                            : undefined
                                       }
                                     >
                                       {parts().stem}
@@ -2068,6 +2148,16 @@ const App: Component = () => {
                                         >
                                           {" "}
                                           <Icon name="warning" />
+                                        </span>
+                                      </Show>
+                                      <Show when={isUnsupported}>
+                                        <span
+                                          class="tree-row__unsupported-badge"
+                                          aria-label="Unsupported file"
+                                          role="img"
+                                        >
+                                          {" "}
+                                          <Icon name="info" />
                                         </span>
                                       </Show>
                                     </span>
@@ -2205,14 +2295,17 @@ const App: Component = () => {
                                 class="doc-title"
                                 aria-label="File name"
                                 spellcheck={false}
-                                value={fileStem(path)}
+                                // Only note names are renameable here:
+                                // isValidNoteName rejects every dotted name.
+                                readOnly={!path.endsWith(".md")}
+                                value={titleValue(path)}
                                 onKeyDown={(e) => {
                                   if (e.key === "Enter") {
                                     e.preventDefault();
                                     e.currentTarget.blur();
                                   } else if (e.key === "Escape") {
                                     e.preventDefault();
-                                    e.currentTarget.value = fileStem(path);
+                                    e.currentTarget.value = titleValue(path);
                                     e.currentTarget.blur();
                                   }
                                 }}
@@ -2353,7 +2446,9 @@ const App: Component = () => {
                                     void handleNavigateTag(tagPath)
                                   }
                                   onToggleRawSource={toggleRawSource}
-                                  onAstChange={handleAstChange}
+                                  onAstChange={(doc) =>
+                                    handleAstChange(id, doc)
+                                  }
                                   onContentChange={handleContentChange}
                                   onBlur={() => void flushAutosave()}
                                   onCopyBlockRef={(off) =>
@@ -2373,6 +2468,7 @@ const App: Component = () => {
                           path={path}
                           sizeBytes={viewerEntry()?.size_bytes ?? 0}
                           mtimeUnix={viewerEntry()?.mtime_unix ?? 0}
+                          rawSource={effectiveRaw()}
                         />
                       )}
                     </Show>

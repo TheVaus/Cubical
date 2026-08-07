@@ -33,6 +33,17 @@ export function hasViewer(path: string): boolean {
   return viewerKindForPath(path) !== "unsupported";
 }
 
+export function supportsSourceView(kind: ViewerKind): boolean {
+  return kind === "text" || kind === "delimited";
+}
+
+const EDITABLE_TEXT_EXTENSIONS = new Set(["txt", "text", "log"]);
+
+// Pairs with editable_as_text in cubical-engine — docs/implementation/frontend.md
+export function isEditableText(path: string): boolean {
+  return EDITABLE_TEXT_EXTENSIONS.has(extensionOf(path));
+}
+
 export function delimiterForPath(path: string): string {
   return extensionOf(path) === "tsv" ? "\t" : ",";
 }

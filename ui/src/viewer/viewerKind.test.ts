@@ -4,9 +4,11 @@ import {
   extensionOf,
   formatBytes,
   hasViewer,
+  isEditableText,
   MAX_IMAGE_VIEWER_BYTES,
   MAX_TEXT_VIEWER_BYTES,
   maxBytesForKind,
+  supportsSourceView,
   viewerKindForPath,
 } from "./viewerKind";
 
@@ -89,5 +91,34 @@ describe("formatBytes", () => {
     expect(formatBytes(2048)).toBe("2 KB");
     expect(formatBytes(1536)).toBe("1.5 KB");
     expect(formatBytes(25 * 1024 * 1024)).toBe("25 MB");
+  });
+});
+
+describe("isEditableText", () => {
+  it("admits the plain-text extensions the engine will write back", () => {
+    expect(isEditableText("notes.txt")).toBe(true);
+    expect(isEditableText("a/b/run.LOG")).toBe(true);
+    expect(isEditableText("readme.text")).toBe(true);
+  });
+
+  it("excludes delimited files, which have a viewer but no editor", () => {
+    expect(isEditableText("data.csv")).toBe(false);
+    expect(isEditableText("data.tsv")).toBe(false);
+  });
+
+  it("excludes images, markdown and unknown types", () => {
+    expect(isEditableText("photo.png")).toBe(false);
+    expect(isEditableText("note.md")).toBe(false);
+    expect(isEditableText("archive.tar.gz")).toBe(false);
+    expect(isEditableText("LICENSE")).toBe(false);
+  });
+});
+
+describe("supportsSourceView", () => {
+  it("is true for text and delimited, false for image and unsupported", () => {
+    expect(supportsSourceView("text")).toBe(true);
+    expect(supportsSourceView("delimited")).toBe(true);
+    expect(supportsSourceView("image")).toBe(false);
+    expect(supportsSourceView("unsupported")).toBe(false);
   });
 });

@@ -15,6 +15,7 @@ import {
   delimiterForPath,
   formatBytes,
   maxBytesForKind,
+  supportsSourceView,
   viewerKindForPath,
   type ViewerKind,
 } from "./viewerKind";
@@ -25,6 +26,7 @@ export interface FileViewerProps {
   path: string;
   sizeBytes: number;
   mtimeUnix: number;
+  rawSource?: boolean;
 }
 
 export interface Payload {
@@ -42,7 +44,11 @@ function fileName(path: string): string {
 export function renderViewerPayload(
   payload: Payload,
   path: string,
+  raw = false,
 ): DocumentFragment {
+  if (raw && supportsSourceView(payload.kind)) {
+    return renderPlainText(base64ToText(payload.base64));
+  }
   switch (payload.kind) {
     case "image":
       return renderImage(payload.mime, payload.base64, fileName(path));
@@ -87,16 +93,19 @@ export function FileViewer(props: FileViewerProps): JSXElement {
 
   let stage: HTMLDivElement | undefined;
 
+  const raw = (): boolean =>
+    (props.rawSource ?? false) && supportsSourceView(kind());
+
   createEffect(() => {
     if (stage === undefined) return;
     if (payload.state !== "ready") return;
     const p = payload();
     if (p === undefined) return;
-    replaceChildren(stage, renderViewerPayload(p, props.path));
+    replaceChildren(stage, renderViewerPayload(p, props.path, raw()));
   });
 
   return (
-    <div class="viewer" data-viewer-kind={kind()}>
+    <div class="viewer" data-viewer-kind={kind()} data-raw={raw() ? "" : undefined}>
       <Show when={overSizeLimit()}>
         <div class="viewer__notice">
           <Callout tone="warning" title="Too large to preview">
