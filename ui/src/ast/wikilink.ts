@@ -95,7 +95,7 @@ function parseBody(body: string, embed: boolean): TokenizedRun | null {
   }
   const target = targetRaw.trim();
   if (target.length === 0) return null;
-  if (anchor === null) {
+  if (anchor === null && !embed) {
     const dot = target.indexOf(".");
     if (dot >= 0) {
       const noteRaw = target.slice(0, dot).trim();
