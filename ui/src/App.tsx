@@ -146,7 +146,7 @@ import {
   countFilesUnderFolder,
   splitFileName,
   type FlatRow,
-} from "./sidebar/fileTree";
+} from "./explorer/fileTree";
 import { buildBlockRefLink } from "./editor/blockRef";
 import { formatBrokenBlockRefs } from "./statusbar/brokenRefs";
 import { formatPendingRewrites } from "./statusbar/pendingRewritesLabel";
