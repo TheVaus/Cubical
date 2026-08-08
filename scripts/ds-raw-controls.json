@@ -15,11 +15,23 @@
   "controls": ["button", "input", "select", "dialog", "textarea"],
   "budgets": {
     "ui/src/App.tsx": {
-      "button": 7,
-      "input": 4,
+      "button": 6,
+      "input": 3,
       "kind": "debt",
       "issue": 34,
-      "note": "Settings info buttons, vault switcher, tree-row rename input, doc-title input."
+      "note": "Vault switcher, tree-row rename input, doc-title input, right-sidebar tabs."
+    },
+    "ui/src/settings/InfoButton.tsx": {
+      "button": 1,
+      "kind": "debt",
+      "issue": 34,
+      "note": "The 1.25rem set-info-btn glyph. DS IconButton carries aria-expanded but exposes no class hook, and its own .icon-btn sizing is larger — adopting it would change the control's size, so this waits on an additive DS prop rather than a workaround."
+    },
+    "ui/src/settings/panes/EditorPane.tsx": {
+      "input": 1,
+      "kind": "debt",
+      "issue": 34,
+      "note": "The live-editor-tabs number field. DS TextInput takes a type but exposes no min/step, and this input needs min=1 step=1 to bound the LRU."
     },
     "ui/src/Properties.tsx": {
       "button": 2,

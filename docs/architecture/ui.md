@@ -68,7 +68,7 @@ Some surfaces stayed **deliberately bespoke** where no design-system component f
 ## 12. Settings
 
 The **shipped** Settings modal is tab-based. The authoritative list of tabs is
-`SETTINGS_TABS` in `ui/src/App.tsx`, and the authoritative list of setting *keys*
+`SETTINGS_TABS` in `ui/src/settings/tabs.ts`, and the authoritative list of setting *keys*
 is the `Setting` union in `ui/src/api/ipc.ts` — the frontend's typed view of a
 deliberately generic backend config table. Neither is restated here: a doc that
 mirrored either would rot every time a toggle shipped, and did.
