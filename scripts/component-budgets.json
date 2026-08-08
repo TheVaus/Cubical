@@ -1,0 +1,112 @@
+{
+  "_": [
+    "Per-file size budgets for ui/src, and the shell rule for App.tsx, read by",
+    "scripts/gates/composition.py. THIS FILE IS THE ALLOWLIST — it is the one",
+    "source, and docs/architecture/ui.md 11.7 links here rather than restating it.",
+    "",
+    "A budget is a ceiling, not a target. The gate fails when a file exceeds its",
+    "budget, and when a file over default_max_lines has no entry at all. It does",
+    "NOT fail when a count drops: ratchet the number down as the file shrinks.",
+    "",
+    ".ts is in scope as well as .tsx. Capping only components would let any",
+    "component meet its cap by moving the logic into a helper beside it.",
+    "",
+    "'bespoke' means a deliberate exception — the file is one cohesive thing and",
+    "splitting it would invent a boundary the behaviour does not have.",
+    "'debt' means a file that should shrink, tracked by an issue. Debt is not an",
+    "exception; it is a number that should be going down."
+  ],
+  "default_max_lines": 250,
+  "budgets": {
+    "ui/src/App.tsx": {
+      "max_lines": 2555,
+      "kind": "debt",
+      "issue": 86,
+      "note": "Being split into feature-owned components. Was 3274. Ratchet this down as each extraction lands; the target is a composition shell under 250."
+    },
+    "ui/src/api/ipc.ts": {
+      "max_lines": 1103,
+      "kind": "bespoke",
+      "note": "The whole typed IPC surface. It is one chokepoint on purpose (implementation/frontend.md), and the Setting union is the only registry of setting keys — splitting it would give that registry two homes."
+    },
+    "ui/src/Editor.tsx": {
+      "max_lines": 749,
+      "kind": "debt",
+      "issue": 86,
+      "note": "CodeMirror host: extension assembly, the imperative EditorApi, and the anchor-scroll queue."
+    },
+    "ui/src/Properties.tsx": {
+      "max_lines": 719,
+      "kind": "debt",
+      "issue": 86,
+      "note": "The frontmatter table and its per-type cell dispatch."
+    },
+    "ui/src/editor/decorations.ts": {
+      "max_lines": 643,
+      "kind": "bespoke",
+      "note": "One Lezer tree walk producing every Live Preview decoration. Splitting by mark type would mean several walks, against the measured-performance bar."
+    },
+    "ui/src/sidebar/SearchPanel.tsx": {
+      "max_lines": 634,
+      "kind": "debt",
+      "issue": 86,
+      "note": "Query state, result grouping and the roving-tabindex result list."
+    },
+    "ui/src/ast/normalize.ts": {
+      "max_lines": 551,
+      "kind": "bespoke",
+      "note": "Mirrors the Rust normalizer. Divergence is a correctness bug, so it stays one file that can be diffed against its counterpart."
+    },
+    "ui/src/sidebar/IntegrityPanel.tsx": {
+      "max_lines": 386,
+      "kind": "debt",
+      "issue": 86,
+      "note": "Vault-health rows and their fetch effect."
+    },
+    "ui/src/settings/settingsState.ts": {
+      "max_lines": 381,
+      "kind": "bespoke",
+      "note": "The vault's persisted configuration surface: one signal, one setter and one hydrate step per setting. Length here tracks the number of settings, not tangled logic."
+    },
+    "ui/src/statusbar/PendingRewrites.tsx": {
+      "max_lines": 350,
+      "kind": "debt",
+      "issue": 86,
+      "note": "The pending-rewrites popover and its per-row apply."
+    },
+    "ui/src/omnibar/OmniBar.tsx": {
+      "max_lines": 285,
+      "kind": "bespoke",
+      "issue": 35,
+      "note": "The ranked multi-kind palette named as the one deliberately bespoke surface in architecture/ui.md 11.6."
+    },
+    "ui/src/sidebar/UnlinkedMentions.tsx": {
+      "max_lines": 276,
+      "kind": "debt",
+      "issue": 86,
+      "note": "Mention rows plus the untrack-your-own-writes fetch effect."
+    },
+    "ui/src/editor/dataview.ts": {
+      "max_lines": 265,
+      "kind": "bespoke",
+      "note": "The dataview runner: query dispatch, result cache and invalidation as one unit."
+    },
+    "ui/src/core/commands.ts": {
+      "max_lines": 260,
+      "kind": "bespoke",
+      "note": "The command/keymap registry. It is the single source of truth for command ids, defaults and key matching (architecture/ui.md 11.2); splitting it would create a second place to register a command."
+    }
+  },
+  "shell": {
+    "file": "ui/src/App.tsx",
+    "max_reactive_declarations": 38,
+    "forbidden_imports": ["./api/ipc"],
+    "waived_imports": {
+      "./api/ipc": {
+        "kind": "debt",
+        "issue": 86,
+        "note": "App still owns the document session, vault boot and the watcher listeners, which are the direct IPC callers. The waiver goes away with those extractions; do not add a second waiver to keep an IPC call in the shell."
+      }
+    }
+  }
+}

@@ -63,6 +63,18 @@ Two locked rules govern how it grows:
 
 Some surfaces stayed **deliberately bespoke** where no design-system component fit at migration time — but that set has since shrunk. Issue #35 authored the net-new primitives that unblocked most of them: `Select` (the native `<select>`s), `DatePicker` (the native date pickers), `Popover` (the VaultSwitcher / Pending Rewrites / set-info positioned dropdowns), `Link` (the "Open as raw" text links), and a richer pill `Tag` (ChipList's multi-control chips) — all merged 2026-07-19 — plus `TwoPaneModal` (the nav+body Settings modal), merged 2026-07-20. One surface remains bespoke, awaiting the last net-new primitive still parked in #35: the ranked multi-kind **OmniBar** palette (needs a richer `CommandPalette` — the flat `{id,label,onRun}` DS one would regress its fuzzy rank, kind badges, and recency). The migration record and the full bespoke rationale live in the campaign handoff [`../archive/work/handoffs/2026-07-17-ds-migration-progress.md`](../archive/work/handoffs/2026-07-17-ds-migration-progress.md); the net-new-primitive backlog (6 done, 1 remaining) is GitHub issue #35, and the deferred migratable inline tail is #34.
 
+### 11.7 App composition
+
+§11.6 governs where a *primitive* comes from. This section governs what `ui/src` is made of.
+
+**`ui/src/App.tsx` is a composition shell.** It holds vault identity, the tab set, the global keydown table and the JSX that arranges features — and nothing a feature could own. State lives with the feature that reads it, in a folder under `ui/src/`: `explorer/`, `workspace/`, `settings/`, `sidebar/`, `statusbar/`, `omnibar/`, `tabs/`, `terminal/`, `viewer/`, `editor/`. A feature folder holds its own markup, its own state factory, and the pure logic beside them as a unit-testable `.ts`.
+
+Two shapes are already the convention and stay it: pure logic is a `.ts` next to its `.tsx` with its own test (`tabs/tabModel.ts`, `omnibar/ranker.ts`, `navHistory.ts`, `virtualList.ts`), and stateful wiring is a `create*` factory (`core/vaultSession.ts`, `terminal/wiring.ts`, `settings/settingsState.ts`).
+
+**The shell may not call IPC.** Features do. This is what keeps the rule from decaying into a line count — a feature can be added to `App.tsx` in fewer lines than any cap would notice, but not without an IPC call.
+
+Enforced by `scripts/gates/composition.py`. **This section is prose, not the allowlist:** the per-file budgets, the shell's state cap and its import waivers live in `scripts/component-budgets.json`, which the gate reads — one source, two readers, the same separation §11.6 uses for raw controls. The rule and its rationale are owned by [`../principles/component-composition.md`](../principles/component-composition.md); the decision to make it a rule at all is recorded in issue #85.
+
 ---
 
 ## 12. Settings

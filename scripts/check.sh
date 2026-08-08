@@ -20,6 +20,7 @@ cd "$(git rev-parse --show-toplevel)"
 echo "==> comments";            python3 scripts/gates/comments.py
 echo "==> generated";           python3 scripts/gates/generated.py
 echo "==> ds-components";       python3 scripts/gates/ds_components.py
+echo "==> composition";        python3 scripts/gates/composition.py
 echo "==> dependency-boundary"; python3 scripts/gates/dependency_boundary.py
 echo "==> techstack";           python3 scripts/gates/techstack.py
 echo "==> symbol-anchors";      python3 scripts/gates/symbol_anchors.py
