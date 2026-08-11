@@ -1,0 +1,37 @@
+# Code-only knowledge graph.
+#
+# The graph indexes source code and nothing else: no docs, no scripts, no
+# build/config manifests, no assets. Merged on top of .gitignore, so this can
+# only ever exclude more.
+
+# Prose and specification
+docs/
+*.md
+LICENSE
+LUCIDE-LICENSE
+
+# Tooling and automation
+scripts/
+.github/
+.claude/
+.agents/
+
+# Generated / vendored trees
+graphify-out/
+node_modules/
+target/
+dist/
+
+# Build, package and editor manifests
+*.json
+*.toml
+*.lock
+*.yml
+*.yaml
+*.html
+
+# Binary assets
+*.png
+*.ico
+*.icns
+*.svg
