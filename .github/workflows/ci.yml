@@ -14,10 +14,16 @@ name: CI
 # Add or remove a gate in check.sh and the `gates` job follows automatically.
 # The `static` job lists its gates explicitly because it is a fast subset, not
 # a second definition — if the two ever disagree, check.sh wins.
+#
+# `gates` runs on three operating systems, because Cubical ships to three. Until
+# it did, Linux was verified continuously, macOS only on the maintainer's own
+# machine, and Windows by nothing at all — so every portability break waited for
+# release day. The matrix is conditional; see the comment on the job itself.
 
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
     branches: [main]
 
@@ -59,8 +65,33 @@ jobs:
         run: python3 scripts/check_docs.py
 
   gates:
-    name: Gate set (scripts/check.sh)
-    runs-on: ubuntu-latest
+    # The matrix is deliberately NOT per-PR. This repo is private on a free plan
+    # (2,000 Actions minutes/month) and macOS bills at roughly 10x Linux with
+    # Windows at ~1.7x, so a three-OS run on every pull request would exhaust the
+    # month in well under ten builds. Pull requests keep the fast Ubuntu-only
+    # path; the full matrix runs on main and on tags, which is where a
+    # portability break must not be allowed to survive. If this repo ever goes
+    # public, standard runners stop billing and this should revert to per-PR.
+    # The decision and its cost basis are issue #96.
+    #
+    # fail-fast is off on purpose: the point is to see all three results. A macOS
+    # failure cancelling the Windows job hides exactly what this was built to learn.
+    #
+    # ubuntu-24.04 rather than 22.04 — the Ubuntu 22 images begin deprecation on
+    # 2026-09-17 with brownout periods that hard-fail jobs. Note that a runner
+    # label is not a support floor: pinning the glibc a release must run against
+    # is a `container:` decision in the release workflow, not this one.
+    name: Gate set (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ github.event_name == 'pull_request' && fromJSON('["ubuntu-24.04"]') || fromJSON('["ubuntu-24.04","macos-14","windows-latest"]') }}
+    defaults:
+      run:
+        # Windows runners default to PowerShell, but check.sh and every gate it
+        # calls are bash. Git Bash ships on the Windows image.
+        shell: bash
     steps:
       # Third-party actions are pinned to commit SHAs (supply-chain hardening);
       # the trailing comment is the human-readable version. Dependabot's
@@ -70,7 +101,9 @@ jobs:
 
       # Tauri 2 Linux build dependencies — required to compile cubical-app
       # (and therefore for cargo clippy / test / build across the workspace).
+      # macOS and Windows carry their webview in the OS and need no equivalent.
       - name: Install Tauri system dependencies
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \

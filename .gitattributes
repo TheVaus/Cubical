@@ -1,0 +1,12 @@
+# GitHub's Windows runners set core.autocrlf=true, which rewrites LF to CRLF on
+# checkout. That breaks two gates for reasons that have nothing to do with the
+# change under test: `cargo fmt --check` sees every line as modified, and the
+# `generated` gate compares artifacts byte-for-byte, which CRLF defeats.
+#
+# Every tracked text file in this repo is already LF, so this normalizes nothing
+# today — it stops the three-OS gate matrix from failing spuriously on Windows.
+* text=auto eol=lf
+
+*.png binary
+*.ico binary
+*.icns binary

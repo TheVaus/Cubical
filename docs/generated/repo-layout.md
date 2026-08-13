@@ -86,6 +86,7 @@ Derived from the git index plus a listed set of gitignored directories — delib
 
 ## Top-level files (tracked)
 
+- `.gitattributes`
 - `.gitignore`
 - `CLAUDE.md`
 - `Cargo.lock`
