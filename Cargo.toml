@@ -37,7 +37,7 @@ walkdir = "2"
 # a strictly local-first, no-cloud vault never opens a remote DB (only
 # `Builder::new_local`), so compiling that machinery in is pure attack surface,
 # binary bloat, and a stream of CVEs in code we never execute.
-libsql = { version = "0.6", default-features = false, features = ["core"] }
+libsql = { version = "0.9", default-features = false, features = ["core"] }
 
 # Hashing
 sha2 = "0.11"
