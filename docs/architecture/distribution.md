@@ -12,15 +12,22 @@ desktops*, and *with what promised.*
 
 ## 1. Tiers
 
-| Platform | Tier | Promised |
-|---|---|---|
-| macOS (Apple Silicon + Intel) | 1 | Every shipped feature |
-| Linux (x86_64) | 1 | Every shipped feature |
-| Windows (x86_64) | 2 | Everything except the CLI bridge and the embedded terminal |
+| Platform | Tier | Promised | Status |
+|---|---|---|---|
+| macOS (Apple Silicon + Intel) | 1 | Every shipped feature | Gate set green |
+| Linux (x86_64) | 1 | Every shipped feature | Gate set green |
+| Windows (x86_64) | 2 | Everything except the CLI bridge and the embedded terminal | **Does not build** — [#110](https://github.com/TheVaus/Cubical/issues/110) |
 
 **Tier 1** means a feature is not "shipped" until it works there. **Tier 2**
 means the app installs, opens a vault, and edits notes, with a named and
 documented set of absences.
+
+The Windows row is a **target, not a description of today.** `libsql-sys 0.8`
+uses a Unix-only API unconditionally, so the workspace does not compile on
+Windows at all — the tier-2 promise assumed the app builds, and it does not yet.
+The status column exists so this file cannot quietly describe an intention as if
+it were a fact; it is fixed upstream in 0.9.30 and tracked in
+[#110](https://github.com/TheVaus/Cubical/issues/110).
 
 The split is not arbitrary and is not a judgement about users. It follows the
 code that already exists: `cubical-ipc` is built on Unix domain sockets, so the
