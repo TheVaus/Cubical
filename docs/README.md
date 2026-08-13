@@ -16,6 +16,7 @@ The docs index. The session primer is [`CLAUDE.md`](../CLAUDE.md) — start ther
 | How fast must it be? How do I measure it? | [`architecture/foundation.md`](architecture/foundation.md) §1 (commitment 2) |
 | What constrains me today because of a layer we haven't built? | [`architecture/planned.md`](architecture/planned.md) |
 | What's been explicitly cut from scope? | [`architecture/constraints.md`](architecture/constraints.md) |
+| Which platforms do we ship to, and what does each promise? | [`architecture/distribution.md`](architecture/distribution.md) |
 | What should we build next? What's broken? | GitHub Issues — **not a file in this tree** |
 | How do we use Issues, labels and PRs? | [`principles/sessions.md`](principles/sessions.md) |
 | User wants a `.gitignore` for their vault | [`vault-gitignore.md`](vault-gitignore.md) |
@@ -107,6 +108,7 @@ declared-runtime-deps     | scripts/techstack-declared.json            | -
 perf-budget-machine-class | scripts/perf-budget.json                   | -
 out-of-scope-nonfeatures  | docs/architecture/constraints.md           | -
 unbuilt-layer-constraints | docs/architecture/planned.md               | -
+platform-tiers            | docs/architecture/distribution.md          | ^\|\s*Windows\s*\|\s*2\s*\|
 impl-invariants           | docs/implementation/                       | -
 the-rules                 | docs/principles/                           | -
 gate-list                 | scripts/check.sh                           | -
