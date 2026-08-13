@@ -65,14 +65,13 @@ jobs:
         run: python3 scripts/check_docs.py
 
   gates:
-    # The matrix is deliberately NOT per-PR. This repo is private on a free plan
-    # (2,000 Actions minutes/month) and macOS bills at roughly 10x Linux with
-    # Windows at ~1.7x, so a three-OS run on every pull request would exhaust the
-    # month in well under ten builds. Pull requests keep the fast Ubuntu-only
-    # path; the full matrix runs on main and on tags, which is where a
-    # portability break must not be allowed to survive. If this repo ever goes
-    # public, standard runners stop billing and this should revert to per-PR.
-    # The decision and its cost basis are issue #96.
+    # Every gate runs on all three shipped platforms, on every event. This is
+    # affordable only because the repo is public: standard GitHub-hosted runners
+    # do not bill against the Actions minute allowance for public repositories.
+    # While it was private the same matrix was gated to main-and-tags, because
+    # macOS bills at roughly 10x Linux against a 2,000 minute monthly budget —
+    # so if this repo is ever made private again, that restriction has to come
+    # back or the allowance is gone in under ten builds. Cost basis: issue #96.
     #
     # fail-fast is off on purpose: the point is to see all three results. A macOS
     # failure cancelling the Windows job hides exactly what this was built to learn.
@@ -86,7 +85,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ github.event_name == 'pull_request' && fromJSON('["ubuntu-24.04"]') || fromJSON('["ubuntu-24.04","macos-14","windows-latest"]') }}
+        os: [ubuntu-24.04, macos-14, windows-latest]
     defaults:
       run:
         # Windows runners default to PowerShell, but check.sh and every gate it
