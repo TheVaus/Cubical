@@ -36,7 +36,9 @@ Use GitHub's own features rather than prose imitations of them: **native sub-iss
 
 **Dependency alerts are never mirrored into issues** — they are already alerts. Open an issue only when *clearing* one is its own piece of work (an API migration, an index rebuild), and describe that work rather than the alert. Alert IDs are not issue numbers and must not be written as `#N`.
 
-**`main` is protected by a client-side hook only.** The repo is private on a free plan, so GitHub branch protection and rulesets are unavailable. `scripts/hooks/pre-push` refuses a direct push to `main`; CI runs on pushes to `main` but reports after the fact and cannot refuse. Treat the PR flow as the real gate and the hook as the reminder — install it with `scripts/hooks/install.sh`.
+**`main` is protected server-side.** A repository ruleset on the default branch refuses a direct push, a force-push and a deletion, and holds a pull request unmergeable until the CI checks it names report green. It requires no approving review, so a solo maintainer is not locked out of merging their own work — the gate is the build, not a second person. The ruleset names those checks *by job name*, which makes the job names in [`../../.github/workflows/ci.yml`](../../.github/workflows/ci.yml) load-bearing: rename one and the ruleset waits forever for a check that will never report, so rename and ruleset have to move together. Separately, **secret-scanning push protection** refuses any push carrying a recognised credential, on every branch.
+
+`scripts/hooks/pre-push` stays worth installing (`scripts/hooks/install.sh`) — it fails in a second on your own machine instead of after a round trip — but it is now the courtesy, not the control: `--no-verify` skips it and it exists only where someone installed it.
 
 **Write outcomes once, at the end — capture the *why*, not the *what*.** Record decisions including rejected alternatives, deviations from the plan, and non-obvious constraints: the things that evaporate if unwritten. Skip what git already shows — files touched, build logs, per-session test counts. A good record is closer to 5–10 lines of *why* than a 100-line narration.
 
