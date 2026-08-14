@@ -66,7 +66,7 @@ pub(crate) fn acquire_in(
             write_payload(&file, canonical_vault_path, socket_path)?;
             Ok(Acquire::Acquired(VaultLockGuard { file, lock_path }))
         }
-        Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+        Err(e) if is_already_held(&e) => {
             let owner = read_owner(&lock_path).unwrap_or(LockOwner {
                 pid: 0,
                 socket_path: None,
@@ -75,6 +75,12 @@ pub(crate) fn acquire_in(
         }
         Err(e) => Err(e),
     }
+}
+
+fn is_already_held(e: &io::Error) -> bool {
+    e.kind() == io::ErrorKind::WouldBlock
+        || (e.raw_os_error().is_some()
+            && e.raw_os_error() == fs4::lock_contended_error().raw_os_error())
 }
 
 fn write_payload(
