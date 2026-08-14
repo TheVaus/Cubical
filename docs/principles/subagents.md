@@ -16,6 +16,8 @@
 | `implementer` | full | `principles/README.md`, the session contract, and the relevant `implementation/` file |
 | `verifier` | read-only + test execution | `principles/` and the issue's acceptance criteria — **not** the author's intent |
 
+**A subagent does not commit; the session that owns the working tree does.** This is the one place the standing commit authority in [`commits.md`](commits.md) stops, and the reason is concurrency, not approval: [`branches.md`](branches.md) rules out worktrees, so parallel `implementer`s write into the *same* checkout. An agent that stages on its own judgement there sweeps up another agent's half-written files under its own commit message. A subagent therefore reports what it changed and leaves the commit to its caller, who is the only party that can see the whole tree. A lone subagent working a tree nobody else is touching may commit if its caller says so.
+
 A verifier pass is standard before merge on non-trivial changes, and its report goes in a PR comment. These were deployed *after* the principles and the gates existed, deliberately: before that, agents multiply drift rather than reduce it, because there is nothing for them to check against.
 
 **Detail:** `.claude/agents/`.
