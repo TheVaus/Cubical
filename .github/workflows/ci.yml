@@ -24,8 +24,12 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
+  # No `branches:` filter, deliberately. It used to be `[main]`, which meant a
+  # pull request targeting any other branch — a stacked PR onto a feature branch
+  # — ran no checks at all and reported "no checks reported", which reads as
+  # green to anyone skimming. That is worse than a red build. Every PR gets the
+  # matrix regardless of base.
   pull_request:
-    branches: [main]
 
 # A newer push to the same branch/PR supersedes in-flight runs.
 concurrency:
@@ -156,3 +160,83 @@ jobs:
       # See scripts/perf-budget.json.
       - name: Run all gates
         run: bash scripts/check.sh
+
+  bundle:
+    # Proves an installable artifact can actually be produced. The gate set does
+    # NOT prove this: it runs cargo clippy and cargo test, never `tauri build`,
+    # so anything that only breaks at bundle time is invisible to it.
+    #
+    # That gap was not hypothetical. Every icon in the repo was a 1x1 PNG, and
+    # icon.ico/icon.icns were PNGs wearing the wrong extension. Windows caught it
+    # only because it compiles the icon into the executable as a resource at
+    # build time; macOS and Linux stayed green while carrying the same broken
+    # assets, and the first thing to fail would have been a release tag.
+    #
+    # Push and tag only, not per-PR. A full tauri build is ~15 minutes per
+    # platform, and this catches a merge-time class of bug, not a review-time
+    # one — tripling PR turnaround for it is a bad trade even though public
+    # repos do not bill standard runners.
+    name: Bundle smoke (${{ matrix.os }})
+    if: github.event_name == 'push'
+    needs: gates
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            bundles: deb
+          - os: macos-14
+            bundles: app,dmg
+          - os: windows-latest
+            bundles: msi
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Tauri system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            patchelf
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            ui/package-lock.json
+            design-system/package-lock.json
+
+      # tauri.conf.json's beforeBuildCommand runs `npm run build` in ui/, which
+      # needs both workspaces installed first.
+      - name: Install frontend dependencies
+        working-directory: ui
+        run: npm ci
+
+      - name: Install design-system dependencies
+        working-directory: design-system
+        run: npm ci
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      # --debug keeps this a smoke test rather than a release build: it proves
+      # bundling works without paying for a full optimised compile. Bundle
+      # targets are per-platform so Linux does not pull AppImage's external
+      # tooling on every run — the release workflow (#101) owns the full set.
+      - name: Build bundle
+        run: cargo tauri build --debug --bundles ${{ matrix.bundles }}
