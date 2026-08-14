@@ -110,12 +110,19 @@ fn the_shell_falls_back_when_the_environment_is_unset_or_blank() {
     assert_eq!(shell_from(Some("   ")), PathBuf::from(FALLBACK_SHELL));
 }
 
+fn path_list(entries: &[&str]) -> String {
+    entries.join(if cfg!(windows) { ";" } else { ":" })
+}
+
 #[test]
 fn the_app_binary_dir_goes_to_the_front_of_path_exactly_once() {
     let dir = PathBuf::from("/opt/cubical/bin");
 
-    let fresh = prepend_path(&dir, Some("/usr/bin:/bin"));
-    assert_eq!(fresh, "/opt/cubical/bin:/usr/bin:/bin");
+    let fresh = prepend_path(&dir, Some(&path_list(&["/usr/bin", "/bin"])));
+    assert_eq!(
+        fresh,
+        path_list(&["/opt/cubical/bin", "/usr/bin", "/bin"]).as_str()
+    );
 
     let again = prepend_path(&dir, Some(fresh.to_str().unwrap()));
     assert_eq!(again, fresh);
