@@ -46,6 +46,20 @@ One known flake aborts it: `cubical-core`'s
 it, re-run the remaining crates and the gate scripts **explicitly** before
 claiming green, and say in your report that you did.
 
+## Committing
+
+**Do not commit.** Your caller does. This is not the usual "wait to be told" —
+this repo grants agents standing authority to commit on their own judgement
+([`docs/principles/commits.md`](../../docs/principles/commits.md)) — it is a
+concurrency rule. There are no worktrees here, so parallel implementers share
+one checkout, and staging on your own judgement would sweep another agent's
+half-written files into your commit.
+
+Leave the tree dirty and say precisely which paths you touched. If your caller
+explicitly told you to commit because you are the only agent in the tree, follow
+the commit rules in full: one logical change, Conventional Commit subject, the
+owning doc in the same commit.
+
 ## Reporting
 
 State what you changed, what you verified and how, and what you did **not**

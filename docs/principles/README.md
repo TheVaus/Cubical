@@ -13,7 +13,7 @@ A gate failure names its principle file; that file is the explanation.
 | [`backend-frontend-boundary`](backend-frontend-boundary.md) | Route every frontend request through the typed IPC surface; do all heavy work in Rust. | planned: `dependency-boundary` |
 | [`best-effort-resilience`](best-effort-resilience.md) | Every per-file refresher logs and continues on failure. | — |
 | [`branches`](branches.md) | Never graft unrelated work onto an active feature branch. | — |
-| [`commits`](commits.md) | One logical change per commit, and update the owning doc in the same commit. | — |
+| [`commits`](commits.md) | Commit each logical change as soon as it stands on its own — without being asked — and update the owning doc in the same commit. | — |
 | [`component-composition`](component-composition.md) | Put new frontend state in the feature that reads it, and keep every `ui/src` file under its size budget. | `scripts/gates/composition.py` |
 | [`composability`](composability.md) | Design a feature so it switches off cleanly, leaving the `.md` byte-identical. | — |
 | [`convergence-over-interception`](convergence-over-interception.md) | Assume any external process can change the vault at any time, and make the engine converge on the result. | — |
