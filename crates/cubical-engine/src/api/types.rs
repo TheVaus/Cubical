@@ -137,6 +137,19 @@ pub struct ReadFileTextResponse {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct ReadFileBytesRequest {
+    pub vault_id: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ReadFileBytesResponse {
+    pub base64: String,
+    pub mime: String,
+    pub size_bytes: u64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct GetCanonicalAstRequest {
     pub vault_id: String,
     pub path: String,
@@ -334,6 +347,7 @@ pub enum EmbedKind {
     Note,
     Section,
     Block,
+    File,
     Unresolved,
     MissingAnchor,
 }
@@ -343,6 +357,8 @@ pub struct GetEmbedResponse {
     pub kind: EmbedKind,
     pub target_path: Option<String>,
     pub content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mime: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

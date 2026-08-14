@@ -7,6 +7,7 @@ import {
   emptyTabs,
   moveTab,
   nextTab,
+  MAX_TABS,
   openTab,
   prevTab,
   remapTabPaths,
@@ -43,6 +44,58 @@ describe("openTab", () => {
     const snapshot = JSON.stringify(before);
     openTab(before, fileView("b.md"));
     expect(JSON.stringify(before)).toBe(snapshot);
+  });
+
+  it("stops appending at MAX_TABS", () => {
+    let s = emptyTabs;
+    for (let i = 0; i < MAX_TABS + 4; i++) s = openTab(s, fileView(`n${i}.md`));
+    expect(s.tabs).toHaveLength(MAX_TABS);
+  });
+
+  it("replaces the active tab in place once at the cap", () => {
+    let s = emptyTabs;
+    for (let i = 0; i < MAX_TABS; i++) s = openTab(s, fileView(`n${i}.md`));
+    s = activateTab(s, "file:n2.md");
+
+    s = openTab(s, fileView("new.md"));
+
+    expect(s.tabs).toHaveLength(MAX_TABS);
+    expect(s.activeId).toBe("file:new.md");
+    expect(s.tabs[2]?.id).toBe("file:new.md");
+    expect(s.tabs.map((t) => t.id)).not.toContain("file:n2.md");
+    expect(s.tabs[1]?.id).toBe("file:n1.md");
+    expect(s.tabs[3]?.id).toBe("file:n3.md");
+  });
+
+  it("activates an already-open tab at the cap instead of replacing", () => {
+    let s = emptyTabs;
+    for (let i = 0; i < MAX_TABS; i++) s = openTab(s, fileView(`n${i}.md`));
+    s = openTab(s, fileView("n0.md"));
+    expect(s.tabs).toHaveLength(MAX_TABS);
+    expect(s.activeId).toBe("file:n0.md");
+  });
+
+  it("never replaces a terminal tab, so a live session is not killed", () => {
+    let s = emptyTabs;
+    s = openTab(s, { kind: "terminal", key: "1" });
+    for (let i = 0; i < MAX_TABS - 1; i++) s = openTab(s, fileView(`n${i}.md`));
+    s = activateTab(s, "terminal:1");
+
+    s = openTab(s, fileView("new.md"));
+
+    expect(s.tabs.map((t) => t.id)).toContain("terminal:1");
+    expect(s.tabs).toHaveLength(MAX_TABS);
+    expect(s.activeId).toBe("file:new.md");
+    expect(s.tabs.at(-1)?.id).toBe("file:new.md");
+  });
+
+  it("appends past the cap rather than evicting an all-terminal set", () => {
+    let s = emptyTabs;
+    for (let i = 0; i < MAX_TABS; i++)
+      s = openTab(s, { kind: "terminal", key: String(i) });
+    s = openTab(s, fileView("new.md"));
+    expect(s.tabs).toHaveLength(MAX_TABS + 1);
+    expect(s.activeId).toBe("file:new.md");
   });
 });
 

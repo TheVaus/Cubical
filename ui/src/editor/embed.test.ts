@@ -465,3 +465,56 @@ describe("embedExtension", () => {
     expect(w1!.eq(w2)).toBe(false);
   });
 });
+
+describe("embeds of non-markdown files", () => {
+  const PNG_B64 =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+  it("emits a card for a dotted filename target", () => {
+    const r = stubResolver({
+      "chart.png": {
+        kind: "file",
+        target_path: "chart.png",
+        content: PNG_B64,
+        mime: "image/png",
+      },
+    });
+    const view = makeView("![[chart.png]]\n", r);
+    expect(widgetCount(view)).toBe(1);
+    view.destroy();
+  });
+
+  it("renders the image itself, not a placeholder", () => {
+    const r = stubResolver({
+      "chart.png": {
+        kind: "file",
+        target_path: "chart.png",
+        content: PNG_B64,
+        mime: "image/png",
+      },
+    });
+    const view = makeView("![[chart.png]]\n", r);
+    const img = view.contentDOM.querySelector("img.viewer__image");
+    expect(img).not.toBeNull();
+    expect(img?.getAttribute("src")).toBe(`data:image/png;base64,${PNG_B64}`);
+    expect(
+      view.contentDOM.querySelector(".cm-md-embed-placeholder"),
+    ).toBeNull();
+    view.destroy();
+  });
+
+  it("renders a csv target as a table", () => {
+    const r = stubResolver({
+      "data.csv": {
+        kind: "file",
+        target_path: "data.csv",
+        content: btoa("a,b\n1,2\n"),
+        mime: "text/csv",
+      },
+    });
+    const view = makeView("![[data.csv]]\n", r);
+    const cells = view.contentDOM.querySelectorAll("table.viewer__table th");
+    expect([...cells].map((c) => c.textContent)).toEqual(["a", "b"]);
+    view.destroy();
+  });
+});

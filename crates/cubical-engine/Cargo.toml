@@ -37,6 +37,9 @@ dirs = "5"
 # OS trash/recycle bin — see delete_path in commands/vault.rs.
 trash = { workspace = true }
 
+# Binary payload encoding for read_file_bytes — the IPC boundary is JSON.
+base64 = "0.22"
+
 # Error handling
 thiserror = { workspace = true }
 anyhow = { workspace = true }

@@ -339,6 +339,50 @@ ceiling owned by [`../architecture/document-model.md`](../architecture/document-
 cycles are caught by growing a chain of resolved paths, seeded with the open
 note's path so a self-embed is detected.
 
+## One renderer per viewer format
+
+`viewer/render.ts` holds framework-free DOM builders — table, plain text,
+image. Three surfaces consume them and none of them owns a second copy: the
+file tab (`viewer/FileViewer.tsx`, which mounts a fragment rather than
+duplicating the markup in JSX), the embed body (`editor/embedRender.ts`), and
+the ` ```csv ` widget (`editor/csvBlock.ts`).
+
+That is what makes "an embed looks like the file's own tab" a property of the
+code rather than a convention to maintain — both call `renderViewerPayload`.
+A new viewer format is added once, in `render.ts`, and appears in all three.
+
+## Viewing, source mode, and editing are three different permissions
+
+A file can have a viewer without having a source view, and a source view
+without being editable. Three predicates in `viewer/viewerKind.ts` keep them
+apart, and they widen strictly:
+
+- `hasViewer` — Cubical can render it at all. Everything else gets the
+  unsupported badge in the tree and refuses to open.
+- `supportsSourceView` — the raw-source toggle means something. True for text
+  and delimited; an image has no source, so the toggle is disabled rather than
+  silently inert.
+- `isEditableText` — the engine will read *and write it back*. Plain text
+  only (`.txt`, `.text`, `.log`).
+
+`isEditableText` is the frontend half of a boundary the engine enforces:
+`editable_as_text` in `crates/cubical-engine/src/commands/vault.rs` gates both
+`read_file_text` and `write_file_text`, and the two lists must agree. The
+engine is the authority — a frontend that asked to write a `.png` would be
+refused, not obeyed.
+
+Delimited files are deliberately absent from `isEditableText`. The table is a
+*rendering* of the bytes; making it editable means owning quoting and escaping
+rules, which is a feature, not a widening of this predicate. So a `.csv` gets
+a viewer and a source view, and stays read-only in both.
+
+Editing a plain-text file reuses the note path wholesale — same tab, same
+editor, same autosave, same external-edit conflict detection — by letting
+`viewerPath()` return null in source mode so the editor branch takes over. One
+thing does not carry over: the title bar is read-only for non-Markdown,
+because `isValidNoteName` rejects every dotted name, so a rename typed there
+could only ever fail.
+
 ## WKWebView event quirks
 
 Two platform behaviours shape every click interceptor (wiki-link, tag,

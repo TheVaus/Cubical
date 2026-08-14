@@ -117,6 +117,18 @@ describe("scanWikilinks", () => {
     ]);
   });
 
+  it("keeps an embed with a dotted target a wiki link, not a property ref", () => {
+    expect(scanWikilinks("![[chart.png]]")).toEqual([
+      wl("chart.png", { embed: true }),
+    ]);
+    expect(scanWikilinks("![[data.csv]]")).toEqual([
+      wl("data.csv", { embed: true }),
+    ]);
+    expect(scanWikilinks("![[notes/2026.06.20]]")).toEqual([
+      wl("notes/2026.06.20", { embed: true }),
+    ]);
+  });
+
   it("splits a property ref on the first dot only", () => {
     expect(scanWikilinks("[[a.b.c]]")).toEqual([
       { kind: "property_ref", note: "a", property: "b.c" },

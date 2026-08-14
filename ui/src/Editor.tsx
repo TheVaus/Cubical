@@ -68,6 +68,7 @@ import { livePreviewBundle } from "./editor/livePreview";
 import { colorSourceHighlight } from "./editor/colorSource";
 import { verticalDocLineMotion } from "./editor/embedNav";
 import { autocompletion } from "@codemirror/autocomplete";
+import { autoCloseExtension } from "./editor/autoClose";
 import {
   blockCompletionSource,
   linkCompletionSource,
@@ -398,6 +399,7 @@ const Editor: Component<EditorProps> = (props) => {
           autocompleteCompartment.of(
             autocompleteExtensionFor(props.autocompleteProvider),
           ),
+          autoCloseExtension,
           themeCompartment.of(buildCmTheme()),
           updateListener,
           focusListener,
