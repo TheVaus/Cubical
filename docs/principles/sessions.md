@@ -44,6 +44,8 @@ Use GitHub's own features rather than prose imitations of them: **native sub-iss
 
 **What still waits for the operator:** merging to `main`, force-pushing or rewriting pushed history, deleting branches, and anything that reaches outside this repo. Those are irreversible or outward-facing, which is a different question from whether the work is ready — and readiness is the only question an agent is being trusted to answer here.
 
+**Do not mistake the protection on `main` for coverage of that list.** It is scoped to the default branch and nothing else, so on the feature branch an agent actually works on, a force-push, a rewritten history and a deleted branch are all still accepted without complaint. There the rule above is the only control there is, and it holds because the agent honours it — not because anything refuses it.
+
 **`main` is protected by a client-side hook only.** The repo is private on a free plan, so GitHub branch protection and rulesets are unavailable. `scripts/hooks/pre-push` refuses a direct push to `main`; CI runs on pushes to `main` but reports after the fact and cannot refuse. Treat the PR flow as the real gate and the hook as the reminder — install it with `scripts/hooks/install.sh`.
 
 **Write outcomes once, at the end — capture the *why*, not the *what*.** Record decisions including rejected alternatives, deviations from the plan, and non-obvious constraints: the things that evaporate if unwritten. Skip what git already shows — files touched, build logs, per-session test counts. A good record is closer to 5–10 lines of *why* than a 100-line narration.
