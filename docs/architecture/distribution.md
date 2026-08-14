@@ -24,7 +24,7 @@ documented set of absences.
 
 The Windows row is a **target, not a description of today.** `libsql-sys 0.8`
 used a Unix-only API unconditionally, so the workspace did not compile on
-Windows at all. The pin now resolves to 0.9.30, which gates that call by target,
+Windows at all. The pin now resolves a version that gates that call by target,
 but the known blocker being removed is not the same fact as a green build: only
 a Windows CI run proves that, and none has passed yet. The status column exists
 so this file cannot quietly describe an intention as if it were a fact. Tracked
