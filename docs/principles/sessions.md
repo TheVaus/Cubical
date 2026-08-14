@@ -36,7 +36,7 @@ Use GitHub's own features rather than prose imitations of them: **native sub-iss
 
 **Dependency alerts are never mirrored into issues** — they are already alerts. Open an issue only when *clearing* one is its own piece of work (an API migration, an index rebuild), and describe that work rather than the alert. Alert IDs are not issue numbers and must not be written as `#N`.
 
-**`main` is protected by a client-side hook only** — for now. `scripts/hooks/pre-push` refuses a direct push to `main`; CI runs on pushes to `main` but reports after the fact and cannot refuse. Treat the PR flow as the real gate and the hook as the reminder — install it with `scripts/hooks/install.sh`. A client-side hook is a reminder and not a control: anyone can pass `--no-verify`. Server-side rulesets and secret scanning became available when the repo went public and are not yet configured — that is issue [#109](https://github.com/TheVaus/Cubical/issues/109).
+**`main` is protected by a client-side hook only.** The repo is private on a free plan, so GitHub branch protection and rulesets are unavailable. `scripts/hooks/pre-push` refuses a direct push to `main`; CI runs on pushes to `main` but reports after the fact and cannot refuse. Treat the PR flow as the real gate and the hook as the reminder — install it with `scripts/hooks/install.sh`.
 
 **Write outcomes once, at the end — capture the *why*, not the *what*.** Record decisions including rejected alternatives, deviations from the plan, and non-obvious constraints: the things that evaporate if unwritten. Skip what git already shows — files touched, build logs, per-session test counts. A good record is closer to 5–10 lines of *why* than a 100-line narration.
 

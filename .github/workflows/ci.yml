@@ -240,3 +240,34 @@ jobs:
       # tooling on every run — the release workflow (#101) owns the full set.
       - name: Build bundle
         run: cargo tauri build --debug --bundles ${{ matrix.bundles }}
+
+  ci:
+    # The one check a branch ruleset should require, and the reason it exists:
+    # `gates` and `bundle` interpolate the matrix into their names (`Gate set
+    # (ubuntu-24.04)` and so on), so their names change whenever the matrix does.
+    # A ruleset names required checks as fixed strings, and GitHub *waits* on a
+    # required check that never reports rather than failing it — so a renamed job
+    # does not turn a PR red, it freezes it on "waiting for status to be
+    # reported" forever. This job's name never changes, so the ruleset has
+    # exactly one stable thing to require. See #116.
+    name: CI
+    if: always()
+    needs: [static, gates, bundle]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify every upstream job succeeded
+        run: |
+          echo "static=${{ needs.static.result }}"
+          echo "gates=${{ needs.gates.result }}"
+          echo "bundle=${{ needs.bundle.result }}"
+          fail=0
+          [ "${{ needs.static.result }}" = success ] || { echo "static did not succeed"; fail=1; }
+          [ "${{ needs.gates.result }}" = success ] || { echo "gates did not succeed"; fail=1; }
+          # `bundle` is deliberately push-only, so on a pull request it is
+          # skipped. Treating skipped as failure here would fail every PR.
+          case "${{ needs.bundle.result }}" in
+            success|skipped) ;;
+            *) echo "bundle did not succeed"; fail=1 ;;
+          esac
+          [ "$fail" = 0 ] && echo "all upstream jobs succeeded"
+          exit $fail
