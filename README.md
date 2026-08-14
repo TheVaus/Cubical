@@ -62,10 +62,9 @@ A fuller, always-current status lives in the [Master PRD](prd.md) and
 
 ### On the roadmap
 
-Desktop is the v1 target. macOS and Linux are first-class and build today;
-Windows is a second-class target that does not build yet, and is not expected to
-carry the CLI bridge or the embedded terminal when it does. What each platform
-is actually promised, and where it currently stands, is
+Desktop is the v1 target, and macOS, Linux and Windows are all first-class — a
+feature works on all three or it is not shipped. Windows support is still being
+completed; how the three are kept identical is
 [`docs/architecture/distribution.md`](docs/architecture/distribution.md).
 Beyond v1.0: a **sandboxed
 plugin system** (WASI/WASM ABI, with JS/TS as a first-class source language via

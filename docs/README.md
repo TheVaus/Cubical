@@ -108,7 +108,7 @@ declared-runtime-deps     | scripts/techstack-declared.json            | -
 perf-budget-machine-class | scripts/perf-budget.json                   | -
 out-of-scope-nonfeatures  | docs/architecture/constraints.md           | -
 unbuilt-layer-constraints | docs/architecture/planned.md               | -
-platform-tiers            | docs/architecture/distribution.md          | ^\|\s*Windows\s*\|\s*2\s*\|
+platform-support          | docs/architecture/distribution.md          | ^\|\s*Windows[^|]*\|\s*First-class\s*\|
 impl-invariants           | docs/implementation/                       | -
 the-rules                 | docs/principles/                           | -
 gate-list                 | scripts/check.sh                           | -
