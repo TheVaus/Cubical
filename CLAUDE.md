@@ -36,7 +36,12 @@ Prohibitions, because these are what priors override:
   agent scratch that nobody reviews.
 - Run `scripts/graph.sh` before fanning out reads; it refuses when stale.
   Never shell `grep -r` — `ui/dist/` is a build artifact in the tree.
-- Delegate search to an `explorer`; run a `verifier` before merge.
+- Delegate search to an `explorer`; run a `verifier` before merge. A subagent
+  reports; the session owning the tree commits.
+- Don't hold work back waiting to be told to commit. Commit each logical change
+  as it lands, push, and open the PR when the gate is green —
+  [`commits`](docs/principles/commits.md). Never on `main`, never `--force`;
+  merging stays the operator's call.
 - File future work as an issue, never as doc prose. Before starting in an area,
   list its open ideas: `gh issue list --label area:<x> --label idea`.
 
