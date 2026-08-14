@@ -36,6 +36,24 @@ Use GitHub's own features rather than prose imitations of them: **native sub-iss
 
 **Dependency alerts are never mirrored into issues** — they are already alerts. Open an issue only when *clearing* one is its own piece of work (an API migration, an index rebuild), and describe that work rather than the alert. Alert IDs are not issue numbers and must not be written as `#N`.
 
+## Pushing and opening the PR
+
+
+
+**Push and open the PR on your own judgement, without being asked.** The standing authority that [`commits.md`](commits.md) grants over committing covers `git push -u origin <branch>` and `gh pr create` too. Push as soon as there is work worth backing up or a reason for someone to see it; open the PR once `scripts/check.sh` has run to completion green and every box in the template is one you can honestly tick. A feature branch is not a publication — it is off `main`, CI gates it, and nothing downstream consumes it — so holding it back buys no safety and costs the review surface.
+
+
+
+**Push early rather than at the end.** An unpushed branch is one machine away from being lost work, and a PR opened only at the end is a PR nobody got to shape. Open it as a draft when the gate is not green yet, and say in the body what is still missing.
+
+
+
+**What still waits for the operator:** merging to `main`, force-pushing or rewriting pushed history, deleting branches, and anything that reaches outside this repo. Those are irreversible or outward-facing, which is a different question from whether the work is ready — and readiness is the only question an agent is being trusted to answer here.
+
+
+
+**Do not mistake the protection on `main` for coverage of that list.** It is scoped to the default branch and nothing else, so on the feature branch an agent actually works on, a force-push, a rewritten history and a deleted branch are all still accepted without complaint. There the rule above is the only control there is, and it holds because the agent honours it — not because anything refuses it.
+
 **`main` is protected server-side.** A repository ruleset on the default branch refuses a direct push, a force-push and a deletion, and holds a pull request unmergeable until the CI checks it names report green. It requires no approving review, so a solo maintainer is not locked out of merging their own work — the gate is the build, not a second person. The ruleset names those checks *by job name*, which makes the job names in [`../../.github/workflows/ci.yml`](../../.github/workflows/ci.yml) load-bearing: rename one and the ruleset waits forever for a check that will never report, so rename and ruleset have to move together. Separately, **secret-scanning push protection** refuses any push carrying a recognised credential, on every branch.
 
 `scripts/hooks/pre-push` stays worth installing (`scripts/hooks/install.sh`) — it fails in a second on your own machine instead of after a round trip — but it is now the courtesy, not the control: `--no-verify` skips it and it exists only where someone installed it.
