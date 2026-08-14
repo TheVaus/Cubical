@@ -1,0 +1,37 @@
+name: Dependency review
+
+# Dependabot alerts fire once a vulnerable dependency is already on `main`.
+# This refuses the pull request that would introduce it, which is both the
+# cheaper moment and the only one where nothing has to be reverted. It diffs the
+# dependency graph for the PR rather than building anything, so it costs seconds
+# — it is not part of scripts/check.sh and deliberately not a gate: check.sh
+# must stay runnable offline on a laptop, and this needs GitHub's graph API.
+#
+# Free for public repositories only. If this repo ever goes private again the
+# action starts failing with an entitlement error; delete the workflow then
+# rather than papering over it.
+
+on: pull_request
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-review:
+    name: Dependency review
+    runs-on: ubuntu-latest
+    steps:
+      # Third-party actions are pinned to commit SHAs; the trailing comment is
+      # the human-readable version, kept current by Dependabot's
+      # github-actions ecosystem.
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Licences are deliberately not denied here. Cargo licence metadata is
+      # noisy enough (dual MIT/Apache, SPDX expressions, unlabelled crates) that
+      # a deny-list would fail honest Dependabot bumps, and the answer to that
+      # is a real licence audit, not a flaky pull-request gate.
+      - name: Review the dependency diff
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
