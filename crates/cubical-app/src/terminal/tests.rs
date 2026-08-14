@@ -1,6 +1,9 @@
 use std::path::PathBuf;
+#[cfg(unix)]
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(unix)]
+use std::time::Instant;
 
 use super::registry::TerminalRegistry;
 use super::spawn::{
@@ -8,6 +11,7 @@ use super::spawn::{
 };
 use super::{TerminalChunk, TerminalExit};
 
+#[cfg(unix)]
 const SETTLE: Duration = Duration::from_secs(5);
 const TEST_GRACE: Duration = Duration::from_millis(200);
 
@@ -22,11 +26,13 @@ fn spec(program: &str, args: &[&str], root: PathBuf) -> super::spawn::OpenSpec {
     }
 }
 
+#[cfg(unix)]
 fn sink() -> (super::session::ChunkSink, Receiver<TerminalChunk>) {
     let (tx, rx): (Sender<TerminalChunk>, Receiver<TerminalChunk>) = channel();
     (Box::new(move |chunk| tx.send(chunk).is_ok()), rx)
 }
 
+#[cfg(unix)]
 fn collect_until<F>(rx: &Receiver<TerminalChunk>, mut done: F) -> (String, Option<TerminalExit>)
 where
     F: FnMut(&str, Option<&TerminalExit>) -> bool,

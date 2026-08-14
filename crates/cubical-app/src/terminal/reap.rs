@@ -12,19 +12,24 @@ const HARD_GRACE: Duration = Duration::from_millis(500);
 
 pub struct ChildReaper {
     child: Box<dyn Child + Send + Sync>,
+    #[cfg(unix)]
     master: SharedMaster,
     grace: Duration,
 }
 
 impl ChildReaper {
     pub fn new(child: Box<dyn Child + Send + Sync>, master: SharedMaster, grace: Duration) -> Self {
+        #[cfg(not(unix))]
+        let _ = master;
         Self {
             child,
+            #[cfg(unix)]
             master,
             grace,
         }
     }
 
+    #[cfg(unix)]
     pub fn process_id(&self) -> Option<u32> {
         self.child.process_id()
     }
