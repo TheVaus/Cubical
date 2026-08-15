@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 pub struct VaultLockGuard {
     file: File,
     lock_path: PathBuf,
+    owner_path: PathBuf,
 }
 
 impl VaultLockGuard {
@@ -18,6 +19,7 @@ impl VaultLockGuard {
 impl Drop for VaultLockGuard {
     fn drop(&mut self) {
         use fs4::FileExt;
+        let _ = std::fs::remove_file(&self.owner_path);
         let _ = FileExt::unlock(&self.file);
     }
 }
@@ -61,13 +63,19 @@ pub(crate) fn acquire_in(
         .truncate(false)
         .open(&lock_path)?;
 
+    let owner_path = lock_path.with_extension("owner");
+
     match file.try_lock_exclusive() {
         Ok(()) => {
-            write_payload(&file, canonical_vault_path, socket_path)?;
-            Ok(Acquire::Acquired(VaultLockGuard { file, lock_path }))
+            write_payload(&owner_path, canonical_vault_path, socket_path)?;
+            Ok(Acquire::Acquired(VaultLockGuard {
+                file,
+                lock_path,
+                owner_path,
+            }))
         }
         Err(e) if is_already_held(&e) => {
-            let owner = read_owner(&lock_path).unwrap_or(LockOwner {
+            let owner = read_owner(&owner_path).unwrap_or(LockOwner {
                 pid: 0,
                 socket_path: None,
             });
@@ -84,27 +92,21 @@ fn is_already_held(e: &io::Error) -> bool {
 }
 
 fn write_payload(
-    file: &File,
+    owner_path: &Path,
     canonical_vault_path: &Path,
     socket_path: Option<&str>,
 ) -> io::Result<()> {
-    use std::io::{Seek, SeekFrom, Write};
-
     let payload = LockPayload {
         pid: std::process::id(),
         path: canonical_vault_path.to_string_lossy().into_owned(),
         socket_path: socket_path.map(|s| s.to_string()),
     };
     let bytes = serde_json::to_vec(&payload).map_err(io::Error::other)?;
-    file.set_len(0)?;
-    (&*file).seek(SeekFrom::Start(0))?;
-    (&*file).write_all(&bytes)?;
-    (&*file).flush()?;
-    Ok(())
+    std::fs::write(owner_path, &bytes)
 }
 
-fn read_owner(lock_path: &Path) -> Option<LockOwner> {
-    let bytes = std::fs::read(lock_path).ok()?;
+fn read_owner(owner_path: &Path) -> Option<LockOwner> {
+    let bytes = std::fs::read(owner_path).ok()?;
     let payload: LockPayload = serde_json::from_slice(&bytes).ok()?;
     Some(LockOwner {
         pid: payload.pid,

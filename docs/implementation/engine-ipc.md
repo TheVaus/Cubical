@@ -200,10 +200,11 @@ scan of a ≤256-entry buffer and reaches SQL only in the seconds after a
 deletion. Nothing is lost: a cross-volume move is a copy-then-delete, so it
 always emits a `Removed` and always leaves a tombstone. The dropped-source case
 is an FSEvents *rename*, which is same-volume by definition and keeps its inode
-— and both `scan` and the watcher upsert populate `files.inode` on Unix, so M1
-is never inode-blind there. On Windows `inode` is always `NULL` and pairing is
-tombstone-and-hash-only, which is consistent with Windows watching having no
-paired-rename path to begin with.
+— and both `scan` and the watcher upsert populate `files.inode`, so M1 is never
+inode-blind. The column holds the Unix inode on Unix and the NTFS file index
+(`MetadataExt::file_index`) on Windows: both are a volume-scoped identity that
+survives a rename, which is the only property pairing asks of it. Windows
+rename detection is therefore as strong as Unix's, not hash-only.
 
 **Hash matching is skipped entirely when more than one tracked file shares the
 hash.** Duplicate files are ordinary in a vault (empty notes, templates,
@@ -350,20 +351,34 @@ CLI) can never become a concurrent writer on a vault the app already owns.
 returns `VaultLocked { pid, socket_path }` without touching the index. The guard
 lives on `OpenVault`, so `close_vault` (and process exit) releases it.
 
-- **Enforcement is an OS advisory lock** (`fs4::try_lock_exclusive`), not
-  PID-liveness polling. The kernel releases it when the holder exits — including
-  on crash — so a dead owner never wedges the vault. The lockfile's JSON payload
-  (`pid`, path, `socket_path`) is informational: it feeds the "who owns it"
-  message and, in Phase 2, the socket the CLI attaches to.
+- **Enforcement is an OS lock** (`fs4::try_lock_exclusive`), not PID-liveness
+  polling. The kernel releases it when the holder exits — including on crash —
+  so a dead owner never wedges the vault.
+- **The lock and the advertisement are two files.** `<hash>.lock` is only ever
+  locked and unlocked; the JSON payload (`pid`, path, `socket_path`) lives
+  beside it in `<hash>.owner`, which is never locked. That payload is
+  informational: it feeds the "who owns it" message and the socket the CLI
+  attaches to. They are separate because the lock is *advisory* on Unix but
+  **mandatory** on Windows — `LockFileEx` makes a plain read of the locked
+  region fail, so a contender reading the owner out of the lockfile itself got
+  `pid: 0` and could not name the owner or find the socket. Splitting them is
+  what makes "who holds this vault?" answerable on every platform.
+- **Contention is not one errno.** Unix reports it as `EWOULDBLOCK`
+  (`ErrorKind::WouldBlock`); Windows reports `ERROR_LOCK_VIOLATION`, which has
+  no `ErrorKind` of its own. Matching on `fs4::lock_contended_error()` asks the
+  locking crate what contention looks like on this platform rather than
+  hardcoding one spelling of it.
 - **The lockfile lives in the OS runtime dir**, keyed by a SHA-256 of the
   canonical vault path — never in `.cubical/`. A socket path or PID synced to
   another machine via Dropbox would be poison. `CUBICAL_RUNTIME_DIR` overrides
   the dir (tests, and headless CLI use). This mirrors `recent_vaults.json`:
   machine-local state belongs outside the portable vault.
-- **The lockfile is not deleted on release**, only unlocked. Unlinking a lock
-  file races with a waiter that already holds a descriptor to it; the next
-  acquirer truncates and rewrites the payload after it wins the lock. Leftover
-  files are bounded by the count of distinct vault paths ever opened.
+- **The lockfile is not deleted on release**, only unlocked — unlinking it races
+  with a waiter that already holds a descriptor to it. The `.owner` file *is*
+  removed on release, because it is a claim rather than a lock and a stale claim
+  is misleading; a contender that finds none falls back to `pid: 0`. The next
+  acquirer rewrites it after it wins. Leftover lockfiles are bounded by the
+  count of distinct vault paths ever opened.
 
 Both frontends share this path because it is in the engine's `open_vault`: the
 GUI taking the lock is precisely what lets the CLI detect it. Phase 2 turns the
