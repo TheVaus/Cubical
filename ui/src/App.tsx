@@ -11,7 +11,6 @@ import {
   Switch,
   untrack,
   type Component,
-  type JSX,
 } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -19,13 +18,9 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 
 import Button from "@ds/components/forms/Button/Button";
 import IconButton from "@ds/components/forms/IconButton/IconButton";
-import Select from "@ds/components/forms/Select/Select";
-import SegmentedControl from "@ds/components/forms/SegmentedControl/SegmentedControl";
 import Menu, { type MenuItem } from "@ds/components/overlay/Menu/Menu";
 import Modal from "@ds/components/overlay/Modal/Modal";
-import TwoPaneModal from "@ds/components/overlay/TwoPaneModal/TwoPaneModal";
-import Popover from "@ds/components/overlay/Popover/Popover";
-import Icon, { type IconName } from "@ds/components/graphics/Icon/Icon";
+import Icon from "@ds/components/graphics/Icon/Icon";
 
 import Editor, { type EditorApi } from "./Editor";
 import {
@@ -40,9 +35,8 @@ import {
 } from "./terminal";
 import Properties from "./Properties";
 import { RecentVaultList } from "./RecentVaultList";
-import ShortcutsPanel from "./settings/ShortcutsPanel";
-import { DATE_FORMAT_TOKENS } from "./properties/dateFormats";
-import { CURRENCY_CODES } from "./properties/format";
+import SettingsModal from "./settings/SettingsModal";
+import { createSettingsState } from "./settings/settingsState";
 import type { CanonicalDocument, Frontmatter } from "./ast/types";
 import {
   createBlockRef,
@@ -51,7 +45,6 @@ import {
   createFolder,
   deleteFile,
   getBrokenBlockRefs,
-  getSetting,
   listFiles,
   listRecentVaults,
   listTags,
@@ -77,8 +70,7 @@ import {
   type TabSessionDto,
 } from "./api/ipc";
 import { createVaultSession } from "./core/vaultSession";
-import { persistSetting, seedSetting } from "./core/settings";
-import { resolveBindings, resolveGlobal, type Command } from "./core/commands";
+import { resolveGlobal, type Command } from "./core/commands";
 import {
   emptyNav,
   navPush,
@@ -114,8 +106,6 @@ import {
 } from "./tabs/tabModel";
 import { activateWithFlush, type ActivationDeps } from "./tabs/activation";
 import {
-  DEFAULT_LIVE_TAB_LIMIT,
-  clampLimit,
   liveFileIds,
   touch,
 } from "./tabs/lru";
@@ -146,31 +136,22 @@ import {
   countFilesUnderFolder,
   splitFileName,
   type FlatRow,
-} from "./sidebar/fileTree";
+} from "./explorer/fileTree";
 import { buildBlockRefLink } from "./editor/blockRef";
 import { formatBrokenBlockRefs } from "./statusbar/brokenRefs";
 import { formatPendingRewrites } from "./statusbar/pendingRewritesLabel";
 import PendingRewrites from "./statusbar/PendingRewrites";
 import {
-  STATUSBAR_SEGMENTS,
-  STATUSBAR_ENABLED_KEY,
-  STATUSBAR_DEFAULT,
   VAULT_PATH_SEGMENT,
   FILE_PATH_SEGMENT,
   WORD_COUNT_SEGMENT,
   BLOCK_COUNT_SEGMENT,
-  segmentVisible,
-  type StatusbarSegment,
 } from "./statusbar/segments";
 import { leadingSeparators } from "./statusbar/separators";
 import { ToastHost, showToast } from "./Toast";
 import { reprefixNestedPath, validateRenameTarget } from "./fileRename";
-import { resolveRawState } from "./editor/rawSource";
 import {
-  applyTheme,
   watchSystemTheme,
-  type ResolvedTheme,
-  type ThemeMode,
 } from "./styles/theme";
 import Backlinks from "./sidebar/Backlinks";
 import UnlinkedMentions from "./sidebar/UnlinkedMentions";
@@ -183,9 +164,7 @@ import { OMNI_COMMANDS } from "./omnibar/commands";
 import {
   CORE_PLUGINS,
   corePluginEnabled,
-  type BooleanSettingKey,
 } from "./settings/corePlugins";
-import { toggleInfo, type InfoId } from "./settings/settingsInfo";
 import { VaultSwitcher } from "./VaultSwitcher";
 
 const AUTOSAVE_DEBOUNCE_MS = 300;
@@ -193,30 +172,7 @@ const AUTOSAVE_DEBOUNCE_MS = 300;
 const FILE_ROW_HEIGHT = 32;
 const FILE_LIST_OVERSCAN = 8;
 
-const THEME_ICON: Record<ThemeMode, IconName> = {
-  system: "settings",
-  light: "sun",
-  dark: "moon",
-};
 
-type SettingsTab =
-  | "appearance"
-  | "editor"
-  | "wikilinks"
-  | "plugins"
-  | "statusbar"
-  | "vault"
-  | "shortcuts";
-
-const SETTINGS_TABS: { id: SettingsTab; icon: IconName; label: string }[] = [
-  { id: "appearance", icon: "palette", label: "Appearance" },
-  { id: "editor", icon: "file-text", label: "Editor" },
-  { id: "wikilinks", icon: "link", label: "Wiki links" },
-  { id: "plugins", icon: "puzzle", label: "Plugins" },
-  { id: "statusbar", icon: "bar-chart", label: "Status bar" },
-  { id: "vault", icon: "library", label: "Vault" },
-  { id: "shortcuts", icon: "keyboard", label: "Shortcuts" },
-];
 
 const App: Component = () => {
   const {
@@ -231,6 +187,7 @@ const App: Component = () => {
     filesTotalEstimate,
     setFilesTotalEstimate,
   } = createVaultSession();
+  const settings = createSettingsState({ vaultId });
   const [files, setFiles] = createSignal<FileEntry[]>([]);
   const [folders, setFolders] = createSignal<string[]>([]);
   const [error, setError] = createSignal<string | null>(null);
@@ -308,35 +265,7 @@ const App: Component = () => {
     treeRows().slice(fileWindow().startIndex, fileWindow().endIndex),
   );
 
-  const [themeMode, setThemeMode] = createSignal<ThemeMode>("system");
-  const [resolvedTheme, setResolvedTheme] = createSignal<ResolvedTheme>(
-    applyTheme("system"),
-  );
 
-  const [rawDefault, setRawDefault] = createSignal(false);
-  const [rawOverride, setRawOverride] = createSignal<boolean | null>(null);
-  const [minimapEnabled, setMinimapEnabled] = createSignal(false);
-  const [colorizeSource, setColorizeSource] = createSignal(false);
-  const [liveTabLimit, setLiveTabLimit] = createSignal(DEFAULT_LIVE_TAB_LIMIT);
-  const setLiveTabLimitValue = (raw: number) => {
-    const val = clampLimit(raw);
-    setLiveTabLimit(val);
-    persistSetting(vaultId(), "editor.live_tab_limit", val);
-  };
-  const effectiveRaw = createMemo(() =>
-    resolveRawState(rawOverride(), rawDefault()),
-  );
-
-  const [rewriteBrokenLinks, setRewriteBrokenLinks] = createSignal(true);
-  const setRewriteBrokenLinksValue = (val: boolean) => {
-    setRewriteBrokenLinks(val);
-    persistSetting(vaultId(), "wikilinks.rewrite_broken_links_on_rename", val);
-  };
-
-  const [typedProps, setTypedProps] = createSignal(false);
-  const [dateDefault, setDateDefault] = createSignal("YYYY-MM-DD");
-  const [currencyDefault, setCurrencyDefault] = createSignal("usd");
-  const [tagsKeyAsTags, setTagsKeyAsTags] = createSignal(true);
 
   const [conflictExternalHash, setConflictExternalHash] = createSignal<
     string | null
@@ -372,7 +301,6 @@ const App: Component = () => {
   };
   const [tagRefreshTick, setTagRefreshTick] = createSignal(0);
 
-  const [rightSidebarCollapsed, setRightSidebarCollapsed] = createSignal(false);
   const [leftCollapsed, setLeftCollapsed] = createSignal(false);
   const toggleLeftSidebar = () => setLeftCollapsed((v) => !v);
   const [navState, setNavState] = createSignal<NavState>(emptyNav);
@@ -380,29 +308,6 @@ const App: Component = () => {
   const navCanForward = createMemo(() => canForward(navState()));
   const [settingsOpen, setSettingsOpen] = createSignal(false);
   const [vaultSwitcherOpen, setVaultSwitcherOpen] = createSignal(false);
-  const [shortcutOverrides, setShortcutOverrides] = createSignal<
-    Record<string, string>
-  >({});
-  const setShortcutOverridesValue = (next: Record<string, string>) => {
-    setShortcutOverrides(next);
-    persistSetting(vaultId(), "shortcuts.overrides", next);
-  };
-  const effectiveBindings = createMemo(() =>
-    resolveBindings(shortcutOverrides()),
-  );
-  const [settingsTab, setSettingsTab] = createSignal<SettingsTab>("appearance");
-  const [openInfo, setOpenInfo] = createSignal<InfoId | null>(null);
-  const flipInfo = (id: InfoId) => setOpenInfo((cur) => toggleInfo(cur, id));
-  const [corePlugins, setCorePlugins] = createSignal<Record<string, boolean>>(
-    {},
-  );
-  const [statusbarConfig, setStatusbarConfig] = createSignal<
-    Record<string, boolean>
-  >({});
-  const statusbarEnabled = () =>
-    statusbarConfig()[STATUSBAR_ENABLED_KEY] ?? STATUSBAR_DEFAULT;
-  const segVisible = (seg: StatusbarSegment) =>
-    segmentVisible(statusbarConfig(), seg);
   const [rightSidebarRefreshTick, setRightSidebarRefreshTick] = createSignal(0);
   let rightSidebarRefreshTimer: ReturnType<typeof setTimeout> | undefined;
   const RIGHT_SIDEBAR_REFRESH_DEBOUNCE_MS = 200;
@@ -475,9 +380,6 @@ const App: Component = () => {
       })),
   );
 
-  type RightSidebarPanel = "backlinks" | "unlinked_mentions" | "integrity";
-  const [rightSidebarPanel, setRightSidebarPanel] =
-    createSignal<RightSidebarPanel>("backlinks");
 
   const [brokenBlockRefs, setBrokenBlockRefs] = createSignal<BrokenBlockRef[]>(
     [],
@@ -509,7 +411,7 @@ const App: Component = () => {
   // will write back. Everything else belongs to the read-only viewer.
   const isEditablePath = (p: string) => !hasViewer(p) || isEditableText(p);
   const live = () =>
-    liveFileIds(mru(), tabs().activeId, liveTabLimit(), (id) => {
+    liveFileIds(mru(), tabs().activeId, settings.liveTabLimit(), (id) => {
       const p = pathForId(id);
       return p !== null && isEditablePath(p);
     });
@@ -518,7 +420,7 @@ const App: Component = () => {
   const viewerPath = createMemo(() => {
     const path = selectedPath();
     if (path === null || !vaultId() || !hasViewer(path)) return null;
-    if (isEditableText(path) && effectiveRaw()) return null;
+    if (isEditableText(path) && settings.effectiveRaw()) return null;
     return path;
   });
   const sourceViewAvailable = createMemo(() => {
@@ -912,12 +814,6 @@ const App: Component = () => {
     });
   };
 
-  const setTheme = (mode: ThemeMode) => {
-    setThemeMode(mode);
-    setResolvedTheme(applyTheme(mode));
-    persistSetting(vaultId(), "appearance.theme_mode", mode);
-  };
-
   // Leaving source mode unmounts the editor for a plain-text file, so any edit
   // still inside the autosave debounce has to land before the mode flips.
   const withRawFlush = (apply: () => void) => {
@@ -931,91 +827,19 @@ const App: Component = () => {
 
   const toggleRawSource = () => {
     if (!sourceViewAvailable()) return;
-    const next = !effectiveRaw();
-    withRawFlush(() => setRawOverride(next));
+    const next = !settings.effectiveRaw();
+    withRawFlush(() => settings.setRawOverride(next));
   };
 
   const setRawAsDefault = () => {
-    const next = !effectiveRaw();
-    withRawFlush(() => {
-      setRawDefault(next);
-      setRawOverride(null);
-      persistSetting(vaultId(), "editor.raw_source_default", next);
-    });
-  };
-
-  const setRawDefaultValue = (val: boolean) => {
-    setRawDefault(val);
-    setRawOverride(null);
-    persistSetting(vaultId(), "editor.raw_source_default", val);
-  };
-
-  const setMinimapEnabledValue = (val: boolean) => {
-    setMinimapEnabled(val);
-    persistSetting(vaultId(), "editor.minimap_enabled", val);
-  };
-
-  const setColorizeSourceValue = (val: boolean) => {
-    setColorizeSource(val);
-    persistSetting(vaultId(), "editor.colorize_raw_source", val);
-  };
-
-  const setTypedPropsValue = (val: boolean) => {
-    setTypedProps(val);
-    persistSetting(vaultId(), "properties.typed_enabled", val);
-  };
-
-  const setDateDefaultValue = (val: string) => {
-    setDateDefault(val);
-    persistSetting(vaultId(), "properties.date_format_default", val);
-  };
-
-  const setCurrencyDefaultValue = (val: string) => {
-    setCurrencyDefault(val);
-    persistSetting(vaultId(), "properties.default_currency", val);
-  };
-
-  const setTagsKeyAsTagsValue = (val: boolean) => {
-    setTagsKeyAsTags(val);
-    persistSetting(vaultId(), "properties.tags_key_as_tags", val);
-  };
-
-  const setCorePlugin = (
-    id: string,
-    settingKey: BooleanSettingKey,
-    value: boolean,
-  ) => {
-    const v = vaultId();
-    if (!v) return;
-    setCorePlugins((prev) => ({ ...prev, [id]: value }));
-    persistSetting(v, settingKey, value);
-  };
-
-  const setStatusbarSetting = (key: BooleanSettingKey, value: boolean) => {
-    const v = vaultId();
-    if (!v) return;
-    setStatusbarConfig((prev) => ({ ...prev, [key]: value }));
-    persistSetting(v, key, value);
+    const next = !settings.effectiveRaw();
+    withRawFlush(() => settings.setRawDefaultValue(next));
   };
 
   const handleRunCommand = (id: string) => {
-    if (id === "statusbar.toggle") {
-      setStatusbarSetting(STATUSBAR_ENABLED_KEY, !statusbarEnabled());
-    }
+    if (id === "statusbar.toggle") settings.toggleStatusbar();
   };
 
-  const toggleRightSidebar = () => {
-    const next = !rightSidebarCollapsed();
-    setRightSidebarCollapsed(next);
-    persistSetting(vaultId(), "ui.right_sidebar_collapsed", next);
-  };
-
-  const handleRightSidebarSegmentChange = (id: string) => {
-    if (id !== "backlinks" && id !== "unlinked_mentions" && id !== "integrity")
-      return;
-    setRightSidebarPanel(id);
-    persistSetting(vaultId(), "ui.right_sidebar_panel", id);
-  };
 
   const loadActiveTabContent = async () => {
     const id = vaultId();
@@ -1034,7 +858,7 @@ const App: Component = () => {
   const resetDocState = () => {
     setError(null);
     setConflictExternalHash(null);
-    setRawOverride(null);
+    settings.setRawOverride(null);
     seenHash = null;
     lastWrittenHash = null;
     dirty = false;
@@ -1078,7 +902,7 @@ const App: Component = () => {
 
   const terminalTab = createTerminalWiring({
     vaultId,
-    corePlugins,
+    corePlugins: settings.corePlugins,
     tabs,
     setTabs: (updater) => setTabs(updater),
     closeTab: (id) => forceCloseTabById(id),
@@ -1440,7 +1264,7 @@ const App: Component = () => {
     });
     unlistenSettingChanged = await onVaultSettingChanged((p) => {
       if (p.vault_id !== vaultId()) return;
-      void hydrateVaultSettings(p.vault_id);
+      void settings.hydrate(p.vault_id);
     });
 
     const onBeforeUnload = () => {
@@ -1517,7 +1341,7 @@ const App: Component = () => {
       [TERMINAL_COMMAND_ID]: terminalTab.command,
     };
     const onGlobalKey = (e: KeyboardEvent) => {
-      const c = resolveGlobal(effectiveBindings(), globalCommands, e);
+      const c = resolveGlobal(settings.effectiveBindings(), globalCommands, e);
       if (!c) return;
       e.preventDefault();
       c.run();
@@ -1526,7 +1350,7 @@ const App: Component = () => {
     onCleanup(() => window.removeEventListener("keydown", onGlobalKey));
 
     const unwatchTheme = watchSystemTheme(() => {
-      if (themeMode() === "system") setResolvedTheme(applyTheme("system"));
+      settings.reapplySystemTheme();
     });
     onCleanup(unwatchTheme);
 
@@ -1552,108 +1376,6 @@ const App: Component = () => {
     if (searchRefreshTimer !== undefined) clearTimeout(searchRefreshTimer);
   });
 
-  const hydrateVaultSettings = async (vid: string) => {
-    try {
-      const stored = await getSetting(vid, "appearance.theme_mode");
-      if (stored !== null) {
-        setThemeMode(stored);
-        setResolvedTheme(applyTheme(stored));
-      }
-    } catch (e) {
-      console.error("loading theme_mode failed", e);
-    }
-
-    await seedSetting(vid, "editor.raw_source_default", false, setRawDefault);
-
-    await seedSetting(vid, "editor.minimap_enabled", false, setMinimapEnabled);
-
-    await seedSetting(
-      vid,
-      "editor.live_tab_limit",
-      DEFAULT_LIVE_TAB_LIMIT,
-      (v) => setLiveTabLimit(clampLimit(v)),
-    );
-
-    await seedSetting(
-      vid,
-      "editor.colorize_raw_source",
-      false,
-      setColorizeSource,
-    );
-
-    await seedSetting(
-      vid,
-      "wikilinks.rewrite_broken_links_on_rename",
-      true,
-      setRewriteBrokenLinks,
-    );
-    await seedSetting(vid, "properties.typed_enabled", false, setTypedProps);
-    await seedSetting(
-      vid,
-      "properties.date_format_default",
-      "YYYY-MM-DD",
-      setDateDefault,
-    );
-    await seedSetting(
-      vid,
-      "properties.default_currency",
-      "usd",
-      setCurrencyDefault,
-    );
-    await seedSetting(
-      vid,
-      "properties.tags_key_as_tags",
-      true,
-      setTagsKeyAsTags,
-    );
-
-    {
-      const enab: Record<string, boolean> = {};
-      for (const p of CORE_PLUGINS) {
-        try {
-          const stored = await getSetting(vid, p.settingKey);
-          enab[p.id] = stored ?? p.defaultEnabled;
-        } catch (e) {
-          console.error(`loading ${p.settingKey} failed`, e);
-          enab[p.id] = p.defaultEnabled;
-        }
-      }
-      setCorePlugins(enab);
-    }
-
-    {
-      const cfg: Record<string, boolean> = {};
-      const keys: BooleanSettingKey[] = [
-        STATUSBAR_ENABLED_KEY,
-        ...STATUSBAR_SEGMENTS.map((s) => s.settingKey),
-      ];
-      for (const k of keys) {
-        try {
-          cfg[k] = (await getSetting(vid, k)) ?? STATUSBAR_DEFAULT;
-        } catch (e) {
-          console.error(`loading ${k} failed`, e);
-          cfg[k] = STATUSBAR_DEFAULT;
-        }
-      }
-      setStatusbarConfig(cfg);
-    }
-
-    await seedSetting(
-      vid,
-      "ui.right_sidebar_collapsed",
-      false,
-      setRightSidebarCollapsed,
-    );
-
-    await seedSetting(
-      vid,
-      "ui.right_sidebar_panel",
-      "backlinks",
-      setRightSidebarPanel,
-    );
-
-    await seedSetting(vid, "shortcuts.overrides", {}, setShortcutOverrides);
-  };
 
   const openVaultByPath = async (path: string) => {
     setError(null);
@@ -1679,7 +1401,6 @@ const App: Component = () => {
         }),
       );
       setConflictExternalHash(null);
-      setRawOverride(null);
       setCreateOffer(null);
       setRightSidebarRefreshTick(0);
       setBrokenBlockRefs([]);
@@ -1688,9 +1409,7 @@ const App: Component = () => {
       setDeleteTarget(null);
       setRenamingPath(null);
       setTagRefreshTick(0);
-      setRightSidebarCollapsed(false);
-      setRightSidebarPanel("backlinks");
-      setShortcutOverrides({});
+      settings.resetForVaultSwitch();
       setWikilinkResolver(null);
       setEmbedResolver(null);
       setPropertyResolver(null);
@@ -1715,7 +1434,7 @@ const App: Component = () => {
       setAutocompleteProvider(createAutocompleteProvider(resp.vault_id));
       scheduleRefresh();
 
-      await hydrateVaultSettings(resp.vault_id);
+      await settings.hydrate(resp.vault_id);
       await refreshFileList();
       await restoreTabs(path);
 
@@ -1733,45 +1452,6 @@ const App: Component = () => {
     if (typeof picked !== "string") return;
     await openVaultByPath(picked);
   };
-
-  const OnOffControl = (props: {
-    value: boolean;
-    onChange: (v: boolean) => void;
-  }) => (
-    <SegmentedControl
-      variant="pill"
-      role="radiogroup"
-      options={[
-        { label: "Off", value: "off" },
-        { label: "On", value: "on" },
-      ]}
-      value={props.value ? "on" : "off"}
-      onChange={(v) => props.onChange(v === "on")}
-    />
-  );
-
-  const InfoButton = (props: { id: InfoId; children: JSX.Element }) => (
-    <>
-      <button
-        type="button"
-        class="set-info-btn"
-        aria-label="About this setting"
-        aria-expanded={openInfo() === props.id}
-        onClick={() => flipInfo(props.id)}
-      >
-        <Icon name="info" />
-      </button>
-      <Popover
-        open={openInfo() === props.id}
-        onClose={() => setOpenInfo(null)}
-        ariaLabel="Setting help"
-        placement="bottom-end"
-        class="set-info-pop"
-      >
-        {props.children}
-      </Popover>
-    </>
-  );
 
   return (
     <div class="app-shell">
@@ -1815,8 +1495,8 @@ const App: Component = () => {
             <IconButton
               label="Toggle raw source"
               mono
-              active={effectiveRaw() && sourceViewAvailable()}
-              ariaPressed={effectiveRaw() && sourceViewAvailable()}
+              active={settings.effectiveRaw() && sourceViewAvailable()}
+              ariaPressed={settings.effectiveRaw() && sourceViewAvailable()}
               disabled={!sourceViewAvailable()}
               onClick={(e) =>
                 e.shiftKey ? setRawAsDefault() : toggleRawSource()
@@ -1824,7 +1504,7 @@ const App: Component = () => {
               title={
                 !sourceViewAvailable()
                   ? "This file has no source view"
-                  : effectiveRaw()
+                  : settings.effectiveRaw()
                     ? "Raw source (Cmd/Ctrl+E · Shift-click sets default)"
                     : "Live preview (Cmd/Ctrl+E · Shift-click sets default)"
               }
@@ -1836,10 +1516,10 @@ const App: Component = () => {
         <div class="topbar__flank topbar__flank--right">
           <IconButton
             label="Toggle backlinks panel"
-            onClick={toggleRightSidebar}
-            ariaPressed={!rightSidebarCollapsed()}
+            onClick={settings.toggleRightSidebar}
+            ariaPressed={!settings.rightSidebarCollapsed()}
           >
-            {rightSidebarCollapsed() ? "⟨" : "⟩"}
+            {settings.rightSidebarCollapsed() ? "⟨" : "⟩"}
           </IconButton>
         </div>
       </header>
@@ -2379,7 +2059,7 @@ const App: Component = () => {
                               </span>
                             </div>
                           </Show>
-                          <Show when={!effectiveRaw()}>
+                          <Show when={!settings.effectiveRaw()}>
                             <Properties
                               frontmatter={propertiesFrontmatter()}
                               path={selectedPath() ?? ""}
@@ -2387,14 +2067,14 @@ const App: Component = () => {
                               applyEdit={(from, to, text) =>
                                 editorApi()?.replaceRange(from, to, text)
                               }
-                              onOpenRaw={() => setRawOverride(true)}
+                              onOpenRaw={() => settings.setRawOverride(true)}
                               onNavigateTag={(tagPath) =>
                                 void handleNavigateTag(tagPath)
                               }
-                              typedEnabled={typedProps()}
-                              dateDefault={dateDefault()}
-                              currencyDefault={currencyDefault()}
-                              tagsKeyAsTags={tagsKeyAsTags()}
+                              typedEnabled={settings.typedProps()}
+                              dateDefault={settings.dateDefault()}
+                              currencyDefault={settings.currencyDefault()}
+                              tagsKeyAsTags={settings.tagsKeyAsTags()}
                             />
                           </Show>
                           <For each={live()}>
@@ -2409,22 +2089,22 @@ const App: Component = () => {
                               >
                                 <Editor
                                   value={contents[id] ?? ""}
-                                  resolvedTheme={resolvedTheme()}
-                                  rawSource={effectiveRaw()}
-                                  minimapEnabled={minimapEnabled()}
-                                  colorizeSource={colorizeSource()}
+                                  resolvedTheme={settings.resolvedTheme()}
+                                  rawSource={settings.effectiveRaw()}
+                                  minimapEnabled={settings.minimapEnabled()}
+                                  colorizeSource={settings.colorizeSource()}
                                   wikilinkResolver={wikilinkResolver()}
                                   embedResolver={embedResolver()}
                                   propertyResolver={propertyResolver()}
                                   propertyRefsEnabled={corePluginEnabled(
-                                    corePlugins(),
+                                    settings.corePlugins(),
                                     CORE_PLUGINS.find(
                                       (p) => p.id === "property-refs",
                                     )!,
                                   )}
                                   dataviewRunner={
                                     corePluginEnabled(
-                                      corePlugins(),
+                                      settings.corePlugins(),
                                       CORE_PLUGINS.find(
                                         (p) => p.id === "dataview",
                                       )!,
@@ -2434,7 +2114,7 @@ const App: Component = () => {
                                   }
                                   openNotePath={pathForId(id)}
                                   autocompleteProvider={autocompleteProvider()}
-                                  editorBindings={effectiveBindings()}
+                                  editorBindings={settings.effectiveBindings()}
                                   onNavigateWikilink={(path, anchor) =>
                                     void handleNavigateWikilink(path, anchor)
                                   }
@@ -2468,7 +2148,7 @@ const App: Component = () => {
                           path={path}
                           sizeBytes={viewerEntry()?.size_bytes ?? 0}
                           mtimeUnix={viewerEntry()?.mtime_unix ?? 0}
-                          rawSource={effectiveRaw()}
+                          rawSource={settings.effectiveRaw()}
                         />
                       )}
                     </Show>
@@ -2483,7 +2163,7 @@ const App: Component = () => {
                     >
                       <TerminalPanel
                         vaultId={vaultId()!}
-                        resolvedTheme={resolvedTheme()}
+                        resolvedTheme={settings.resolvedTheme()}
                         onOpened={(terminalId) =>
                           terminalTab.register(id, terminalId)
                         }
@@ -2497,33 +2177,33 @@ const App: Component = () => {
           </main>
           <aside
             class="side side--right"
-            classList={{ "side--collapsed": rightSidebarCollapsed() }}
+            classList={{ "side--collapsed": settings.rightSidebarCollapsed() }}
           >
             <div class="side__body">
               <div role="tablist" aria-label="Sidebar panels" class="rs-tabs">
                 <button
                   type="button"
                   role="tab"
-                  aria-selected={rightSidebarPanel() === "backlinks"}
+                  aria-selected={settings.rightSidebarPanel() === "backlinks"}
                   class="rs-tab"
                   classList={{
-                    "rs-tab--active": rightSidebarPanel() === "backlinks",
+                    "rs-tab--active": settings.rightSidebarPanel() === "backlinks",
                   }}
-                  onClick={() => handleRightSidebarSegmentChange("backlinks")}
+                  onClick={() => settings.setRightSidebarPanelValue("backlinks")}
                 >
                   Backlinks
                 </button>
                 <button
                   type="button"
                   role="tab"
-                  aria-selected={rightSidebarPanel() === "unlinked_mentions"}
+                  aria-selected={settings.rightSidebarPanel() === "unlinked_mentions"}
                   class="rs-tab"
                   classList={{
                     "rs-tab--active":
-                      rightSidebarPanel() === "unlinked_mentions",
+                      settings.rightSidebarPanel() === "unlinked_mentions",
                   }}
                   onClick={() =>
-                    handleRightSidebarSegmentChange("unlinked_mentions")
+                    settings.setRightSidebarPanelValue("unlinked_mentions")
                   }
                 >
                   Mentions
@@ -2531,19 +2211,19 @@ const App: Component = () => {
                 <button
                   type="button"
                   role="tab"
-                  aria-selected={rightSidebarPanel() === "integrity"}
+                  aria-selected={settings.rightSidebarPanel() === "integrity"}
                   class="rs-tab"
                   classList={{
-                    "rs-tab--active": rightSidebarPanel() === "integrity",
+                    "rs-tab--active": settings.rightSidebarPanel() === "integrity",
                   }}
-                  onClick={() => handleRightSidebarSegmentChange("integrity")}
+                  onClick={() => settings.setRightSidebarPanelValue("integrity")}
                 >
                   Integrity
                 </button>
               </div>
               <div class="rs-body">
                 <Switch>
-                  <Match when={rightSidebarPanel() === "backlinks"}>
+                  <Match when={settings.rightSidebarPanel() === "backlinks"}>
                     <Backlinks
                       vaultId={vaultId()}
                       path={selectedPath()}
@@ -2553,7 +2233,7 @@ const App: Component = () => {
                       }
                     />
                   </Match>
-                  <Match when={rightSidebarPanel() === "unlinked_mentions"}>
+                  <Match when={settings.rightSidebarPanel() === "unlinked_mentions"}>
                     <UnlinkedMentions
                       vaultId={vaultId()}
                       path={selectedPath()}
@@ -2563,7 +2243,7 @@ const App: Component = () => {
                       }
                     />
                   </Match>
-                  <Match when={rightSidebarPanel() === "integrity"}>
+                  <Match when={settings.rightSidebarPanel() === "integrity"}>
                     <IntegrityPanel
                       vaultId={vaultId()}
                       refreshSignal={rightSidebarRefreshTick()}
@@ -2590,413 +2270,14 @@ const App: Component = () => {
         onRunCommand={handleRunCommand}
       />
 
-      <TwoPaneModal
+      <SettingsModal
         open={settingsOpen()}
-        onClose={() => {
-          setSettingsOpen(false);
-          setOpenInfo(null);
-        }}
-        title="Settings"
-        items={SETTINGS_TABS}
-        activeId={settingsTab()}
-        onSelect={(id) => {
-          setSettingsTab(id as SettingsTab);
-          setOpenInfo(null);
-        }}
-      >
-        <Show when={settingsTab() === "appearance"}>
-          <h2 class="set-h2">Appearance</h2>
-          <div class="set-row">
-            <div>
-              <div class="set-row__lab">Theme</div>
-              <div class="set-row__desc">
-                Follow the system, or force light / dark.
-              </div>
-            </div>
-            <SegmentedControl
-              variant="pill"
-              role="radiogroup"
-              options={(["system", "light", "dark"] as ThemeMode[]).map(
-                (m) => ({ label: m, value: m, icon: THEME_ICON[m] }),
-              )}
-              value={themeMode()}
-              onChange={(v) => setTheme(v as ThemeMode)}
-            />
-          </div>
-        </Show>
-        <Show when={settingsTab() === "editor"}>
-          <h2 class="set-h2">Editor</h2>
-          <div class="set-row">
-            <div>
-              <div class="set-row__lab">
-                Open notes in raw source by default
-              </div>
-              <div class="set-row__desc">
-                Otherwise notes open in Live Preview.
-              </div>
-            </div>
-            <OnOffControl value={rawDefault()} onChange={setRawDefaultValue} />
-          </div>
-          <div class="set-row">
-            <div>
-              <div class="set-row__lab">Minimap</div>
-              <div class="set-row__desc">
-                Show a document overview strip beside the editor.
-              </div>
-            </div>
-            <OnOffControl
-              value={minimapEnabled()}
-              onChange={setMinimapEnabledValue}
-            />
-          </div>
-          <div class="set-row">
-            <div>
-              <div class="set-row__lab">Live editor tabs</div>
-              <div class="set-row__desc">
-                How many open tabs keep a live editor. Tabs beyond this reload
-                from disk when you return to them.
-              </div>
-            </div>
-            <input
-              class="set-row__num"
-              type="number"
-              min="1"
-              step="1"
-              value={liveTabLimit()}
-              onChange={(e) =>
-                setLiveTabLimitValue(Number(e.currentTarget.value))
-              }
-            />
-          </div>
-          <div class="set-row">
-            <div>
-              <div class="set-row__lab">Colorize raw source</div>
-              <div class="set-row__desc">
-                In Raw Source mode, tint wiki-links, links and tags with
-                rendered-mode colors. Nothing is hidden or rendered — only
-                colors change.
-              </div>
-            </div>
-            <OnOffControl
-              value={colorizeSource()}
-              onChange={setColorizeSourceValue}
-            />
-          </div>
-          <div class="set-row">
-            <div>
-              <div class="set-row__lab">Typed properties</div>
-              <div class="set-row__desc">
-                Give frontmatter properties a type (number, currency, date &amp;
-                time, list, …) for type-aware editors.
-              </div>
-            </div>
-            <div class="set-row__control">
-              <InfoButton id="typed-props">
-                <p style={{ margin: "0 0 var(--space-1) 0" }}>
-                  <strong>How it works.</strong> Pick a type from the{" "}
-                  <code>▾</code> menu on any property row. The Properties panel
-                  then shows the right editor — a <code>$</code> field for
-                  currency, a date picker, a dropdown for an enum, and so on.
-                  The type is saved as a plain comment <em>inside the note</em>,
-                  so it travels with the file and any tool can read it. Nothing
-                  is stored outside the vault.
-                </p>
-
-                <div
-                  style={{
-                    display: "grid",
-                    "grid-template-columns": "auto 1fr",
-                    "column-gap": "var(--space-2)",
-                    "row-gap": "var(--space-1)",
-                    "align-items": "baseline",
-                    margin: "var(--space-2) 0",
-                  }}
-                >
-                  <For
-                    each={
-                      [
-                        ["# type:text", "Text."],
-                        ["# type:int", "Whole number."],
-                        ["# type:float", "Decimal number."],
-                        [
-                          "# type:float/currency/usd",
-                          "Currency — usd · nis · eur (symbol only; value stays a number).",
-                        ],
-                        ["# type:boolean", "True / false toggle."],
-                        [
-                          "# type:enum(alive,dead)",
-                          "One of a fixed set of values.",
-                        ],
-                        [
-                          "# type:date",
-                          "A date. Formats: YYYY-MM-DD, YYYY-MM-DD HH:MM, YYYY, DD-MM-YYYY, MM/DD/YYYY, … — e.g. # type:date:DD-MM-YY.",
-                        ],
-                        [
-                          "# type:list",
-                          "A list of strings; items starting with # become clickable tags.",
-                        ],
-                      ] as [string, string][]
-                    }
-                  >
-                    {([token, desc]) => (
-                      <>
-                        <code
-                          style={{
-                            "font-family": "var(--font-mono)",
-                            "font-size": "var(--text-xs)",
-                            color: "var(--c-accent)",
-                            "white-space": "nowrap",
-                          }}
-                        >
-                          {token}
-                        </code>
-                        <span style={{ "font-size": "var(--text-xs)" }}>
-                          {desc}
-                        </span>
-                      </>
-                    )}
-                  </For>
-                </div>
-
-                <p style={{ margin: "0 0 var(--space-1) 0" }}>
-                  Example frontmatter:
-                </p>
-                <pre
-                  style={{
-                    margin: "0 0 var(--space-1) 0",
-                    padding: "var(--space-2)",
-                    "font-family": "var(--font-mono)",
-                    "font-size": "var(--text-xs)",
-                    background: "var(--c-bg-primary)",
-                    border: "1px solid var(--c-border-subtle)",
-                    "border-radius": "var(--radius-sm)",
-                    "white-space": "pre-wrap",
-                  }}
-                >{`---
-name: Ann       # type:text
-price: 9.99     # type:float/currency/eur
-status: alive   # type:enum(alive,dead)
-meeting: 2026-06-17 14:30  # type:date:YYYY-MM-DD HH:MM
-topics:         # type:list
-  - "#draft"
----`}</pre>
-                <p style={{ margin: 0 }}>
-                  A date using the default format, or a currency using the
-                  default code, is written without the extra detail — only a
-                  different one is written inline. Turning this off leaves any
-                  existing <code># type:</code> comments untouched.
-                </p>
-              </InfoButton>
-              <OnOffControl
-                value={typedProps()}
-                onChange={setTypedPropsValue}
-              />
-            </div>
-          </div>
-          <Show when={typedProps()}>
-            <div class="set-row">
-              <div>
-                <div class="set-row__lab">Default date format</div>
-                <div class="set-row__desc">
-                  Applied to every date property; override per-property from the
-                  type menu.
-                </div>
-              </div>
-              <Select
-                options={DATE_FORMAT_TOKENS.map((t) => ({ value: t }))}
-                value={dateDefault()}
-                onChange={(v) => setDateDefaultValue(v)}
-                ariaLabel="Default date format"
-              />
-            </div>
-            <div class="set-row">
-              <div>
-                <div class="set-row__lab">Default currency</div>
-                <div class="set-row__desc">
-                  Applied to currency properties; override per-property from the
-                  type menu.
-                </div>
-              </div>
-              <Select
-                options={CURRENCY_CODES.map((c) => ({
-                  value: c,
-                  label: c.toUpperCase(),
-                }))}
-                value={currencyDefault()}
-                onChange={(v) => setCurrencyDefaultValue(v)}
-                ariaLabel="Default currency"
-              />
-            </div>
-            <div class="set-row">
-              <div>
-                <div class="set-row__lab">Render “tags” as tags</div>
-                <div class="set-row__desc">
-                  Show the <code>tags</code> property's list as tag chips even
-                  when items don't start with <code>#</code>.
-                </div>
-              </div>
-              <OnOffControl
-                value={tagsKeyAsTags()}
-                onChange={setTagsKeyAsTagsValue}
-              />
-            </div>
-          </Show>
-        </Show>
-        <Show when={settingsTab() === "wikilinks"}>
-          <h2 class="set-h2">Wiki links</h2>
-          <div class="set-row">
-            <div>
-              <div class="set-row__lab">Repair broken links on rename</div>
-              <div class="set-row__desc">
-                When you rename a file, also fix links that point at its old
-                name but had already broken (e.g. from an earlier rename). Off
-                limits a rename to links that still resolve to the file.
-              </div>
-            </div>
-            <div class="set-row__control">
-              <InfoButton id="wiki-repair">
-                <p>
-                  <strong>On:</strong> renaming a file also fixes links that
-                  point at its old name but had already broken from an earlier
-                  rename.
-                </p>
-                <p>
-                  <strong>Off:</strong> a rename only updates links that still
-                  resolve to the file.
-                </p>
-              </InfoButton>
-              <OnOffControl
-                value={rewriteBrokenLinks()}
-                onChange={setRewriteBrokenLinksValue}
-              />
-            </div>
-          </div>
-        </Show>
-        <Show when={settingsTab() === "plugins"}>
-          <h2 class="set-h2">Core Plugins</h2>
-          <For each={CORE_PLUGINS}>
-            {(p) => {
-              const on = () => corePlugins()[p.id] ?? p.defaultEnabled;
-              return (
-                <div class="set-row">
-                  <div>
-                    <div class="set-row__lab">{p.name}</div>
-                    <div class="set-row__desc">{p.description}</div>
-                  </div>
-                  <div class="set-row__control">
-                    <Show when={p.id === "dataview"}>
-                      <InfoButton id="dataview">
-                        <p>
-                          A <code>query</code> block renders live results from
-                          your vault as a table, list, or count — it updates as
-                          notes change.
-                        </p>
-                        <pre>
-                          {
-                            '```query\nfrom #project where status = "active"\n```'
-                          }
-                        </pre>
-                      </InfoButton>
-                    </Show>
-                    <Show when={p.id === "property-refs"}>
-                      <InfoButton id="property-refs">
-                        <p>
-                          <code>[[note.prop]]</code> shows a value from another
-                          note's frontmatter inline; <code>[[.prop]]</code>{" "}
-                          reads the current note's own.
-                        </p>
-                        <pre>
-                          {
-                            "# In Ann.md\n---\nrole: Engineer\n---\n\n# In any note\nAnn is a [[Ann.role]]."
-                          }
-                        </pre>
-                      </InfoButton>
-                    </Show>
-                    <OnOffControl
-                      value={on()}
-                      onChange={(v) => setCorePlugin(p.id, p.settingKey, v)}
-                    />
-                  </div>
-                </div>
-              );
-            }}
-          </For>
-        </Show>
-        <Show when={settingsTab() === "statusbar"}>
-          <h2 class="set-h2">Status bar</h2>
-          <div class="set-row">
-            <div>
-              <div class="set-row__lab">Show status bar</div>
-              <div class="set-row__desc">
-                The bar along the bottom. When off, it disappears entirely.
-              </div>
-            </div>
-            <OnOffControl
-              value={statusbarEnabled()}
-              onChange={(v) => setStatusbarSetting(STATUSBAR_ENABLED_KEY, v)}
-            />
-          </div>
-          <For each={STATUSBAR_SEGMENTS}>
-            {(seg) => {
-              const on = () => segVisible(seg);
-              return (
-                <div
-                  class="set-row"
-                  style={{
-                    opacity: statusbarEnabled() ? 1 : 0.5,
-                    "pointer-events": statusbarEnabled() ? "auto" : "none",
-                  }}
-                >
-                  <div>
-                    <div class="set-row__lab">{seg.name}</div>
-                    <div class="set-row__desc">{seg.description}</div>
-                  </div>
-                  <OnOffControl
-                    value={on()}
-                    onChange={(v) => setStatusbarSetting(seg.settingKey, v)}
-                  />
-                </div>
-              );
-            }}
-          </For>
-        </Show>
-        <Show when={settingsTab() === "vault"}>
-          <h2 class="set-h2">Vault</h2>
-          <div class="set-row">
-            <div>
-              <div class="set-row__lab">Current vault</div>
-              <div class="set-row__desc">{vaultPath() ?? "—"}</div>
-            </div>
-            <Button variant="primary" onClick={handleOpen} disabled={busy()}>
-              Open another…
-            </Button>
-          </div>
-        </Show>
-        <Show when={settingsTab() === "shortcuts"}>
-          <div
-            class="set-row__control"
-            style={{
-              "justify-content": "flex-end",
-              "margin-bottom": "var(--space-2)",
-            }}
-          >
-            <InfoButton id="shortcuts">
-              <p>
-                Click <strong>Change</strong> on any row, then press the key
-                combination you want. Escape cancels; a combo already used in
-                the same scope is rejected. New in this release: follow the link
-                under the cursor (Alt+Enter), toggle the left sidebar
-                (⌘/Ctrl+Shift+L), new note (⌘/Ctrl+N), and navigate back/forward
-                (⌘/Ctrl+Alt+←/→).
-              </p>
-            </InfoButton>
-          </div>
-          <ShortcutsPanel
-            overrides={shortcutOverrides()}
-            onChange={setShortcutOverridesValue}
-          />
-        </Show>
-      </TwoPaneModal>
+        onClose={() => setSettingsOpen(false)}
+        settings={settings}
+        vaultPath={vaultPath()}
+        busy={busy()}
+        onOpenAnotherVault={() => void handleOpen()}
+      />
 
       <Show when={createOffer() !== null}>
         <div
@@ -3072,10 +2353,10 @@ topics:         # type:list
         </div>
       </Show>
 
-      <Show when={vaultId() && statusbarEnabled()}>
+      <Show when={vaultId() && settings.statusbarEnabled()}>
         <footer class="statusbar">
           {(() => {
-            const vaultVis = () => segVisible(VAULT_PATH_SEGMENT);
+            const vaultVis = () => settings.segVisible(VAULT_PATH_SEGMENT);
             const scanVis = () => scanStatus() === "in_progress";
             const brokenVis = () => !!formatBrokenBlockRefs(brokenBlockRefs());
             const pendingVis = () =>
@@ -3131,8 +2412,8 @@ topics:         # type:list
 
           <Show when={view().kind === "file" && !!selectedPath()}>
             {(() => {
-              const wordVis = () => segVisible(WORD_COUNT_SEGMENT);
-              const blockVis = () => segVisible(BLOCK_COUNT_SEGMENT);
+              const wordVis = () => settings.segVisible(WORD_COUNT_SEGMENT);
+              const blockVis = () => settings.segVisible(BLOCK_COUNT_SEGMENT);
               const sep = () => leadingSeparators([wordVis(), blockVis()]);
               return (
                 <span class="statusbar__group statusbar__mid">
@@ -3155,7 +2436,7 @@ topics:         # type:list
               when={
                 view().kind === "file" &&
                 selectedPath() &&
-                segVisible(FILE_PATH_SEGMENT)
+                settings.segVisible(FILE_PATH_SEGMENT)
               }
             >
               <span class="statusbar__dir" title={selectedPath() ?? ""}>

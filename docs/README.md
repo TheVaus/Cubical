@@ -103,6 +103,8 @@ viewer-formats            | ui/src/viewer/viewerKind.ts                | -
 settings-storage-routing  | docs/architecture/ui.md                    | -
 ds-bespoke-prose          | docs/architecture/ui.md                    | -
 ds-raw-control-budgets    | scripts/ds-raw-controls.json               | -
+component-size-budgets    | scripts/component-budgets.json             | -
+app-shell-rule            | docs/architecture/ui.md                    | -
 tauri-boundary-exceptions | scripts/dependency-boundary.json           | -
 declared-runtime-deps     | scripts/techstack-declared.json            | -
 perf-budget-machine-class | scripts/perf-budget.json                   | -

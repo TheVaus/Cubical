@@ -2,7 +2,7 @@
 
 **Rule:** Anchor every invariant in `implementation/**` to symbols that still exist.
 
-**Gate:** `scripts/gates/symbol_anchors.py` — every symbol in an `**Anchors:**` line must be found in the tracked source.
+**Gate:** `scripts/gates/symbol_anchors.py` — every symbol in an `**Anchors:**` line must be found in the tracked source, wherever that line is written. Only `implementation/**` is *required* to carry one; an architecture doc that names code opts in by writing the line, and [`../architecture/navigation.md`](../architecture/navigation.md) does.
 
 **Why:** [`no-comments`](no-comments.md) moves rationale out of the source and into `implementation/`. That trade only pays off if the docs stay tied to the code — otherwise the rot merely moved somewhere with a nicer filename. A comment at least sits next to the thing it lies about; a doc in another directory can describe a deleted function indefinitely, and confidently.
 

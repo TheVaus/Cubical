@@ -6,7 +6,7 @@ One rule per file, fixed skeleton, stable id. The **Rule** line is the
 entire principle — read this table, then open only the file you need.
 A gate failure names its principle file; that file is the explanation.
 
-23 principles. 11 enforced by a gate today.
+24 principles. 12 enforced by a gate today.
 
 | Principle | Rule | Gate |
 |---|---|---|
@@ -14,6 +14,7 @@ A gate failure names its principle file; that file is the explanation.
 | [`best-effort-resilience`](best-effort-resilience.md) | Every per-file refresher logs and continues on failure. | — |
 | [`branches`](branches.md) | Never graft unrelated work onto an active feature branch. | — |
 | [`commits`](commits.md) | Commit each logical change as soon as it stands on its own — without being asked — and update the owning doc in the same commit. | — |
+| [`component-composition`](component-composition.md) | Put new frontend state in the feature that reads it, and keep every `ui/src` file under its size budget. | `scripts/gates/composition.py` |
 | [`composability`](composability.md) | Design a feature so it switches off cleanly, leaving the `.md` byte-identical. | — |
 | [`convergence-over-interception`](convergence-over-interception.md) | Assume any external process can change the vault at any time, and make the engine converge on the result. | — |
 | [`crate-separation`](crate-separation.md) | Keep every other crate buildable and testable without the app harness. | `scripts/check.sh` |
