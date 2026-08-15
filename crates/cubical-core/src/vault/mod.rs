@@ -12,6 +12,7 @@ mod frontmatter;
 pub mod links;
 pub mod mentions;
 pub mod pending;
+mod relpath;
 pub mod rename_journal;
 mod scan;
 pub mod search_refresh;

@@ -57,6 +57,28 @@ registries (tests, headless tooling) may omit it and accept `None`.
 open; the walk runs separately, which is what keeps vault-open time independent
 of vault size.
 
+## Vault-relative paths
+
+**Anchors:** to_vault_relative · WatchEvent · scan
+
+A path stored anywhere — the `files` and `folders` tables, a `WatchEvent`, the
+rename journal, the own-writes key — is a **vault-relative string joined with
+`/` on every platform**. `to_vault_relative` is the only thing that produces
+one, and both producers (the scan and the watcher's `relativize`) go through it.
+
+This is a correctness rule, not a formatting preference. `Path`'s native
+separator is `\` on Windows, so a stored path built by stringifying a `PathBuf`
+diverges per platform, and everything keyed on that string stops matching: a
+`[[wikilink]]` resolves against `projects/2026/note`, the rename journal
+replays against a path that no longer spells the same, and the own-writes set —
+whose key is built from a `/`-form request path — never matches the watcher's
+event, so the app re-indexes its own writes in a loop.
+
+`WatchEvent` therefore carries `String`, not `PathBuf`. Handing downstream a
+`PathBuf` would let any consumer reintroduce the platform separator with an
+ordinary `to_string_lossy()`, which is exactly how this broke: the type is what
+makes the invariant hold, not discipline at each call site.
+
 ## Watcher
 
 **Anchors:** WatchEvent · Vault · scan

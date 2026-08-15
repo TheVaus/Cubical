@@ -85,12 +85,9 @@ pub async fn scan(
         };
         if !entry.file_type().is_file() {
             if entry.file_type().is_dir() && entry.depth() > 0 {
-                let rel = entry
-                    .path()
-                    .strip_prefix(&root)
-                    .unwrap_or(entry.path())
-                    .to_string_lossy()
-                    .into_owned();
+                let rel = crate::vault::relpath::to_vault_relative(
+                    entry.path().strip_prefix(&root).unwrap_or(entry.path()),
+                );
                 if let Err(e) = upsert_folder(vault.index(), &rel, scan_started_secs).await {
                     tracing::warn!(path = %rel, error = %e, "folder upsert failed; skipping");
                 }
@@ -148,7 +145,7 @@ pub async fn scan(
         let mtime_unix = mtime_secs(&metadata);
         let inode = inode_of(&metadata);
 
-        let path_str = rel_path.to_string_lossy().into_owned();
+        let path_str = crate::vault::relpath::to_vault_relative(&rel_path);
         let upsert = "
             INSERT INTO files (
                 path, type_id, size_bytes, mtime_unix, content_hash,

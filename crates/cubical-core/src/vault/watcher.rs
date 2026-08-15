@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 use notify::event::{ModifyKind, RenameMode};
@@ -18,10 +18,10 @@ const TICK_MS: u64 = 25;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WatchEvent {
-    Created(PathBuf),
-    Modified(PathBuf),
-    Removed(PathBuf),
-    Renamed { from: PathBuf, to: PathBuf },
+    Created(String),
+    Modified(String),
+    Removed(String),
+    Renamed { from: String, to: String },
 }
 
 pub struct WatcherHandle {
@@ -164,7 +164,7 @@ fn translate_event(root: &Path, ev: &DebouncedEvent) -> Vec<WatchEvent> {
     }
 }
 
-fn relativize(root: &Path, abs: &Path) -> Option<PathBuf> {
+fn relativize(root: &Path, abs: &Path) -> Option<String> {
     let rel = abs.strip_prefix(root).ok()?;
     if rel.as_os_str().is_empty() {
         return None;
@@ -172,7 +172,11 @@ fn relativize(root: &Path, abs: &Path) -> Option<PathBuf> {
     if is_excluded(rel) {
         return None;
     }
-    Some(rel.to_path_buf())
+    let rel = super::relpath::to_vault_relative(rel);
+    if rel.is_empty() {
+        return None;
+    }
+    Some(rel)
 }
 
 fn is_excluded(rel: &Path) -> bool {
@@ -189,6 +193,7 @@ fn is_excluded(rel: &Path) -> bool {
 mod tests {
     use super::*;
     use std::fs;
+    use std::path::PathBuf;
     use std::time::Duration;
     use tempfile::tempdir;
     use tokio::time::timeout;
@@ -246,7 +251,7 @@ mod tests {
             .expect("event within RECV_TIMEOUT")
             .expect("channel still open");
         match ev {
-            WatchEvent::Created(p) => assert_eq!(p, PathBuf::from("hello.md")),
+            WatchEvent::Created(p) => assert_eq!(p, "hello.md"),
             other => panic!("expected Created, got {other:?}"),
         }
     }
@@ -265,10 +270,7 @@ mod tests {
             vec![PathBuf::from("/v/notes/hello.md")],
         );
         let out = translate_event(root, &ev);
-        assert_eq!(
-            out,
-            vec![WatchEvent::Created(PathBuf::from("notes/hello.md"))]
-        );
+        assert_eq!(out, vec![WatchEvent::Created("notes/hello.md".into())]);
     }
 
     #[test]
@@ -279,7 +281,7 @@ mod tests {
             vec![PathBuf::from("/v/note.md")],
         );
         let out = translate_event(root, &ev);
-        assert_eq!(out, vec![WatchEvent::Modified(PathBuf::from("note.md"))]);
+        assert_eq!(out, vec![WatchEvent::Modified("note.md".into())]);
     }
 
     #[test]
@@ -290,7 +292,7 @@ mod tests {
             vec![PathBuf::from("/v/gone.md")],
         );
         let out = translate_event(root, &ev);
-        assert_eq!(out, vec![WatchEvent::Removed(PathBuf::from("gone.md"))]);
+        assert_eq!(out, vec![WatchEvent::Removed("gone.md".into())]);
     }
 
     #[test]
@@ -304,8 +306,8 @@ mod tests {
         assert_eq!(
             out,
             vec![WatchEvent::Renamed {
-                from: PathBuf::from("a.md"),
-                to: PathBuf::from("b.md"),
+                from: "a.md".into(),
+                to: "b.md".into(),
             }]
         );
     }
@@ -318,7 +320,7 @@ mod tests {
             vec![PathBuf::from("/v/a.md")],
         );
         let out = translate_event(root, &ev);
-        assert_eq!(out, vec![WatchEvent::Removed(PathBuf::from("a.md"))]);
+        assert_eq!(out, vec![WatchEvent::Removed("a.md".into())]);
     }
 
     #[test]
@@ -329,7 +331,7 @@ mod tests {
             vec![PathBuf::from("/v/b.md")],
         );
         let out = translate_event(root, &ev);
-        assert_eq!(out, vec![WatchEvent::Created(PathBuf::from("b.md"))]);
+        assert_eq!(out, vec![WatchEvent::Created("b.md".into())]);
     }
 
     #[test]
@@ -342,7 +344,7 @@ mod tests {
             vec![gone],
         );
         let out = translate_event(root, &ev);
-        assert_eq!(out, vec![WatchEvent::Removed(PathBuf::from("trashed.md"))]);
+        assert_eq!(out, vec![WatchEvent::Removed("trashed.md".into())]);
     }
 
     #[test]
@@ -356,7 +358,7 @@ mod tests {
             vec![here],
         );
         let out = translate_event(root, &ev);
-        assert_eq!(out, vec![WatchEvent::Created(PathBuf::from("arrived.md"))]);
+        assert_eq!(out, vec![WatchEvent::Created("arrived.md".into())]);
     }
 
     #[test]
@@ -367,7 +369,7 @@ mod tests {
             vec![PathBuf::from("/v/a.md"), PathBuf::from("/v/.cubical/b.md")],
         );
         let out = translate_event(root, &ev);
-        assert_eq!(out, vec![WatchEvent::Removed(PathBuf::from("a.md"))]);
+        assert_eq!(out, vec![WatchEvent::Removed("a.md".into())]);
     }
 
     #[test]
@@ -384,10 +386,7 @@ mod tests {
             ],
         );
         let out = translate_event(root, &ev);
-        assert_eq!(
-            out,
-            vec![WatchEvent::Created(PathBuf::from("notes/keep.md"))]
-        );
+        assert_eq!(out, vec![WatchEvent::Created("notes/keep.md".into())]);
     }
 
     #[test]
@@ -402,7 +401,7 @@ mod tests {
             ],
         );
         let out = translate_event(root, &ev);
-        assert_eq!(out, vec![WatchEvent::Created(PathBuf::from("keep.md"))]);
+        assert_eq!(out, vec![WatchEvent::Created("keep.md".into())]);
     }
 
     #[test]
