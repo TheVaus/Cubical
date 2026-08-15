@@ -4,13 +4,18 @@ import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 
 import { markdown } from "@codemirror/lang-markdown";
-import { csvBlockField, delimiterForInfo } from "./csvBlock";
+import { csvBlockRenderer, delimiterForInfo } from "./csvBlock";
+import { blockRenderers, blockRenderersField } from "./blockRenderers";
 
 function stateWith(doc: string, cursor = 0): EditorState {
   return EditorState.create({
     doc,
     selection: { anchor: cursor },
-    extensions: [markdown(), csvBlockField],
+    extensions: [
+      markdown(),
+      blockRenderersField,
+      blockRenderers(csvBlockRenderer),
+    ],
   });
 }
 
@@ -35,7 +40,7 @@ describe("delimiterForInfo", () => {
   });
 });
 
-describe("csvBlockField", () => {
+describe("csv block rendering", () => {
   it("renders a csv fenced block as a table", () => {
     const doc = "before\n\n```csv\nname,role\nGandalf,Wizard\n```\n\nafter\n";
     const tables = renderedTables(doc, 0);

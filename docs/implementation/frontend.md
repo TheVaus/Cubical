@@ -263,8 +263,43 @@ the decoration compartment. Raw-source mode reconfigures that compartment to
 **Every preview-only extension MUST be a member of this bundle.** Adding one to
 the editor's base extension list, or to a separate compartment, is a bug: raw
 source will not kill it. Current members are the decoration plugin, the embed
-block field, the dataview block field and the property-ref field, each with its
+block field, the block-renderer field and the property-ref field, each with its
 base theme.
+
+## Fenced blocks go through the renderer registry
+
+`ui/src/editor/blockRenderers.ts` owns **one** state field that finds every
+`FencedCode` node, matches its info string against the registered renderers, and
+replaces the block with a widget. A renderer is data — `languages`, a
+`frameClass`, a `render(source, ctx)` returning a DOM node, and optional
+`active(state)` / `revision(state)` hooks — contributed through
+`blockRendererFacet`.
+
+**Do not write a second fenced-block state field.** Before the registry, csv and
+dataview were two hand-copied fields with identical scan-and-replace logic, and
+the copies had already drifted (only one trimmed its source, only one honoured a
+facet). One field means cursor suppression, atomic ranges and rebuild triggers
+are decided once.
+
+The two hooks exist because a renderer may be inert or stale for reasons the
+field cannot see:
+
+- `active(state)` decides whether to decorate **at all**. Dataview returns false
+  with no runner in the facet. A renderer that cannot draw must say so here —
+  returning an empty node from `render` still blanks the user's source.
+- `revision(state)` is widget identity beyond the source text. Async renderers
+  need it: dataview's is `runnerId:version`, so a settled query redraws, and a
+  *swapped* runner redraws even when the new one's version collides with the old
+  one's. A pure renderer omits it.
+
+Registration order is priority — the first renderer claiming a language wins, so
+a plugin cannot silently shadow a built-in one.
+
+**The registry is the pre-ABI shape of the plugin block API** (issue #61), which
+is why it is data-driven rather than a switch: a WASM plugin contributing a block
+renderer is the same registration with `render` crossing the sandbox boundary.
+It is *not* itself a plugin boundary — everything in it is first-party, in-process
+and unsandboxed. Do not treat it as one.
 
 ## Block widgets and the cursor
 
