@@ -149,13 +149,18 @@ through `tabs/activation.ts` rather than adding a fourth copy.
 
 ### 15.4 History
 
-**Anchors:** NavState · navPush · navBack · navForward · navCurrent · setNavState · handleSelectFile · activateTabById · navigateToHistoryPath · handleExitTagView
+**Anchors:** NavState · navPush · navBack · navForward · navCurrent · createNavSession · handleSelectFile · activateTabById · navigateToHistoryPath · handleExitTagView
 
 History is **one global `NavState`**, a pure
 list-with-a-cursor over *file paths* (`navHistory.ts`). It is global rather than
 per-tab because dedupe-by-identity makes a tab *be* a document — a per-tab stack
 could only ever hold the one path that created it. That rationale is owned by
 [`../implementation/frontend.md`](../implementation/frontend.md) → Tabs.
+
+The signal over that value, and the only writes to it, live in
+`createNavSession` (`core/navSession.ts`). The shell holds the session and calls
+its methods; it cannot set the stack directly, which is what keeps the
+vault-switch reset from being forgotten again.
 
 - **Pushes:** `handleSelectFile` unless `fromHistory`, and
   `activateTabById` when the switch lands on a file tab —
@@ -237,7 +242,7 @@ caps. Markdown never satisfies `hasViewer`, so the editor keeps sole ownership o
 
 ### 15.6 Known defects and open questions
 
-**Anchors:** handleNavigateWikilink · requestAnchorScroll · editorApi · openVaultByPath · setNavState · navigateToHistoryPath · resetDocState · handleSelectFile · closestWikiLinkSpan · buildFor
+**Anchors:** handleNavigateWikilink · requestAnchorScroll · editorApi · openVaultByPath · createNavSession · navigateToHistoryPath · resetDocState · handleSelectFile · closestWikiLinkSpan · buildFor
 
 Recorded here rather than fixed, so a session touching navigation starts with
 them visible.
@@ -253,22 +258,16 @@ them visible.
    note but does not scroll, and the stale request can fire later against the
    source tab, emitting a spurious "not found" toast. No test covers the
    cross-note case.
-2. **Nav history is not cleared on a vault switch.** `openVaultByPath` resets
-   tabs, contents, MRU and a dozen other signals but never
-   touches `navState` — `setNavState` has no call site in that path. After
-   switching vaults, Back can target a path from the previous vault;
-   `navigateToHistoryPath` will synthesize an entry for it, open a tab, and fail
-   the read with an error banner.
-3. **Tag and terminal activation skip `resetDocState`** (§15.3). Not known to
+2. **Tag and terminal activation skip `resetDocState`** (§15.3). Not known to
    cause a user-visible fault, because the stale fields are only read while a
    file tab is active, but it is an invariant hole rather than a decision.
-4. **Wikilink to a non-markdown target — partly resolved.** `handleSelectFile`
+3. **Wikilink to a non-markdown target — partly resolved.** `handleSelectFile`
    no longer silently returns for every non-markdown entry: a target whose
    extension has a viewer (§15.5) now opens in one. A target with no viewer —
    `.pdf`, `.docx`, a bare `LICENSE` — still returns silently, so the dead-click
    remains for those. Whether link resolution can ever *return* such a target
    was still not determined from the frontend alone.
-5. **Open question — search results do not jump to the match.** The panel groups
+4. **Open question — search results do not jump to the match.** The panel groups
    hits per file and opens the file only (`sidebar/SearchPanel.tsx`). Nothing
    in the code or the specs says whether jump-to-hit was cut or simply never
    built.

@@ -71,16 +71,7 @@ import {
 } from "./api/ipc";
 import { createVaultSession } from "./core/vaultSession";
 import { resolveGlobal, type Command } from "./core/commands";
-import {
-  emptyNav,
-  navPush,
-  navBack,
-  navForward,
-  navCurrent,
-  canBack,
-  canForward,
-  type NavState,
-} from "./navHistory";
+import { createNavSession } from "./core/navSession";
 import TabStrip from "./tabs/TabStrip";
 import {
   FileViewer,
@@ -303,9 +294,7 @@ const App: Component = () => {
 
   const [leftCollapsed, setLeftCollapsed] = createSignal(false);
   const toggleLeftSidebar = () => setLeftCollapsed((v) => !v);
-  const [navState, setNavState] = createSignal<NavState>(emptyNav);
-  const navCanBack = createMemo(() => canBack(navState()));
-  const navCanForward = createMemo(() => canForward(navState()));
+  const nav = createNavSession();
   const [settingsOpen, setSettingsOpen] = createSignal(false);
   const [vaultSwitcherOpen, setVaultSwitcherOpen] = createSignal(false);
   const [rightSidebarRefreshTick, setRightSidebarRefreshTick] = createSignal(0);
@@ -882,7 +871,7 @@ const App: Component = () => {
     const t = activeTab(tabs());
     if (t === null || t.view.kind !== "file") return;
     const path = t.view.path;
-    setNavState((s) => navPush(s, path));
+    nav.push(path);
   };
 
   const closeTabById = async (id: string) => {
@@ -924,7 +913,7 @@ const App: Component = () => {
 
     resetDocState();
     setTabs((s) => openTab(s, { kind: "file", path: file.path }));
-    if (!opts?.fromHistory) setNavState((s) => navPush(s, file.path));
+    if (!opts?.fromHistory) nav.push(file.path);
     if (!isMarkdown && !isEditableText(file.path)) return;
     seenHash = knownHash ?? null;
     lastWrittenHash = knownHash ?? null;
@@ -942,17 +931,11 @@ const App: Component = () => {
     void handleSelectFile(file, undefined, { fromHistory: true });
   };
   const goBack = () => {
-    const next = navBack(navState());
-    if (next.index === navState().index) return;
-    setNavState(next);
-    const path = navCurrent(next);
+    const path = nav.back();
     if (path) navigateToHistoryPath(path);
   };
   const goForward = () => {
-    const next = navForward(navState());
-    if (next.index === navState().index) return;
-    setNavState(next);
-    const path = navCurrent(next);
+    const path = nav.forward();
     if (path) navigateToHistoryPath(path);
   };
 
@@ -1025,7 +1008,7 @@ const App: Component = () => {
   const handleExitTagView = async () => {
     const id = tabs().activeId;
     if (id === null) return;
-    const back = navCurrent(navState());
+    const back = nav.current();
     const target = back === null ? null : tabId({ kind: "file", path: back });
     const canRestore =
       target !== null &&
@@ -1302,13 +1285,13 @@ const App: Component = () => {
       "nav.back": {
         id: "nav.back",
         title: "Navigate back",
-        when: () => navCanBack(),
+        when: () => nav.canBack(),
         run: () => goBack(),
       },
       "nav.forward": {
         id: "nav.forward",
         title: "Navigate forward",
-        when: () => navCanForward(),
+        when: () => nav.canForward(),
         run: () => goForward(),
       },
       "view.nextTab": {
@@ -1395,6 +1378,7 @@ const App: Component = () => {
         }),
       );
       setMru([]);
+      nav.reset();
       setDocSummaries(
         produce((s: Record<string, DocSummary>) => {
           for (const k of Object.keys(s)) delete s[k];
@@ -1467,14 +1451,14 @@ const App: Component = () => {
           <IconButton
             label="Navigate back"
             onClick={goBack}
-            disabled={!navCanBack()}
+            disabled={!nav.canBack()}
           >
             ‹
           </IconButton>
           <IconButton
             label="Navigate forward"
             onClick={goForward}
-            disabled={!navCanForward()}
+            disabled={!nav.canForward()}
           >
             ›
           </IconButton>
