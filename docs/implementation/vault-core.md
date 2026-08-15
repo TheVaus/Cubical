@@ -57,6 +57,17 @@ registries (tests, headless tooling) may omit it and accept `None`.
 open; the walk runs separately, which is what keeps vault-open time independent
 of vault size.
 
+**The cancellation test asserts the property, not a latency** — the same rule
+the watcher's drop test follows, and for the same reason. It verifies that a
+cancelled scan settles, reports `ScanCancelled`, and leaves a partial row count;
+never how many milliseconds that took. The earlier version measured
+`t0.elapsed()` against a 100 ms bound while carrying a 500 ms `timeout`, so the
+name and the deadline already disagreed. That span crosses an `await` on a
+runtime shared with the rest of the suite, so it measured the machine — it
+passed on a developer's Mac and failed on a loaded CI runner. The remaining
+`timeout` is a **liveness** bound set far clear of scheduling noise: if it fires,
+cancellation genuinely hung. See [#52](https://github.com/TheVaus/Cubical/issues/52).
+
 ## Vault-relative paths
 
 **Anchors:** to_vault_relative · WatchEvent · scan
