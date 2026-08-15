@@ -344,6 +344,8 @@ fn note_body(rng: &mut Rng, i: usize, total: usize) -> String {
     out
 }
 
+type BenchError = Box<dyn std::error::Error>;
+
 const FIXTURE_MARKER: &str = ".scan-bench-fixture";
 
 fn ensure_fixture_dir(dir: &Path) {
@@ -379,30 +381,33 @@ fn generate(dir: &Path, total: usize) -> std::io::Result<u64> {
     Ok(bytes)
 }
 
-async fn cold_run(dir: &Path) -> (f64, f64, u32, u64) {
+async fn cold_run(dir: &Path) -> Result<(f64, f64, u32, u64), BenchError> {
     let cubical = dir.join(".cubical");
     if cubical.exists() {
-        fs::remove_dir_all(&cubical).expect("remove .cubical");
+        fs::remove_dir_all(&cubical)?;
     }
 
     let t_open = Instant::now();
-    let vault = Vault::open(dir).await.expect("open vault");
+    let vault = Vault::open(dir).await?;
     let open_secs = t_open.elapsed().as_secs_f64();
 
     let t_scan = Instant::now();
     let (tx, mut rx) = mpsc::channel::<ScanProgress>(64);
     let handle = tokio::spawn(scan(vault.clone(), CancellationToken::new(), tx));
     let pump = tokio::spawn(async move { while rx.recv().await.is_some() {} });
-    let processed = handle.await.expect("join").expect("scan");
+    let processed = handle.await??;
     let _ = pump.await;
     let scan_secs = t_scan.elapsed().as_secs_f64();
 
     let docs = vault.search().doc_count().unwrap_or(0);
-    (open_secs, scan_secs, processed, docs)
+    Ok((open_secs, scan_secs, processed, docs))
 }
 
 fn stats(mut v: Vec<f64>) -> (f64, f64, f64) {
-    v.sort_by(|a, b| a.partial_cmp(b).expect("finite"));
+    if v.is_empty() {
+        return (0.0, 0.0, 0.0);
+    }
+    v.sort_by(f64::total_cmp);
     let n = v.len();
     let median = if n % 2 == 1 {
         v[n / 2]
@@ -412,7 +417,7 @@ fn stats(mut v: Vec<f64>) -> (f64, f64, f64) {
     (v[0], median, v[n - 1])
 }
 
-async fn phase_breakdown(dir: &Path, total: usize) {
+async fn phase_breakdown(dir: &Path, total: usize) -> Result<(), BenchError> {
     use cubical_ast::parse;
     use cubical_core::vault::{extract_links, extract_tags};
 
@@ -420,7 +425,7 @@ async fn phase_breakdown(dir: &Path, total: usize) {
     let t = Instant::now();
     for i in 0..total {
         let rel = rel_path(i);
-        let s = fs::read_to_string(dir.join(&rel)).expect("read");
+        let s = fs::read_to_string(dir.join(&rel))?;
         sources.push((rel, s));
     }
     let read_secs = t.elapsed().as_secs_f64();
@@ -509,9 +514,9 @@ async fn phase_breakdown(dir: &Path, total: usize) {
     let db = dir.join(".bench-index.db");
     let _ = fs::remove_file(&db);
     let t = Instant::now();
-    let index = cubical_index::open_index(&db).await.expect("open index");
+    let index = cubical_index::open_index(&db).await?;
     let conn = index.connection();
-    let mut tx = conn.transaction().await.expect("tx");
+    let mut tx = conn.transaction().await?;
     let mut batch = 0u32;
     for (rel, fm, links, tags) in &prepared {
         conn.execute(
@@ -520,39 +525,30 @@ async fn phase_breakdown(dir: &Path, total: usize) {
              ON CONFLICT(path) DO UPDATE SET updated_at = 0",
             libsql::params![rel.as_str()],
         )
-        .await
-        .expect("files upsert");
+        .await?;
         conn.execute(
             "DELETE FROM frontmatter WHERE file_path = ?1",
             libsql::params![rel.as_str()],
         )
-        .await
-        .expect("fm delete");
+        .await?;
         for (k, v) in fm {
             conn.execute(
                 "INSERT OR REPLACE INTO frontmatter (file_path, key, value) VALUES (?1, ?2, ?3)",
                 libsql::params![rel.as_str(), k.as_str(), v.as_str()],
             )
-            .await
-            .expect("fm insert");
+            .await?;
         }
-        cubical_index::replace_tags_for_file(&index, rel, tags)
-            .await
-            .expect("tags");
-        cubical_index::replace_blocks_for_file(&index, rel, &[])
-            .await
-            .expect("blocks");
-        cubical_index::replace_links_for_file(&index, rel, links)
-            .await
-            .expect("links");
+        cubical_index::replace_tags_for_file(&index, rel, tags).await?;
+        cubical_index::replace_blocks_for_file(&index, rel, &[]).await?;
+        cubical_index::replace_links_for_file(&index, rel, links).await?;
         batch += 1;
         if batch >= 500 {
-            tx.commit().await.expect("commit");
-            tx = conn.transaction().await.expect("tx");
+            tx.commit().await?;
+            tx = conn.transaction().await?;
             batch = 0;
         }
     }
-    tx.commit().await.expect("commit");
+    tx.commit().await?;
     let libsql_secs = t.elapsed().as_secs_f64();
     drop(index);
     let _ = fs::remove_file(&db);
@@ -561,13 +557,13 @@ async fn phase_breakdown(dir: &Path, total: usize) {
 
     let tmp = dir.join(".bench-tantivy");
     let _ = fs::remove_dir_all(&tmp);
-    fs::create_dir_all(&tmp).expect("mkdir");
+    fs::create_dir_all(&tmp)?;
     let t = Instant::now();
-    let idx = cubical_search::SearchIndex::open(&tmp).expect("open search");
+    let idx = cubical_search::SearchIndex::open(&tmp)?;
     for d in &projected {
-        idx.upsert(d).expect("upsert");
+        idx.upsert(d)?;
     }
-    idx.commit().expect("commit");
+    idx.commit()?;
     let tantivy_secs = t.elapsed().as_secs_f64();
     let _ = fs::remove_dir_all(&tmp);
 
@@ -585,31 +581,38 @@ async fn phase_breakdown(dir: &Path, total: usize) {
         read_secs + hash_secs + parse_secs + project_secs + tantivy_secs + libsql_secs
     );
     println!("(sink {sink})");
+    Ok(())
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), BenchError> {
     let args: Vec<String> = std::env::args().collect();
     let usage = "usage: scan_bench <fixture-dir> <note-count> [runs] [--phases]";
     if args.len() < 3 {
         println!("{usage}");
-        return;
+        return Ok(());
     }
     let dir = PathBuf::from(&args[1]);
-    let total: usize = args[2].parse().expect("note-count");
-    let runs: usize = args
-        .get(3)
-        .filter(|a| !a.starts_with("--"))
-        .map(|a| a.parse().expect("runs"))
-        .unwrap_or(3);
+    let total: usize = args[2]
+        .parse()
+        .map_err(|_| format!("note-count must be a positive integer, got {:?}", args[2]))?;
+    if total == 0 {
+        return Err("note-count must be at least 1".into());
+    }
+    let runs: usize = match args.get(3).filter(|a| !a.starts_with("--")) {
+        Some(a) => a
+            .parse()
+            .map_err(|_| format!("runs must be a positive integer, got {a:?}"))?,
+        None => 3,
+    };
     let phases = args.iter().any(|a| a == "--phases");
 
     ensure_fixture_dir(&dir);
 
     if !dir.join(rel_path(total - 1)).exists() {
-        fs::create_dir_all(&dir).expect("mkdir fixture");
+        fs::create_dir_all(&dir)?;
         let t = Instant::now();
-        let bytes = generate(&dir, total).expect("generate");
+        let bytes = generate(&dir, total)?;
         println!(
             "generated {total} notes ({:.1} MiB) in {:.2} s at {}",
             bytes as f64 / (1024.0 * 1024.0),
@@ -621,14 +624,14 @@ async fn main() {
     }
 
     if phases {
-        phase_breakdown(&dir, total).await;
-        return;
+        phase_breakdown(&dir, total).await?;
+        return Ok(());
     }
 
     let mut totals = Vec::with_capacity(runs);
     let mut scans = Vec::with_capacity(runs);
     for r in 1..=runs {
-        let (open_secs, scan_secs, processed, docs) = cold_run(&dir).await;
+        let (open_secs, scan_secs, processed, docs) = cold_run(&dir).await?;
         println!(
             "run {r}: open {open_secs:.3} s + scan {scan_secs:.3} s = {:.3} s  ({processed} files, {docs} search docs)",
             open_secs + scan_secs
@@ -642,4 +645,5 @@ async fn main() {
     println!("--- cold open+scan, {total} notes, {runs} runs ---");
     println!("scan only : min {smin:.2} s / median {smed:.2} s / max {smax:.2} s");
     println!("open+scan : min {tmin:.2} s / median {tmed:.2} s / max {tmax:.2} s");
+    Ok(())
 }
