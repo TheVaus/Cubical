@@ -1715,6 +1715,7 @@ mod tests {
                 }
             }
 
+            #[cfg(unix)]
             #[tokio::test]
             async fn split_removed_then_created_pairs_on_inode_even_when_the_hash_is_ambiguous() {
                 let dir = tempdir().unwrap();

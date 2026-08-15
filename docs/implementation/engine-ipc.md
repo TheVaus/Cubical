@@ -200,11 +200,19 @@ scan of a ≤256-entry buffer and reaches SQL only in the seconds after a
 deletion. Nothing is lost: a cross-volume move is a copy-then-delete, so it
 always emits a `Removed` and always leaves a tombstone. The dropped-source case
 is an FSEvents *rename*, which is same-volume by definition and keeps its inode
-— and both `scan` and the watcher upsert populate `files.inode`, so M1 is never
-inode-blind. The column holds the Unix inode on Unix and the NTFS file index
-(`MetadataExt::file_index`) on Windows: both are a volume-scoped identity that
-survives a rename, which is the only property pairing asks of it. Windows
-rename detection is therefore as strong as Unix's, not hash-only.
+— and both `scan` and the watcher upsert populate `files.inode` on Unix, so M1
+is never inode-blind there.
+
+**On Windows `inode` is always `NULL`**, so pairing there is tombstone-and-hash
+only — and hash matching is refused whenever two tracked files share a hash,
+which empty notes and templates make ordinary. Windows rename detection is
+therefore genuinely weaker, not merely untested; the inode-pairing test is
+`#[cfg(unix)]` because a platform reporting no inode cannot satisfy it. NTFS
+does have a volume-scoped file ID, but `MetadataExt::file_index` is unstable
+(`windows_by_handle`), so reaching it means `GetFileInformationByHandle` through
+a declared dependency — a change with its own review, tracked in
+[#124](https://github.com/TheVaus/Cubical/issues/124), not folded into the
+matrix that revealed it.
 
 **Hash matching is skipped entirely when more than one tracked file shares the
 hash.** Duplicate files are ordinary in a vault (empty notes, templates,
