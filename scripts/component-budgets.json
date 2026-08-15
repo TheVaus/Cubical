@@ -19,7 +19,7 @@
   "default_max_lines": 250,
   "budgets": {
     "ui/src/App.tsx": {
-      "max_lines": 2536,
+      "max_lines": 2459,
       "kind": "debt",
       "issue": 86,
       "note": "Being split into feature-owned components. Was 3274. Ratchet this down as each extraction lands; the target is a composition shell under 250."
@@ -94,7 +94,7 @@
   },
   "shell": {
     "file": "ui/src/App.tsx",
-    "max_reactive_declarations": 37,
+    "max_reactive_declarations": 33,
     "forbidden_imports": ["./api/ipc"],
     "waived_imports": {
       "./api/ipc": {

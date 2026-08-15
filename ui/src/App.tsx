@@ -40,10 +40,7 @@ import { createSettingsState } from "./settings/settingsState";
 import type { CanonicalDocument, Frontmatter } from "./ast/types";
 import {
   createBlockRef,
-  createFile,
   createFileAtPath,
-  createFolder,
-  deleteFile,
   getBrokenBlockRefs,
   listFiles,
   listRecentVaults,
@@ -128,6 +125,7 @@ import {
   splitFileName,
   type FlatRow,
 } from "./explorer/fileTree";
+import { createFileActions } from "./explorer/fileActions";
 import { buildBlockRefLink } from "./editor/blockRef";
 import { formatBrokenBlockRefs } from "./statusbar/brokenRefs";
 import { formatPendingRewrites } from "./statusbar/pendingRewritesLabel";
@@ -373,19 +371,15 @@ const App: Component = () => {
   let brokenBlockRefsTimer: ReturnType<typeof setTimeout> | undefined;
 
   const [pendingRewritesCount, setPendingRewritesCount] = createSignal(0);
-  const [contextMenu, setContextMenu] = createSignal<{
-    kind: "file" | "folder" | "empty";
-    path: string;
-    x: number;
-    y: number;
-  } | null>(null);
-  const [deleteTarget, setDeleteTarget] = createSignal<{
-    path: string;
-    kind: "file" | "folder";
-    fileCount: number;
-  } | null>(null);
-  const [deleteInFlight, setDeleteInFlight] = createSignal(false);
-  const [renamingPath, setRenamingPath] = createSignal<string | null>(null);
+  const fileActions = createFileActions({
+    vaultId,
+    refreshFileList: () => refreshFileList(),
+    openCreatedFile: (path, contentHash) =>
+      handleNavigateWikilink(path, null, contentHash),
+    reportError: setError,
+    countFilesUnderFolder: (path) =>
+      countFilesUnderFolder(buildFileTree(files(), folders()), path),
+  });
 
   let seenHash: string | null = null;
   let lastWrittenHash: string | null = null;
@@ -678,7 +672,7 @@ const App: Component = () => {
   ): Promise<void> => {
     const id = vaultId();
     if (!id) {
-      setRenamingPath(null);
+      fileActions.startRename(null);
       return;
     }
     const validation = validateRenameTarget(fromPath, rawTarget, isFolder);
@@ -686,11 +680,11 @@ const App: Component = () => {
       if (validation.code !== "same") {
         showToast(validation.message);
       }
-      setRenamingPath(null);
+      fileActions.startRename(null);
       return;
     }
     const target = rawTarget.trim();
-    setRenamingPath(null);
+    fileActions.startRename(null);
     try {
       if (isFolder) {
         await renameFolder({
@@ -1038,60 +1032,6 @@ const App: Component = () => {
     }
   };
 
-  const handleNewFile = async () => {
-    const id = vaultId();
-    if (!id) return;
-    try {
-      const resp = await createFile({ vault_id: id, parent_dir: "" });
-      await refreshFileList();
-      await handleNavigateWikilink(resp.path, null, resp.content_hash);
-    } catch (e) {
-      setError(errorMessage(e));
-    }
-  };
-
-  const handleNewFolder = async () => {
-    const id = vaultId();
-    if (!id) return;
-    try {
-      await createFolder({ vault_id: id, parent_dir: "" });
-      await refreshFileList();
-    } catch (e) {
-      setError(errorMessage(e));
-    }
-  };
-
-  const handleContextMenuNewFile = async (parentDir: string) => {
-    const id = vaultId();
-    if (!id) return;
-    try {
-      const resp = await createFile({ vault_id: id, parent_dir: parentDir });
-      await refreshFileList();
-      setRenamingPath(resp.path);
-    } catch (e) {
-      showToast(errorMessage(e));
-    }
-  };
-
-  const handleContextMenuNewFolder = async (parentDir: string) => {
-    const id = vaultId();
-    if (!id) return;
-    try {
-      await createFolder({ vault_id: id, parent_dir: parentDir });
-      await refreshFileList();
-    } catch (e) {
-      showToast(errorMessage(e));
-    }
-  };
-
-  const handleRequestDelete = (path: string, kind: "file" | "folder") => {
-    const fileCount =
-      kind === "folder"
-        ? countFilesUnderFolder(buildFileTree(files(), folders()), path)
-        : 0;
-    setDeleteTarget({ path, kind, fileCount });
-  };
-
   const buildContextMenuItems = (menu: {
     kind: "file" | "folder" | "empty";
     path: string;
@@ -1102,16 +1042,16 @@ const App: Component = () => {
         id: "new-file",
         label: "New File",
         onSelect: () => {
-          setContextMenu(null);
-          void handleContextMenuNewFile(menu.path);
+          fileActions.closeContextMenu();
+          void fileActions.newFileInTree(menu.path);
         },
       });
       items.push({
         id: "new-folder",
         label: "New Folder",
         onSelect: () => {
-          setContextMenu(null);
-          void handleContextMenuNewFolder(menu.path);
+          fileActions.closeContextMenu();
+          void fileActions.newFolderInTree(menu.path);
         },
       });
     }
@@ -1120,8 +1060,8 @@ const App: Component = () => {
         id: "rename",
         label: "Rename…",
         onSelect: () => {
-          setContextMenu(null);
-          setRenamingPath(menu.path);
+          fileActions.closeContextMenu();
+          fileActions.startRename(menu.path);
         },
       });
       items.push({
@@ -1130,27 +1070,12 @@ const App: Component = () => {
         danger: true,
         onSelect: () => {
           const kind = menu.kind === "folder" ? "folder" : "file";
-          setContextMenu(null);
-          handleRequestDelete(menu.path, kind);
+          fileActions.closeContextMenu();
+          fileActions.requestDelete(menu.path, kind);
         },
       });
     }
     return items;
-  };
-
-  const handleConfirmDelete = async () => {
-    const id = vaultId();
-    const target = deleteTarget();
-    if (!id || !target) return;
-    setDeleteInFlight(true);
-    try {
-      await deleteFile({ vault_id: id, path: target.path });
-      setDeleteTarget(null);
-    } catch (e) {
-      showToast(errorMessage(e));
-    } finally {
-      setDeleteInFlight(false);
-    }
   };
 
   onMount(async () => {
@@ -1277,7 +1202,7 @@ const App: Component = () => {
         id: "file.new",
         title: "New note",
         when: () => vaultId() !== null,
-        run: () => void handleNewFile(),
+        run: () => void fileActions.newFile(""),
       },
       "nav.back": {
         id: "nav.back",
@@ -1386,9 +1311,7 @@ const App: Component = () => {
       setRightSidebarRefreshTick(0);
       setBrokenBlockRefs([]);
       setPendingRewritesCount(0);
-      setContextMenu(null);
-      setDeleteTarget(null);
-      setRenamingPath(null);
+      fileActions.reset();
       setTagRefreshTick(0);
       settings.resetForVaultSwitch();
       setWikilinkResolver(null);
@@ -1580,7 +1503,7 @@ const App: Component = () => {
                       label="New file"
                       size="sm"
                       disabled={!vaultId()}
-                      onClick={() => void handleNewFile()}
+                      onClick={() => void fileActions.newFile("")}
                       style={{ "font-size": "var(--text-sm)" }}
                     >
                       <Icon name="plus" />
@@ -1589,7 +1512,7 @@ const App: Component = () => {
                       label="New folder"
                       size="sm"
                       disabled={!vaultId()}
-                      onClick={() => void handleNewFolder()}
+                      onClick={() => void fileActions.newFolder("")}
                       style={{ "font-size": "var(--text-sm)" }}
                     >
                       <Icon name="folder-plus" />
@@ -1606,7 +1529,7 @@ const App: Component = () => {
                   }}
                   onContextMenu={(e) => {
                     e.preventDefault();
-                    setContextMenu({
+                    fileActions.openContextMenu({
                       kind: "empty",
                       path: "",
                       x: e.clientX,
@@ -1651,7 +1574,7 @@ const App: Component = () => {
                             const folderPad = `calc(var(--space-2) + ${row.depth} * var(--space-4))`;
                             if (row.kind === "folder") {
                               const isRenamingFolder = () =>
-                                renamingPath() === row.path;
+                                fileActions.renamingPath() === row.path;
                               return (
                                 <div
                                   class="tree-row tree-row--folder"
@@ -1668,7 +1591,7 @@ const App: Component = () => {
                                   onContextMenu={(e) => {
                                     e.preventDefault();
                                     e.stopPropagation();
-                                    setContextMenu({
+                                    fileActions.openContextMenu({
                                       kind: "folder",
                                       path: row.path,
                                       x: e.clientX,
@@ -1713,7 +1636,7 @@ const App: Component = () => {
                                           );
                                         } else if (e.key === "Escape") {
                                           e.preventDefault();
-                                          setRenamingPath(null);
+                                          fileActions.startRename(null);
                                         }
                                       }}
                                       onBlur={(e) =>
@@ -1737,7 +1660,7 @@ const App: Component = () => {
                             const isSelected = () =>
                               selectedPath() === row.path;
                             const isRenaming = () =>
-                              renamingPath() === row.path;
+                              fileActions.renamingPath() === row.path;
                             const parts = () => splitFileName(row.name);
                             return (
                               <div
@@ -1763,7 +1686,7 @@ const App: Component = () => {
                                   if (!isMarkdown) return;
                                   e.preventDefault();
                                   e.stopPropagation();
-                                  setContextMenu({
+                                  fileActions.openContextMenu({
                                     kind: "file",
                                     path: row.path,
                                     x: e.clientX,
@@ -1842,7 +1765,7 @@ const App: Component = () => {
                                         );
                                       } else if (e.key === "Escape") {
                                         e.preventDefault();
-                                        setRenamingPath(null);
+                                        fileActions.startRename(null);
                                       }
                                     }}
                                     onBlur={(e) =>
@@ -2428,14 +2351,14 @@ const App: Component = () => {
         </footer>
       </Show>
 
-      <Show when={contextMenu()}>
+      <Show when={fileActions.contextMenu()}>
         {(menu) => (
           <>
             <div
-              onClick={() => setContextMenu(null)}
+              onClick={() => fileActions.closeContextMenu()}
               onContextMenu={(e) => {
                 e.preventDefault();
-                setContextMenu(null);
+                fileActions.closeContextMenu();
               }}
               style={{
                 position: "fixed",
@@ -2458,7 +2381,7 @@ const App: Component = () => {
         )}
       </Show>
 
-      <Show when={deleteTarget()}>
+      <Show when={fileActions.deleteTarget()}>
         {(target) => (
           <Modal
             open={true}
@@ -2466,7 +2389,7 @@ const App: Component = () => {
             placement="center"
             ariaLabel="Confirm delete"
             onClose={() => {
-              if (!deleteInFlight()) setDeleteTarget(null);
+              if (!fileActions.deleteInFlight()) fileActions.cancelDelete();
             }}
           >
             <div
@@ -2499,17 +2422,17 @@ const App: Component = () => {
               >
                 <Button
                   variant="secondary"
-                  disabled={deleteInFlight()}
-                  onClick={() => setDeleteTarget(null)}
+                  disabled={fileActions.deleteInFlight()}
+                  onClick={() => fileActions.cancelDelete()}
                 >
                   Cancel
                 </Button>
                 <Button
                   variant="danger"
-                  disabled={deleteInFlight()}
-                  onClick={() => void handleConfirmDelete()}
+                  disabled={fileActions.deleteInFlight()}
+                  onClick={() => void fileActions.confirmDelete()}
                 >
-                  {deleteInFlight() ? "Deleting…" : "Delete"}
+                  {fileActions.deleteInFlight() ? "Deleting…" : "Delete"}
                 </Button>
               </div>
             </div>
