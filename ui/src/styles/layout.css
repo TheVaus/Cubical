@@ -605,3 +605,12 @@
   border-radius: var(--radius-sm, var(--radius-md));
   color: var(--c-fg-secondary);
 }
+
+.toast-host {
+  position: fixed;
+  bottom: var(--space-5);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  max-width: 32rem;
+}

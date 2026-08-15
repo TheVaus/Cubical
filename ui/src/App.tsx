@@ -137,7 +137,8 @@ import {
   BLOCK_COUNT_SEGMENT,
 } from "./statusbar/segments";
 import { leadingSeparators } from "./statusbar/separators";
-import { ToastHost, showToast } from "./Toast";
+import { ToastHost } from "./ToastHost";
+import { showToast } from "./toastState";
 import { reprefixNestedPath, validateRenameTarget } from "./fileRename";
 import {
   watchSystemTheme,
