@@ -90,6 +90,10 @@ pub(crate) async fn capture_tombstone(vault: &Vault, tombstones: &Tombstones, pa
 
     let mut buffer = tombstones.lock().await;
     prune_expired(&mut buffer);
+    push_bounded(&mut buffer, tombstone);
+}
+
+fn push_bounded(buffer: &mut VecDeque<Tombstone>, tombstone: Tombstone) {
     buffer.retain(|t| t.path != tombstone.path);
     while buffer.len() >= TOMBSTONE_CAPACITY {
         buffer.pop_front();
@@ -334,20 +338,46 @@ mod tests {
         assert!(buffer.is_empty(), "an expired tombstone is dropped");
     }
 
-    #[tokio::test]
-    async fn the_tombstone_buffer_is_capacity_bounded() {
-        let (_dir, vault) = vault_with(&[]).await;
-        let tombstones = new_tombstones();
+    fn tombstone_named(path: &str) -> Tombstone {
+        Tombstone {
+            path: path.into(),
+            type_id: "markdown".into(),
+            size_bytes: 0,
+            mtime_unix: 0,
+            content_hash: "h".into(),
+            inode: None,
+            created_at: 0,
+            at: Instant::now(),
+        }
+    }
+
+    #[test]
+    fn the_tombstone_buffer_is_capacity_bounded() {
+        let mut buffer = VecDeque::new();
         for i in 0..(TOMBSTONE_CAPACITY + 40) {
-            let path = format!("f{i}.md");
-            seed_row(&vault, &path, "h", Some(i as i64)).await;
-            capture_tombstone(&vault, &tombstones, &path).await;
+            push_bounded(&mut buffer, tombstone_named(&format!("f{i}.md")));
         }
         assert_eq!(
-            tombstones.lock().await.len(),
+            buffer.len(),
             TOMBSTONE_CAPACITY,
             "a vault-wide delete must not balloon the buffer",
         );
+        assert_eq!(
+            buffer.front().map(|t| t.path.as_str()),
+            Some("f40.md"),
+            "the oldest tombstones are the ones evicted",
+        );
+    }
+
+    #[test]
+    fn re_deleting_a_path_replaces_its_tombstone_rather_than_duplicating_it() {
+        let mut buffer = VecDeque::new();
+        push_bounded(&mut buffer, tombstone_named("a.md"));
+        push_bounded(&mut buffer, tombstone_named("b.md"));
+        push_bounded(&mut buffer, tombstone_named("a.md"));
+
+        assert_eq!(buffer.len(), 2);
+        assert_eq!(buffer.back().map(|t| t.path.as_str()), Some("a.md"));
     }
 
     #[tokio::test]
