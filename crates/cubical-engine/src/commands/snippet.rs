@@ -48,7 +48,7 @@ pub fn build_snippet(source: &str, position: u64) -> String {
     }
     if end < len {
         let snippet_len = snippet.len();
-        let tail_start = snippet_len.saturating_sub(WORD_LOOKAHEAD);
+        let tail_start = char_boundary_floor(&snippet, snippet_len.saturating_sub(WORD_LOOKAHEAD));
         let tail = &snippet[tail_start..];
         if let Some(space_idx) = tail.rfind(' ') {
             let cut = tail_start + space_idx;
@@ -137,6 +137,32 @@ mod tests {
     fn utf8_does_not_panic_at_boundary() {
         let s = "héllo wörld ".repeat(30);
         let _ = build_snippet(&s, 61);
+    }
+
+    #[test]
+    fn tail_trim_does_not_split_a_multibyte_char() {
+        let base: String = "word ".repeat(120);
+        for dash_at in 40..200 {
+            let mut source = base.clone();
+            source.replace_range(dash_at..dash_at + 1, "\u{2014}");
+            for pos in 0..160u64 {
+                let out = build_snippet(&source, pos);
+                assert!(
+                    out.is_char_boundary(0),
+                    "snippet must be valid utf-8 for dash_at={dash_at} pos={pos}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn tail_trim_survives_wide_and_combining_characters() {
+        for filler in ["\u{65E5}\u{672C}\u{8A9E}", "e\u{301}", "\u{1F600}"] {
+            let source: String = format!("{filler} word ").repeat(80);
+            for pos in 0..200u64 {
+                let _ = build_snippet(&source, pos);
+            }
+        }
     }
 
     #[test]

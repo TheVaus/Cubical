@@ -41,10 +41,25 @@ export function activeTab(s: TabSet): Tab | null {
   return s.tabs.find((t) => t.id === s.activeId) ?? null;
 }
 
-export function openTab(s: TabSet, view: TabView): TabSet {
+export const MAX_TABS = 8;
+
+function isReplaceable(t: Tab): boolean {
+  return t.view.kind !== "terminal";
+}
+
+export function openTab(s: TabSet, view: TabView, max = MAX_TABS): TabSet {
   const id = tabId(view);
   if (s.tabs.some((t) => t.id === id)) return { ...s, activeId: id };
-  return { tabs: [...s.tabs, { id, view }], activeId: id };
+  if (s.tabs.length < max) {
+    return { tabs: [...s.tabs, { id, view }], activeId: id };
+  }
+  const active = s.tabs.findIndex((t) => t.id === s.activeId && isReplaceable(t));
+  const at =
+    active >= 0 ? active : s.tabs.map(isReplaceable).lastIndexOf(true);
+  if (at < 0) return { tabs: [...s.tabs, { id, view }], activeId: id };
+  const tabs = [...s.tabs];
+  tabs[at] = { id, view };
+  return { tabs, activeId: id };
 }
 
 export function closeTab(s: TabSet, id: string): TabSet {

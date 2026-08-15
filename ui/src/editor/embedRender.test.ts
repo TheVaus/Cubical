@@ -218,4 +218,82 @@ describe("renderEmbedBody", () => {
     expect(body).not.toBeNull();
     expect(body!.textContent).toBe("single block line ^abc123");
   });
+
+  it("renders an embedded image the same way its tab does", () => {
+    const png = btoa("\x89PNG\r\n\x1a\n");
+    const { resolver } = stubResolver({
+      "photo.png": {
+        kind: "file",
+        target_path: "photo.png",
+        content: png,
+        mime: "image/png",
+      },
+    });
+    const frag = renderEmbedBody({
+      resolver,
+      targetRaw: "photo.png",
+      chain: [],
+    });
+    const img = frag.querySelector("img");
+    expect(img).not.toBeNull();
+    expect(img!.getAttribute("src")).toBe(`data:image/png;base64,${png}`);
+    expect(frag.textContent).not.toContain("\uFFFD");
+  });
+
+  it("renders an embedded csv as a table, not as markdown text", () => {
+    const { resolver } = stubResolver({
+      "data.csv": {
+        kind: "file",
+        target_path: "data.csv",
+        content: btoa('name,role\nGandalf,"Wizard, grey"\n'),
+        mime: "text/csv",
+      },
+    });
+    const frag = renderEmbedBody({
+      resolver,
+      targetRaw: "data.csv",
+      chain: [],
+    });
+    const headers = [...frag.querySelectorAll("th")].map((c) => c.textContent);
+    expect(headers).toEqual(["name", "role"]);
+    const cells = [...frag.querySelectorAll("td")].map((c) => c.textContent);
+    expect(cells).toEqual(["Gandalf", "Wizard, grey"]);
+  });
+
+  it("renders an embedded txt as plain text", () => {
+    const { resolver } = stubResolver({
+      "notes.txt": {
+        kind: "file",
+        target_path: "notes.txt",
+        content: btoa("line one\nline two"),
+        mime: "text/plain",
+      },
+    });
+    const frag = renderEmbedBody({
+      resolver,
+      targetRaw: "notes.txt",
+      chain: [],
+    });
+    expect(frag.querySelector(".viewer__text")!.textContent).toBe(
+      "line one\nline two",
+    );
+  });
+
+  it("warns rather than rendering when the file was too large to serve", () => {
+    const { resolver } = stubResolver({
+      "huge.png": {
+        kind: "file",
+        target_path: "huge.png",
+        content: null,
+        mime: "image/png",
+      },
+    });
+    const frag = renderEmbedBody({
+      resolver,
+      targetRaw: "huge.png",
+      chain: [],
+    });
+    expect(frag.querySelector("img")).toBeNull();
+    expect(frag.textContent).toContain("too large to embed");
+  });
 });

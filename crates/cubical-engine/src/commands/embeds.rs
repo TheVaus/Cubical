@@ -5,8 +5,11 @@ use cubical_index::blocks_for_file;
 
 use crate::api::types::{EmbedKind, GetEmbedRequest, GetEmbedResponse, ResolvedAnchor};
 use crate::commands::links::split_target_anchor;
+use crate::commands::vault::mime_for_extension;
 use crate::error::CubicalError;
 use crate::state::AppState;
+
+pub const MAX_EMBEDDED_FILE_BYTES: u64 = 25 * 1024 * 1024;
 
 pub async fn get_embed(
     state: &AppState,
@@ -34,8 +37,35 @@ pub async fn get_embed(
             kind: EmbedKind::Unresolved,
             target_path: None,
             content: None,
+            mime: None,
         });
     };
+
+    let mut type_rows = conn
+        .query(
+            "SELECT type_id FROM files WHERE path = ?1",
+            libsql::params![target_path.clone()],
+        )
+        .await?;
+    let target_type: Option<String> = match type_rows.next().await? {
+        Some(row) => Some(row.get(0)?),
+        None => None,
+    };
+    if target_type.as_deref() != Some("markdown") {
+        let abs = vault.root().join(&target_path);
+        let bytes = tokio::task::spawn_blocking(move || std::fs::read(&abs))
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .filter(|b| b.len() as u64 <= MAX_EMBEDDED_FILE_BYTES);
+        return Ok(GetEmbedResponse {
+            kind: EmbedKind::File,
+            mime: Some(mime_for_extension(&target_path).to_string()),
+            content: bytes
+                .map(|b| base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &b)),
+            target_path: Some(target_path),
+        });
+    }
 
     let abs = vault.root().join(&target_path);
     let Some(on_disk) = read_source_off_executor(&abs).await else {
@@ -43,6 +73,7 @@ pub async fn get_embed(
             kind: EmbedKind::Unresolved,
             target_path: Some(target_path),
             content: None,
+            mime: None,
         });
     };
 
@@ -53,17 +84,20 @@ pub async fn get_embed(
             kind: EmbedKind::Note,
             target_path: Some(target_path),
             content: Some(strip_frontmatter(&source).to_string()),
+            mime: None,
         }),
         Some(ResolvedAnchor::Heading { value }) => match extract_section(&source, &value) {
             Some(content) => Ok(GetEmbedResponse {
                 kind: EmbedKind::Section,
                 target_path: Some(target_path),
                 content: Some(content),
+                mime: None,
             }),
             None => Ok(GetEmbedResponse {
                 kind: EmbedKind::MissingAnchor,
                 target_path: Some(target_path),
                 content: None,
+                mime: None,
             }),
         },
         Some(ResolvedAnchor::Block { value }) => {
@@ -73,11 +107,13 @@ pub async fn get_embed(
                     kind: EmbedKind::Block,
                     target_path: Some(target_path),
                     content: Some(extract_block(&source, b.position_hint)),
+                    mime: None,
                 }),
                 None => Ok(GetEmbedResponse {
                     kind: EmbedKind::MissingAnchor,
                     target_path: Some(target_path),
                     content: None,
+                    mime: None,
                 }),
             }
         }
@@ -135,6 +171,68 @@ mod tests {
         assert!(matches!(resp.kind, EmbedKind::Note));
         assert_eq!(resp.target_path.as_deref(), Some("Daily.md"));
         assert_eq!(resp.content.as_deref(), Some("body text\n"));
+    }
+
+    #[tokio::test]
+    async fn get_embed_serves_a_binary_target_as_base64_not_lossy_text() {
+        let dir = tempdir().unwrap();
+        let png: &[u8] = &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0xFF, 0xFE];
+        std::fs::write(dir.path().join("pic.png"), png).unwrap();
+        let (vault, state) = state_with_vault_at(dir.path(), "v1").await;
+        scan(&vault).await;
+
+        let resp = get_embed(
+            &state,
+            GetEmbedRequest {
+                vault_id: "v1".into(),
+                target_raw: "pic.png".into(),
+            },
+        )
+        .await
+        .expect("ok");
+
+        assert!(matches!(resp.kind, EmbedKind::File));
+        assert_eq!(resp.target_path.as_deref(), Some("pic.png"));
+        assert_eq!(resp.mime.as_deref(), Some("image/png"));
+
+        let content = resp.content.expect("bytes served");
+        assert!(
+            !content.contains('\u{FFFD}'),
+            "payload must not carry lossy replacement characters"
+        );
+        let decoded = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &content)
+            .expect("valid base64");
+        assert_eq!(decoded, png, "bytes survive the embed round trip");
+    }
+
+    #[tokio::test]
+    async fn get_embed_serves_a_csv_target_as_file_so_it_renders_like_its_tab() {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("data.csv"), b"a,b\n1,2\n").unwrap();
+        let (vault, state) = state_with_vault_at(dir.path(), "v1").await;
+        scan(&vault).await;
+
+        let resp = get_embed(
+            &state,
+            GetEmbedRequest {
+                vault_id: "v1".into(),
+                target_raw: "data.csv".into(),
+            },
+        )
+        .await
+        .expect("ok");
+
+        assert!(
+            matches!(resp.kind, EmbedKind::File),
+            "a csv must not arrive as Note, or it would be parsed as markdown"
+        );
+        assert_eq!(resp.mime.as_deref(), Some("text/csv"));
+        let decoded = base64::Engine::decode(
+            &base64::engine::general_purpose::STANDARD,
+            resp.content.expect("bytes"),
+        )
+        .expect("valid base64");
+        assert_eq!(decoded, b"a,b\n1,2\n");
     }
 
     #[tokio::test]

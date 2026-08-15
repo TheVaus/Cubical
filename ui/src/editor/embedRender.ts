@@ -1,4 +1,6 @@
 import { scanWikilinks } from "../ast/wikilink";
+import { renderViewerPayload } from "../viewer/FileViewer";
+import { viewerKindForPath } from "../viewer/viewerKind";
 import type { EmbedResolver } from "./embedResolver";
 
 export const MAX_EMBED_DEPTH = 4;
@@ -27,6 +29,27 @@ export function renderEmbedBody(ctx: RenderEmbedCtx): DocumentFragment {
   }
 
   switch (entry.kind) {
+    case "file": {
+      const path = entry.target_path;
+      if (path === null || entry.content === null || entry.mime == null) {
+        frag.appendChild(warningPlaceholder("too-large", ctx.targetRaw));
+        return frag;
+      }
+      const body = document.createElement("div");
+      body.className = "cm-md-embed-body";
+      body.appendChild(
+        renderViewerPayload(
+          {
+            kind: viewerKindForPath(path),
+            mime: entry.mime,
+            base64: entry.content,
+          },
+          path,
+        ),
+      );
+      frag.appendChild(body);
+      return frag;
+    }
     case "unresolved":
       frag.appendChild(warningPlaceholder("unresolved", ctx.targetRaw));
       return frag;
@@ -135,7 +158,7 @@ function loadingPlaceholder(targetRaw: string): HTMLElement {
 }
 
 function warningPlaceholder(
-  kind: "unresolved" | "missing-anchor",
+  kind: "unresolved" | "missing-anchor" | "too-large",
   targetRaw: string,
 ): HTMLElement {
   const d = document.createElement("div");
@@ -143,7 +166,9 @@ function warningPlaceholder(
   const msg =
     kind === "unresolved"
       ? `⚠ Couldn't resolve [[${targetRaw}]]`
-      : `⚠ Anchor not found in [[${targetRaw}]]`;
+      : kind === "missing-anchor"
+        ? `⚠ Anchor not found in [[${targetRaw}]]`
+        : `⚠ [[${targetRaw}]] is too large to embed`;
   d.textContent = msg;
   return d;
 }

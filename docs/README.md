@@ -100,6 +100,7 @@ layer-status              | docs/architecture/layers.md                | l4a.*l4
 perf-bar                  | docs/architecture/foundation.md            | \b13\s*s\b.{0,40}10,?000|10,?000 notes.{0,40}\b13\s*s\b
 native-capability-gateway | docs/architecture/foundation.md            | -
 setting-keys              | ui/src/api/ipc.ts                          | -
+viewer-formats            | ui/src/viewer/viewerKind.ts                | -
 settings-storage-routing  | docs/architecture/ui.md                    | -
 ds-bespoke-prose          | docs/architecture/ui.md                    | -
 ds-raw-control-budgets    | scripts/ds-raw-controls.json               | -

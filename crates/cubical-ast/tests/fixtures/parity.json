@@ -543,6 +543,32 @@
     }
   },
   {
+    "name": "embed_dotted_filename_stays_embed",
+    "input": "![[chart.png]]\n",
+    "expected": {
+      "blocks": [
+        {
+          "inlines": [
+            {
+              "anchor": null,
+              "display": null,
+              "embed": true,
+              "kind": "wiki_link",
+              "target": "chart.png"
+            }
+          ],
+          "kind": "paragraph",
+          "span": {
+            "end": 15,
+            "start": 0
+          }
+        }
+      ],
+      "frontmatter": null,
+      "source_len": 15
+    }
+  },
+  {
     "name": "tag_simple",
     "input": "see #todo for context\n",
     "expected": {

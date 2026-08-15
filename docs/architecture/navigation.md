@@ -51,7 +51,7 @@ means the §15.1 semantics.
 
 | Entry point | Wired at | Routes through | Result |
 |---|---|---|---|
-| File-tree row click | `App.tsx:1989` | `handleSelectFile` | Open-or-focus. Non-markdown rows are inert — the guard is at `App.tsx:1012`, so clicking a PDF does nothing at all |
+| File-tree row click | `App.tsx:1989` | `handleSelectFile` | Open-or-focus. A non-markdown row opens a read-only viewer when its extension has one (§15.5); rows with no viewer stay inert |
 | Wikilink click in Live Preview | `Editor.tsx:408-420` → `handleClickAtPos` (`Editor.tsx:253-285`) → `handleWikiLinkClick` (`editor/wikilinkClick.ts:22-33`) → `App.tsx:2278` | `handleNavigateWikilink` | Resolved → open-or-focus (+ anchor, §15.3). Unresolved → **no navigation**; raises the create-offer dialog instead |
 | Follow link under cursor (`Alt-Enter`) | `core/commands.ts:43-47`, `Editor.tsx:325-332` | same as above | Identical to the click; it reuses `handleClickAtPos` at the cursor |
 | Embed (`![[…]]`) | — | — | **Not a navigation entry point.** The embed widget has no click handler and no `data-path` (`editor/embed.ts:41-79`, `editor/embedRender.ts`); a click just places the caret. Embeds render content in place, they do not go anywhere |
@@ -89,9 +89,13 @@ else.
 Three functions write `activeId`. Everything in §15.2 funnels into one of them.
 
 **`handleSelectFile(file, knownHash?, { fromHistory }?)`** — `App.tsx:1007-1025`.
-The only path that opens a *file*. Fixed order: reject non-markdown → bail if it
-is already the active tab → `flushAutosave` → `resetDocState` → `openTab` → push
-history → seed both hashes → `loadActiveTabContent`.
+The only path that opens a *file*. Fixed order: reject anything that is neither
+markdown nor viewer-backed → bail if it is already the active tab →
+`flushAutosave` → `resetDocState` → `openTab` → push history → **return here for
+a viewer file** → seed both hashes → `loadActiveTabContent`.
+
+A viewer file takes the same tab, the same history and the same rename remapping
+as a note; it simply stops before the editor machinery. See §15.5.
 
 The "already active" bail at `App.tsx:1015` is load-bearing in three places:
 re-clicking the open note never re-reads from disk, never pushes a duplicate
@@ -196,6 +200,25 @@ Two terminal-specific effects on the tab set:
 For the terminal's product decisions (why interception is not attempted, what the
 gateway rule requires) see [`foundation.md`](foundation.md) §2.1–§2.2.
 
+**Viewer files** — a fourth non-document surface that deliberately introduces
+**no** `TabView` variant. A `.png` or `.csv` occupies an ordinary
+`{ kind: "file", path }` tab, so it inherits tab persistence, rename remapping
+and nav history for free; only the *rendering* differs. One predicate,
+`hasViewer(path)` (`viewer/viewerKind.ts`), gates all three divergences:
+
+- `handleSelectFile` admits the file but returns before seeding hashes or
+  calling `loadActiveTabContent` (§15.3).
+- `loadActiveTabContent` returns early, so `read_file_text` — which rejects
+  non-markdown at the engine — is never called for one.
+- `live()` excludes it from the keep-alive LRU, so an image tab cannot evict a
+  warm editor, matching the terminal rule above.
+
+The viewer fetches its own bytes through `read_file_bytes` and owns its size
+caps. Markdown never satisfies `hasViewer`, so the editor keeps sole ownership of
+`.md`. Which extensions have viewers, and the byte and row caps, are owned by
+`viewer/viewerKind.ts`; formats without one are tracked as
+[issues labelled `area:viewers`](https://github.com/TheVaus/Cubical/labels/area%3Aviewers).
+
 ### 15.6 Known defects and open questions
 
 Recorded here rather than fixed, so a session touching navigation starts with
@@ -221,11 +244,12 @@ them visible.
 3. **Tag and terminal activation skip `resetDocState`** (§15.3). Not known to
    cause a user-visible fault, because the stale fields are only read while a
    file tab is active, but it is an invariant hole rather than a decision.
-4. **Open question — wikilink to a non-markdown target.** `handleNavigateWikilink`
-   synthesizes `type_id: "markdown"` for unknown paths, but if the path *is* in
-   `files()` as a non-markdown entry, `handleSelectFile` silently returns
-   (`App.tsx:1012`). Whether link resolution can ever return such a target was
-   not determined from the frontend alone.
+4. **Wikilink to a non-markdown target — partly resolved.** `handleSelectFile`
+   no longer silently returns for every non-markdown entry: a target whose
+   extension has a viewer (§15.5) now opens in one. A target with no viewer —
+   `.pdf`, `.docx`, a bare `LICENSE` — still returns silently, so the dead-click
+   remains for those. Whether link resolution can ever *return* such a target
+   was still not determined from the frontend alone.
 5. **Open question — search results do not jump to the match.** The panel groups
    hits per file and opens the file only (`sidebar/SearchPanel.tsx:460`). Nothing
    in the code or the specs says whether jump-to-hit was cut or simply never

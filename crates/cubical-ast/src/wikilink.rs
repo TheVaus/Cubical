@@ -114,7 +114,7 @@ fn parse_body(body: &str, is_embed: bool) -> Option<TokenizedRun> {
     if target.is_empty() {
         return None;
     }
-    if anchor.is_none() {
+    if anchor.is_none() && !is_embed {
         if let Some(dot) = target.find('.') {
             let note_raw = target[..dot].trim();
             let property = target[dot + 1..].trim();
@@ -185,6 +185,19 @@ mod tests {
     fn empty_property_falls_back_to_text() {
         assert_eq!(scan_wikilinks("[[Gandalf.]]"), vec![text("[[Gandalf.]]")]);
         assert_eq!(scan_wikilinks("[[.]]"), vec![text("[[.]]")]);
+    }
+
+    #[test]
+    fn dotted_embed_target_stays_wikilink() {
+        for input in ["![[chart.png]]", "![[data.csv]]", "![[notes/2026.06.20]]"] {
+            assert!(
+                matches!(
+                    scan_wikilinks(input).as_slice(),
+                    [TokenizedRun::WikiLink { embed: true, .. }]
+                ),
+                "{input} must stay an embed, not become a property ref"
+            );
+        }
     }
 
     #[test]

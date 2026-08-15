@@ -347,6 +347,17 @@
   color: var(--c-fg-muted);
   opacity: 0.7;
 }
+/* No viewer and not markdown: the row stays inert, so it reads as inert. */
+.tree-row--unsupported {
+  cursor: default;
+}
+.tree-row__name--unsupported {
+  color: var(--c-fg-muted);
+}
+.tree-row__unsupported-badge {
+  font-size: 0.85em;
+  opacity: 0.6;
+}
 .tree-row__input {
   flex: 1;
   min-width: 0;

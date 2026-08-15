@@ -10,9 +10,10 @@ use crate::api::types::{
     DeletePathRequest, FileEntry, FrontmatterEntry, GetCanonicalAstRequest,
     GetCanonicalAstResponse, GetFrontmatterRequest, GetFrontmatterResponse, GetSettingRequest,
     GetSettingResponse, GetVaultInfoRequest, GetVaultInfoResponse, ListFilesRequest,
-    ListFilesResponse, OpenVaultRequest, OpenVaultResponse, ReadFileTextRequest,
-    ReadFileTextResponse, ReloadSettingsRequest, ReloadSettingsResponse, ScanStatus,
-    SetSettingRequest, SetSettingResponse, WriteFileTextRequest, WriteFileTextResponse,
+    ListFilesResponse, OpenVaultRequest, OpenVaultResponse, ReadFileBytesRequest,
+    ReadFileBytesResponse, ReadFileTextRequest, ReadFileTextResponse, ReloadSettingsRequest,
+    ReloadSettingsResponse, ScanStatus, SetSettingRequest, SetSettingResponse,
+    WriteFileTextRequest, WriteFileTextResponse,
 };
 use crate::error::CubicalError;
 use crate::events::{spawn_scan_dispatcher, spawn_watcher_dispatcher, EventSink};
@@ -470,11 +471,25 @@ pub async fn get_frontmatter(
     Ok(GetFrontmatterResponse { entries })
 }
 
+pub fn extension_of(path: &str) -> String {
+    std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default()
+}
+
+pub const EDITABLE_TEXT_EXTENSIONS: &[&str] = &["txt", "text", "log"];
+
+pub fn editable_as_text(path: &str, type_id: &str) -> bool {
+    type_id == "markdown" || EDITABLE_TEXT_EXTENSIONS.contains(&extension_of(path).as_str())
+}
+
 pub async fn read_file_text(
     state: &AppState,
     req: ReadFileTextRequest,
 ) -> Result<ReadFileTextResponse, CubicalError> {
-    let (abs_path, vault) = {
+    let (abs_path, vault, is_markdown) = {
         let guard = state.vaults().read().await;
         let open = guard
             .get(&req.vault_id)
@@ -492,13 +507,18 @@ pub async fn read_file_text(
             .await?
             .ok_or_else(|| CubicalError::FileNotFound(req.path.clone()))?;
         let type_id: String = row.get(0)?;
-        if type_id != "markdown" {
+        if !editable_as_text(&req.path, &type_id) {
             return Err(CubicalError::InvalidRequest(format!(
-                "read_file_text only supports markdown files (path '{}' has type_id '{}')",
+                "read_file_text only supports markdown and plain-text files \
+                 (path '{}' has type_id '{}')",
                 req.path, type_id,
             )));
         }
-        (open.vault.root().join(&req.path), open.vault.clone())
+        (
+            open.vault.root().join(&req.path),
+            open.vault.clone(),
+            type_id == "markdown",
+        )
     };
 
     let on_disk = tokio::task::spawn_blocking(move || std::fs::read_to_string(&abs_path))
@@ -506,11 +526,96 @@ pub async fn read_file_text(
         .map_err(|e| CubicalError::Io(format!("read task join error: {e}")))?
         .map_err(|e| CubicalError::Io(e.to_string()))?;
 
+    // Pending rewrites only ever target markdown wikilinks; never touch plain text.
+    if !is_markdown {
+        return Ok(ReadFileTextResponse { content: on_disk });
+    }
+
     let content =
         cubical_core::vault::pending::materialize_on_read(vault.index(), &req.path, &on_disk)
             .await?;
 
     Ok(ReadFileTextResponse { content })
+}
+
+pub const MAX_READ_FILE_BYTES: u64 = 64 * 1024 * 1024;
+
+pub fn mime_for_extension(path: &str) -> &'static str {
+    let ext = std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "txt" | "text" | "log" => "text/plain",
+        "csv" => "text/csv",
+        "tsv" => "text/tab-separated-values",
+        _ => "application/octet-stream",
+    }
+}
+
+pub async fn read_file_bytes(
+    state: &AppState,
+    req: ReadFileBytesRequest,
+) -> Result<ReadFileBytesResponse, CubicalError> {
+    let abs_path = {
+        let guard = state.vaults().read().await;
+        let open = guard
+            .get(&req.vault_id)
+            .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
+        let conn = open.vault.index().connection();
+
+        let mut rows = conn
+            .query(
+                "SELECT type_id, size_bytes FROM files WHERE path = ?1",
+                libsql::params![req.path.clone()],
+            )
+            .await?;
+        let row = rows
+            .next()
+            .await?
+            .ok_or_else(|| CubicalError::FileNotFound(req.path.clone()))?;
+        let type_id: String = row.get(0)?;
+        if type_id == "markdown" {
+            return Err(CubicalError::InvalidRequest(format!(
+                "read_file_bytes does not serve markdown (path '{}'); use read_file_text, which applies pending rewrites",
+                req.path,
+            )));
+        }
+        let size_bytes: i64 = row.get(1)?;
+        let size_bytes = u64::try_from(size_bytes).unwrap_or(0);
+        if size_bytes > MAX_READ_FILE_BYTES {
+            return Err(CubicalError::InvalidRequest(format!(
+                "file '{}' is {size_bytes} bytes, over the {MAX_READ_FILE_BYTES}-byte read_file_bytes limit",
+                req.path,
+            )));
+        }
+        open.vault.root().join(&req.path)
+    };
+
+    let bytes = tokio::task::spawn_blocking(move || std::fs::read(&abs_path))
+        .await
+        .map_err(|e| CubicalError::Io(format!("read task join error: {e}")))?
+        .map_err(|e| CubicalError::Io(e.to_string()))?;
+
+    let size_bytes = u64::try_from(bytes.len()).unwrap_or(0);
+    if size_bytes > MAX_READ_FILE_BYTES {
+        return Err(CubicalError::InvalidRequest(format!(
+            "file '{}' is {size_bytes} bytes on disk, over the {MAX_READ_FILE_BYTES}-byte read_file_bytes limit",
+            req.path,
+        )));
+    }
+
+    Ok(ReadFileBytesResponse {
+        base64: base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes),
+        mime: mime_for_extension(&req.path).to_string(),
+        size_bytes,
+    })
 }
 
 pub async fn write_file_text(
@@ -535,9 +640,10 @@ pub async fn write_file_text(
             .await?
             .ok_or_else(|| CubicalError::FileNotFound(req.path.clone()))?;
         let type_id: String = row.get(0)?;
-        if type_id != "markdown" {
+        if !editable_as_text(&req.path, &type_id) {
             return Err(CubicalError::InvalidRequest(format!(
-                "write_file_text only supports markdown files (path '{}' has type_id '{}')",
+                "write_file_text only supports markdown and plain-text files \
+                 (path '{}' has type_id '{}')",
                 req.path, type_id,
             )));
         }
@@ -1196,6 +1302,93 @@ mod tests {
         assert_eq!(resp.content, body);
     }
 
+    #[test]
+    fn editable_as_text_admits_markdown_and_plain_text_only() {
+        assert!(editable_as_text("note.md", "markdown"));
+        assert!(editable_as_text("notes.txt", "binary"));
+        assert!(editable_as_text("run.LOG", "binary"));
+        // A viewer is not an editor: these stay read-only.
+        assert!(!editable_as_text("data.csv", "binary"));
+        assert!(!editable_as_text("data.tsv", "binary"));
+        assert!(!editable_as_text("photo.png", "binary"));
+        assert!(!editable_as_text("archive.tar.gz", "binary"));
+        assert!(!editable_as_text("LICENSE", "binary"));
+    }
+
+    #[tokio::test]
+    async fn read_file_text_returns_content_for_plain_text() {
+        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        let body = "line one\nline two\n";
+        seed_file_on_disk(&vault, "notes.txt", body, "binary").await;
+
+        let resp = read_file_text(
+            &state,
+            ReadFileTextRequest {
+                vault_id: "v1".into(),
+                path: "notes.txt".into(),
+            },
+        )
+        .await
+        .expect("ok");
+        assert_eq!(resp.content, body);
+    }
+
+    #[tokio::test]
+    async fn read_file_text_still_refuses_a_csv_or_binary() {
+        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        seed_file_on_disk(&vault, "data.csv", "a,b\n1,2\n", "binary").await;
+        seed_file_on_disk(&vault, "photo.png", "\u{0}bytes", "binary").await;
+
+        for path in ["data.csv", "photo.png"] {
+            let err = read_file_text(
+                &state,
+                ReadFileTextRequest {
+                    vault_id: "v1".into(),
+                    path: path.into(),
+                },
+            )
+            .await
+            .expect_err("must stay read-only");
+            assert!(matches!(err, CubicalError::InvalidRequest(_)), "{path}");
+        }
+    }
+
+    #[tokio::test]
+    async fn write_file_text_writes_plain_text_but_still_refuses_a_binary() {
+        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        seed_file_on_disk(&vault, "notes.txt", "before\n", "binary").await;
+        seed_file_on_disk(&vault, "photo.png", "\u{0}bytes", "binary").await;
+
+        write_file_text(
+            &state,
+            WriteFileTextRequest {
+                vault_id: "v1".into(),
+                path: "notes.txt".into(),
+                content: "after\n".into(),
+                expected_seen_hash: None,
+            },
+        )
+        .await
+        .expect("plain text is writable");
+        assert_eq!(
+            std::fs::read_to_string(vault.root().join("notes.txt")).unwrap(),
+            "after\n",
+        );
+
+        let err = write_file_text(
+            &state,
+            WriteFileTextRequest {
+                vault_id: "v1".into(),
+                path: "photo.png".into(),
+                content: "clobbered".into(),
+                expected_seen_hash: None,
+            },
+        )
+        .await
+        .expect_err("a binary must never be writable as text");
+        assert!(matches!(err, CubicalError::InvalidRequest(_)));
+    }
+
     #[tokio::test]
     async fn read_file_text_materializes_pending_rewrites() {
         use cubical_index::{enqueue_pending, NewPendingRewrite, RewriteKind};
@@ -1265,6 +1458,197 @@ mod tests {
         .await
         .expect_err("should be FileNotFound");
         assert!(matches!(err, CubicalError::FileNotFound(p) if p == "missing.md"));
+    }
+
+    #[tokio::test]
+    async fn read_file_bytes_round_trips_binary_content() {
+        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        let png_magic: &[u8] = &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+        let abs = vault.root().join("icon.png");
+        std::fs::write(&abs, png_magic).expect("write");
+        vault
+            .index()
+            .connection()
+            .execute(
+                "INSERT INTO files (
+                    path, type_id, size_bytes, mtime_unix, content_hash,
+                    inode, last_seen, created_at, updated_at
+                ) VALUES ('icon.png', 'binary', 8, 0, '', NULL, 0, 0, 0)",
+                (),
+            )
+            .await
+            .expect("seed");
+
+        let resp = read_file_bytes(
+            &state,
+            ReadFileBytesRequest {
+                vault_id: "v1".into(),
+                path: "icon.png".into(),
+            },
+        )
+        .await
+        .expect("ok");
+
+        assert_eq!(resp.mime, "image/png");
+        assert_eq!(resp.size_bytes, 8);
+        let decoded =
+            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &resp.base64)
+                .expect("valid base64");
+        assert_eq!(decoded, png_magic);
+    }
+
+    #[tokio::test]
+    async fn read_file_bytes_rejects_markdown_so_pending_rewrites_stay_authoritative() {
+        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        seed_file_on_disk(&vault, "note.md", "body\n", "markdown").await;
+
+        let err = read_file_bytes(
+            &state,
+            ReadFileBytesRequest {
+                vault_id: "v1".into(),
+                path: "note.md".into(),
+            },
+        )
+        .await
+        .expect_err("should be InvalidRequest");
+        match err {
+            CubicalError::InvalidRequest(msg) => assert!(msg.contains("read_file_text")),
+            other => panic!("expected InvalidRequest, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn read_file_bytes_rejects_a_file_over_the_size_cap() {
+        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        std::fs::write(vault.root().join("huge.bin"), b"small on disk").expect("write");
+        let oversize = MAX_READ_FILE_BYTES + 1;
+        vault
+            .index()
+            .connection()
+            .execute(
+                "INSERT INTO files (
+                    path, type_id, size_bytes, mtime_unix, content_hash,
+                    inode, last_seen, created_at, updated_at
+                ) VALUES ('huge.bin', 'binary', ?1, 0, '', NULL, 0, 0, 0)",
+                libsql::params![i64::try_from(oversize).unwrap()],
+            )
+            .await
+            .expect("seed");
+
+        let err = read_file_bytes(
+            &state,
+            ReadFileBytesRequest {
+                vault_id: "v1".into(),
+                path: "huge.bin".into(),
+            },
+        )
+        .await
+        .expect_err("should be InvalidRequest");
+        match err {
+            CubicalError::InvalidRequest(msg) => assert!(msg.contains("limit")),
+            other => panic!("expected InvalidRequest, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn read_file_bytes_errors_for_unknown_path() {
+        let (_dir, _vault, state) = fresh_state_with_vault("v1").await;
+        let err = read_file_bytes(
+            &state,
+            ReadFileBytesRequest {
+                vault_id: "v1".into(),
+                path: "missing.png".into(),
+            },
+        )
+        .await
+        .expect_err("should be FileNotFound");
+        assert!(matches!(err, CubicalError::FileNotFound(p) if p == "missing.png"));
+    }
+
+    #[tokio::test]
+    async fn read_file_bytes_serves_every_viewer_format_after_a_real_scan() {
+        let (dir, vault, state) = fresh_state_with_vault("v1").await;
+
+        let png: &[u8] = &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0xFF, 0x00];
+        let jpeg: &[u8] = &[0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10];
+        let svg = b"<svg xmlns=\"http://www.w3.org/2000/svg\"/>\n";
+        let txt = "plain text\nwith \u{2014} unicode\n".as_bytes();
+        let csv = b"name,role\nGandalf,\"Wizard, grey\"\n";
+        let pdf = b"%PDF-1.4\n";
+
+        let cases: &[(&str, &[u8], &str)] = &[
+            ("photo.png", png, "image/png"),
+            ("photo.jpg", jpeg, "image/jpeg"),
+            ("logo.svg", svg, "image/svg+xml"),
+            ("notes.txt", txt, "text/plain"),
+            ("data.csv", csv, "text/csv"),
+            ("manual.pdf", pdf, "application/octet-stream"),
+        ];
+        for (name, bytes, _) in cases {
+            std::fs::write(dir.path().join(name), bytes).expect("write fixture");
+        }
+        std::fs::write(dir.path().join("note.md"), b"# a real note\n").expect("write note");
+
+        let (tx, mut rx) = tokio::sync::mpsc::channel(64);
+        tokio::spawn(async move { while rx.recv().await.is_some() {} });
+        cubical_core::scan(
+            vault.clone(),
+            tokio_util::sync::CancellationToken::new(),
+            tx,
+        )
+        .await
+        .expect("scan");
+
+        for (name, expected_bytes, expected_mime) in cases {
+            let resp = read_file_bytes(
+                &state,
+                ReadFileBytesRequest {
+                    vault_id: "v1".into(),
+                    path: (*name).into(),
+                },
+            )
+            .await
+            .unwrap_or_else(|e| panic!("read {name}: {e:?}"));
+
+            assert_eq!(resp.mime, *expected_mime, "mime for {name}");
+            assert_eq!(
+                resp.size_bytes,
+                expected_bytes.len() as u64,
+                "size for {name}"
+            );
+            let decoded =
+                base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &resp.base64)
+                    .unwrap_or_else(|e| panic!("base64 for {name}: {e:?}"));
+            assert_eq!(decoded, *expected_bytes, "bytes for {name}");
+        }
+
+        let err = read_file_bytes(
+            &state,
+            ReadFileBytesRequest {
+                vault_id: "v1".into(),
+                path: "note.md".into(),
+            },
+        )
+        .await
+        .expect_err("markdown stays with read_file_text");
+        assert!(matches!(err, CubicalError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn mime_for_extension_covers_the_supported_viewer_types() {
+        let cases: &[(&str, &str)] = &[
+            ("a/b/photo.png", "image/png"),
+            ("photo.JPG", "image/jpeg"),
+            ("photo.jpeg", "image/jpeg"),
+            ("logo.svg", "image/svg+xml"),
+            ("notes.txt", "text/plain"),
+            ("data.csv", "text/csv"),
+            ("archive.tar.gz", "application/octet-stream"),
+            ("noext", "application/octet-stream"),
+        ];
+        for (path, expected) in cases {
+            assert_eq!(mime_for_extension(path), *expected, "mime for {path}");
+        }
     }
 
     #[tokio::test]
