@@ -368,7 +368,13 @@ fn inode_of(meta: &std::fs::Metadata) -> Option<i64> {
     Some(clamp_to_i64(meta.ino()))
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn inode_of(meta: &std::fs::Metadata) -> Option<i64> {
+    use std::os::windows::fs::MetadataExt;
+    meta.file_index().map(clamp_to_i64)
+}
+
+#[cfg(not(any(unix, windows)))]
 fn inode_of(_meta: &std::fs::Metadata) -> Option<i64> {
     None
 }
