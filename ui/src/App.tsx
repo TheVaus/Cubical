@@ -69,6 +69,7 @@ import {
 import { createVaultSession } from "./core/vaultSession";
 import { resolveGlobal, type Command } from "./core/commands";
 import { createNavSession } from "./core/navSession";
+import { createDebounced } from "./core/debounce";
 import TabStrip from "./tabs/TabStrip";
 import {
   FileViewer,
@@ -93,10 +94,7 @@ import {
   type TabView,
 } from "./tabs/tabModel";
 import { activateWithFlush, type ActivationDeps } from "./tabs/activation";
-import {
-  liveFileIds,
-  touch,
-} from "./tabs/lru";
+import { liveFileIds, touch } from "./tabs/lru";
 import { errorMessage } from "./errorMessage";
 import {
   createWikiLinkResolver,
@@ -140,9 +138,7 @@ import { leadingSeparators } from "./statusbar/separators";
 import { ToastHost } from "./ToastHost";
 import { showToast } from "./toastState";
 import { reprefixNestedPath, validateRenameTarget } from "./fileRename";
-import {
-  watchSystemTheme,
-} from "./styles/theme";
+import { watchSystemTheme } from "./styles/theme";
 import Backlinks from "./sidebar/Backlinks";
 import UnlinkedMentions from "./sidebar/UnlinkedMentions";
 import SearchPanel from "./sidebar/SearchPanel";
@@ -158,8 +154,6 @@ const AUTOSAVE_DEBOUNCE_MS = 300;
 
 const FILE_ROW_HEIGHT = 32;
 const FILE_LIST_OVERSCAN = 8;
-
-
 
 const App: Component = () => {
   const {
@@ -252,8 +246,6 @@ const App: Component = () => {
     treeRows().slice(fileWindow().startIndex, fileWindow().endIndex),
   );
 
-
-
   const [conflictExternalHash, setConflictExternalHash] = createSignal<
     string | null
   >(null);
@@ -294,19 +286,17 @@ const App: Component = () => {
   const [settingsOpen, setSettingsOpen] = createSignal(false);
   const [vaultSwitcherOpen, setVaultSwitcherOpen] = createSignal(false);
   const [rightSidebarRefreshTick, setRightSidebarRefreshTick] = createSignal(0);
-  let rightSidebarRefreshTimer: ReturnType<typeof setTimeout> | undefined;
   const RIGHT_SIDEBAR_REFRESH_DEBOUNCE_MS = 200;
+  const rightSidebarRefresh = createDebounced(
+    () => setRightSidebarRefreshTick((n) => n + 1),
+    RIGHT_SIDEBAR_REFRESH_DEBOUNCE_MS,
+  );
 
   const [searchRefreshTick, setSearchRefreshTick] = createSignal(0);
-  let searchRefreshTimer: ReturnType<typeof setTimeout> | undefined;
-  const SEARCH_REFRESH_DEBOUNCE_MS = 250;
-  const scheduleSearchRefresh = () => {
-    if (searchRefreshTimer !== undefined) clearTimeout(searchRefreshTimer);
-    searchRefreshTimer = setTimeout(() => {
-      searchRefreshTimer = undefined;
-      setSearchRefreshTick((n) => n + 1);
-    }, SEARCH_REFRESH_DEBOUNCE_MS);
-  };
+  const searchRefresh = createDebounced(
+    () => setSearchRefreshTick((n) => n + 1),
+    250,
+  );
 
   const [omniOpen, setOmniOpen] = createSignal(false);
   const [vaultTags, setVaultTags] = createSignal<string[]>([]);
@@ -365,11 +355,9 @@ const App: Component = () => {
       })),
   );
 
-
   const [brokenBlockRefs, setBrokenBlockRefs] = createSignal<BrokenBlockRef[]>(
     [],
   );
-  let brokenBlockRefsTimer: ReturnType<typeof setTimeout> | undefined;
 
   const [pendingRewritesCount, setPendingRewritesCount] = createSignal(0);
   const fileActions = createFileActions({
@@ -508,7 +496,10 @@ const App: Component = () => {
     });
   });
 
-  let autosaveTimer: ReturnType<typeof setTimeout> | undefined;
+  const autosave = createDebounced(
+    () => void flushAutosave(),
+    AUTOSAVE_DEBOUNCE_MS,
+  );
   let pendingWrite: Promise<void> | null = null;
 
   let unlistenProgress: UnlistenFn | undefined;
@@ -581,7 +572,7 @@ const App: Component = () => {
       if (api.getContent() === content) {
         dirty = false;
       }
-      scheduleSearchRefresh();
+      searchRefresh.schedule();
     } catch (e) {
       const message = errorMessage(e);
       setError(message);
@@ -589,10 +580,7 @@ const App: Component = () => {
   };
 
   const flushAutosave = async (): Promise<void> => {
-    if (autosaveTimer !== undefined) {
-      clearTimeout(autosaveTimer);
-      autosaveTimer = undefined;
-    }
+    autosave.cancel();
     if (!dirty && pendingWrite === null) return;
     const prior = pendingWrite ?? Promise.resolve();
     const next = prior.then(performWrite);
@@ -625,24 +613,8 @@ const App: Component = () => {
   };
 
   const scheduleAutosave = () => {
-    if (conflictExternalHash() !== null) {
-      return;
-    }
-    if (autosaveTimer !== undefined) clearTimeout(autosaveTimer);
-    autosaveTimer = setTimeout(() => {
-      autosaveTimer = undefined;
-      void flushAutosave();
-    }, AUTOSAVE_DEBOUNCE_MS);
-  };
-
-  const scheduleRightSidebarRefresh = () => {
-    if (rightSidebarRefreshTimer !== undefined) {
-      clearTimeout(rightSidebarRefreshTimer);
-    }
-    rightSidebarRefreshTimer = setTimeout(() => {
-      rightSidebarRefreshTimer = undefined;
-      setRightSidebarRefreshTick((n) => n + 1);
-    }, RIGHT_SIDEBAR_REFRESH_DEBOUNCE_MS);
+    if (conflictExternalHash() !== null) return;
+    autosave.schedule();
   };
 
   const refreshBrokenBlockRefs = async (): Promise<void> => {
@@ -656,15 +628,10 @@ const App: Component = () => {
     }
   };
 
-  const scheduleBrokenBlockRefsRefresh = () => {
-    if (brokenBlockRefsTimer !== undefined) {
-      clearTimeout(brokenBlockRefsTimer);
-    }
-    brokenBlockRefsTimer = setTimeout(() => {
-      brokenBlockRefsTimer = undefined;
-      void refreshBrokenBlockRefs();
-    }, RIGHT_SIDEBAR_REFRESH_DEBOUNCE_MS);
-  };
+  const brokenBlockRefsRefresh = createDebounced(
+    () => void refreshBrokenBlockRefs(),
+    RIGHT_SIDEBAR_REFRESH_DEBOUNCE_MS,
+  );
 
   const handleRenameCommit = async (
     fromPath: string,
@@ -748,7 +715,7 @@ const App: Component = () => {
       propertyResolver()?.invalidate();
       dataviewRunner()?.invalidate();
       void refreshFileList();
-      scheduleRightSidebarRefresh();
+      rightSidebarRefresh.schedule();
     } catch (e) {
       const message = errorMessage(e);
       showToast(message);
@@ -820,7 +787,6 @@ const App: Component = () => {
   const handleRunCommand = (id: string) => {
     if (id === "statusbar.toggle") settings.toggleStatusbar();
   };
-
 
   const loadActiveTabContent = async () => {
     const id = vaultId();
@@ -1115,11 +1081,11 @@ const App: Component = () => {
         dataviewRunner()?.invalidate();
       }
 
-      scheduleRightSidebarRefresh();
+      rightSidebarRefresh.schedule();
 
-      scheduleSearchRefresh();
+      searchRefresh.schedule();
 
-      scheduleBrokenBlockRefsRefresh();
+      brokenBlockRefsRefresh.schedule();
 
       if (view().kind === "tag") {
         setTagRefreshTick((n) => n + 1);
@@ -1133,10 +1099,7 @@ const App: Component = () => {
 
       if (dirty || conflictExternalHash() !== null) {
         setConflictExternalHash(incoming);
-        if (autosaveTimer !== undefined) {
-          clearTimeout(autosaveTimer);
-          autosaveTimer = undefined;
-        }
+        autosave.cancel();
       } else {
         const id = vaultId();
         const path = selectedPath();
@@ -1174,10 +1137,7 @@ const App: Component = () => {
     });
 
     const onBeforeUnload = () => {
-      if (autosaveTimer !== undefined) {
-        clearTimeout(autosaveTimer);
-        autosaveTimer = undefined;
-      }
+      autosave.cancel();
       if (dirty) void performWrite();
     };
     window.addEventListener("beforeunload", onBeforeUnload);
@@ -1276,12 +1236,11 @@ const App: Component = () => {
     unlistenPendingChanged?.();
     unlistenFlushComplete?.();
     unlistenSettingChanged?.();
-    if (autosaveTimer !== undefined) clearTimeout(autosaveTimer);
-    if (rightSidebarRefreshTimer !== undefined)
-      clearTimeout(rightSidebarRefreshTimer);
-    if (searchRefreshTimer !== undefined) clearTimeout(searchRefreshTimer);
+    autosave.cancel();
+    rightSidebarRefresh.cancel();
+    searchRefresh.cancel();
+    brokenBlockRefsRefresh.cancel();
   });
-
 
   const openVaultByPath = async (path: string) => {
     setError(null);
@@ -2092,16 +2051,21 @@ const App: Component = () => {
                   aria-selected={settings.rightSidebarPanel() === "backlinks"}
                   class="rs-tab"
                   classList={{
-                    "rs-tab--active": settings.rightSidebarPanel() === "backlinks",
+                    "rs-tab--active":
+                      settings.rightSidebarPanel() === "backlinks",
                   }}
-                  onClick={() => settings.setRightSidebarPanelValue("backlinks")}
+                  onClick={() =>
+                    settings.setRightSidebarPanelValue("backlinks")
+                  }
                 >
                   Backlinks
                 </button>
                 <button
                   type="button"
                   role="tab"
-                  aria-selected={settings.rightSidebarPanel() === "unlinked_mentions"}
+                  aria-selected={
+                    settings.rightSidebarPanel() === "unlinked_mentions"
+                  }
                   class="rs-tab"
                   classList={{
                     "rs-tab--active":
@@ -2119,9 +2083,12 @@ const App: Component = () => {
                   aria-selected={settings.rightSidebarPanel() === "integrity"}
                   class="rs-tab"
                   classList={{
-                    "rs-tab--active": settings.rightSidebarPanel() === "integrity",
+                    "rs-tab--active":
+                      settings.rightSidebarPanel() === "integrity",
                   }}
-                  onClick={() => settings.setRightSidebarPanelValue("integrity")}
+                  onClick={() =>
+                    settings.setRightSidebarPanelValue("integrity")
+                  }
                 >
                   Integrity
                 </button>
@@ -2138,7 +2105,9 @@ const App: Component = () => {
                       }
                     />
                   </Match>
-                  <Match when={settings.rightSidebarPanel() === "unlinked_mentions"}>
+                  <Match
+                    when={settings.rightSidebarPanel() === "unlinked_mentions"}
+                  >
                     <UnlinkedMentions
                       vaultId={vaultId()}
                       path={selectedPath()}
@@ -2155,7 +2124,7 @@ const App: Component = () => {
                       onRowClick={(path) =>
                         void handleNavigateWikilink(path, null)
                       }
-                      onRepaired={() => scheduleRightSidebarRefresh()}
+                      onRepaired={() => rightSidebarRefresh.schedule()}
                     />
                   </Match>
                 </Switch>
