@@ -29,11 +29,9 @@ Components reference semantic aliases only — never raw hex.
 
 ## Components
 
-- `forms/` — Button, IconButton, TextInput, Toggle, SegmentedControl
-- `feedback/` — Badge, Callout, Toast, Tooltip
-- `overlay/` — Menu, Modal, CommandPalette
-- `data/` — Tag, FileTreeRow, BacklinkRow
-- `brand/` — CubeMark
+[`INVENTORY.md`](INVENTORY.md) lists every component with its import path and
+props, generated from the source tree. **Read it before hand-rolling a control**
+— that is the point of the list, and a stale copy of it here would defeat it.
 
 Every component's states are demonstrated on the Gallery screen
 (`src/screens/Gallery`), including the theme switcher so all three themes can
