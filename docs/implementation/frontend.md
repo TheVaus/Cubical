@@ -263,8 +263,14 @@ the decoration compartment. Raw-source mode reconfigures that compartment to
 **Every preview-only extension MUST be a member of this bundle.** Adding one to
 the editor's base extension list, or to a separate compartment, is a bug: raw
 source will not kill it. Current members are the decoration plugin, the embed
-block field, the block-renderer field and the property-ref field, each with its
-base theme.
+block field, the block-renderer field, the display-math field and the
+property-ref field, each with its base theme.
+
+`livePreviewFor(rawSource, mathEnabled)` — not the bare bundle — is what the
+editor installs. Settings that only gate a preview extension belong in that
+function as a facet, so they ride inside the compartment raw source already
+kills, instead of earning a compartment and a reconfigure effect of their own in
+`Editor.tsx`.
 
 ## Fenced blocks go through the renderer registry
 
@@ -277,16 +283,17 @@ replaces the block with a widget. A renderer is data — `languages`, a
 
 **Do not write a second fenced-block state field.** Before the registry, csv and
 dataview were two hand-copied fields with identical scan-and-replace logic, and
-the copies had already drifted (only one trimmed its source, only one honoured a
-facet). One field means cursor suppression, atomic ranges and rebuild triggers
-are decided once.
+math would have been a third; the copies had already drifted (only one trimmed
+its source, only one honoured a facet). One field means cursor suppression,
+atomic ranges and rebuild triggers are decided once.
 
 The two hooks exist because a renderer may be inert or stale for reasons the
 field cannot see:
 
 - `active(state)` decides whether to decorate **at all**. Dataview returns false
-  with no runner in the facet. A renderer that cannot draw must say so here —
-  returning an empty node from `render` still blanks the user's source.
+  with no runner in the facet; math returns false when its plugin toggle is off.
+  A renderer that cannot draw must say so here — returning an empty node from
+  `render` still blanks the user's source.
 - `revision(state)` is widget identity beyond the source text. Async renderers
   need it: dataview's is `runnerId:version`, so a settled query redraws, and a
   *swapped* runner redraws even when the new one's version collides with the old

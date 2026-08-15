@@ -249,6 +249,7 @@ export type Setting =
   | { key: "pending_rewrites.flush_interval_secs"; value: number }
   | { key: "plugins.dataview_enabled"; value: boolean }
   | { key: "plugins.property_refs_enabled"; value: boolean }
+  | { key: "plugins.math_enabled"; value: boolean }
   | { key: "plugins.terminal_enabled"; value: boolean }
   | { key: "properties.typed_enabled"; value: boolean }
   | { key: "properties.date_format_default"; value: string }

@@ -152,10 +152,7 @@ import TagPage from "./TagPage";
 import OmniBar from "./omnibar/OmniBar";
 import { type OmniItem, type RankedItem } from "./omnibar/ranker";
 import { OMNI_COMMANDS } from "./omnibar/commands";
-import {
-  CORE_PLUGINS,
-  corePluginEnabled,
-} from "./settings/corePlugins";
+import { corePluginOn } from "./settings/corePlugins";
 import { VaultSwitcher } from "./VaultSwitcher";
 
 const AUTOSAVE_DEBOUNCE_MS = 300;
@@ -2080,18 +2077,18 @@ const App: Component = () => {
                                   wikilinkResolver={wikilinkResolver()}
                                   embedResolver={embedResolver()}
                                   propertyResolver={propertyResolver()}
-                                  propertyRefsEnabled={corePluginEnabled(
+                                  propertyRefsEnabled={corePluginOn(
                                     settings.corePlugins(),
-                                    CORE_PLUGINS.find(
-                                      (p) => p.id === "property-refs",
-                                    )!,
+                                    "property-refs",
+                                  )}
+                                  mathEnabled={corePluginOn(
+                                    settings.corePlugins(),
+                                    "math",
                                   )}
                                   dataviewRunner={
-                                    corePluginEnabled(
+                                    corePluginOn(
                                       settings.corePlugins(),
-                                      CORE_PLUGINS.find(
-                                        (p) => p.id === "dataview",
-                                      )!,
+                                      "dataview",
                                     )
                                       ? dataviewRunner()
                                       : null
