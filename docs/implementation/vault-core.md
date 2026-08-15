@@ -57,6 +57,39 @@ registries (tests, headless tooling) may omit it and accept `None`.
 open; the walk runs separately, which is what keeps vault-open time independent
 of vault size.
 
+**The cancellation test asserts the property, not a latency** — the same rule
+the watcher's drop test follows, and for the same reason. It verifies that a
+cancelled scan settles, reports `ScanCancelled`, and leaves a partial row count;
+never how many milliseconds that took. The earlier version measured
+`t0.elapsed()` against a 100 ms bound while carrying a 500 ms `timeout`, so the
+name and the deadline already disagreed. That span crosses an `await` on a
+runtime shared with the rest of the suite, so it measured the machine — it
+passed on a developer's Mac and failed on a loaded CI runner. The remaining
+`timeout` is a **liveness** bound set far clear of scheduling noise: if it fires,
+cancellation genuinely hung. See [#52](https://github.com/TheVaus/Cubical/issues/52).
+
+## Vault-relative paths
+
+**Anchors:** to_vault_relative · WatchEvent · scan
+
+A path stored anywhere — the `files` and `folders` tables, a `WatchEvent`, the
+rename journal, the own-writes key — is a **vault-relative string joined with
+`/` on every platform**. `to_vault_relative` is the only thing that produces
+one, and both producers (the scan and the watcher's `relativize`) go through it.
+
+This is a correctness rule, not a formatting preference. `Path`'s native
+separator is `\` on Windows, so a stored path built by stringifying a `PathBuf`
+diverges per platform, and everything keyed on that string stops matching: a
+`[[wikilink]]` resolves against `projects/2026/note`, the rename journal
+replays against a path that no longer spells the same, and the own-writes set —
+whose key is built from a `/`-form request path — never matches the watcher's
+event, so the app re-indexes its own writes in a loop.
+
+`WatchEvent` therefore carries `String`, not `PathBuf`. Handing downstream a
+`PathBuf` would let any consumer reintroduce the platform separator with an
+ordinary `to_string_lossy()`, which is exactly how this broke: the type is what
+makes the invariant hold, not discipline at each call site.
+
 ## Watcher
 
 **Anchors:** WatchEvent · Vault · scan

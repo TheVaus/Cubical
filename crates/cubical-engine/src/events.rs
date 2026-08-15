@@ -1,5 +1,4 @@
 use std::collections::HashSet;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -22,7 +21,7 @@ use crate::rename_pairing::{
 };
 use crate::state::{OpenVault, ScanStatusBackend};
 
-pub type FlushOwnWrites = Arc<Mutex<HashSet<(PathBuf, String)>>>;
+pub type FlushOwnWrites = Arc<Mutex<HashSet<(String, String)>>>;
 
 pub const VAULT_SCAN_PROGRESS: &str = "vault:scan-progress";
 
@@ -349,7 +348,7 @@ pub(crate) async fn apply_watch_event_to_db(
 
     if let WatchEvent::Created(rel) | WatchEvent::Modified(rel) = ev {
         if vault.root().join(rel).is_dir() {
-            let path_str = rel.to_string_lossy().into_owned();
+            let path_str = rel.clone();
             if let Err(e) = cubical_index::upsert_folder(vault.index(), &path_str, now).await {
                 tracing::warn!(path = %path_str, error = %e, "watcher: folder upsert failed");
             }
@@ -371,7 +370,7 @@ pub(crate) async fn apply_watch_event_to_db(
     let new_content_hash = match ev {
         WatchEvent::Created(rel) | WatchEvent::Modified(rel) => {
             let abs = vault.root().join(rel);
-            let path_str = rel.to_string_lossy().into_owned();
+            let path_str = rel.clone();
             let stats = read_file_stats(&abs, vault).await.unwrap_or_default();
 
             if matches!(ev, WatchEvent::Created(_)) {
@@ -469,7 +468,7 @@ pub(crate) async fn apply_watch_event_to_db(
             }
         }
         WatchEvent::Removed(rel) => {
-            let path_str = rel.to_string_lossy().into_owned();
+            let path_str = rel.clone();
             if let Some(ctx) = ctx {
                 capture_tombstone(vault, ctx.tombstones, &path_str).await;
             }
@@ -493,8 +492,8 @@ pub(crate) async fn apply_watch_event_to_db(
             None
         }
         WatchEvent::Renamed { from, to } => {
-            let from_str = from.to_string_lossy().into_owned();
-            let to_str = to.to_string_lossy().into_owned();
+            let from_str = from.clone();
+            let to_str = to.clone();
 
             if try_adopt_external_rename(vault, ctx, &from_str, &to_str).await {
                 if let Err(e) = conn
@@ -714,23 +713,23 @@ async fn read_file_stats(abs: &std::path::Path, vault: &Vault) -> Option<FileSta
 fn audit_payload_for(ev: &WatchEvent) -> (String, String) {
     match ev {
         WatchEvent::Created(p) => (
-            format!("created {}", p.display()),
-            serde_json::json!({ "kind": "created", "path": p.to_string_lossy() }).to_string(),
+            format!("created {}", p),
+            serde_json::json!({ "kind": "created", "path": p }).to_string(),
         ),
         WatchEvent::Modified(p) => (
-            format!("modified {}", p.display()),
-            serde_json::json!({ "kind": "modified", "path": p.to_string_lossy() }).to_string(),
+            format!("modified {}", p),
+            serde_json::json!({ "kind": "modified", "path": p }).to_string(),
         ),
         WatchEvent::Removed(p) => (
-            format!("removed {}", p.display()),
-            serde_json::json!({ "kind": "removed", "path": p.to_string_lossy() }).to_string(),
+            format!("removed {}", p),
+            serde_json::json!({ "kind": "removed", "path": p }).to_string(),
         ),
         WatchEvent::Renamed { from, to } => (
-            format!("renamed {} → {}", from.display(), to.display()),
+            format!("renamed {} → {}", from, to),
             serde_json::json!({
                 "kind": "renamed",
-                "from": from.to_string_lossy(),
-                "to": to.to_string_lossy(),
+                "from": from,
+                "to": to,
             })
             .to_string(),
         ),
@@ -763,30 +762,30 @@ fn file_changed_payload(
     match ev {
         WatchEvent::Created(p) => VaultFileChanged {
             vault_id: vault_id.to_string(),
-            path: p.to_string_lossy().into_owned(),
+            path: p.clone(),
             kind: VaultFileChangeKind::Created,
             from_path: None,
             new_content_hash,
         },
         WatchEvent::Modified(p) => VaultFileChanged {
             vault_id: vault_id.to_string(),
-            path: p.to_string_lossy().into_owned(),
+            path: p.clone(),
             kind: VaultFileChangeKind::Modified,
             from_path: None,
             new_content_hash,
         },
         WatchEvent::Removed(p) => VaultFileChanged {
             vault_id: vault_id.to_string(),
-            path: p.to_string_lossy().into_owned(),
+            path: p.clone(),
             kind: VaultFileChangeKind::Removed,
             from_path: None,
             new_content_hash: None,
         },
         WatchEvent::Renamed { from, to } => VaultFileChanged {
             vault_id: vault_id.to_string(),
-            path: to.to_string_lossy().into_owned(),
+            path: to.clone(),
             kind: VaultFileChangeKind::Renamed,
-            from_path: Some(from.to_string_lossy().into_owned()),
+            from_path: Some(from.clone()),
             new_content_hash: None,
         },
     }
@@ -803,7 +802,6 @@ fn unix_now_secs() -> i64 {
 mod tests {
 
     use super::*;
-    use std::path::PathBuf;
     use tempfile::tempdir;
 
     async fn fresh_vault_with_one_md(name: &str) -> (tempfile::TempDir, Vault) {
@@ -818,8 +816,7 @@ mod tests {
         let (_dir, vault) = fresh_vault_with_one_md("note.md").await;
 
         let hash =
-            apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("note.md")), None)
-                .await;
+            apply_watch_event_to_db(&vault, &WatchEvent::Created("note.md".into()), None).await;
         assert!(hash.is_some(), "Created on a real file returns its hash");
 
         let conn = vault.index().connection();
@@ -879,12 +876,7 @@ mod tests {
         let fresh = dir.path().join("fresh.md");
         std::fs::write(&fresh, "body\n").unwrap();
 
-        apply_watch_event_to_db(
-            &vault,
-            &WatchEvent::Created(PathBuf::from("fresh.md")),
-            None,
-        )
-        .await;
+        apply_watch_event_to_db(&vault, &WatchEvent::Created("fresh.md".into()), None).await;
 
         let expected = i64::try_from(std::fs::metadata(&fresh).unwrap().ino()).unwrap();
         assert_eq!(
@@ -902,7 +894,7 @@ mod tests {
         let (dir, vault) = fresh_vault_with_one_md("note.md").await;
         let note = dir.path().join("note.md");
 
-        apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("note.md")), None).await;
+        apply_watch_event_to_db(&vault, &WatchEvent::Created("note.md".into()), None).await;
         let first = read_inode_column(&vault, "note.md")
             .await
             .expect("inode set");
@@ -913,12 +905,7 @@ mod tests {
         let replaced = i64::try_from(std::fs::metadata(&note).unwrap().ino()).unwrap();
         assert_ne!(first, replaced, "replacement must change the inode");
 
-        apply_watch_event_to_db(
-            &vault,
-            &WatchEvent::Modified(PathBuf::from("note.md")),
-            None,
-        )
-        .await;
+        apply_watch_event_to_db(&vault, &WatchEvent::Modified("note.md".into()), None).await;
 
         assert_eq!(
             read_inode_column(&vault, "note.md").await,
@@ -931,12 +918,7 @@ mod tests {
     async fn created_event_on_missing_file_leaves_inode_null() {
         let (_dir, vault) = fresh_vault_with_one_md("note.md").await;
 
-        apply_watch_event_to_db(
-            &vault,
-            &WatchEvent::Created(PathBuf::from("ghost.md")),
-            None,
-        )
-        .await;
+        apply_watch_event_to_db(&vault, &WatchEvent::Created("ghost.md".into()), None).await;
 
         let conn = vault.index().connection();
         let mut rows = conn
@@ -958,18 +940,13 @@ mod tests {
         std::fs::write(&p, "---\ntitle: Old\n---\n\nbody\n").unwrap();
         let vault = Vault::open(dir.path()).await.expect("vault open");
 
-        let h1 =
-            apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("note.md")), None)
-                .await
-                .expect("Created hash");
+        let h1 = apply_watch_event_to_db(&vault, &WatchEvent::Created("note.md".into()), None)
+            .await
+            .expect("Created hash");
         std::fs::write(&p, "---\ntitle: New\nstatus: ready\n---\n\nbody\n").unwrap();
-        let h2 = apply_watch_event_to_db(
-            &vault,
-            &WatchEvent::Modified(PathBuf::from("note.md")),
-            None,
-        )
-        .await
-        .expect("Modified hash");
+        let h2 = apply_watch_event_to_db(&vault, &WatchEvent::Modified("note.md".into()), None)
+            .await
+            .expect("Modified hash");
         assert_ne!(h1, h2, "hash must change after content changes");
 
         let conn = vault.index().connection();
@@ -1002,13 +979,8 @@ mod tests {
         std::fs::write(dir.path().join("Daily.md"), "body\n").unwrap();
         let vault = Vault::open(dir.path()).await.expect("vault open");
 
-        apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("a.md")), None).await;
-        apply_watch_event_to_db(
-            &vault,
-            &WatchEvent::Created(PathBuf::from("Daily.md")),
-            None,
-        )
-        .await;
+        apply_watch_event_to_db(&vault, &WatchEvent::Created("a.md".into()), None).await;
+        apply_watch_event_to_db(&vault, &WatchEvent::Created("Daily.md".into()), None).await;
 
         enqueue_pending(
             vault.index(),
@@ -1024,10 +996,9 @@ mod tests {
         .await
         .unwrap();
 
-        let hash =
-            apply_watch_event_to_db(&vault, &WatchEvent::Modified(PathBuf::from("a.md")), None)
-                .await
-                .expect("Modified hash");
+        let hash = apply_watch_event_to_db(&vault, &WatchEvent::Modified("a.md".into()), None)
+            .await
+            .expect("Modified hash");
 
         let rows = links_from(vault.index(), "a.md").await.expect("query");
         assert_eq!(rows.len(), 1);
@@ -1044,12 +1015,8 @@ mod tests {
         std::fs::create_dir(dir.path().join("projects")).unwrap();
         let vault = Vault::open(dir.path()).await.expect("vault open");
 
-        let hash = apply_watch_event_to_db(
-            &vault,
-            &WatchEvent::Created(PathBuf::from("projects")),
-            None,
-        )
-        .await;
+        let hash =
+            apply_watch_event_to_db(&vault, &WatchEvent::Created("projects".into()), None).await;
         assert!(hash.is_none(), "a directory carries no content hash");
 
         let folders = cubical_index::list_folders(vault.index()).await.unwrap();
@@ -1069,12 +1036,7 @@ mod tests {
         let dir = tempdir().unwrap();
         std::fs::create_dir(dir.path().join("projects")).unwrap();
         let vault = Vault::open(dir.path()).await.expect("vault open");
-        apply_watch_event_to_db(
-            &vault,
-            &WatchEvent::Created(PathBuf::from("projects")),
-            None,
-        )
-        .await;
+        apply_watch_event_to_db(&vault, &WatchEvent::Created("projects".into()), None).await;
         assert_eq!(
             cubical_index::list_folders(vault.index())
                 .await
@@ -1084,12 +1046,7 @@ mod tests {
         );
 
         std::fs::remove_dir(dir.path().join("projects")).unwrap();
-        apply_watch_event_to_db(
-            &vault,
-            &WatchEvent::Removed(PathBuf::from("projects")),
-            None,
-        )
-        .await;
+        apply_watch_event_to_db(&vault, &WatchEvent::Removed("projects".into()), None).await;
         assert!(
             cubical_index::list_folders(vault.index())
                 .await
@@ -1106,8 +1063,8 @@ mod tests {
         let hash = apply_watch_event_to_db(
             &vault,
             &WatchEvent::Renamed {
-                from: PathBuf::from("a.md"),
-                to: PathBuf::from("b.md"),
+                from: "a.md".to_string(),
+                to: "b.md".to_string(),
             },
             None,
         )
@@ -1136,11 +1093,10 @@ mod tests {
     #[tokio::test]
     async fn removed_event_returns_no_hash() {
         let (_dir, vault) = fresh_vault_with_one_md("note.md").await;
-        apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("note.md")), None).await;
+        apply_watch_event_to_db(&vault, &WatchEvent::Created("note.md".into()), None).await;
 
         let hash =
-            apply_watch_event_to_db(&vault, &WatchEvent::Removed(PathBuf::from("note.md")), None)
-                .await;
+            apply_watch_event_to_db(&vault, &WatchEvent::Removed("note.md".into()), None).await;
         assert!(hash.is_none(), "Removed must not carry a hash");
     }
 
@@ -1151,7 +1107,7 @@ mod tests {
         std::fs::write(&p, "---\ntitle: Hi\n---\n\n#planning body\n").unwrap();
         let vault = Vault::open(dir.path()).await.expect("vault open");
 
-        apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("note.md")), None).await;
+        apply_watch_event_to_db(&vault, &WatchEvent::Created("note.md".into()), None).await;
         let conn = vault.index().connection();
         let count = |sql: &'static str| {
             let conn = conn.clone();
@@ -1172,7 +1128,7 @@ mod tests {
         );
 
         std::fs::remove_file(&p).unwrap();
-        apply_watch_event_to_db(&vault, &WatchEvent::Removed(PathBuf::from("note.md")), None).await;
+        apply_watch_event_to_db(&vault, &WatchEvent::Removed("note.md".into()), None).await;
 
         assert_eq!(
             count("SELECT COUNT(*) FROM files WHERE path='note.md'").await,
@@ -1195,7 +1151,7 @@ mod tests {
     fn file_changed_payload_carries_hash_on_modified() {
         let payload = file_changed_payload(
             "v1",
-            &WatchEvent::Modified(PathBuf::from("note.md")),
+            &WatchEvent::Modified("note.md".into()),
             Some("abc123".into()),
         );
         assert!(matches!(payload.kind, VaultFileChangeKind::Modified));
@@ -1208,7 +1164,7 @@ mod tests {
     fn file_changed_payload_drops_hash_on_removed() {
         let payload = file_changed_payload(
             "v1",
-            &WatchEvent::Removed(PathBuf::from("note.md")),
+            &WatchEvent::Removed("note.md".into()),
             Some("ignored".into()),
         );
         assert!(payload.new_content_hash.is_none());
@@ -1219,11 +1175,11 @@ mod tests {
         let gate: FlushOwnWrites = Arc::new(Mutex::new(HashSet::new()));
         gate.lock()
             .await
-            .insert((PathBuf::from("a.md"), "deadbeef".into()));
+            .insert(("a.md".to_string(), "deadbeef".into()));
 
         let suppressed = consume_own_write_hash(
             &gate,
-            &WatchEvent::Modified(PathBuf::from("a.md")),
+            &WatchEvent::Modified("a.md".into()),
             Some("deadbeef"),
         )
         .await;
@@ -1231,7 +1187,7 @@ mod tests {
 
         let suppressed_again = consume_own_write_hash(
             &gate,
-            &WatchEvent::Modified(PathBuf::from("a.md")),
+            &WatchEvent::Modified("a.md".into()),
             Some("deadbeef"),
         )
         .await;
@@ -1243,11 +1199,11 @@ mod tests {
         let gate: FlushOwnWrites = Arc::new(Mutex::new(HashSet::new()));
         gate.lock()
             .await
-            .insert((PathBuf::from("a.md"), "deadbeef".into()));
+            .insert(("a.md".to_string(), "deadbeef".into()));
 
         let suppressed = consume_own_write_hash(
             &gate,
-            &WatchEvent::Modified(PathBuf::from("a.md")),
+            &WatchEvent::Modified("a.md".into()),
             Some("cafebabe"),
         )
         .await;
@@ -1260,14 +1216,14 @@ mod tests {
         let gate: FlushOwnWrites = Arc::new(Mutex::new(HashSet::new()));
         gate.lock()
             .await
-            .insert((PathBuf::from("a.md"), "deadbeef".into()));
+            .insert(("a.md".to_string(), "deadbeef".into()));
 
         for ev in [
-            WatchEvent::Created(PathBuf::from("a.md")),
-            WatchEvent::Removed(PathBuf::from("a.md")),
+            WatchEvent::Created("a.md".into()),
+            WatchEvent::Removed("a.md".into()),
             WatchEvent::Renamed {
-                from: PathBuf::from("a.md"),
-                to: PathBuf::from("b.md"),
+                from: "a.md".to_string(),
+                to: "b.md".to_string(),
             },
         ] {
             assert!(!consume_own_write_hash(&gate, &ev, Some("deadbeef")).await);
@@ -1284,8 +1240,8 @@ mod tests {
         let payload = file_changed_payload(
             "v1",
             &WatchEvent::Renamed {
-                from: PathBuf::from("a.md"),
-                to: PathBuf::from("b.md"),
+                from: "a.md".to_string(),
+                to: "b.md".to_string(),
             },
             Some("ignored".into()),
         );
@@ -1304,19 +1260,9 @@ mod tests {
         std::fs::write(&p, "old body\n").unwrap();
         let vault = Vault::open(dir.path()).await.expect("vault open");
 
-        apply_watch_events_batch(
-            &vault,
-            &[WatchEvent::Created(PathBuf::from("note.md"))],
-            None,
-        )
-        .await;
+        apply_watch_events_batch(&vault, &[WatchEvent::Created("note.md".into())], None).await;
         std::fs::write(&p, "freshly indexed unicorn token\n").unwrap();
-        apply_watch_events_batch(
-            &vault,
-            &[WatchEvent::Modified(PathBuf::from("note.md"))],
-            None,
-        )
-        .await;
+        apply_watch_events_batch(&vault, &[WatchEvent::Modified("note.md".into())], None).await;
 
         assert_eq!(vault.search().doc_count().unwrap(), 1);
 
@@ -1357,24 +1303,14 @@ mod tests {
     #[tokio::test]
     async fn removed_event_drops_doc_from_search_index() {
         let (_dir, vault) = fresh_vault_with_one_md("gone.md").await;
-        apply_watch_events_batch(
-            &vault,
-            &[WatchEvent::Created(PathBuf::from("gone.md"))],
-            None,
-        )
-        .await;
+        apply_watch_events_batch(&vault, &[WatchEvent::Created("gone.md".into())], None).await;
         assert_eq!(
             vault.search().doc_count().unwrap(),
             1,
             "Created should seed exactly one search doc",
         );
 
-        apply_watch_events_batch(
-            &vault,
-            &[WatchEvent::Removed(PathBuf::from("gone.md"))],
-            None,
-        )
-        .await;
+        apply_watch_events_batch(&vault, &[WatchEvent::Removed("gone.md".into())], None).await;
         assert_eq!(
             vault.search().doc_count().unwrap(),
             0,
@@ -1385,14 +1321,14 @@ mod tests {
     #[tokio::test]
     async fn renamed_event_drops_old_path_from_search_index() {
         let (_dir, vault) = fresh_vault_with_one_md("a.md").await;
-        apply_watch_events_batch(&vault, &[WatchEvent::Created(PathBuf::from("a.md"))], None).await;
+        apply_watch_events_batch(&vault, &[WatchEvent::Created("a.md".into())], None).await;
         assert_eq!(vault.search().doc_count().unwrap(), 1);
 
         apply_watch_events_batch(
             &vault,
             &[WatchEvent::Renamed {
-                from: PathBuf::from("a.md"),
-                to: PathBuf::from("b.md"),
+                from: "a.md".to_string(),
+                to: "b.md".to_string(),
             }],
             None,
         )
@@ -1416,7 +1352,7 @@ mod tests {
                 format!("# Note {i}\n\nbody token{i}\n"),
             )
             .unwrap();
-            events.push(WatchEvent::Modified(PathBuf::from(rel)));
+            events.push(WatchEvent::Modified(rel.to_string()));
         }
         let vault = Vault::open(dir.path()).await.expect("vault open");
 
@@ -1462,7 +1398,7 @@ mod tests {
         async fn live_vault(dir: &TempDir, seed: &[&str]) -> LiveVault {
             let vault = Vault::open(dir.path()).await.expect("vault open");
             for rel in seed {
-                apply_watch_events_batch(&vault, &[WatchEvent::Created(PathBuf::from(rel))], None)
+                apply_watch_events_batch(&vault, &[WatchEvent::Created(rel.to_string())], None)
                     .await;
             }
 
@@ -1603,8 +1539,8 @@ mod tests {
             apply_watch_event_to_db(
                 &live.vault,
                 &WatchEvent::Renamed {
-                    from: PathBuf::from("Daily.md"),
-                    to: PathBuf::from("Journal.md"),
+                    from: "Daily.md".to_string(),
+                    to: "Journal.md".to_string(),
                 },
                 Some(&watch_ctx(&flush_own_writes, &settings, &tombstones)),
             )
@@ -1647,8 +1583,8 @@ mod tests {
             let hash = apply_watch_event_to_db(
                 &live.vault,
                 &WatchEvent::Renamed {
-                    from: PathBuf::from("Daily.md"),
-                    to: PathBuf::from("Journal.md"),
+                    from: "Daily.md".to_string(),
+                    to: "Journal.md".to_string(),
                 },
                 Some(&watch_ctx(&flush_own_writes, &settings, &tombstones)),
             )
@@ -1677,12 +1613,7 @@ mod tests {
             let dir = tempdir().unwrap();
             std::fs::write(dir.path().join("Journal.md"), "# Daily\n").unwrap();
             let vault = Vault::open(dir.path()).await.expect("vault open");
-            apply_watch_event_to_db(
-                &vault,
-                &WatchEvent::Created(PathBuf::from("Journal.md")),
-                None,
-            )
-            .await;
+            apply_watch_event_to_db(&vault, &WatchEvent::Created("Journal.md".into()), None).await;
 
             let flush_own_writes: FlushOwnWrites = Arc::new(Mutex::new(HashSet::new()));
             let settings = RwLock::new(SettingsMap::new());
@@ -1690,8 +1621,8 @@ mod tests {
             apply_watch_event_to_db(
                 &vault,
                 &WatchEvent::Renamed {
-                    from: PathBuf::from("Daily.md"),
-                    to: PathBuf::from("Journal.md"),
+                    from: "Daily.md".to_string(),
+                    to: "Journal.md".to_string(),
                 },
                 Some(&watch_ctx(&flush_own_writes, &settings, &tombstones)),
             )
@@ -1709,12 +1640,7 @@ mod tests {
             let png = [0x89u8, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0xFF, 0xFE];
             std::fs::write(dir.path().join("logo.png"), png).unwrap();
             let vault = Vault::open(dir.path()).await.expect("vault open");
-            apply_watch_event_to_db(
-                &vault,
-                &WatchEvent::Created(PathBuf::from("logo.png")),
-                None,
-            )
-            .await;
+            apply_watch_event_to_db(&vault, &WatchEvent::Created("logo.png".into()), None).await;
             assert!(file_row_exists(&vault, "logo.png").await);
 
             std::fs::rename(dir.path().join("logo.png"), dir.path().join("brand.png")).unwrap();
@@ -1725,8 +1651,8 @@ mod tests {
             let hash = apply_watch_event_to_db(
                 &vault,
                 &WatchEvent::Renamed {
-                    from: PathBuf::from("logo.png"),
-                    to: PathBuf::from("brand.png"),
+                    from: "logo.png".to_string(),
+                    to: "brand.png".to_string(),
                 },
                 Some(&watch_ctx(&flush_own_writes, &settings, &tombstones)),
             )
@@ -1753,12 +1679,8 @@ mod tests {
             async fn static_vault(dir: &TempDir, seed: &[&str]) -> StaticVault {
                 let vault = Vault::open(dir.path()).await.expect("vault open");
                 for rel in seed {
-                    apply_watch_events_batch(
-                        &vault,
-                        &[WatchEvent::Created(PathBuf::from(rel))],
-                        None,
-                    )
-                    .await;
+                    apply_watch_events_batch(&vault, &[WatchEvent::Created(rel.to_string())], None)
+                        .await;
                 }
                 let state = AppState::new();
                 let open = OpenVault::new(
@@ -1793,6 +1715,7 @@ mod tests {
                 }
             }
 
+            #[cfg(unix)]
             #[tokio::test]
             async fn split_removed_then_created_pairs_on_inode_even_when_the_hash_is_ambiguous() {
                 let dir = tempdir().unwrap();
@@ -1808,8 +1731,8 @@ mod tests {
                 feed(
                     &live,
                     &[
-                        WatchEvent::Removed(PathBuf::from("Daily.md")),
-                        WatchEvent::Created(PathBuf::from("Journal.md")),
+                        WatchEvent::Removed("Daily.md".into()),
+                        WatchEvent::Created("Journal.md".into()),
                     ],
                     &tombstones,
                 )
@@ -1850,8 +1773,8 @@ mod tests {
                 feed(
                     &live,
                     &[
-                        WatchEvent::Removed(PathBuf::from("Daily.md")),
-                        WatchEvent::Created(PathBuf::from("Journal.md")),
+                        WatchEvent::Removed("Daily.md".into()),
+                        WatchEvent::Created("Journal.md".into()),
                     ],
                     &tombstones,
                 )
@@ -1891,8 +1814,8 @@ mod tests {
                 feed(
                     &live,
                     &[
-                        WatchEvent::Removed(PathBuf::from("Dup1.md")),
-                        WatchEvent::Created(PathBuf::from("Third.md")),
+                        WatchEvent::Removed("Dup1.md".into()),
+                        WatchEvent::Created("Third.md".into()),
                     ],
                     &tombstones,
                 )
@@ -1934,14 +1857,14 @@ mod tests {
                 let tombstones = new_tombstones();
                 feed(
                     &live,
-                    &[WatchEvent::Removed(PathBuf::from("Daily.md"))],
+                    &[WatchEvent::Removed("Daily.md".into())],
                     &tombstones,
                 )
                 .await;
                 tokio::time::sleep(TOMBSTONE_TTL + Duration::from_millis(250)).await;
                 feed(
                     &live,
-                    &[WatchEvent::Created(PathBuf::from("Journal.md"))],
+                    &[WatchEvent::Created("Journal.md".into())],
                     &tombstones,
                 )
                 .await;
@@ -1975,7 +1898,7 @@ mod tests {
                 let tombstones = new_tombstones();
                 feed(
                     &live,
-                    &[WatchEvent::Created(PathBuf::from("Journal.md"))],
+                    &[WatchEvent::Created("Journal.md".into())],
                     &tombstones,
                 )
                 .await;
@@ -2010,7 +1933,7 @@ mod tests {
                 let tombstones = new_tombstones();
                 feed(
                     &live,
-                    &[WatchEvent::Created(PathBuf::from("Fresh.md"))],
+                    &[WatchEvent::Created("Fresh.md".into())],
                     &tombstones,
                 )
                 .await;
@@ -2029,8 +1952,7 @@ mod tests {
             let dir = tempdir().unwrap();
             std::fs::create_dir(dir.path().join("notes")).unwrap();
             let vault = Vault::open(dir.path()).await.expect("vault open");
-            apply_watch_event_to_db(&vault, &WatchEvent::Created(PathBuf::from("notes")), None)
-                .await;
+            apply_watch_event_to_db(&vault, &WatchEvent::Created("notes".into()), None).await;
             std::fs::rename(dir.path().join("notes"), dir.path().join("archive")).unwrap();
 
             let flush_own_writes: FlushOwnWrites = Arc::new(Mutex::new(HashSet::new()));
@@ -2039,8 +1961,8 @@ mod tests {
             apply_watch_event_to_db(
                 &vault,
                 &WatchEvent::Renamed {
-                    from: PathBuf::from("notes"),
-                    to: PathBuf::from("archive"),
+                    from: "notes".to_string(),
+                    to: "archive".to_string(),
                 },
                 Some(&watch_ctx(&flush_own_writes, &settings, &tombstones)),
             )

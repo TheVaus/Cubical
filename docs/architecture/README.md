@@ -12,4 +12,5 @@ Locked decisions. These are the result of deliberate review. They can be changed
 | Navigation | `navigation.md` | Entry points, tab semantics, history, how each surface dispatches |
 | Layers | `layers.md` | Which layers closed, what each delivered, where its frozen spec is |
 | Constraints from unbuilt layers | `planned.md` | Only what constrains work *today*; the designs themselves are GitHub issues |
+| Distribution | `distribution.md` | Which platforms ship, what each promises, packaging formats |
 | Out of scope | `constraints.md` | Explicit non-features (and why) |

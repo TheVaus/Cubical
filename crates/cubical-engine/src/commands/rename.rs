@@ -1,5 +1,4 @@
 use std::collections::HashSet;
-use std::path::PathBuf;
 
 use cubical_core::vault::pending::apply_pending;
 use cubical_core::vault::search_refresh::{delete_search_index, refresh_search_index};
@@ -898,7 +897,7 @@ pub(crate) async fn flush_pending_for_target(
     if let Some(gate) = flush_own_writes.as_ref() {
         gate.lock()
             .await
-            .insert((PathBuf::from(target_file), new_hash.clone()));
+            .insert((target_file.to_string(), new_hash.clone()));
     }
 
     let abs_for_write = abs.clone();
@@ -911,7 +910,7 @@ pub(crate) async fn flush_pending_for_target(
             if let Some(gate) = flush_own_writes.as_ref() {
                 gate.lock()
                     .await
-                    .remove(&(PathBuf::from(target_file), new_hash.clone()));
+                    .remove(&(target_file.to_string(), new_hash.clone()));
             }
             return Err(CubicalError::Io(e.to_string()));
         }
@@ -919,7 +918,7 @@ pub(crate) async fn flush_pending_for_target(
             if let Some(gate) = flush_own_writes.as_ref() {
                 gate.lock()
                     .await
-                    .remove(&(PathBuf::from(target_file), new_hash.clone()));
+                    .remove(&(target_file.to_string(), new_hash.clone()));
             }
             return Err(CubicalError::Io(format!(
                 "flush write task join error: {e}"
@@ -2742,7 +2741,7 @@ mod tests {
         let expected_hash = sha256_bytes_hex(&written);
         let entries = gate.lock().await;
         assert!(
-            entries.contains(&(PathBuf::from("Project.md"), expected_hash)),
+            entries.contains(&("Project.md".to_string(), expected_hash)),
             "gate must contain the post-write hash entry",
         );
     }

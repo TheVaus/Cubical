@@ -33,7 +33,13 @@ def tracked(*prefixes: str, suffixes: tuple[str, ...] = ()) -> list[Path]:
 
 
 def rel(p: Path) -> str:
-    return str(p.relative_to(ROOT))
+    # as_posix(), not str(): this value is a LOOKUP KEY, matched against paths
+    # written with forward slashes in scripts/*.json and the ownership block in
+    # docs/README.md. str() yields backslashes on Windows, so every lookup misses
+    # — the ds-components gate then reported the same file as both "has a budget
+    # but no raw controls left" and "raw controls in a file with no budget".
+    # Identical to str() on POSIX.
+    return p.relative_to(ROOT).as_posix()
 
 
 class Gate:

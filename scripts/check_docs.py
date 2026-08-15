@@ -61,7 +61,9 @@ fails: list[str] = []
 
 
 def rel(p: Path) -> str:
-    return str(p.relative_to(ROOT))
+    # as_posix(), not str() — see scripts/gates/_common.py:rel. This value is
+    # matched against the forward-slash owner paths in the ownership block.
+    return p.relative_to(ROOT).as_posix()
 
 
 def tracked_md() -> list[Path]:

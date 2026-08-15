@@ -58,7 +58,7 @@ impl TerminalSession {
         })
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub fn process_id(&self) -> Option<u32> {
         self.reaper.process_id()
     }
@@ -101,7 +101,7 @@ impl TerminalSession {
             .map_err(|e| format!("could not resize the terminal: {e}"))
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub fn winsize(&self) -> Result<(u16, u16), String> {
         let master = lock(&self.master);
         master

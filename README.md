@@ -62,7 +62,11 @@ A fuller, always-current status lives in the [Master PRD](prd.md) and
 
 ### On the roadmap
 
-Desktop is the v1 target (macOS / Windows / Linux). Beyond v1.0: a **sandboxed
+Desktop is the v1 target, and macOS, Linux and Windows are all first-class — a
+feature works on all three or it is not shipped. Windows support is still being
+completed; how the three are kept identical is
+[`docs/architecture/distribution.md`](docs/architecture/distribution.md).
+Beyond v1.0: a **sandboxed
 plugin system** (WASI/WASM ABI, with JS/TS as a first-class source language via
 Javy/QuickJS), **local-first sync** (Loro CRDT, P2P, optional end-to-end-encrypted
 relay), a **time machine** for version history, and a **WebGPU graph view**.
@@ -103,6 +107,14 @@ queued is not re-derivable, so that queue is journalled to disk separately.
 ---
 
 ## Getting started
+
+### Installing
+
+**There are no pre-built installers yet.** Building from source, below, is
+currently the only way to run Cubical. Signed and notarized downloads for macOS,
+Windows and Linux are being built in
+[#97](https://github.com/TheVaus/Cubical/issues/97); this section becomes a
+download table when they land.
 
 ### Prerequisites
 

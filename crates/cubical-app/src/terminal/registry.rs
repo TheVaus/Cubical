@@ -74,24 +74,24 @@ impl TerminalRegistry {
         lock(&self.sessions).drain().map(|(_, e)| e).collect()
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub fn len(&self) -> usize {
         lock(&self.sessions).len()
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub fn is_empty(&self) -> bool {
         lock(&self.sessions).is_empty()
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub fn process_id(&self, terminal_id: &str) -> Option<u32> {
         lock(&self.sessions)
             .get(terminal_id)
             .and_then(|e| e.session.process_id())
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub fn winsize(&self, terminal_id: &str) -> Result<(u16, u16), String> {
         let sessions = lock(&self.sessions);
         entry(&sessions, terminal_id)?.session.winsize()

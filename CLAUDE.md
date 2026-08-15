@@ -68,6 +68,7 @@ scripts/session.sh end    # gate, drift, untouched issues
 
 ## Now
 
-Docs rework: principles + gates + archive landed; `superpowers/` is gone.
-An uncommitted parallel worktree holds a single-parse scan fix (issue #60).
+Shipping installable builds is the open thread: tiers are locked in
+[`distribution.md`](docs/architecture/distribution.md), the work is #97, and the
+signing + repo-visibility calls are still open in #96.
 Layer 5 is the open v1.0 cut — [`layers.md`](docs/architecture/layers.md).

@@ -1,5 +1,4 @@
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -14,7 +13,7 @@ pub struct OpenVault {
     pub cancel: CancellationToken,
     pub scan_status: ScanStatusBackend,
     pub watcher: Option<WatcherHandle>,
-    pub flush_own_writes: Arc<Mutex<HashSet<(PathBuf, String)>>>,
+    pub flush_own_writes: Arc<Mutex<HashSet<(String, String)>>>,
     pub flush_in_progress: Arc<Mutex<()>>,
     pub flush_timer_cancel: CancellationToken,
     pub search_state: Arc<std::sync::Mutex<SearchStateInner>>,
