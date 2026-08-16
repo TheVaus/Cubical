@@ -23,7 +23,7 @@ notify-debouncer-full = { workspace = true }
 walkdir = { workspace = true }
 sha2 = { workspace = true }
 libsql = { workspace = true }
-toml = "0.8"
+toml = "1.1"
 
 [dev-dependencies]
 tempfile = "3"
