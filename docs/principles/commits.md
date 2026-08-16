@@ -10,10 +10,12 @@
 
 The judgement that stays with the agent is *when* a change stands on its own: it builds, its owning doc moved with it, and one Conventional Commit subject describes all of it without an "and". If a subject needs an "and", it is two commits.
 
-**A commit is not a claim that the gate is green.** Intermediate commits on a branch are working state, and running `scripts/check.sh` per commit would cost minutes each time and train people to skip it. The green run is owed at the PR — [`tests`](tests.md) owns that bar, and [`sessions.md`](sessions.md) owns the push and PR flow.
+**The session-end sweep does not move that judgement.** [`sessions.md`](sessions.md) requires every session to end committed, pushed and on an open PR, and `scripts/session.sh end` blocks when it does not. That check reads the end state only, so a branch carrying one commit spanning six concerns passes it — and is still wrong here. Read the sweep as a backstop for what was genuinely still in flight when the work stopped, never as the moment commits are supposed to happen. Committing as each change lands is what makes the sweep find nothing to do.
 
-**Standing authority does not extend to rewriting or bypassing.** Never commit on `main`, never `--force`, never rewrite pushed history, never `--no-verify`. Those destroy work rather than record it, so they remain a deliberate act the operator asks for. Nor does it extend to a parallel `implementer` — see [`subagents.md`](subagents.md).
+**A commit is not a claim that the gate is green.** Intermediate commits on a branch are working state, and running `scripts/check.sh` per commit would cost minutes each time and train people to skip it. The green run is owed before the PR leaves draft, not at the moment it is opened — [`tests`](tests.md) owns that bar, and [`sessions.md`](sessions.md) owns the push and PR flow, including why a session may have to open the PR while the gate is still red.
+
+**Standing authority does not extend to rewriting or bypassing.** Never commit on `main` — [`branches.md`](branches.md) owns why the branch is cut first — never `--force`, never rewrite pushed history, never `--no-verify`. Those destroy work rather than record it, so they remain a deliberate act the operator asks for. Nor does it extend to a parallel `implementer` — see [`subagents.md`](subagents.md).
 
 **Exceptions:** Layer transitions also get a tag (`l0`, `l1`, …); structural-fix sessions use a descriptive suffix (`l4a-fix`). A toolchain bump goes in its own commit so the clippy gate re-validates against it alone.
 
-**Detail:** [`sessions.md`](sessions.md) for when a commit needs a doc alongside it, and for pushing and opening the PR.
+**Detail:** [`sessions.md`](sessions.md) for when a commit needs a doc alongside it, and for the push, the PR and what a session owes at its end.

@@ -83,9 +83,14 @@ already_ran_this_session() {
         | head -1)
   [ -z "$sid" ] && sid="no-session-id-$(date +%Y%m%d)"
 
+  # Skip only when the session genuinely changed nothing: no commits ahead of
+  # main AND a clean tree. A dirty tree with no commits is not "nothing to
+  # check" — it is precisely the session-end failure the checks below exist to
+  # catch, so it must fall through.
   base=$(git merge-base HEAD origin/main 2>/dev/null || git merge-base HEAD main 2>/dev/null || echo "")
-  if [ -n "$base" ] && [ "$(git rev-list --count "$base"..HEAD 2>/dev/null || echo 0)" = "0" ]; then
-    echo "session end: nothing committed on this branch yet — skipping the gate."
+  if [ -n "$base" ] && [ "$(git rev-list --count "$base"..HEAD 2>/dev/null || echo 0)" = "0" ] \
+     && [ -z "$(git status --porcelain)" ]; then
+    echo "session end: nothing committed and nothing pending — skipping the gate."
     return 0
   fi
 
@@ -100,12 +105,64 @@ already_ran_this_session() {
   return 1
 }
 
+# A session ends committed, pushed and on an open PR — docs/principles/sessions.md
+# owns that rule. This runs BEFORE the gate and costs about a second: discovering
+# the tree is dirty should not require sitting through a multi-minute cargo run,
+# and a gate run over uncommitted state would not be testing what ships anyway.
+check_branch_commit_pr() {
+  local branch ahead pr
+
+  branch=$(git rev-parse --abbrev-ref HEAD)
+  if [ "$branch" = "main" ]; then
+    block "session ended on main — the branch is cut before the work (docs/principles/branches.md)."
+    return
+  fi
+
+  if [ -n "$(git status --porcelain)" ]; then
+    block "working tree is dirty — a session does not end with uncommitted work:"
+    git status --short | head -10 | sed 's/^/      /'
+  fi
+
+  # Ask whether origin/<branch> exists, not whether an upstream is configured.
+  # `git switch -c foo origin/main` leaves foo tracking origin/main, so an
+  # @{upstream} check passes while the branch itself has never been pushed —
+  # and a bare `git push` would then aim at the protected default branch.
+  if ! git rev-parse --verify --quiet "refs/remotes/origin/$branch" >/dev/null; then
+    block "branch '$branch' is not on origin — git push -u origin $branch"
+  else
+    ahead=$(git rev-list --count "origin/$branch"..HEAD 2>/dev/null || echo 0)
+    [ "$ahead" != "0" ] && block "$ahead commit(s) not pushed to origin/$branch — git push"
+  fi
+
+  if command -v gh >/dev/null 2>&1; then
+    pr=$(gh pr list --head "$branch" --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
+    if [ -n "$pr" ]; then
+      note "PR #$pr is open for '$branch'."
+    else
+      block "no open PR for '$branch' — open one, draft if the gate is not green: gh pr create --draft"
+    fi
+  else
+    warn "gh is not installed — cannot confirm an open PR for '$branch'."
+  fi
+}
+
 cmd_end() {
   if [ "${1:-}" != "--force" ]; then
     already_ran_this_session && return 0
   fi
 
   echo "== session end =="
+
+  echo
+  echo "-- branch, commit, PR --"
+  check_branch_commit_pr
+  if [ "$BLOCKED" -eq 1 ]; then
+    echo
+    echo "== BLOCKED: the session is not landed. Fix the items above, then re-run:"
+    echo "==   scripts/session.sh end --force   (the gate has not run yet) =="
+    return 1
+  fi
+  note "committed, pushed, and on an open PR."
 
   echo
   echo "-- gate --"
