@@ -23,6 +23,25 @@ export function openerAt(line: string): Fence | null {
   return { indent: m[1] ?? "", marker: m[2] ?? "" };
 }
 
+export function isOpenAbove(before: string): boolean {
+  let open: Fence | null = null;
+  for (const line of before.split("\n")) {
+    const m = FENCE.exec(line);
+    if (m === null) continue;
+    const marker = m[2] ?? "";
+    const info = (m[3] ?? "").trim();
+    if (open === null) {
+      open = { indent: m[1] ?? "", marker };
+      continue;
+    }
+    if (marker[0] !== open.marker[0]) continue;
+    if (marker.length < open.marker.length) continue;
+    if (info.length !== 0) continue;
+    open = null;
+  }
+  return open !== null;
+}
+
 export function isClosedBelow(after: string, fence: Fence): boolean {
   for (const line of after.split("\n")) {
     const m = FENCE.exec(line);
@@ -46,6 +65,7 @@ export function completeFence(view: EditorView): boolean {
 
   const fence = openerAt(line.text);
   if (fence === null) return false;
+  if (isOpenAbove(state.sliceDoc(0, line.from))) return false;
   if (isClosedBelow(state.sliceDoc(line.to, state.doc.length), fence)) {
     return false;
   }
