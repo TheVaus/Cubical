@@ -19,18 +19,18 @@
   "default_max_lines": 250,
   "budgets": {
     "ui/src/App.tsx": {
-      "max_lines": 2555,
+      "max_lines": 2429,
       "kind": "debt",
       "issue": 86,
       "note": "Being split into feature-owned components. Was 3274. Ratchet this down as each extraction lands; the target is a composition shell under 250."
     },
     "ui/src/api/ipc.ts": {
-      "max_lines": 1103,
+      "max_lines": 1104,
       "kind": "bespoke",
-      "note": "The whole typed IPC surface. It is one chokepoint on purpose (implementation/frontend.md), and the Setting union is the only registry of setting keys — splitting it would give that registry two homes."
+      "note": "The whole typed IPC surface. It is one chokepoint on purpose (implementation/frontend.md), and the Setting union is the only registry of setting keys — splitting it would give that registry two homes. Raised 1103 -> 1104 for plugins.math_enabled: a new setting key costs exactly one line here and has nowhere else to live."
     },
     "ui/src/Editor.tsx": {
-      "max_lines": 749,
+      "max_lines": 748,
       "kind": "debt",
       "issue": 86,
       "note": "CodeMirror host: extension assembly, the imperative EditorApi, and the anchor-scroll queue."
@@ -86,11 +86,6 @@
       "issue": 86,
       "note": "Mention rows plus the untrack-your-own-writes fetch effect."
     },
-    "ui/src/editor/dataview.ts": {
-      "max_lines": 265,
-      "kind": "bespoke",
-      "note": "The dataview runner: query dispatch, result cache and invalidation as one unit."
-    },
     "ui/src/core/commands.ts": {
       "max_lines": 260,
       "kind": "bespoke",
@@ -99,7 +94,7 @@
   },
   "shell": {
     "file": "ui/src/App.tsx",
-    "max_reactive_declarations": 38,
+    "max_reactive_declarations": 33,
     "forbidden_imports": ["./api/ipc"],
     "waived_imports": {
       "./api/ipc": {

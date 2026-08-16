@@ -35,6 +35,8 @@ These commitments produce hard rules that downstream decisions must respect:
 
 **Text measurement and virtualization:** Pretext (Cheng Lou). Used as the measurement layer beneath the editor's virtualized scroller and beneath any large-list UI (file explorer, search results). Pretext is *not* the editor — it does not handle input. Its role is height calculation and line layout for non-DOM-bound layout decisions.
 
+**Math typesetting:** KaTeX. Chosen over MathJax because it renders synchronously — a block renderer returns a DOM node, so an async typesetter would force a two-phase widget — and because it ships as a self-contained bundle with its own fonts, which keeps the no-network rule intact: nothing is fetched at render time. It is a display-time concern only; `$$…$$` and ```math` blocks stay literal text in the `.md` file.
+
 **Canonical AST:** A Markdown AST defined in the `cubical-ast` Rust crate. Lezer trees produced in the editor are normalized into canonical AST on the Rust side. Every system outside the editor — indexer, link resolver, backlink computer, exporter, plugin host — consumes canonical AST. This guarantees one document interpretation across the whole system, eliminating the class of bug where different parsers see different documents.
 
 **Metadata and index storage:** libSQL (a SQLite fork). Single file at `<vault>/.cubical/index.db`. Holds file metadata, link index, block-reference index, CRDT operation logs, Time Machine snapshots, and (later) vector embeddings. The libSQL choice over plain SQLite is for the embedded server / network mode option later, and for native vector support; for the core flow, libSQL is used as a standard embedded database.

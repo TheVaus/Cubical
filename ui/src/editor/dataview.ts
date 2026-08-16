@@ -1,18 +1,5 @@
-import {
-  Decoration,
-  EditorView,
-  WidgetType,
-  type DecorationSet,
-} from "@codemirror/view";
-import {
-  Facet,
-  StateEffect,
-  StateField,
-  type EditorState,
-  type Extension,
-  type Range,
-} from "@codemirror/state";
-import { syntaxTree } from "@codemirror/language";
+import { EditorView } from "@codemirror/view";
+import { Facet, StateEffect, type EditorState } from "@codemirror/state";
 
 import {
   dataviewQuery as defaultDataviewQuery,
@@ -20,8 +7,7 @@ import {
   type DataviewResult,
 } from "../api/ipc";
 import { renderDataview } from "../dataview/dataviewRender";
-
-const QUERY_INFO = "query";
+import type { BlockRenderer } from "./blockRenderers";
 
 export interface DataviewRunner {
   get(source: string): DataviewResult | undefined;
@@ -109,118 +95,42 @@ export const dataviewRunnerFacet = Facet.define<
 
 export const dataviewRunnerUpdated = StateEffect.define<null>();
 
-class DataviewWidget extends WidgetType {
-  constructor(
-    private readonly runner: DataviewRunner,
-    private readonly source: string,
-    private readonly version: number,
-  ) {
-    super();
-  }
+const runnerIds = new WeakMap<DataviewRunner, number>();
+let nextRunnerId = 0;
 
-  override toDOM(): HTMLElement {
-    const frame = document.createElement("div");
-    frame.className = "cm-dataview-frame";
-    const result = this.runner.get(this.source);
+function runnerIdentity(runner: DataviewRunner): number {
+  let id = runnerIds.get(runner);
+  if (id === undefined) {
+    id = nextRunnerId++;
+    runnerIds.set(runner, id);
+  }
+  return id;
+}
+
+export const dataviewBlockRenderer: BlockRenderer = {
+  id: "dataview",
+  languages: ["query"],
+  frameClass: "cm-dataview-frame",
+  active: (state) => state.facet(dataviewRunnerFacet) !== null,
+  revision: (state: EditorState) => {
+    const runner = state.facet(dataviewRunnerFacet);
+    return runner ? `${runnerIdentity(runner)}:${runner.version()}` : null;
+  },
+  render: (source, ctx) => {
+    const runner = ctx.state.facet(dataviewRunnerFacet);
+    const query = source.trim();
+    if (!runner) return document.createDocumentFragment();
+    const result = runner.get(query);
     if (result === undefined) {
-      this.runner.fetch(this.source);
+      runner.fetch(query);
       const loading = document.createElement("div");
       loading.className = "cm-dataview-loading";
       loading.textContent = "Loading…";
-      frame.appendChild(loading);
-      return frame;
+      return loading;
     }
-    frame.appendChild(renderDataview(result));
-    return frame;
-  }
-
-  override eq(other: DataviewWidget): boolean {
-    return this.source === other.source && this.version === other.version;
-  }
-
-  override get estimatedHeight(): number {
-    return 60;
-  }
-
-  override ignoreEvent(): boolean {
-    return false;
-  }
-}
-
-function buildDecorations(state: EditorState): DecorationSet {
-  const runner = state.facet(dataviewRunnerFacet);
-  if (!runner) return Decoration.none;
-  const tree = syntaxTree(state);
-  const doc = state.doc;
-  const head = state.selection.main.head;
-  const activeLineNumber = doc.lineAt(head).number;
-  const ranges: Range<Decoration>[] = [];
-
-  tree.iterate({
-    enter: (node) => {
-      if (node.name !== "FencedCode") return;
-      const info = node.node.getChild("CodeInfo");
-      if (!info) return;
-      const infoText = doc.sliceString(info.from, info.to).trim().toLowerCase();
-      if (infoText !== QUERY_INFO) return;
-
-      const fromLine = doc.lineAt(node.from);
-      const toLine = doc.lineAt(Math.max(node.from, node.to - 1));
-      if (
-        activeLineNumber >= fromLine.number &&
-        activeLineNumber <= toLine.number
-      ) {
-        return;
-      }
-
-      const body = node.node.getChild("CodeText");
-      const source = body
-        ? doc.sliceString(body.from, body.to).trim()
-        : "";
-
-      const widget = new DataviewWidget(runner, source, runner.version());
-      ranges.push(
-        Decoration.replace({ widget, block: true }).range(
-          fromLine.from,
-          toLine.to,
-        ),
-      );
-    },
-  });
-
-  ranges.sort((a, b) => a.from - b.from);
-  return Decoration.set(ranges, true);
-}
-
-export const dataviewBlockField = StateField.define<DecorationSet>({
-  create: (state) => buildDecorations(state),
-  update: (deco, tr) => {
-    const runnerChanged = tr.effects.some((e) => e.is(dataviewRunnerUpdated));
-    const treeChanged = syntaxTree(tr.startState) !== syntaxTree(tr.state);
-    const facetChanged =
-      tr.startState.facet(dataviewRunnerFacet) !==
-      tr.state.facet(dataviewRunnerFacet);
-    const activeLineChanged =
-      tr.startState.doc.lineAt(tr.startState.selection.main.head).number !==
-      tr.state.doc.lineAt(tr.state.selection.main.head).number;
-    if (
-      !tr.docChanged &&
-      !treeChanged &&
-      !runnerChanged &&
-      !facetChanged &&
-      !activeLineChanged
-    ) {
-      return deco;
-    }
-    return buildDecorations(tr.state);
+    return renderDataview(result);
   },
-  provide: (f) => [
-    EditorView.decorations.from(f),
-    EditorView.atomicRanges.of(
-      (view) => view.state.field(f, false) ?? Decoration.none,
-    ),
-  ],
-});
+};
 
 export const dataviewBaseTheme = EditorView.baseTheme({
   ".cm-dataview-frame": {
@@ -259,7 +169,3 @@ export const dataviewBaseTheme = EditorView.baseTheme({
   },
 });
 
-export const dataviewExtension: Extension = [
-  dataviewBlockField,
-  dataviewBaseTheme,
-];

@@ -40,10 +40,7 @@ import { createSettingsState } from "./settings/settingsState";
 import type { CanonicalDocument, Frontmatter } from "./ast/types";
 import {
   createBlockRef,
-  createFile,
   createFileAtPath,
-  createFolder,
-  deleteFile,
   getBrokenBlockRefs,
   listFiles,
   listRecentVaults,
@@ -71,16 +68,8 @@ import {
 } from "./api/ipc";
 import { createVaultSession } from "./core/vaultSession";
 import { resolveGlobal, type Command } from "./core/commands";
-import {
-  emptyNav,
-  navPush,
-  navBack,
-  navForward,
-  navCurrent,
-  canBack,
-  canForward,
-  type NavState,
-} from "./navHistory";
+import { createNavSession } from "./core/navSession";
+import { createDebounced } from "./core/debounce";
 import TabStrip from "./tabs/TabStrip";
 import {
   FileViewer,
@@ -105,10 +94,7 @@ import {
   type TabView,
 } from "./tabs/tabModel";
 import { activateWithFlush, type ActivationDeps } from "./tabs/activation";
-import {
-  liveFileIds,
-  touch,
-} from "./tabs/lru";
+import { liveFileIds, touch } from "./tabs/lru";
 import { errorMessage } from "./errorMessage";
 import {
   createWikiLinkResolver,
@@ -137,6 +123,7 @@ import {
   splitFileName,
   type FlatRow,
 } from "./explorer/fileTree";
+import { createFileActions } from "./explorer/fileActions";
 import { buildBlockRefLink } from "./editor/blockRef";
 import { formatBrokenBlockRefs } from "./statusbar/brokenRefs";
 import { formatPendingRewrites } from "./statusbar/pendingRewritesLabel";
@@ -148,11 +135,10 @@ import {
   BLOCK_COUNT_SEGMENT,
 } from "./statusbar/segments";
 import { leadingSeparators } from "./statusbar/separators";
-import { ToastHost, showToast } from "./Toast";
+import { ToastHost } from "./ToastHost";
+import { showToast } from "./toastState";
 import { reprefixNestedPath, validateRenameTarget } from "./fileRename";
-import {
-  watchSystemTheme,
-} from "./styles/theme";
+import { watchSystemTheme } from "./styles/theme";
 import Backlinks from "./sidebar/Backlinks";
 import UnlinkedMentions from "./sidebar/UnlinkedMentions";
 import SearchPanel from "./sidebar/SearchPanel";
@@ -161,18 +147,13 @@ import TagPage from "./TagPage";
 import OmniBar from "./omnibar/OmniBar";
 import { type OmniItem, type RankedItem } from "./omnibar/ranker";
 import { OMNI_COMMANDS } from "./omnibar/commands";
-import {
-  CORE_PLUGINS,
-  corePluginEnabled,
-} from "./settings/corePlugins";
+import { corePluginOn } from "./settings/corePlugins";
 import { VaultSwitcher } from "./VaultSwitcher";
 
 const AUTOSAVE_DEBOUNCE_MS = 300;
 
 const FILE_ROW_HEIGHT = 32;
 const FILE_LIST_OVERSCAN = 8;
-
-
 
 const App: Component = () => {
   const {
@@ -265,8 +246,6 @@ const App: Component = () => {
     treeRows().slice(fileWindow().startIndex, fileWindow().endIndex),
   );
 
-
-
   const [conflictExternalHash, setConflictExternalHash] = createSignal<
     string | null
   >(null);
@@ -303,25 +282,21 @@ const App: Component = () => {
 
   const [leftCollapsed, setLeftCollapsed] = createSignal(false);
   const toggleLeftSidebar = () => setLeftCollapsed((v) => !v);
-  const [navState, setNavState] = createSignal<NavState>(emptyNav);
-  const navCanBack = createMemo(() => canBack(navState()));
-  const navCanForward = createMemo(() => canForward(navState()));
+  const nav = createNavSession();
   const [settingsOpen, setSettingsOpen] = createSignal(false);
   const [vaultSwitcherOpen, setVaultSwitcherOpen] = createSignal(false);
   const [rightSidebarRefreshTick, setRightSidebarRefreshTick] = createSignal(0);
-  let rightSidebarRefreshTimer: ReturnType<typeof setTimeout> | undefined;
   const RIGHT_SIDEBAR_REFRESH_DEBOUNCE_MS = 200;
+  const rightSidebarRefresh = createDebounced(
+    () => setRightSidebarRefreshTick((n) => n + 1),
+    RIGHT_SIDEBAR_REFRESH_DEBOUNCE_MS,
+  );
 
   const [searchRefreshTick, setSearchRefreshTick] = createSignal(0);
-  let searchRefreshTimer: ReturnType<typeof setTimeout> | undefined;
-  const SEARCH_REFRESH_DEBOUNCE_MS = 250;
-  const scheduleSearchRefresh = () => {
-    if (searchRefreshTimer !== undefined) clearTimeout(searchRefreshTimer);
-    searchRefreshTimer = setTimeout(() => {
-      searchRefreshTimer = undefined;
-      setSearchRefreshTick((n) => n + 1);
-    }, SEARCH_REFRESH_DEBOUNCE_MS);
-  };
+  const searchRefresh = createDebounced(
+    () => setSearchRefreshTick((n) => n + 1),
+    250,
+  );
 
   const [omniOpen, setOmniOpen] = createSignal(false);
   const [vaultTags, setVaultTags] = createSignal<string[]>([]);
@@ -380,26 +355,20 @@ const App: Component = () => {
       })),
   );
 
-
   const [brokenBlockRefs, setBrokenBlockRefs] = createSignal<BrokenBlockRef[]>(
     [],
   );
-  let brokenBlockRefsTimer: ReturnType<typeof setTimeout> | undefined;
 
   const [pendingRewritesCount, setPendingRewritesCount] = createSignal(0);
-  const [contextMenu, setContextMenu] = createSignal<{
-    kind: "file" | "folder" | "empty";
-    path: string;
-    x: number;
-    y: number;
-  } | null>(null);
-  const [deleteTarget, setDeleteTarget] = createSignal<{
-    path: string;
-    kind: "file" | "folder";
-    fileCount: number;
-  } | null>(null);
-  const [deleteInFlight, setDeleteInFlight] = createSignal(false);
-  const [renamingPath, setRenamingPath] = createSignal<string | null>(null);
+  const fileActions = createFileActions({
+    vaultId,
+    refreshFileList: () => refreshFileList(),
+    openCreatedFile: (path, contentHash) =>
+      handleNavigateWikilink(path, null, contentHash),
+    reportError: setError,
+    countFilesUnderFolder: (path) =>
+      countFilesUnderFolder(buildFileTree(files(), folders()), path),
+  });
 
   let seenHash: string | null = null;
   let lastWrittenHash: string | null = null;
@@ -527,7 +496,10 @@ const App: Component = () => {
     });
   });
 
-  let autosaveTimer: ReturnType<typeof setTimeout> | undefined;
+  const autosave = createDebounced(
+    () => void flushAutosave(),
+    AUTOSAVE_DEBOUNCE_MS,
+  );
   let pendingWrite: Promise<void> | null = null;
 
   let unlistenProgress: UnlistenFn | undefined;
@@ -600,7 +572,7 @@ const App: Component = () => {
       if (api.getContent() === content) {
         dirty = false;
       }
-      scheduleSearchRefresh();
+      searchRefresh.schedule();
     } catch (e) {
       const message = errorMessage(e);
       setError(message);
@@ -608,10 +580,7 @@ const App: Component = () => {
   };
 
   const flushAutosave = async (): Promise<void> => {
-    if (autosaveTimer !== undefined) {
-      clearTimeout(autosaveTimer);
-      autosaveTimer = undefined;
-    }
+    autosave.cancel();
     if (!dirty && pendingWrite === null) return;
     const prior = pendingWrite ?? Promise.resolve();
     const next = prior.then(performWrite);
@@ -644,24 +613,8 @@ const App: Component = () => {
   };
 
   const scheduleAutosave = () => {
-    if (conflictExternalHash() !== null) {
-      return;
-    }
-    if (autosaveTimer !== undefined) clearTimeout(autosaveTimer);
-    autosaveTimer = setTimeout(() => {
-      autosaveTimer = undefined;
-      void flushAutosave();
-    }, AUTOSAVE_DEBOUNCE_MS);
-  };
-
-  const scheduleRightSidebarRefresh = () => {
-    if (rightSidebarRefreshTimer !== undefined) {
-      clearTimeout(rightSidebarRefreshTimer);
-    }
-    rightSidebarRefreshTimer = setTimeout(() => {
-      rightSidebarRefreshTimer = undefined;
-      setRightSidebarRefreshTick((n) => n + 1);
-    }, RIGHT_SIDEBAR_REFRESH_DEBOUNCE_MS);
+    if (conflictExternalHash() !== null) return;
+    autosave.schedule();
   };
 
   const refreshBrokenBlockRefs = async (): Promise<void> => {
@@ -675,15 +628,10 @@ const App: Component = () => {
     }
   };
 
-  const scheduleBrokenBlockRefsRefresh = () => {
-    if (brokenBlockRefsTimer !== undefined) {
-      clearTimeout(brokenBlockRefsTimer);
-    }
-    brokenBlockRefsTimer = setTimeout(() => {
-      brokenBlockRefsTimer = undefined;
-      void refreshBrokenBlockRefs();
-    }, RIGHT_SIDEBAR_REFRESH_DEBOUNCE_MS);
-  };
+  const brokenBlockRefsRefresh = createDebounced(
+    () => void refreshBrokenBlockRefs(),
+    RIGHT_SIDEBAR_REFRESH_DEBOUNCE_MS,
+  );
 
   const handleRenameCommit = async (
     fromPath: string,
@@ -692,7 +640,7 @@ const App: Component = () => {
   ): Promise<void> => {
     const id = vaultId();
     if (!id) {
-      setRenamingPath(null);
+      fileActions.startRename(null);
       return;
     }
     const validation = validateRenameTarget(fromPath, rawTarget, isFolder);
@@ -700,11 +648,11 @@ const App: Component = () => {
       if (validation.code !== "same") {
         showToast(validation.message);
       }
-      setRenamingPath(null);
+      fileActions.startRename(null);
       return;
     }
     const target = rawTarget.trim();
-    setRenamingPath(null);
+    fileActions.startRename(null);
     try {
       if (isFolder) {
         await renameFolder({
@@ -767,7 +715,7 @@ const App: Component = () => {
       propertyResolver()?.invalidate();
       dataviewRunner()?.invalidate();
       void refreshFileList();
-      scheduleRightSidebarRefresh();
+      rightSidebarRefresh.schedule();
     } catch (e) {
       const message = errorMessage(e);
       showToast(message);
@@ -840,7 +788,6 @@ const App: Component = () => {
     if (id === "statusbar.toggle") settings.toggleStatusbar();
   };
 
-
   const loadActiveTabContent = async () => {
     const id = vaultId();
     const path = selectedPath();
@@ -882,7 +829,7 @@ const App: Component = () => {
     const t = activeTab(tabs());
     if (t === null || t.view.kind !== "file") return;
     const path = t.view.path;
-    setNavState((s) => navPush(s, path));
+    nav.push(path);
   };
 
   const closeTabById = async (id: string) => {
@@ -924,7 +871,7 @@ const App: Component = () => {
 
     resetDocState();
     setTabs((s) => openTab(s, { kind: "file", path: file.path }));
-    if (!opts?.fromHistory) setNavState((s) => navPush(s, file.path));
+    if (!opts?.fromHistory) nav.push(file.path);
     if (!isMarkdown && !isEditableText(file.path)) return;
     seenHash = knownHash ?? null;
     lastWrittenHash = knownHash ?? null;
@@ -942,17 +889,11 @@ const App: Component = () => {
     void handleSelectFile(file, undefined, { fromHistory: true });
   };
   const goBack = () => {
-    const next = navBack(navState());
-    if (next.index === navState().index) return;
-    setNavState(next);
-    const path = navCurrent(next);
+    const path = nav.back();
     if (path) navigateToHistoryPath(path);
   };
   const goForward = () => {
-    const next = navForward(navState());
-    if (next.index === navState().index) return;
-    setNavState(next);
-    const path = navCurrent(next);
+    const path = nav.forward();
     if (path) navigateToHistoryPath(path);
   };
 
@@ -1025,7 +966,7 @@ const App: Component = () => {
   const handleExitTagView = async () => {
     const id = tabs().activeId;
     if (id === null) return;
-    const back = navCurrent(navState());
+    const back = nav.current();
     const target = back === null ? null : tabId({ kind: "file", path: back });
     const canRestore =
       target !== null &&
@@ -1058,60 +999,6 @@ const App: Component = () => {
     }
   };
 
-  const handleNewFile = async () => {
-    const id = vaultId();
-    if (!id) return;
-    try {
-      const resp = await createFile({ vault_id: id, parent_dir: "" });
-      await refreshFileList();
-      await handleNavigateWikilink(resp.path, null, resp.content_hash);
-    } catch (e) {
-      setError(errorMessage(e));
-    }
-  };
-
-  const handleNewFolder = async () => {
-    const id = vaultId();
-    if (!id) return;
-    try {
-      await createFolder({ vault_id: id, parent_dir: "" });
-      await refreshFileList();
-    } catch (e) {
-      setError(errorMessage(e));
-    }
-  };
-
-  const handleContextMenuNewFile = async (parentDir: string) => {
-    const id = vaultId();
-    if (!id) return;
-    try {
-      const resp = await createFile({ vault_id: id, parent_dir: parentDir });
-      await refreshFileList();
-      setRenamingPath(resp.path);
-    } catch (e) {
-      showToast(errorMessage(e));
-    }
-  };
-
-  const handleContextMenuNewFolder = async (parentDir: string) => {
-    const id = vaultId();
-    if (!id) return;
-    try {
-      await createFolder({ vault_id: id, parent_dir: parentDir });
-      await refreshFileList();
-    } catch (e) {
-      showToast(errorMessage(e));
-    }
-  };
-
-  const handleRequestDelete = (path: string, kind: "file" | "folder") => {
-    const fileCount =
-      kind === "folder"
-        ? countFilesUnderFolder(buildFileTree(files(), folders()), path)
-        : 0;
-    setDeleteTarget({ path, kind, fileCount });
-  };
-
   const buildContextMenuItems = (menu: {
     kind: "file" | "folder" | "empty";
     path: string;
@@ -1122,16 +1009,16 @@ const App: Component = () => {
         id: "new-file",
         label: "New File",
         onSelect: () => {
-          setContextMenu(null);
-          void handleContextMenuNewFile(menu.path);
+          fileActions.closeContextMenu();
+          void fileActions.newFileInTree(menu.path);
         },
       });
       items.push({
         id: "new-folder",
         label: "New Folder",
         onSelect: () => {
-          setContextMenu(null);
-          void handleContextMenuNewFolder(menu.path);
+          fileActions.closeContextMenu();
+          void fileActions.newFolderInTree(menu.path);
         },
       });
     }
@@ -1140,8 +1027,8 @@ const App: Component = () => {
         id: "rename",
         label: "Rename…",
         onSelect: () => {
-          setContextMenu(null);
-          setRenamingPath(menu.path);
+          fileActions.closeContextMenu();
+          fileActions.startRename(menu.path);
         },
       });
       items.push({
@@ -1150,27 +1037,12 @@ const App: Component = () => {
         danger: true,
         onSelect: () => {
           const kind = menu.kind === "folder" ? "folder" : "file";
-          setContextMenu(null);
-          handleRequestDelete(menu.path, kind);
+          fileActions.closeContextMenu();
+          fileActions.requestDelete(menu.path, kind);
         },
       });
     }
     return items;
-  };
-
-  const handleConfirmDelete = async () => {
-    const id = vaultId();
-    const target = deleteTarget();
-    if (!id || !target) return;
-    setDeleteInFlight(true);
-    try {
-      await deleteFile({ vault_id: id, path: target.path });
-      setDeleteTarget(null);
-    } catch (e) {
-      showToast(errorMessage(e));
-    } finally {
-      setDeleteInFlight(false);
-    }
   };
 
   onMount(async () => {
@@ -1209,11 +1081,11 @@ const App: Component = () => {
         dataviewRunner()?.invalidate();
       }
 
-      scheduleRightSidebarRefresh();
+      rightSidebarRefresh.schedule();
 
-      scheduleSearchRefresh();
+      searchRefresh.schedule();
 
-      scheduleBrokenBlockRefsRefresh();
+      brokenBlockRefsRefresh.schedule();
 
       if (view().kind === "tag") {
         setTagRefreshTick((n) => n + 1);
@@ -1227,10 +1099,7 @@ const App: Component = () => {
 
       if (dirty || conflictExternalHash() !== null) {
         setConflictExternalHash(incoming);
-        if (autosaveTimer !== undefined) {
-          clearTimeout(autosaveTimer);
-          autosaveTimer = undefined;
-        }
+        autosave.cancel();
       } else {
         const id = vaultId();
         const path = selectedPath();
@@ -1268,10 +1137,7 @@ const App: Component = () => {
     });
 
     const onBeforeUnload = () => {
-      if (autosaveTimer !== undefined) {
-        clearTimeout(autosaveTimer);
-        autosaveTimer = undefined;
-      }
+      autosave.cancel();
       if (dirty) void performWrite();
     };
     window.addEventListener("beforeunload", onBeforeUnload);
@@ -1297,18 +1163,18 @@ const App: Component = () => {
         id: "file.new",
         title: "New note",
         when: () => vaultId() !== null,
-        run: () => void handleNewFile(),
+        run: () => void fileActions.newFile(""),
       },
       "nav.back": {
         id: "nav.back",
         title: "Navigate back",
-        when: () => navCanBack(),
+        when: () => nav.canBack(),
         run: () => goBack(),
       },
       "nav.forward": {
         id: "nav.forward",
         title: "Navigate forward",
-        when: () => navCanForward(),
+        when: () => nav.canForward(),
         run: () => goForward(),
       },
       "view.nextTab": {
@@ -1370,12 +1236,11 @@ const App: Component = () => {
     unlistenPendingChanged?.();
     unlistenFlushComplete?.();
     unlistenSettingChanged?.();
-    if (autosaveTimer !== undefined) clearTimeout(autosaveTimer);
-    if (rightSidebarRefreshTimer !== undefined)
-      clearTimeout(rightSidebarRefreshTimer);
-    if (searchRefreshTimer !== undefined) clearTimeout(searchRefreshTimer);
+    autosave.cancel();
+    rightSidebarRefresh.cancel();
+    searchRefresh.cancel();
+    brokenBlockRefsRefresh.cancel();
   });
-
 
   const openVaultByPath = async (path: string) => {
     setError(null);
@@ -1395,6 +1260,7 @@ const App: Component = () => {
         }),
       );
       setMru([]);
+      nav.reset();
       setDocSummaries(
         produce((s: Record<string, DocSummary>) => {
           for (const k of Object.keys(s)) delete s[k];
@@ -1405,9 +1271,7 @@ const App: Component = () => {
       setRightSidebarRefreshTick(0);
       setBrokenBlockRefs([]);
       setPendingRewritesCount(0);
-      setContextMenu(null);
-      setDeleteTarget(null);
-      setRenamingPath(null);
+      fileActions.reset();
       setTagRefreshTick(0);
       settings.resetForVaultSwitch();
       setWikilinkResolver(null);
@@ -1467,14 +1331,14 @@ const App: Component = () => {
           <IconButton
             label="Navigate back"
             onClick={goBack}
-            disabled={!navCanBack()}
+            disabled={!nav.canBack()}
           >
             ‹
           </IconButton>
           <IconButton
             label="Navigate forward"
             onClick={goForward}
-            disabled={!navCanForward()}
+            disabled={!nav.canForward()}
           >
             ›
           </IconButton>
@@ -1599,7 +1463,7 @@ const App: Component = () => {
                       label="New file"
                       size="sm"
                       disabled={!vaultId()}
-                      onClick={() => void handleNewFile()}
+                      onClick={() => void fileActions.newFile("")}
                       style={{ "font-size": "var(--text-sm)" }}
                     >
                       <Icon name="plus" />
@@ -1608,7 +1472,7 @@ const App: Component = () => {
                       label="New folder"
                       size="sm"
                       disabled={!vaultId()}
-                      onClick={() => void handleNewFolder()}
+                      onClick={() => void fileActions.newFolder("")}
                       style={{ "font-size": "var(--text-sm)" }}
                     >
                       <Icon name="folder-plus" />
@@ -1625,7 +1489,7 @@ const App: Component = () => {
                   }}
                   onContextMenu={(e) => {
                     e.preventDefault();
-                    setContextMenu({
+                    fileActions.openContextMenu({
                       kind: "empty",
                       path: "",
                       x: e.clientX,
@@ -1670,7 +1534,7 @@ const App: Component = () => {
                             const folderPad = `calc(var(--space-2) + ${row.depth} * var(--space-4))`;
                             if (row.kind === "folder") {
                               const isRenamingFolder = () =>
-                                renamingPath() === row.path;
+                                fileActions.renamingPath() === row.path;
                               return (
                                 <div
                                   class="tree-row tree-row--folder"
@@ -1687,7 +1551,7 @@ const App: Component = () => {
                                   onContextMenu={(e) => {
                                     e.preventDefault();
                                     e.stopPropagation();
-                                    setContextMenu({
+                                    fileActions.openContextMenu({
                                       kind: "folder",
                                       path: row.path,
                                       x: e.clientX,
@@ -1732,7 +1596,7 @@ const App: Component = () => {
                                           );
                                         } else if (e.key === "Escape") {
                                           e.preventDefault();
-                                          setRenamingPath(null);
+                                          fileActions.startRename(null);
                                         }
                                       }}
                                       onBlur={(e) =>
@@ -1756,7 +1620,7 @@ const App: Component = () => {
                             const isSelected = () =>
                               selectedPath() === row.path;
                             const isRenaming = () =>
-                              renamingPath() === row.path;
+                              fileActions.renamingPath() === row.path;
                             const parts = () => splitFileName(row.name);
                             return (
                               <div
@@ -1782,7 +1646,7 @@ const App: Component = () => {
                                   if (!isMarkdown) return;
                                   e.preventDefault();
                                   e.stopPropagation();
-                                  setContextMenu({
+                                  fileActions.openContextMenu({
                                     kind: "file",
                                     path: row.path,
                                     x: e.clientX,
@@ -1861,7 +1725,7 @@ const App: Component = () => {
                                         );
                                       } else if (e.key === "Escape") {
                                         e.preventDefault();
-                                        setRenamingPath(null);
+                                        fileActions.startRename(null);
                                       }
                                     }}
                                     onBlur={(e) =>
@@ -2096,18 +1960,18 @@ const App: Component = () => {
                                   wikilinkResolver={wikilinkResolver()}
                                   embedResolver={embedResolver()}
                                   propertyResolver={propertyResolver()}
-                                  propertyRefsEnabled={corePluginEnabled(
+                                  propertyRefsEnabled={corePluginOn(
                                     settings.corePlugins(),
-                                    CORE_PLUGINS.find(
-                                      (p) => p.id === "property-refs",
-                                    )!,
+                                    "property-refs",
+                                  )}
+                                  mathEnabled={corePluginOn(
+                                    settings.corePlugins(),
+                                    "math",
                                   )}
                                   dataviewRunner={
-                                    corePluginEnabled(
+                                    corePluginOn(
                                       settings.corePlugins(),
-                                      CORE_PLUGINS.find(
-                                        (p) => p.id === "dataview",
-                                      )!,
+                                      "dataview",
                                     )
                                       ? dataviewRunner()
                                       : null
@@ -2187,16 +2051,21 @@ const App: Component = () => {
                   aria-selected={settings.rightSidebarPanel() === "backlinks"}
                   class="rs-tab"
                   classList={{
-                    "rs-tab--active": settings.rightSidebarPanel() === "backlinks",
+                    "rs-tab--active":
+                      settings.rightSidebarPanel() === "backlinks",
                   }}
-                  onClick={() => settings.setRightSidebarPanelValue("backlinks")}
+                  onClick={() =>
+                    settings.setRightSidebarPanelValue("backlinks")
+                  }
                 >
                   Backlinks
                 </button>
                 <button
                   type="button"
                   role="tab"
-                  aria-selected={settings.rightSidebarPanel() === "unlinked_mentions"}
+                  aria-selected={
+                    settings.rightSidebarPanel() === "unlinked_mentions"
+                  }
                   class="rs-tab"
                   classList={{
                     "rs-tab--active":
@@ -2214,9 +2083,12 @@ const App: Component = () => {
                   aria-selected={settings.rightSidebarPanel() === "integrity"}
                   class="rs-tab"
                   classList={{
-                    "rs-tab--active": settings.rightSidebarPanel() === "integrity",
+                    "rs-tab--active":
+                      settings.rightSidebarPanel() === "integrity",
                   }}
-                  onClick={() => settings.setRightSidebarPanelValue("integrity")}
+                  onClick={() =>
+                    settings.setRightSidebarPanelValue("integrity")
+                  }
                 >
                   Integrity
                 </button>
@@ -2233,7 +2105,9 @@ const App: Component = () => {
                       }
                     />
                   </Match>
-                  <Match when={settings.rightSidebarPanel() === "unlinked_mentions"}>
+                  <Match
+                    when={settings.rightSidebarPanel() === "unlinked_mentions"}
+                  >
                     <UnlinkedMentions
                       vaultId={vaultId()}
                       path={selectedPath()}
@@ -2250,7 +2124,7 @@ const App: Component = () => {
                       onRowClick={(path) =>
                         void handleNavigateWikilink(path, null)
                       }
-                      onRepaired={() => scheduleRightSidebarRefresh()}
+                      onRepaired={() => rightSidebarRefresh.schedule()}
                     />
                   </Match>
                 </Switch>
@@ -2447,14 +2321,14 @@ const App: Component = () => {
         </footer>
       </Show>
 
-      <Show when={contextMenu()}>
+      <Show when={fileActions.contextMenu()}>
         {(menu) => (
           <>
             <div
-              onClick={() => setContextMenu(null)}
+              onClick={() => fileActions.closeContextMenu()}
               onContextMenu={(e) => {
                 e.preventDefault();
-                setContextMenu(null);
+                fileActions.closeContextMenu();
               }}
               style={{
                 position: "fixed",
@@ -2477,7 +2351,7 @@ const App: Component = () => {
         )}
       </Show>
 
-      <Show when={deleteTarget()}>
+      <Show when={fileActions.deleteTarget()}>
         {(target) => (
           <Modal
             open={true}
@@ -2485,7 +2359,7 @@ const App: Component = () => {
             placement="center"
             ariaLabel="Confirm delete"
             onClose={() => {
-              if (!deleteInFlight()) setDeleteTarget(null);
+              if (!fileActions.deleteInFlight()) fileActions.cancelDelete();
             }}
           >
             <div
@@ -2518,17 +2392,17 @@ const App: Component = () => {
               >
                 <Button
                   variant="secondary"
-                  disabled={deleteInFlight()}
-                  onClick={() => setDeleteTarget(null)}
+                  disabled={fileActions.deleteInFlight()}
+                  onClick={() => fileActions.cancelDelete()}
                 >
                   Cancel
                 </Button>
                 <Button
                   variant="danger"
-                  disabled={deleteInFlight()}
-                  onClick={() => void handleConfirmDelete()}
+                  disabled={fileActions.deleteInFlight()}
+                  onClick={() => void fileActions.confirmDelete()}
                 >
-                  {deleteInFlight() ? "Deleting…" : "Delete"}
+                  {fileActions.deleteInFlight() ? "Deleting…" : "Delete"}
                 </Button>
               </div>
             </div>

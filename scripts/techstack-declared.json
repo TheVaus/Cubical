@@ -64,6 +64,7 @@
     "@xterm/addon-fit",
     "@xterm/xterm",
     "codemirror",
+    "katex",
     "solid-js",
     "yaml"
   ]

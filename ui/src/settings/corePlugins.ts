@@ -27,6 +27,14 @@ export const CORE_PLUGINS: CorePlugin[] = [
     settingKey: "plugins.property_refs_enabled",
     defaultEnabled: true,
   },
+  {
+    id: "math",
+    name: "Math",
+    description:
+      "Typeset ```math blocks and $$…$$ display math with KaTeX.",
+    settingKey: "plugins.math_enabled",
+    defaultEnabled: true,
+  },
   TERMINAL_PLUGIN,
 ];
 
@@ -35,4 +43,12 @@ export function corePluginEnabled(
   plugin: CorePlugin,
 ): boolean {
   return state[plugin.id] ?? plugin.defaultEnabled;
+}
+
+export function corePluginOn(
+  state: Record<string, boolean>,
+  id: string,
+): boolean {
+  const plugin = CORE_PLUGINS.find((p) => p.id === id);
+  return plugin ? corePluginEnabled(state, plugin) : false;
 }

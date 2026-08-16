@@ -4,11 +4,11 @@ import { markdown } from "@codemirror/lang-markdown";
 import type { DecorationSet } from "@codemirror/view";
 import {
   createDataviewRunner,
-  dataviewExtension,
-  dataviewBlockField,
+  dataviewBlockRenderer,
   dataviewRunnerFacet,
   type DataviewRunner,
 } from "./dataview";
+import { blockRenderers, blockRenderersField } from "./blockRenderers";
 import type { DataviewResult } from "../api/ipc";
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -36,19 +36,17 @@ function fieldFor(doc: string, headOffset: number): DecorationSet {
   const state = EditorState.create({
     doc,
     selection: { anchor: headOffset },
-    extensions: [markdown(), dataviewRunnerFacet.of(stubRunner()), dataviewBlockField],
+    extensions: [
+      markdown(),
+      dataviewRunnerFacet.of(stubRunner()),
+      blockRenderersField,
+      blockRenderers(dataviewBlockRenderer),
+    ],
   });
-  return state.field(dataviewBlockField);
+  return state.field(blockRenderersField).deco;
 }
 
-describe("dataviewExtension", () => {
-  it("is a non-empty extension array", () => {
-    expect(Array.isArray(dataviewExtension)).toBe(true);
-    expect((dataviewExtension as unknown[]).length).toBeGreaterThan(0);
-  });
-});
-
-describe("dataviewBlockField detection", () => {
+describe("dataview block detection", () => {
   const doc = "text\n\n```query\nLIST\n```\n";
 
   it("replaces a ```query fenced block with a widget", () => {
@@ -69,9 +67,13 @@ describe("dataviewBlockField detection", () => {
     const state = EditorState.create({
       doc,
       selection: { anchor: 0 },
-      extensions: [markdown(), dataviewBlockField],
+      extensions: [
+        markdown(),
+        blockRenderersField,
+        blockRenderers(dataviewBlockRenderer),
+      ],
     });
-    expect(countRanges(state.field(dataviewBlockField))).toBe(0);
+    expect(countRanges(state.field(blockRenderersField).deco)).toBe(0);
   });
 });
 

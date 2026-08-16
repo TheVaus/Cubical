@@ -26,6 +26,12 @@ There is no separate "Read mode" and "Edit mode." Live Preview is the only mode 
 
 Live Preview is implemented as Lezer-driven decorations on the CodeMirror state. The line the cursor is on shows raw markdown; other lines show rendered form. Cursor movement triggers decoration re-application, which is fast because Lezer parsing is incremental.
 
+**Fenced blocks are rendered from a registry, not from per-language code.** A block type — `query`, `csv`, `math` — is a registered renderer keyed by its info string, and adding one must not mean adding another decoration field. This is the seam the plugin block API ([#61](https://github.com/TheVaus/Cubical/issues/61)) is expected to land on, so it is deliberately data-shaped ahead of that ABI; it carries no sandbox and grants nothing, and a third-party renderer cannot use it until the ABI exists.
+
+Syntax that is **not** a fenced block cannot go through the registry, because the registry is keyed on the fence info string. `$$…$$` display math is the worked example: it is a scanner of its own over the document text, reusing the same renderer and frame. Anything wanting non-fence syntax pays that cost, which is the reason to prefer a fence.
+
+Display math occupies **whole lines**, so a mid-line `$$…$$` stays literal text. That is a consequence of the block-replace shape, not an oversight: rendering mid-line would need an inline widget, which is a recorded failure — see [`../implementation/frontend.md`](../implementation/frontend.md), "Block widgets and the cursor". Inline `$…$` math is unbuilt for the same reason.
+
 ### 11.4 Theming
 
 The canonical CSS-variable token surface lives in `design-system/src/styles/tokens.css`; the app's `ui/src/styles/tokens.css` re-exports it (a single `@import`, plus nothing of its own), so editing a value in the design system propagates to every instance in the app. **All UI components consume tokens; no hardcoded colors, fonts, or spacings exist outside the token surface.** This is enforced by lint rule. See §11.6 for the design system's role as the app's component library.

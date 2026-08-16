@@ -64,7 +64,7 @@ import {
   closestDataviewLink,
   maybeInterceptDataviewMousedown,
 } from "./editor/dataviewMousedown";
-import { livePreviewBundle } from "./editor/livePreview";
+import { livePreviewFor } from "./editor/livePreview";
 import { colorSourceHighlight } from "./editor/colorSource";
 import { verticalDocLineMotion } from "./editor/embedNav";
 import { autocompletion } from "@codemirror/autocomplete";
@@ -153,6 +153,7 @@ export interface EditorProps {
   embedResolver?: EmbedResolver | null;
   propertyResolver?: PropertyResolver | null;
   propertyRefsEnabled?: boolean;
+  mathEnabled?: boolean;
   dataviewRunner?: DataviewRunner | null;
   openNotePath?: string | null;
   autocompleteProvider?: AutocompleteProvider | null;
@@ -373,7 +374,7 @@ const Editor: Component<EditorProps> = (props) => {
           markdown({ extensions: [wikilinkExtension, tagExtension] }),
           EditorView.lineWrapping,
           decorationCompartment.of(
-            props.rawSource ? [] : livePreviewBundle,
+            livePreviewFor(props.rawSource, props.mathEnabled ?? true),
           ),
           colorSourceCompartment.of(
             props.rawSource && props.colorizeSource ? colorSourceHighlight : [],
@@ -556,12 +557,10 @@ const Editor: Component<EditorProps> = (props) => {
 
   createEffect(
     on(
-      () => props.rawSource,
-      (raw) => {
+      () => [props.rawSource, props.mathEnabled ?? true] as const,
+      ([raw, math]) => {
         view?.dispatch({
-          effects: decorationCompartment.reconfigure(
-            raw ? [] : livePreviewBundle,
-          ),
+          effects: decorationCompartment.reconfigure(livePreviewFor(raw, math)),
         });
       },
       { defer: true },
