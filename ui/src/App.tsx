@@ -703,13 +703,13 @@ const App: Component = () => {
     doc.scheduleWrite();
   };
 
-  const handleAstChange = (tabIdOfDoc: string, doc: CanonicalDocument) => {
+  const handleAstChange = (tabIdOfDoc: string, ast: CanonicalDocument) => {
     const text =
       editorApis.get(tabIdOfDoc)?.getContent() ?? contents[tabIdOfDoc] ?? "";
     const trimmed = text.trim();
     setDocSummaries(tabIdOfDoc, {
-      frontmatter: doc.frontmatter,
-      blocks: doc.blocks.length,
+      frontmatter: ast.frontmatter,
+      blocks: ast.blocks.length,
       words: trimmed ? trimmed.split(/\s+/).length : 0,
     });
   };
