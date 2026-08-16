@@ -41,7 +41,7 @@ base64 = "0.22"
 
 [target.'cfg(unix)'.dependencies]
 # Graceful child reaping: SIGTERM, then SIGKILL after a grace period.
-nix = { version = "0.29", features = ["signal", "process"] }
+nix = { version = "0.31", features = ["signal", "process"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
