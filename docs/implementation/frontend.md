@@ -45,11 +45,19 @@ YAML→JSON normalization matches what the Rust serde pipeline produces:
 large integer literals become numbers (the Rust side deserializes them as JSON
 numbers).
 
-## App owns the write path
+## The document session owns the write path
 
-Per-file state lives in `App`, not the editor, because the buffer the user is
-*leaving* must be flushed **before** the next file loads — the editor is too
-local to know when that happens.
+Per-file state lives in `createDocumentSession` (`core/documentSession.ts`), not
+the editor, because the buffer the user is *leaving* must be flushed **before**
+the next file loads — the editor is too local to know when that happens. `App`
+holds the session and calls it; it cannot reach the hashes directly, which is
+what stops a future feature from open-coding a fifth `dirty = false`.
+
+It lives outside the shell for a second reason. This is the sharpest data-loss
+path in the app, and while it was closure-local inside `App` it could not be
+unit tested at all. It now is, including the cases that are hard to provoke by
+hand: a write that lands while the buffer changed under it, two overlapping
+flushes, and an external edit arriving mid-conflict.
 
 - `seenHash` — the file as of the last read or own-write.
 - `lastWrittenHash` — the most recent successful write, used to drop the
@@ -84,8 +92,9 @@ old `view()` / `selectedPath()` accessors from it, so every existing read site
 kept working untouched.
 
 **Only the active tab can be dirty, because activating a tab flushes autosave
-first.** The autosave machinery stays global and unchanged — one `dirty`, one
-timer, one `pendingWrite`. Lifting that to per-tab state is the sharpest
+first.** The autosave machinery is global — one `dirty`, one timer, one
+`pendingWrite`, all inside the single document session. Lifting that to per-tab
+state is the sharpest
 data-loss hazard in the app: tab B's timer firing against tab A's buffer writes
 A's text to B's path. Flushing on activation removes the hazard by construction.
 The activation ordering lives in exactly one tested place (`tabs/activation.ts`);

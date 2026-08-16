@@ -59,7 +59,6 @@ import {
   removeRecentVault,
   renameFile,
   renameFolder,
-  writeFileText,
   type BrokenBlockRef,
   type FileEntry,
   type RecentVault,
@@ -70,6 +69,7 @@ import { createVaultSession } from "./core/vaultSession";
 import { resolveGlobal, type Command } from "./core/commands";
 import { createNavSession } from "./core/navSession";
 import { createDebounced } from "./core/debounce";
+import { createDocumentSession } from "./core/documentSession";
 import TabStrip from "./tabs/TabStrip";
 import {
   FileViewer,
@@ -110,7 +110,6 @@ import {
 } from "./editor/propertyResolver";
 import { isValidNoteName, noteNameError } from "./vault/noteName";
 import { createDataviewRunner, type DataviewRunner } from "./editor/dataview";
-import { isOwnWriteEcho } from "./ownWrite";
 import {
   createAutocompleteProvider,
   type AutocompleteProvider,
@@ -246,10 +245,6 @@ const App: Component = () => {
     treeRows().slice(fileWindow().startIndex, fileWindow().endIndex),
   );
 
-  const [conflictExternalHash, setConflictExternalHash] = createSignal<
-    string | null
-  >(null);
-
   const [wikilinkResolver, setWikilinkResolver] =
     createSignal<WikiLinkResolver | null>(null);
 
@@ -369,10 +364,6 @@ const App: Component = () => {
     countFilesUnderFolder: (path) =>
       countFilesUnderFolder(buildFileTree(files(), folders()), path),
   });
-
-  let seenHash: string | null = null;
-  let lastWrittenHash: string | null = null;
-  let dirty = false;
 
   const [mru, setMru] = createSignal<string[]>([]);
   const editorApis = new Map<string, EditorApi>();
@@ -496,11 +487,16 @@ const App: Component = () => {
     });
   });
 
-  const autosave = createDebounced(
-    () => void flushAutosave(),
-    AUTOSAVE_DEBOUNCE_MS,
-  );
-  let pendingWrite: Promise<void> | null = null;
+  const doc = createDocumentSession({
+    vaultId,
+    path: selectedPath,
+    editor: editorApi,
+    autosaveDebounceMs: AUTOSAVE_DEBOUNCE_MS,
+    reportError: setError,
+    onWritten: () => searchRefresh.schedule(),
+    onContentReplaced: (content) => setSelectedContent(content),
+  });
+  const flushAutosave = () => doc.flush();
 
   let unlistenProgress: UnlistenFn | undefined;
   let unlistenComplete: UnlistenFn | undefined;
@@ -553,45 +549,6 @@ const App: Component = () => {
     }, wait);
   };
 
-  const performWrite = async (): Promise<void> => {
-    const id = vaultId();
-    const path = selectedPath();
-    const api = editorApi();
-    if (!id || !path || !api) return;
-    const content = api.getContent();
-    try {
-      const req: Parameters<typeof writeFileText>[0] = {
-        vault_id: id,
-        path,
-        content,
-      };
-      if (seenHash !== null) req.expected_seen_hash = seenHash;
-      const resp = await writeFileText(req);
-      lastWrittenHash = resp.new_content_hash;
-      seenHash = resp.new_content_hash;
-      if (api.getContent() === content) {
-        dirty = false;
-      }
-      searchRefresh.schedule();
-    } catch (e) {
-      const message = errorMessage(e);
-      setError(message);
-    }
-  };
-
-  const flushAutosave = async (): Promise<void> => {
-    autosave.cancel();
-    if (!dirty && pendingWrite === null) return;
-    const prior = pendingWrite ?? Promise.resolve();
-    const next = prior.then(performWrite);
-    pendingWrite = next;
-    try {
-      await next;
-    } finally {
-      if (pendingWrite === next) pendingWrite = null;
-    }
-  };
-
   const handleCopyBlockRef = async (byteOffset: number): Promise<void> => {
     const id = vaultId();
     const path = selectedPath();
@@ -610,11 +567,6 @@ const App: Component = () => {
       const message = errorMessage(e);
       setError(message);
     }
-  };
-
-  const scheduleAutosave = () => {
-    if (conflictExternalHash() !== null) return;
-    autosave.schedule();
   };
 
   const refreshBrokenBlockRefs = async (): Promise<void> => {
@@ -747,8 +699,8 @@ const App: Component = () => {
   };
 
   const handleContentChange = (_content: string) => {
-    dirty = true;
-    scheduleAutosave();
+    doc.markDirty();
+    doc.scheduleWrite();
   };
 
   const handleAstChange = (tabIdOfDoc: string, doc: CanonicalDocument) => {
@@ -804,11 +756,8 @@ const App: Component = () => {
 
   const resetDocState = () => {
     setError(null);
-    setConflictExternalHash(null);
     settings.setRawOverride(null);
-    seenHash = null;
-    lastWrittenHash = null;
-    dirty = false;
+    doc.reset();
   };
 
   const activationDeps: ActivationDeps = {
@@ -873,8 +822,7 @@ const App: Component = () => {
     setTabs((s) => openTab(s, { kind: "file", path: file.path }));
     if (!opts?.fromHistory) nav.push(file.path);
     if (!isMarkdown && !isEditableText(file.path)) return;
-    seenHash = knownHash ?? null;
-    lastWrittenHash = knownHash ?? null;
+    doc.adopt(knownHash ?? null);
     await loadActiveTabContent();
   };
 
@@ -897,29 +845,9 @@ const App: Component = () => {
     if (path) navigateToHistoryPath(path);
   };
 
-  const reloadFromDisk = async () => {
-    const id = vaultId();
-    const path = selectedPath();
-    const api = editorApi();
-    if (!id || !path || !api) return;
-    try {
-      const resp = await readFileText({ vault_id: id, path });
-      api.replaceContent(resp.content);
-      setSelectedContent(resp.content);
-      seenHash = conflictExternalHash();
-      lastWrittenHash = null;
-      dirty = false;
-      setConflictExternalHash(null);
-    } catch (e) {
-      const message = errorMessage(e);
-      setError(message);
-    }
-  };
+  const reloadFromDisk = () => doc.takeDisk();
 
-  const keepMyEdits = () => {
-    setConflictExternalHash(null);
-    scheduleAutosave();
-  };
+  const keepMyEdits = () => doc.keepMine();
 
   const handleNavigateWikilink = async (
     path: string,
@@ -1068,12 +996,7 @@ const App: Component = () => {
       if (p.vault_id !== vaultId()) return;
       scheduleRefresh();
 
-      const ownWrite = isOwnWriteEcho({
-        changedPath: p.path,
-        selectedPath: selectedPath(),
-        incomingHash: p.new_content_hash,
-        lastWrittenHash,
-      });
+      const ownWrite = doc.isOwnWriteEchoOf(p.path, p.new_content_hash);
       if (!ownWrite) {
         wikilinkResolver()?.invalidate();
         embedResolver()?.invalidate();
@@ -1091,30 +1014,7 @@ const App: Component = () => {
         setTagRefreshTick((n) => n + 1);
       }
 
-      if (p.path !== selectedPath()) return;
-      const incoming = p.new_content_hash;
-      if (!incoming) return;
-
-      if (incoming === lastWrittenHash) return;
-
-      if (dirty || conflictExternalHash() !== null) {
-        setConflictExternalHash(incoming);
-        autosave.cancel();
-      } else {
-        const id = vaultId();
-        const path = selectedPath();
-        if (!id || !path) return;
-        readFileText({ vault_id: id, path })
-          .then((resp) => {
-            editorApi()?.replaceContent(resp.content);
-            setSelectedContent(resp.content);
-            seenHash = incoming;
-            dirty = false;
-          })
-          .catch((e) => {
-            console.error("silent reload failed", e);
-          });
-      }
+      doc.applyExternalChange(p.path, p.new_content_hash);
     });
 
     unlistenPendingChanged = await onVaultPendingRewritesChanged((p) => {
@@ -1136,10 +1036,7 @@ const App: Component = () => {
       void settings.hydrate(p.vault_id);
     });
 
-    const onBeforeUnload = () => {
-      autosave.cancel();
-      if (dirty) void performWrite();
-    };
+    const onBeforeUnload = () => doc.writeBeforeUnload();
     window.addEventListener("beforeunload", onBeforeUnload);
     onCleanup(() => window.removeEventListener("beforeunload", onBeforeUnload));
 
@@ -1236,7 +1133,7 @@ const App: Component = () => {
     unlistenPendingChanged?.();
     unlistenFlushComplete?.();
     unlistenSettingChanged?.();
-    autosave.cancel();
+    doc.cancelScheduledWrite();
     rightSidebarRefresh.cancel();
     searchRefresh.cancel();
     brokenBlockRefsRefresh.cancel();
@@ -1261,12 +1158,12 @@ const App: Component = () => {
       );
       setMru([]);
       nav.reset();
+      doc.reset();
       setDocSummaries(
         produce((s: Record<string, DocSummary>) => {
           for (const k of Object.keys(s)) delete s[k];
         }),
       );
-      setConflictExternalHash(null);
       setCreateOffer(null);
       setRightSidebarRefreshTick(0);
       setBrokenBlockRefs([]);
@@ -1279,9 +1176,6 @@ const App: Component = () => {
       setPropertyResolver(null);
       setDataviewRunner(null);
       setAutocompleteProvider(null);
-      seenHash = null;
-      lastWrittenHash = null;
-      dirty = false;
 
       const resp = await openVault({ path });
       setVaultId(resp.vault_id);
@@ -1859,7 +1753,7 @@ const App: Component = () => {
                               />
                             )}
                           </Show>
-                          <Show when={conflictExternalHash() !== null}>
+                          <Show when={doc.conflictHash() !== null}>
                             <div
                               role="alert"
                               style={{
