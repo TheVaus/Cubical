@@ -38,7 +38,7 @@ dirs = "5"
 trash = { workspace = true }
 
 # Binary payload encoding for read_file_bytes — the IPC boundary is JSON.
-base64 = "0.22"
+base64 = "0.23"
 
 # Error handling
 thiserror = { workspace = true }

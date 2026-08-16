@@ -37,7 +37,7 @@ shell-words = "1"
 # Embedded terminal: PTY pair + child spawn, and the byte-safe wire encoding for
 # PTY output (raw bytes, since a multi-byte character can split across chunks).
 portable-pty = "0.9"
-base64 = "0.22"
+base64 = "0.23"
 
 [target.'cfg(unix)'.dependencies]
 # Graceful child reaping: SIGTERM, then SIGKILL after a grace period.
