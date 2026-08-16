@@ -1,13 +1,15 @@
-import type {
-  CompletionContext,
-  CompletionResult,
-  CompletionSource,
+import {
+  autocompletion,
+  type CompletionContext,
+  type CompletionResult,
+  type CompletionSource,
 } from "@codemirror/autocomplete";
 import { syntaxTree } from "@codemirror/language";
-import type { EditorState } from "@codemirror/state";
+import type { EditorState, Extension } from "@codemirror/state";
 import type { SyntaxNode } from "@lezer/common";
 
 import type { AutocompleteProvider } from "./autocompleteProvider";
+import { fenceCompletionSource } from "./fenceComplete";
 
 export interface Trigger {
   query: string;
@@ -185,4 +187,21 @@ export function tagCompletionSource(
       validFor: /^[A-Za-z0-9_/-]*$/,
     };
   };
+}
+
+export function autocompleteExtensionFor(
+  provider: AutocompleteProvider | null | undefined,
+): Extension {
+  return autocompletion({
+    override: [
+      fenceCompletionSource,
+      ...(provider
+        ? [
+            linkCompletionSource(provider),
+            tagCompletionSource(provider),
+            blockCompletionSource(provider),
+          ]
+        : []),
+    ],
+  });
 }
