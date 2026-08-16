@@ -74,6 +74,7 @@ import {
   linkCompletionSource,
   tagCompletionSource,
 } from "./editor/autocomplete";
+import { fenceCompletionSource } from "./editor/fenceComplete";
 import type { AutocompleteProvider } from "./editor/autocompleteProvider";
 import { byteOffsetOf } from "./editor/blockRef";
 import { buildCmTheme } from "./editor/cm-theme";
@@ -124,15 +125,18 @@ const facetValueFor = (
 const autocompleteExtensionFor = (
   provider: AutocompleteProvider | null | undefined,
 ) =>
-  provider
-    ? autocompletion({
-        override: [
-          linkCompletionSource(provider),
-          tagCompletionSource(provider),
-          blockCompletionSource(provider),
-        ],
-      })
-    : [];
+  autocompletion({
+    override: [
+      fenceCompletionSource,
+      ...(provider
+        ? [
+            linkCompletionSource(provider),
+            tagCompletionSource(provider),
+            blockCompletionSource(provider),
+          ]
+        : []),
+    ],
+  });
 
 export interface EditorApi {
   getContent: () => string;

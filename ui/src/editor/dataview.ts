@@ -111,6 +111,7 @@ export const dataviewBlockRenderer: BlockRenderer = {
   id: "dataview",
   languages: ["query"],
   frameClass: "cm-dataview-frame",
+  completions: [{ language: "query", detail: "Dataview query" }],
   active: (state) => state.facet(dataviewRunnerFacet) !== null,
   revision: (state: EditorState) => {
     const runner = state.facet(dataviewRunnerFacet);

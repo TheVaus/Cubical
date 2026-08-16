@@ -19,11 +19,18 @@ export interface BlockRenderContext {
   state: EditorState;
 }
 
+export interface BlockCompletion {
+  language: string;
+  detail: string;
+  aliases?: readonly string[];
+}
+
 export interface BlockRenderer {
   id: string;
   languages: readonly string[];
   frameClass: string;
   estimatedHeight?: number;
+  completions?: readonly BlockCompletion[];
   active?: (state: EditorState) => boolean;
   revision?: (state: EditorState) => unknown;
   render: (source: string, ctx: BlockRenderContext) => Node;
@@ -97,7 +104,7 @@ class BlockWidget extends WidgetType {
   }
 }
 
-function activeRenderers(state: EditorState): readonly BlockRenderer[] {
+export function activeRenderers(state: EditorState): readonly BlockRenderer[] {
   return state
     .facet(blockRendererFacet)
     .filter((r) => r.active?.(state) ?? true);
