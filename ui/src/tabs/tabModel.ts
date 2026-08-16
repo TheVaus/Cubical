@@ -47,18 +47,36 @@ function isReplaceable(t: Tab): boolean {
   return t.view.kind !== "terminal";
 }
 
-export function openTab(s: TabSet, view: TabView, max = MAX_TABS): TabSet {
+type Slot = { at: number } | "existing" | "append" | "full";
+
+function slotFor(s: TabSet, view: TabView, max: number): Slot {
   const id = tabId(view);
-  if (s.tabs.some((t) => t.id === id)) return { ...s, activeId: id };
-  if (s.tabs.length < max) {
-    return { tabs: [...s.tabs, { id, view }], activeId: id };
+  if (s.tabs.some((t) => t.id === id)) return "existing";
+  if (
+    view.kind === "terminal" &&
+    s.tabs.filter((t) => !isReplaceable(t)).length >= max - 1
+  ) {
+    return "full";
   }
+  if (s.tabs.length < max) return "append";
   const active = s.tabs.findIndex((t) => t.id === s.activeId && isReplaceable(t));
   const at =
     active >= 0 ? active : s.tabs.map(isReplaceable).lastIndexOf(true);
-  if (at < 0) return s;
+  return at < 0 ? "full" : { at };
+}
+
+export function canOpenTab(s: TabSet, view: TabView, max = MAX_TABS): boolean {
+  return slotFor(s, view, max) !== "full";
+}
+
+export function openTab(s: TabSet, view: TabView, max = MAX_TABS): TabSet {
+  const id = tabId(view);
+  const slot = slotFor(s, view, max);
+  if (slot === "full") return s;
+  if (slot === "existing") return { ...s, activeId: id };
+  if (slot === "append") return { tabs: [...s.tabs, { id, view }], activeId: id };
   const tabs = [...s.tabs];
-  tabs[at] = { id, view };
+  tabs[slot.at] = { id, view };
   return { tabs, activeId: id };
 }
 

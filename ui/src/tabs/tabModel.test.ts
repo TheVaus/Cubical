@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   activateTab,
   activeTab,
+  canOpenTab,
   clampTabs,
   closeTab,
   dropMissingTabs,
@@ -90,21 +91,49 @@ describe("openTab", () => {
     expect(s.tabs.at(-1)?.id).toBe("file:new.md");
   });
 
-  it("refuses to open rather than exceed the cap or evict an all-terminal set", () => {
-    let s = emptyTabs;
-    for (let i = 0; i < MAX_TABS; i++)
-      s = openTab(s, { kind: "terminal", key: String(i) });
-
-    const refused = openTab(s, fileView("new.md"));
-
-    expect(refused).toEqual(s);
-  });
-
-  it("never grows past the cap however many terminals are opened", () => {
+  it("leaves a slot a file can always take, however many terminals are opened", () => {
     let s = emptyTabs;
     for (let i = 0; i < MAX_TABS + 6; i++)
       s = openTab(s, { kind: "terminal", key: String(i) });
+
+    expect(s.tabs).toHaveLength(MAX_TABS - 1);
+
+    s = openTab(s, fileView("new.md"));
+
     expect(s.tabs).toHaveLength(MAX_TABS);
+    expect(s.activeId).toBe("file:new.md");
+  });
+
+  it("refuses a terminal that would leave no replaceable slot", () => {
+    let s = emptyTabs;
+    for (let i = 0; i < MAX_TABS - 1; i++)
+      s = openTab(s, { kind: "terminal", key: String(i) });
+
+    const refused = openTab(s, { kind: "terminal", key: "extra" });
+
+    expect(refused).toBe(s);
+    expect(canOpenTab(s, { kind: "terminal", key: "extra" })).toBe(false);
+  });
+
+  it("still opens a file at the cap when every other tab is a terminal", () => {
+    let s = emptyTabs;
+    for (let i = 0; i < MAX_TABS - 1; i++)
+      s = openTab(s, { kind: "terminal", key: String(i) });
+    s = openTab(s, fileView("only.md"));
+
+    expect(canOpenTab(s, fileView("new.md"))).toBe(true);
+    s = openTab(s, fileView("new.md"));
+
+    expect(s.tabs).toHaveLength(MAX_TABS);
+    expect(s.activeId).toBe("file:new.md");
+    expect(s.tabs.map((t) => t.id)).not.toContain("file:only.md");
+  });
+
+  it("reports an already-open tab as openable even with no free slot", () => {
+    let s = emptyTabs;
+    for (let i = 0; i < MAX_TABS - 1; i++)
+      s = openTab(s, { kind: "terminal", key: String(i) });
+    expect(canOpenTab(s, { kind: "terminal", key: "0" })).toBe(true);
   });
 });
 
@@ -131,6 +160,21 @@ describe("clampTabs", () => {
     expect(s.tabs).toHaveLength(MAX_TABS);
     expect(s.activeId).toBe("file:n10.md");
     expect(s.tabs.map((t) => t.id)).toContain("file:n10.md");
+  });
+
+  it("keeps the active tab sitting exactly on the cap boundary", () => {
+    const s = clampTabs(activateTab(of(MAX_TABS + 5), `file:n${MAX_TABS}.md`));
+    expect(s.tabs).toHaveLength(MAX_TABS);
+    expect(s.activeId).toBe(`file:n${MAX_TABS}.md`);
+    expect(s.tabs.at(-1)!.id).toBe(`file:n${MAX_TABS}.md`);
+    expect(s.tabs[MAX_TABS - 2]!.id).toBe(`file:n${MAX_TABS - 2}.md`);
+  });
+
+  it("keeps the last tab of an oversized set when it is active", () => {
+    const n = MAX_TABS + 5;
+    const s = clampTabs(activateTab(of(n), `file:n${n - 1}.md`));
+    expect(s.tabs).toHaveLength(MAX_TABS);
+    expect(s.activeId).toBe(`file:n${n - 1}.md`);
   });
 
   it("reactivates when the set had no valid active tab", () => {
