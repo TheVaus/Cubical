@@ -16,10 +16,22 @@
   "budgets": {
     "ui/src/App.tsx": {
       "button": 6,
-      "input": 3,
+      "input": 1,
       "kind": "debt",
       "issue": 34,
-      "note": "Vault switcher, tree-row rename input, doc-title input, right-sidebar tabs."
+      "note": "Vault switcher, doc-title input, right-sidebar tabs. The tree-row rename inputs left with the tree, to explorer/FileRow.tsx and explorer/FolderRow.tsx."
+    },
+    "ui/src/explorer/FileRow.tsx": {
+      "input": 1,
+      "kind": "debt",
+      "issue": 34,
+      "note": "The tree-row rename input, moved here from App.tsx with the tree. DS TextInput hardcodes class=\"text-input\", so the row cannot carry its own .tree-row__input, and it exposes neither autofocus nor onClick — the row needs the latter to stop the click reaching the select handler. Waits on additive DS props, like the other #34 entries."
+    },
+    "ui/src/explorer/FolderRow.tsx": {
+      "input": 1,
+      "kind": "debt",
+      "issue": 34,
+      "note": "The folder half of the same rename input as explorer/FileRow.tsx; here the onClick it needs stops the click toggling the folder."
     },
     "ui/src/settings/InfoButton.tsx": {
       "button": 1,
