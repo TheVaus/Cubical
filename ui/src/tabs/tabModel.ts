@@ -56,10 +56,23 @@ export function openTab(s: TabSet, view: TabView, max = MAX_TABS): TabSet {
   const active = s.tabs.findIndex((t) => t.id === s.activeId && isReplaceable(t));
   const at =
     active >= 0 ? active : s.tabs.map(isReplaceable).lastIndexOf(true);
-  if (at < 0) return { tabs: [...s.tabs, { id, view }], activeId: id };
+  if (at < 0) return s;
   const tabs = [...s.tabs];
   tabs[at] = { id, view };
   return { tabs, activeId: id };
+}
+
+export function clampTabs(s: TabSet, max = MAX_TABS): TabSet {
+  if (s.tabs.length <= max) return s;
+  const active = s.tabs.findIndex((t) => t.id === s.activeId);
+  const kept = s.tabs.slice(0, active >= max ? max - 1 : max);
+  const tabs = active >= max ? [...kept, s.tabs[active]!] : kept;
+  return {
+    tabs,
+    activeId: tabs.some((t) => t.id === s.activeId)
+      ? s.activeId
+      : (tabs[0]?.id ?? null),
+  };
 }
 
 export function closeTab(s: TabSet, id: string): TabSet {

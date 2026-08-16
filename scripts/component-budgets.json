@@ -19,7 +19,7 @@
   "default_max_lines": 250,
   "budgets": {
     "ui/src/App.tsx": {
-      "max_lines": 2323,
+      "max_lines": 2296,
       "kind": "debt",
       "issue": 86,
       "note": "Being split into feature-owned components. Was 3274. Ratchet this down as each extraction lands. Completion is not a line count: it is the three extractions the ./api/ipc waiver names — document session (done), vault boot, watcher listeners. A composition root wiring this many features lands well above default_max_lines once those are out, and chasing a smaller number would mean components taking fifteen props, which is the boundary-that-does-not-exist this gate is meant to prevent."

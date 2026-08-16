@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   activateTab,
   activeTab,
+  clampTabs,
   closeTab,
   dropMissingTabs,
   emptyTabs,
@@ -89,13 +90,52 @@ describe("openTab", () => {
     expect(s.tabs.at(-1)?.id).toBe("file:new.md");
   });
 
-  it("appends past the cap rather than evicting an all-terminal set", () => {
+  it("refuses to open rather than exceed the cap or evict an all-terminal set", () => {
     let s = emptyTabs;
     for (let i = 0; i < MAX_TABS; i++)
       s = openTab(s, { kind: "terminal", key: String(i) });
-    s = openTab(s, fileView("new.md"));
-    expect(s.tabs).toHaveLength(MAX_TABS + 1);
-    expect(s.activeId).toBe("file:new.md");
+
+    const refused = openTab(s, fileView("new.md"));
+
+    expect(refused).toEqual(s);
+  });
+
+  it("never grows past the cap however many terminals are opened", () => {
+    let s = emptyTabs;
+    for (let i = 0; i < MAX_TABS + 6; i++)
+      s = openTab(s, { kind: "terminal", key: String(i) });
+    expect(s.tabs).toHaveLength(MAX_TABS);
+  });
+});
+
+describe("clampTabs", () => {
+  const of = (n: number) => {
+    let s = emptyTabs;
+    for (let i = 0; i < n; i++) s = openTab(s, fileView(`n${i}.md`), n);
+    return s;
+  };
+
+  it("leaves a set within the cap untouched", () => {
+    const s = of(MAX_TABS);
+    expect(clampTabs(s)).toEqual(s);
+  });
+
+  it("trims an oversized set down to the cap", () => {
+    const s = clampTabs(of(MAX_TABS + 5));
+    expect(s.tabs).toHaveLength(MAX_TABS);
+    expect(s.tabs[0]!.id).toBe("file:n0.md");
+  });
+
+  it("keeps the active tab when it falls outside the surviving slice", () => {
+    const s = clampTabs(activateTab(of(MAX_TABS + 5), "file:n10.md"));
+    expect(s.tabs).toHaveLength(MAX_TABS);
+    expect(s.activeId).toBe("file:n10.md");
+    expect(s.tabs.map((t) => t.id)).toContain("file:n10.md");
+  });
+
+  it("reactivates when the set had no valid active tab", () => {
+    const s = clampTabs({ ...of(MAX_TABS + 5), activeId: "file:gone.md" });
+    expect(s.activeId).toBe("file:n0.md");
   });
 });
 
