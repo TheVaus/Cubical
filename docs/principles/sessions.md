@@ -1,8 +1,8 @@
 # sessions — Ceremony scales with the work
 
-**Rule:** Pick the lightest process that fits, and record the *why* once, at the end.
+**Rule:** Pick the lightest process that fits, record the *why* once at the end, and never end a session without a commit, a push and an open PR.
 
-**Gate:** `scripts/session.sh` (`start` / `end`), triggered by the Claude Code `Stop` hook. It warns; it does not block bookkeeping.
+**Gate:** `scripts/session.sh` (`start` / `end`), triggered by the Claude Code `Stop` hook. `end` blocks on a red gate, on generated-artifact drift, and on a session that is not committed, pushed and on an open PR. Bookkeeping — unticked issues, an unmoved doc — only warns.
 
 **Why:** Paying layer-scale process for a one-line fix is how a project ends up with 105 process documents describing 20 features. The archived work tree is the evidence: every feature there has a matching spec + plan pair, because they predate this rule.
 
@@ -36,15 +36,21 @@ Use GitHub's own features rather than prose imitations of them: **native sub-iss
 
 **Dependency alerts are never mirrored into issues** — they are already alerts. Open an issue only when *clearing* one is its own piece of work (an API migration, an index rebuild), and describe that work rather than the alert. Alert IDs are not issue numbers and must not be written as `#N`.
 
-## Pushing and opening the PR
+## Pushing, opening the PR, and ending the session
 
+**A session that changed anything ends committed, pushed, and on an open pull request. All three, every time.** This is the one part of the flow that is an obligation rather than a judgement call: when the work stops, the working tree is clean, the branch exists on `origin`, and a PR is open against `main` — draft if the gate is not green. `scripts/session.sh end` checks exactly that and blocks when it is not true.
 
+Two scoping limits, both deliberate. A session that changed nothing — a question answered, a codebase read — owes nothing and exits instantly; the check looks for a dirty tree or commits ahead of `main` and skips when it finds neither. And "session" here means the one that owns the working tree: a subagent still does not commit, push or open anything, for the concurrency reason [`subagents.md`](subagents.md) gives. It reports, and its caller is the one this rule binds.
+
+**Why this one is a floor and not a preference.** The rest of this section is written as judgement because pushing early is better than pushing late and no rule can time that for you. But *not at all* is not a point on that scale. A session that stops with work only in the working tree has produced nothing recoverable — the next session inherits a dirty tree it cannot attribute, and the operator has no surface to review on. The failure is silent, which is why it gets a gate instead of a paragraph.
+
+**This is a floor, not a schedule — it does not license batching.** Reaching the end of a session with one commit satisfies the gate and still violates [`commits.md`](commits.md), which owns commit cadence: each logical change is committed as it lands, and the session-end check is a backstop for whatever was still uncommitted, not the moment work is supposed to land. A gate that only counts the end state cannot tell a well-structured branch from a single dump; that judgement stays with the agent.
 
 **Push and open the PR on your own judgement, without being asked.** The standing authority that [`commits.md`](commits.md) grants over committing covers `git push -u origin <branch>` and `gh pr create` too. Push as soon as there is work worth backing up or a reason for someone to see it; open the PR once `scripts/check.sh` has run to completion green and every box in the template is one you can honestly tick. A feature branch is not a publication — it is off `main`, CI gates it, and nothing downstream consumes it — so holding it back buys no safety and costs the review surface.
 
 
 
-**Push early rather than at the end.** An unpushed branch is one machine away from being lost work, and a PR opened only at the end is a PR nobody got to shape. Open it as a draft when the gate is not green yet, and say in the body what is still missing.
+**Push early rather than at the end.** An unpushed branch is one machine away from being lost work, and a PR opened only once the work is finished is a PR nobody got to shape. The end of the session is the deadline, not the target — open the PR as a draft as soon as there is something to look at, say in the body what is still missing, and let it fill in.
 
 
 

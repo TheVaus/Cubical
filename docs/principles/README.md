@@ -6,13 +6,13 @@ One rule per file, fixed skeleton, stable id. The **Rule** line is the
 entire principle — read this table, then open only the file you need.
 A gate failure names its principle file; that file is the explanation.
 
-24 principles. 12 enforced by a gate today.
+24 principles. 13 enforced by a gate today.
 
 | Principle | Rule | Gate |
 |---|---|---|
 | [`backend-frontend-boundary`](backend-frontend-boundary.md) | Route every frontend request through the typed IPC surface; do all heavy work in Rust. | planned: `dependency-boundary` |
 | [`best-effort-resilience`](best-effort-resilience.md) | Every per-file refresher logs and continues on failure. | — |
-| [`branches`](branches.md) | Never graft unrelated work onto an active feature branch. | — |
+| [`branches`](branches.md) | Branch off `main` before the first change, and never graft unrelated work onto an active feature branch. | `scripts/session.sh` |
 | [`commits`](commits.md) | Commit each logical change as soon as it stands on its own — without being asked — and update the owning doc in the same commit. | — |
 | [`component-composition`](component-composition.md) | Put new frontend state in the feature that reads it, and keep every `ui/src` file under its size budget. | `scripts/gates/composition.py` |
 | [`composability`](composability.md) | Design a feature so it switches off cleanly, leaving the `.md` byte-identical. | — |
@@ -27,7 +27,7 @@ A gate failure names its principle file; that file is the explanation.
 | [`no-comments`](no-comments.md) | Write the explanation in the owning doc, not in the code. | `scripts/gates/comments.py` |
 | [`performance`](performance.md) | Hold every change to the measured scan bar; ratchet it down, never up. | planned: `perf` |
 | [`rust-style`](rust-style.md) | `cargo fmt` and `cargo clippy -- -D warnings` must be clean, and `unwrap()`/`expect()` stay out of library code. | `scripts/check.sh` |
-| [`sessions`](sessions.md) | Pick the lightest process that fits, and record the *why* once, at the end. | `scripts/session.sh` |
+| [`sessions`](sessions.md) | Pick the lightest process that fits, record the *why* once at the end, and never end a session without a commit, a push and an open PR. | `scripts/session.sh` |
 | [`single-owner-facts`](single-owner-facts.md) | Link to the doc that owns a fact; never restate it. | `scripts/check_docs.py` |
 | [`subagents`](subagents.md) | Send a subagent to explore or to verify; do the building yourself. | — |
 | [`tauri-commands`](tauri-commands.md) | Every command takes a typed request struct and returns a typed response struct. | — |
