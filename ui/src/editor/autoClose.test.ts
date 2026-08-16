@@ -10,6 +10,7 @@ import {
   closingInsert,
   completeFence,
   isClosedBelow,
+  isOpenAbove,
   openerAt,
 } from "./autoClose";
 
@@ -82,6 +83,38 @@ describe("isClosedBelow", () => {
   });
 });
 
+describe("isOpenAbove", () => {
+  it("reports nothing open at the top of a document", () => {
+    expect(isOpenAbove("")).toBe(false);
+    expect(isOpenAbove("prose\n\nmore prose\n")).toBe(false);
+  });
+
+  it("sees an opener that nothing has closed yet", () => {
+    expect(isOpenAbove("```rust\nbody\n")).toBe(true);
+  });
+
+  it("sees a balanced block as closed", () => {
+    expect(isOpenAbove("```rust\nbody\n```\n")).toBe(false);
+  });
+
+  it("does not let a tilde fence close a backtick fence", () => {
+    expect(isOpenAbove("```\nbody\n~~~\n")).toBe(true);
+  });
+
+  it("does not let a shorter marker close a longer one", () => {
+    expect(isOpenAbove("````\nbody\n```\n")).toBe(true);
+    expect(isOpenAbove("````\nbody\n````\n")).toBe(false);
+  });
+
+  it("does not let an info string close a block", () => {
+    expect(isOpenAbove("```\nbody\n```rust\n")).toBe(true);
+  });
+
+  it("tracks a second block after a closed one", () => {
+    expect(isOpenAbove("```\na\n```\n\n```js\nb\n")).toBe(true);
+  });
+});
+
 describe("closingInsert", () => {
   it("keeps the opener's indentation", () => {
     expect(closingInsert({ indent: "  ", marker: "```" })).toBe("\n\n  ```");
@@ -100,6 +133,24 @@ describe("Enter on a fence opener", () => {
     const r = enterAt("```\nbody\n```\n", 3);
     expect(r.handled).toBe(false);
     expect(r.doc).toBe("```\nbody\n```\n");
+  });
+
+  it("leaves a closing fence alone", () => {
+    const r = enterAt("```rust\nbody\n```", 16);
+    expect(r.handled).toBe(false);
+    expect(r.doc).toBe("```rust\nbody\n```");
+  });
+
+  it("leaves the closer alone on a block it just completed", () => {
+    const r = enterAt("```\n\n```", 8);
+    expect(r.handled).toBe(false);
+    expect(r.doc).toBe("```\n\n```");
+  });
+
+  it("still completes an opener below a finished block", () => {
+    const r = enterAt("```\na\n```\n\n```js", 16);
+    expect(r.handled).toBe(true);
+    expect(r.doc).toBe("```\na\n```\n\n```js\n\n```");
   });
 
   it("stays out of the way mid-line and on ordinary lines", () => {
