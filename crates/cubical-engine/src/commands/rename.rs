@@ -2,10 +2,10 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use cubical_core::vault::pending::apply_pending;
-use cubical_core::vault::search_refresh::{delete_search_index, refresh_search_index};
+use cubical_core::vault::search_refresh::{delete_search_index, refresh_search_index_with_doc};
 use cubical_core::{
-    atomic_write, refresh_block_refs_for_file, refresh_blocks, refresh_frontmatter, refresh_links,
-    refresh_tags, sha256_bytes_hex,
+    atomic_write, parse_off_executor, refresh_block_refs_for_file, refresh_blocks,
+    refresh_frontmatter_with_doc, refresh_links_with_doc, refresh_tags_with_doc, sha256_bytes_hex,
 };
 use cubical_index::{
     delete_pending_for_target, delete_rename_op, list_recent_rename_ops as list_ops,
@@ -355,9 +355,10 @@ async fn commit_rename(
     let _ = delete_search_index(vault, from_path).await;
 
     if let Some(on_disk) = text.as_deref() {
-        let _ = refresh_frontmatter(vault, to_path, on_disk).await;
-        let _ = refresh_links(vault, to_path, on_disk).await;
-        let _ = refresh_tags(vault, to_path, on_disk).await;
+        let doc = parse_off_executor(on_disk).await.unwrap_or_default();
+        let _ = refresh_frontmatter_with_doc(vault, to_path, &doc).await;
+        let _ = refresh_links_with_doc(vault, to_path, &doc).await;
+        let _ = refresh_tags_with_doc(vault, to_path, &doc).await;
         let _ = refresh_blocks(vault, to_path, on_disk).await;
         let _ = refresh_block_refs_for_file(vault, to_path).await;
 
@@ -372,7 +373,7 @@ async fn commit_rename(
                 (mtime, m.len())
             })
             .unwrap_or((0, byte_len));
-        let _ = refresh_search_index(vault, to_path, on_disk, mtime_secs, size_bytes).await;
+        let _ = refresh_search_index_with_doc(vault, to_path, &doc, mtime_secs, size_bytes).await;
     } else {
         tracing::debug!(
             path = %to_path,
@@ -666,9 +667,10 @@ pub async fn rename_folder(
             Ok(Ok(content)) => content,
             _ => continue,
         };
-        let _ = refresh_frontmatter(&vault, to, &on_disk).await;
-        let _ = refresh_links(&vault, to, &on_disk).await;
-        let _ = refresh_tags(&vault, to, &on_disk).await;
+        let doc = parse_off_executor(&on_disk).await.unwrap_or_default();
+        let _ = refresh_frontmatter_with_doc(&vault, to, &doc).await;
+        let _ = refresh_links_with_doc(&vault, to, &doc).await;
+        let _ = refresh_tags_with_doc(&vault, to, &doc).await;
         let _ = refresh_blocks(&vault, to, &on_disk).await;
         let _ = refresh_block_refs_for_file(&vault, to).await;
 
@@ -684,7 +686,7 @@ pub async fn rename_folder(
                 (mtime, m.len())
             })
             .unwrap_or((0, on_disk.len() as u64));
-        let _ = refresh_search_index(&vault, to, &on_disk, mtime_secs, size_bytes).await;
+        let _ = refresh_search_index_with_doc(&vault, to, &doc, mtime_secs, size_bytes).await;
     }
     let _ = vault.search().commit();
 
@@ -1635,9 +1637,15 @@ mod tests {
         seed_file(&vault, "Daily.md", "markdown").await;
         let body = "uniquetoken body\n";
         std::fs::write(vault.root().join("Daily.md"), body).unwrap();
-        refresh_search_index(&vault, "Daily.md", body, 0, body.len() as u64)
-            .await
-            .unwrap();
+        cubical_core::vault::search_refresh::refresh_search_index(
+            &vault,
+            "Daily.md",
+            body,
+            0,
+            body.len() as u64,
+        )
+        .await
+        .unwrap();
         vault.search().commit().unwrap();
 
         let q = |text: &str| SearchQuery {

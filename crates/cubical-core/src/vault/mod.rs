@@ -11,6 +11,7 @@ pub mod embeds;
 mod frontmatter;
 pub mod links;
 pub mod mentions;
+mod parse;
 pub mod pending;
 pub mod rename_journal;
 mod scan;
@@ -21,12 +22,15 @@ mod watcher;
 
 pub use atomic::atomic_write;
 pub use blocks::{refresh_block_refs_for_file, refresh_blocks};
-pub use frontmatter::refresh_frontmatter;
-pub use links::{extract_links, refresh_links, resolve_target, LinkExtraction};
+pub use frontmatter::{refresh_frontmatter, refresh_frontmatter_with_doc};
+pub use links::{
+    extract_links, refresh_links, refresh_links_with_doc, resolve_target, LinkExtraction,
+};
 pub use mentions::{extract_text_runs, find_mention_occurrences, MentionHit, TextRun};
+pub use parse::parse_off_executor;
 pub use pending::{apply_pending, materialize_on_read};
 pub use scan::{scan, ScanProgress};
-pub use tags::{extract_tags, refresh_tags, TagExtraction};
+pub use tags::{extract_tags, refresh_tags, refresh_tags_with_doc, TagExtraction};
 pub use watcher::{start_watcher, WatchEvent, WatcherHandle};
 
 #[derive(Debug, thiserror::Error)]

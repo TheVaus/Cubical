@@ -1,4 +1,5 @@
 use crate::vault::Vault;
+use cubical_ast::Document;
 use cubical_search::SearchError;
 
 pub async fn refresh_search_index(
@@ -10,6 +11,17 @@ pub async fn refresh_search_index(
 ) -> Result<(), SearchError> {
     let doc = cubical_search::doc::project(rel, source, mtime_secs, size_bytes);
     vault.search().upsert(&doc)
+}
+
+pub async fn refresh_search_index_with_doc(
+    vault: &Vault,
+    rel: &str,
+    doc: &Document,
+    mtime_secs: i64,
+    size_bytes: u64,
+) -> Result<(), SearchError> {
+    let indexed = cubical_search::doc::project_with_doc(rel, doc, mtime_secs, size_bytes);
+    vault.search().upsert(&indexed)
 }
 
 pub async fn delete_search_index(vault: &Vault, rel: &str) -> Result<(), SearchError> {

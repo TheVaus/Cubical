@@ -11,14 +11,14 @@ use walkdir::WalkDir;
 
 use crate::vault::{
     blocks::{refresh_block_refs_for_file, refresh_blocks},
-    frontmatter::refresh_frontmatter,
+    frontmatter::refresh_frontmatter_with_doc,
     links::{
-        extract_links_from_source, keeps_link_row, read_source_off_executor, LinkExtraction,
-        PathResolver,
+        extract_links, keeps_link_row, read_source_off_executor, LinkExtraction, PathResolver,
     },
+    parse::parse_off_executor,
     pending::materialize_on_read,
-    search_refresh::refresh_search_index,
-    tags::refresh_tags,
+    search_refresh::refresh_search_index_with_doc,
+    tags::refresh_tags_with_doc,
     Vault, VaultError,
 };
 
@@ -195,35 +195,44 @@ pub async fn scan(
                 }
             };
 
-            if let Err(e) = refresh_frontmatter(&vault, &path_str, &source).await {
-                tracing::warn!(path = %abs_path.display(), error = %e, "frontmatter refresh failed");
-            }
-            let extractions = extract_links_from_source(&source).await;
-            if !extractions.is_empty() {
-                pending_links.push((path_str.clone(), extractions));
-            }
-            if let Err(e) = refresh_tags(&vault, &path_str, &source).await {
-                tracing::warn!(path = %abs_path.display(), error = %e, "tags refresh failed");
-            }
-            if let Err(e) = refresh_blocks(&vault, &path_str, &source).await {
-                tracing::warn!(path = %abs_path.display(), error = %e, "blocks refresh failed");
-            }
-            if !cancel.is_cancelled() {
-                let search_size_bytes = source.len() as u64;
-                if let Err(e) =
-                    refresh_search_index(&vault, &path_str, &source, mtime_unix, search_size_bytes)
-                        .await
-                {
-                    tracing::warn!(path = %abs_path.display(), error = %e, "search index refresh failed");
+            if let Some(doc) = parse_off_executor(&source).await {
+                if let Err(e) = refresh_frontmatter_with_doc(&vault, &path_str, &doc).await {
+                    tracing::warn!(path = %abs_path.display(), error = %e, "frontmatter refresh failed");
                 }
-                indexed_search_paths.insert(path_str.clone());
-                search_batch_count += 1;
-                if search_batch_count >= SEARCH_COMMIT_EVERY {
-                    if let Err(e) = vault.search().commit() {
-                        tracing::warn!(error = %e, "search index periodic commit failed");
+                let extractions = extract_links(&doc);
+                if !extractions.is_empty() {
+                    pending_links.push((path_str.clone(), extractions));
+                }
+                if let Err(e) = refresh_tags_with_doc(&vault, &path_str, &doc).await {
+                    tracing::warn!(path = %abs_path.display(), error = %e, "tags refresh failed");
+                }
+                if let Err(e) = refresh_blocks(&vault, &path_str, &source).await {
+                    tracing::warn!(path = %abs_path.display(), error = %e, "blocks refresh failed");
+                }
+                if !cancel.is_cancelled() {
+                    let search_size_bytes = source.len() as u64;
+                    if let Err(e) = refresh_search_index_with_doc(
+                        &vault,
+                        &path_str,
+                        &doc,
+                        mtime_unix,
+                        search_size_bytes,
+                    )
+                    .await
+                    {
+                        tracing::warn!(path = %abs_path.display(), error = %e, "search index refresh failed");
                     }
-                    search_batch_count = 0;
+                    indexed_search_paths.insert(path_str.clone());
+                    search_batch_count += 1;
+                    if search_batch_count >= SEARCH_COMMIT_EVERY {
+                        if let Err(e) = vault.search().commit() {
+                            tracing::warn!(error = %e, "search index periodic commit failed");
+                        }
+                        search_batch_count = 0;
+                    }
                 }
+            } else {
+                tracing::warn!(path = %abs_path.display(), "markdown parse failed; derived tables left untouched");
             }
         }
 

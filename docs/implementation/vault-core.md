@@ -100,6 +100,31 @@ decides whether to retry, and the scan and watcher paths log and continue.
 Parsing runs in `spawn_blocking` (CPU-bound); the DB writes stay on the async
 runtime.
 
+### Parse once, fan out
+
+Every refresher pairs up: `refresh_x(vault, path, source)` parses and delegates
+to `refresh_x_with_doc(vault, path, &doc)`. `vault::parse_off_executor` is the
+**single** owner of the `spawn_blocking` parse hop — the refreshers no longer
+each keep a private copy.
+
+Callers holding one file's source (scan, the watcher, both rename paths) parse
+once up front and call the `_with_doc` arm, so a file is parsed **once**, not
+once per consumer. Before this, a scanned file went through `cubical_ast::parse`
+four times — frontmatter, links, tags, and the search projection — plus three
+more `parse_frontmatter` passes inside the projection, each behind its own
+`spawn_blocking` hop and its own full copy of the source. On a 10k-note vault
+(~88 MiB) that was ~25% of cold open+scan: **5.78 s → 4.35 s** median, measured
+release-build on an M1 Pro.
+
+`refresh_blocks` deliberately stays source-only: block IDs are a line scan, not
+an AST walk, so it has no `Document` to share.
+
+The `_with_doc` arms are the load-bearing ones; the source-taking wrappers exist
+for single-file callers that have no `Document` in hand. Both must stay
+behaviourally identical — `parse` and `parse_frontmatter` return the same
+frontmatter for the same source, which is what makes `Document::frontmatter`
+a safe substitute for a second parse.
+
 ### Materialize-on-read
 
 Both write paths read each markdown file **once** and apply any pending

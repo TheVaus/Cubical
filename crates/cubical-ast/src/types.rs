@@ -13,7 +13,7 @@ impl Span {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Document {
     pub frontmatter: Option<Frontmatter>,
     pub blocks: Vec<Block>,

@@ -65,6 +65,12 @@ search-as-you-type prefix matching OR'd with the exact term.
 
 ### Field projection rules
 
+`project_with_doc` is the real projector; `project(path, source, …)` is the
+convenience arm that parses first. Every field — including `title`, `tags` and
+the flattened `frontmatter` string — is read off the passed `Document`, so
+projecting costs **no parse at all** when the caller already has one. See
+[`vault-core.md`](vault-core.md) → Parse once, fan out for who supplies it.
+
 A single walk projects blocks into the field strings:
 
 - `headings` takes ATX heading text only — the walker never descends into
