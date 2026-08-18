@@ -190,6 +190,17 @@ describe("writing", () => {
     expect(reportError).toHaveBeenCalledWith("read-only volume");
     expect(session.isDirty()).toBe(true);
   });
+  it("refuses to flush while a conflict is unresolved", async () => {
+    const { session } = build();
+    session.markDirty();
+    session.applyExternalChange("note.md", "h-external");
+    await settle();
+    expect(session.conflictHash()).toBe("h-external");
+
+    await session.flush();
+
+    expect(wrote).not.toHaveBeenCalled();
+  });
 });
 
 describe("the autosave debounce", () => {
@@ -492,6 +503,17 @@ describe("closing the window", () => {
     const { session } = build();
     session.writeBeforeUnload();
     await settle();
+    expect(wrote).not.toHaveBeenCalled();
+  });
+  it("does not write out over an unresolved conflict", async () => {
+    const { session } = build();
+    session.markDirty();
+    session.applyExternalChange("note.md", "h-external");
+    await settle();
+
+    session.writeBeforeUnload();
+    await settle();
+
     expect(wrote).not.toHaveBeenCalled();
   });
 });

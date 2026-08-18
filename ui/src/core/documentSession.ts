@@ -80,6 +80,7 @@ export function createDocumentSession(
   const autosave = createDebounced(() => void flush(), deps.autosaveDebounceMs);
 
   const flush = async (): Promise<void> => {
+    if (conflictHash() !== null) return;
     autosave.cancel();
     if (!dirty && pendingWrite === null) return;
     const prior = pendingWrite ?? Promise.resolve();
@@ -180,6 +181,7 @@ export function createDocumentSession(
     },
     writeBeforeUnload: () => {
       autosave.cancel();
+      if (conflictHash() !== null) return;
       if (dirty) void performWrite();
     },
   };

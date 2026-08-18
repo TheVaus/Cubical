@@ -66,6 +66,15 @@ flushes, and an external edit arriving mid-conflict.
 Autosave is a single ambient debounce; flush triggers are idle, blur, file
 change, and quit.
 
+**An unresolved conflict suppresses every write path**, not just the debounced
+one. `scheduleWrite`, `flush` and `writeBeforeUnload` all return early while
+`conflictHash` is set, so no blur, tab switch or quit can resolve the banner on
+the user's behalf. The banner exists because the app cannot tell which side
+should win; a path that writes anyway answers that question silently, and always
+in favour of the local buffer. Quitting with a conflict open therefore drops the
+unsaved buffer rather than overwriting the copy on disk — the disk copy is the
+one that cannot be recovered afterwards.
+
 **Seed both hashes when the caller already knows the on-disk hash** (e.g. a
 file it just created). Otherwise the watcher's created-echo arrives as an
 unrecognised external edit and raises a false "changed outside Cubical" banner
