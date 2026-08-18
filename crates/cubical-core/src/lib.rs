@@ -8,6 +8,8 @@ pub use file_type::{
     MarkdownHandler,
 };
 pub use vault::{
-    atomic_write, refresh_block_refs_for_file, refresh_blocks, refresh_frontmatter, refresh_links,
-    refresh_tags, scan, start_watcher, ScanProgress, Vault, VaultError, WatchEvent, WatcherHandle,
+    atomic_write, parse_off_executor, refresh_block_refs_for_file, refresh_blocks,
+    refresh_frontmatter, refresh_frontmatter_with_doc, refresh_links, refresh_links_with_doc,
+    refresh_tags, refresh_tags_with_doc, scan, start_watcher, ScanProgress, Vault, VaultError,
+    WatchEvent, WatcherHandle,
 };

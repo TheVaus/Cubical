@@ -47,6 +47,7 @@ mod tests {
         assert!(doc.frontmatter.is_none());
         assert!(doc.blocks.is_empty());
         assert_eq!(doc.source_len, 0);
+        assert_eq!(doc, Document::default());
     }
 
     #[test]

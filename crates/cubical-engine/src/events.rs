@@ -9,8 +9,9 @@ use cubical_core::vault::links::read_source_off_executor;
 use cubical_core::vault::pending::materialize_on_read;
 use cubical_core::vault::settings::SettingsMap;
 use cubical_core::{
-    refresh_block_refs_for_file, refresh_blocks, refresh_frontmatter, refresh_links, refresh_tags,
-    scan, ScanProgress, Vault, VaultError, WatchEvent,
+    parse_off_executor, refresh_block_refs_for_file, refresh_blocks, refresh_frontmatter_with_doc,
+    refresh_links_with_doc, refresh_tags_with_doc, scan, ScanProgress, Vault, VaultError,
+    WatchEvent,
 };
 use libsql::params;
 use tokio_util::sync::CancellationToken;
@@ -432,13 +433,15 @@ pub(crate) async fn apply_watch_event_to_db(
                     }
                 };
 
-                if let Err(e) = refresh_frontmatter(vault, &path_str, &source).await {
+                let doc = parse_off_executor(&source).await.unwrap_or_default();
+
+                if let Err(e) = refresh_frontmatter_with_doc(vault, &path_str, &doc).await {
                     tracing::warn!(path = %path_str, error = %e, "watcher: frontmatter refresh failed");
                 }
-                if let Err(e) = refresh_links(vault, &path_str, &source).await {
+                if let Err(e) = refresh_links_with_doc(vault, &path_str, &doc).await {
                     tracing::warn!(path = %path_str, error = %e, "watcher: links refresh failed");
                 }
-                if let Err(e) = refresh_tags(vault, &path_str, &source).await {
+                if let Err(e) = refresh_tags_with_doc(vault, &path_str, &doc).await {
                     tracing::warn!(path = %path_str, error = %e, "watcher: tags refresh failed");
                 }
                 if let Err(e) = refresh_blocks(vault, &path_str, &source).await {
@@ -448,10 +451,10 @@ pub(crate) async fn apply_watch_event_to_db(
                     tracing::warn!(path = %path_str, error = %e, "watcher: block_refs refresh failed");
                 }
                 let search_size_bytes = source.len() as u64;
-                if let Err(e) = cubical_core::vault::search_refresh::refresh_search_index(
+                if let Err(e) = cubical_core::vault::search_refresh::refresh_search_index_with_doc(
                     vault,
                     &path_str,
-                    &source,
+                    &doc,
                     mtime,
                     search_size_bytes,
                 )

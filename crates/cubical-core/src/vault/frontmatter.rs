@@ -1,6 +1,7 @@
-use cubical_ast::{parse, Frontmatter};
+use cubical_ast::Document;
 use libsql::params;
 
+use crate::vault::parse::parse_off_executor;
 use crate::vault::Vault;
 
 pub async fn refresh_frontmatter(
@@ -8,12 +9,23 @@ pub async fn refresh_frontmatter(
     rel_path_str: &str,
     source: &str,
 ) -> Result<u32, libsql::Error> {
-    let parsed = match parse_off_executor(source).await {
-        Some(fm) => fm,
+    match parse_off_executor(source).await {
+        Some(doc) => refresh_frontmatter_with_doc(vault, rel_path_str, &doc).await,
         None => {
             delete_rows(vault, rel_path_str).await?;
-            return Ok(0);
+            Ok(0)
         }
+    }
+}
+
+pub async fn refresh_frontmatter_with_doc(
+    vault: &Vault,
+    rel_path_str: &str,
+    doc: &Document,
+) -> Result<u32, libsql::Error> {
+    let Some(parsed) = doc.frontmatter.as_ref() else {
+        delete_rows(vault, rel_path_str).await?;
+        return Ok(0);
     };
 
     let conn = vault.index().connection();
@@ -45,22 +57,6 @@ async fn delete_rows(vault: &Vault, rel_path_str: &str) -> Result<(), libsql::Er
     )
     .await?;
     Ok(())
-}
-
-async fn parse_off_executor(source: &str) -> Option<Frontmatter> {
-    let owned = source.to_string();
-    let result = tokio::task::spawn_blocking(move || {
-        let doc = parse(&owned);
-        doc.frontmatter
-    })
-    .await;
-    match result {
-        Ok(fm) => fm,
-        Err(join_err) => {
-            tracing::warn!(error = %join_err, "frontmatter: parse task join failed");
-            None
-        }
-    }
 }
 
 #[cfg(test)]
