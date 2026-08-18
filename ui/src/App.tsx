@@ -61,7 +61,6 @@ import {
   type FileEntry,
   type RecentVault,
   type ResolvedAnchor,
-  type TabSessionDto,
 } from "./api/ipc";
 import { createVaultSession } from "./core/vaultSession";
 import { resolveGlobal, type Command } from "./core/commands";
@@ -81,7 +80,6 @@ import {
   closeTab,
   dropMissingTabs,
   emptyTabs,
-  isPersistableTab,
   moveTab,
   nextTab,
   openTab,
@@ -91,6 +89,7 @@ import {
   type TabSet,
   type TabView,
 } from "./tabs/tabModel";
+import { fromTabSessionDto, toTabSessionDto } from "./tabs/session";
 import { activateWithFlush, type ActivationDeps } from "./tabs/activation";
 import { liveFileIds, touch } from "./tabs/lru";
 import { errorMessage } from "./errorMessage";
@@ -356,36 +355,10 @@ const App: Component = () => {
   };
   const [tabsReady, setTabsReady] = createSignal(false);
 
-  const toDto = (s: TabSet): TabSessionDto => ({
-    active_id: s.activeId,
-    tabs: s.tabs.filter(isPersistableTab).map((t) => ({
-      id: t.id,
-      kind: t.view.kind,
-      path: t.view.kind === "file" ? t.view.path : null,
-      tag_path: t.view.kind === "tag" ? t.view.tagPath : null,
-    })),
-  });
-
-  const fromDto = (dto: TabSessionDto): TabSet => {
-    const tabs = dto.tabs.flatMap((r) => {
-      const view: TabView | null =
-        r.kind === "file" && r.path !== null
-          ? { kind: "file", path: r.path }
-          : r.kind === "tag" && r.tag_path !== null
-            ? { kind: "tag", tagPath: r.tag_path }
-            : null;
-      return view === null ? [] : [{ id: tabId(view), view }];
-    });
-    const activeId = tabs.some((t) => t.id === dto.active_id)
-      ? dto.active_id
-      : (tabs[0]?.id ?? null);
-    return { tabs, activeId };
-  };
-
   const restoreTabs = async (path: string) => {
     try {
       const dto = await loadTabSession(path);
-      let restored = fromDto(dto);
+      let restored = fromTabSessionDto(dto);
       if (scanStatus() === "complete") {
         const present = new Set(files().map((f) => f.path));
         restored = dropMissingTabs(restored, (p) => present.has(p));
@@ -404,7 +377,7 @@ const App: Component = () => {
   createEffect(() => {
     const path = vaultPath();
     const ready = tabsReady();
-    const snapshot = toDto(tabs());
+    const snapshot = toTabSessionDto(tabs());
     if (path === null || !ready) return;
     void saveTabSession(path, snapshot);
   });
