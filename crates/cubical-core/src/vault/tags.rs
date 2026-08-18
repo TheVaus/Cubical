@@ -1,6 +1,7 @@
-use cubical_ast::{parse, Block, Document, Inline, ListItem};
+use cubical_ast::{Block, Document, Inline, ListItem};
 use cubical_index::{replace_tags_for_file, TagRow, TagSource};
 
+use crate::vault::parse::parse_off_executor;
 use crate::vault::Vault;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -127,7 +128,22 @@ pub async fn refresh_tags(
         Some(doc) => extract_tags(&doc),
         None => Vec::new(),
     };
+    write_rows(vault, rel_path_str, extractions).await
+}
 
+pub async fn refresh_tags_with_doc(
+    vault: &Vault,
+    rel_path_str: &str,
+    doc: &Document,
+) -> Result<u32, libsql::Error> {
+    write_rows(vault, rel_path_str, extract_tags(doc)).await
+}
+
+async fn write_rows(
+    vault: &Vault,
+    rel_path_str: &str,
+    extractions: Vec<TagExtraction>,
+) -> Result<u32, libsql::Error> {
     let rows: Vec<TagRow> = extractions
         .into_iter()
         .map(|e| TagRow {
@@ -143,18 +159,6 @@ pub async fn refresh_tags(
     Ok(inserted)
 }
 
-async fn parse_off_executor(source: &str) -> Option<Document> {
-    let owned = source.to_string();
-    let result = tokio::task::spawn_blocking(move || parse(&owned)).await;
-    match result {
-        Ok(doc) => Some(doc),
-        Err(join_err) => {
-            tracing::warn!(error = %join_err, "tags: parse task join failed");
-            None
-        }
-    }
-}
-
 fn map_index_err(e: cubical_index::IndexError) -> libsql::Error {
     match e {
         cubical_index::IndexError::LibSql(inner) => inner,
@@ -165,6 +169,7 @@ fn map_index_err(e: cubical_index::IndexError) -> libsql::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cubical_ast::parse;
 
     #[test]
     fn extracts_a_single_inline_tag() {

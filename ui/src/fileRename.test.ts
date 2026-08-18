@@ -1,6 +1,32 @@
 import { describe, expect, it } from "vitest";
 
-import { validateRenameTarget, reprefixNestedPath } from "./fileRename";
+import {
+  validateRenameTarget,
+  reprefixNestedPath,
+  renameTarget,
+} from "./fileRename";
+
+describe("renameTarget", () => {
+  it("keeps a nested file in its own folder", () => {
+    expect(renameTarget("projects/a.md", "b.md")).toBe("projects/b.md");
+  });
+
+  it("returns a bare name for a file at the vault root", () => {
+    expect(renameTarget("a.md", "b.md")).toBe("b.md");
+  });
+
+  it("trims what was typed", () => {
+    expect(renameTarget("projects/a.md", "  b.md  ")).toBe("projects/b.md");
+  });
+
+  it("keeps a nested folder under its parent", () => {
+    expect(renameTarget("work/notes", "archive")).toBe("work/archive");
+  });
+
+  it("keeps the deepest directory when the path nests several levels", () => {
+    expect(renameTarget("a/b/c/d.md", "e.md")).toBe("a/b/c/e.md");
+  });
+});
 
 describe("validateRenameTarget", () => {
   it("rejects an empty target", () => {

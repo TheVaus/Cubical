@@ -190,6 +190,17 @@ describe("writing", () => {
     expect(reportError).toHaveBeenCalledWith("read-only volume");
     expect(session.isDirty()).toBe(true);
   });
+  it("refuses to flush while a conflict is unresolved", async () => {
+    const { session } = build();
+    session.markDirty();
+    session.applyExternalChange("note.md", "h-external");
+    await settle();
+    expect(session.conflictHash()).toBe("h-external");
+
+    await session.flush();
+
+    expect(wrote).not.toHaveBeenCalled();
+  });
 });
 
 describe("the autosave debounce", () => {
@@ -328,6 +339,36 @@ describe("an external change to the open file", () => {
     expect(editor.replaceContent).not.toHaveBeenCalled();
     expect(read).not.toHaveBeenCalled();
   });
+  it("does not reload a second external change once a conflict is open and the buffer has gone clean", async () => {
+    const { session, editor } = build();
+    let resolveWrite: (v: unknown) => void = () => {};
+    wrote.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          resolveWrite = r;
+        }),
+    );
+
+    session.markDirty();
+    const inFlight = session.flush();
+    await settle();
+
+    session.applyExternalChange("note.md", "h-first");
+    resolveWrite({ new_content_hash: "h-written" });
+    await inFlight;
+    await settle();
+
+    expect(session.isDirty()).toBe(false);
+    expect(session.conflictHash()).toBe("h-first");
+
+    read.mockClear();
+    session.applyExternalChange("note.md", "h-second");
+    await settle();
+
+    expect(session.conflictHash()).toBe("h-second");
+    expect(read).not.toHaveBeenCalled();
+    expect(editor.replaceContent).not.toHaveBeenCalled();
+  });
 });
 
 describe("resolving a conflict", () => {
@@ -457,6 +498,32 @@ describe("reset, on switching documents", () => {
     expect(session.conflictHash()).toBeNull();
     expect(session.isDirty()).toBe(false);
   });
+  it("ignores the tail of a write that lands after the reset", async () => {
+    const { session, onWritten } = build();
+    let resolveWrite: (v: unknown) => void = () => {};
+    wrote.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          resolveWrite = r;
+        }),
+    );
+
+    session.markDirty();
+    const inFlight = session.flush();
+    await settle();
+
+    session.reset();
+    resolveWrite({ new_content_hash: "h-outgoing" });
+    await inFlight;
+    await settle();
+
+    expect(onWritten).not.toHaveBeenCalled();
+
+    session.markDirty();
+    await session.flush();
+
+    expect(seenHashOfLastWrite()).toBeUndefined();
+  });
 });
 
 describe("cancelScheduledWrite", () => {
@@ -492,6 +559,17 @@ describe("closing the window", () => {
     const { session } = build();
     session.writeBeforeUnload();
     await settle();
+    expect(wrote).not.toHaveBeenCalled();
+  });
+  it("does not write out over an unresolved conflict", async () => {
+    const { session } = build();
+    session.markDirty();
+    session.applyExternalChange("note.md", "h-external");
+    await settle();
+
+    session.writeBeforeUnload();
+    await settle();
+
     expect(wrote).not.toHaveBeenCalled();
   });
 });

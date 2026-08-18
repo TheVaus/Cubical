@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use cubical_ast::{parse, Anchor, Block, Document, Inline, ListItem};
+use cubical_ast::{Anchor, Block, Document, Inline, ListItem};
 use cubical_index::{replace_links_for_file, LinkRow};
 
+use crate::vault::parse::parse_off_executor;
 use crate::vault::Vault;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -107,7 +108,22 @@ pub async fn refresh_links(
         Some(doc) => extract_links(&doc),
         None => Vec::new(),
     };
+    write_rows(vault, rel_path_str, extractions).await
+}
 
+pub async fn refresh_links_with_doc(
+    vault: &Vault,
+    rel_path_str: &str,
+    doc: &Document,
+) -> Result<u32, libsql::Error> {
+    write_rows(vault, rel_path_str, extract_links(doc)).await
+}
+
+async fn write_rows(
+    vault: &Vault,
+    rel_path_str: &str,
+    extractions: Vec<LinkExtraction>,
+) -> Result<u32, libsql::Error> {
     let files = list_known_paths(vault).await?;
     let rows: Vec<LinkRow> = extractions
         .into_iter()
@@ -152,25 +168,6 @@ async fn list_known_paths(vault: &Vault) -> Result<Vec<String>, libsql::Error> {
         out.push(s);
     }
     Ok(out)
-}
-
-async fn parse_off_executor(source: &str) -> Option<Document> {
-    let owned = source.to_string();
-    let result = tokio::task::spawn_blocking(move || parse(&owned)).await;
-    match result {
-        Ok(doc) => Some(doc),
-        Err(join_err) => {
-            tracing::warn!(error = %join_err, "links: parse task join failed");
-            None
-        }
-    }
-}
-
-pub(crate) async fn extract_links_from_source(source: &str) -> Vec<LinkExtraction> {
-    match parse_off_executor(source).await {
-        Some(doc) => extract_links(&doc),
-        None => Vec::new(),
-    }
 }
 
 pub async fn read_source_off_executor(abs_path: &Path) -> Option<String> {
@@ -271,6 +268,7 @@ impl PathResolver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cubical_ast::parse;
 
     #[test]
     fn path_resolver_matches_resolve_target_semantics() {
@@ -303,18 +301,17 @@ mod tests {
         assert_eq!(r.resolve("nope"), None);
     }
 
-    #[tokio::test]
-    async fn extract_links_from_source_returns_occurrences_without_db() {
-        let got = extract_links_from_source("see [[b]] and [[c|display]] plus ![[d]]\n").await;
+    #[test]
+    fn extract_links_returns_occurrences_without_db() {
+        let got = extract_links(&parse("see [[b]] and [[c|display]] plus ![[d]]\n"));
         let targets: Vec<&str> = got.iter().map(|e| e.target_raw.as_str()).collect();
         assert_eq!(targets, vec!["b", "c", "d"]);
         assert!(got.iter().any(|e| e.is_embed));
     }
 
-    #[tokio::test]
-    async fn extract_links_from_source_empty_input_returns_empty() {
-        let got = extract_links_from_source("").await;
-        assert!(got.is_empty());
+    #[test]
+    fn extract_links_empty_input_returns_empty() {
+        assert!(extract_links(&parse("")).is_empty());
     }
 
     #[test]

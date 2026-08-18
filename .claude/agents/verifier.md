@@ -34,12 +34,14 @@ scripts/check.sh            # the gate. Capture the real exit code.
 `scripts/check.sh | tail` reports `tail`'s status, not the gate's. Run it bare
 or redirect to a file and echo `$?`.
 
-The gate can exit **early**: `cubical-core`'s
-`dropping_handle_stops_event_delivery_within_100ms` flakes (issue #52) and
-`set -e` aborts the script there, so the crates and gate scripts after it never
-run. A run that stopped there is **not** a green run. Re-run the remainder
-explicitly, or report that coverage was incomplete. Do not repeat "gate green"
-on the strength of a run you did not see finish.
+The gate can exit **early**: `set -e` aborts at the first failure, so every
+stage after it never runs. A run that stopped partway is **not** a green run,
+and it is indistinguishable from a green one unless you check — the last line of
+a complete run is `All gates green.`
+
+There is no standing exemption for a "known flake". The one that used to abort
+this script was fixed; a red gate now means a real failure, and reporting it as
+expected noise is the failure mode this role exists to prevent.
 
 ## What to report
 

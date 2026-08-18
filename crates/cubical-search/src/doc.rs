@@ -1,4 +1,4 @@
-use cubical_ast::{frontmatter::parse_frontmatter, parse, Block, Document, Inline};
+use cubical_ast::{parse, Block, Document, Inline};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct IndexDoc {
@@ -15,12 +15,16 @@ pub struct IndexDoc {
 
 #[must_use]
 pub fn project(path: &str, source: &str, mtime_secs: i64, size_bytes: u64) -> IndexDoc {
-    let doc = parse(source);
-    let title = derive_title(path, &doc, source);
+    project_with_doc(path, &parse(source), mtime_secs, size_bytes)
+}
+
+#[must_use]
+pub fn project_with_doc(path: &str, doc: &Document, mtime_secs: i64, size_bytes: u64) -> IndexDoc {
+    let title = derive_title(path, doc);
     let mut walker = Walker::default();
     walker.walk_blocks(&doc.blocks);
-    let tags = collect_tags(&doc, source, &walker.tags);
-    let frontmatter = flatten_frontmatter(source);
+    let tags = collect_tags(doc, &walker.tags);
+    let frontmatter = flatten_frontmatter(doc);
     let headings = walker.finish_headings();
     let body = walker.finish_body();
     let code = walker.finish_code();
@@ -37,8 +41,8 @@ pub fn project(path: &str, source: &str, mtime_secs: i64, size_bytes: u64) -> In
     }
 }
 
-fn derive_title(path: &str, _doc: &Document, source: &str) -> String {
-    if let Some(fm) = parse_frontmatter(source) {
+fn derive_title(path: &str, doc: &Document) -> String {
+    if let Some(fm) = &doc.frontmatter {
         if let Some(t) = fm.get_string("title") {
             return t.to_string();
         }
@@ -47,9 +51,9 @@ fn derive_title(path: &str, _doc: &Document, source: &str) -> String {
     stem.strip_suffix(".md").unwrap_or(stem).to_string()
 }
 
-fn collect_tags(_doc: &Document, source: &str, body_tags: &[String]) -> Vec<String> {
+fn collect_tags(doc: &Document, body_tags: &[String]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
-    if let Some(fm) = parse_frontmatter(source) {
+    if let Some(fm) = &doc.frontmatter {
         for t in fm.get_string_list("tags") {
             out.push(t.to_lowercase());
         }
@@ -62,8 +66,8 @@ fn collect_tags(_doc: &Document, source: &str, body_tags: &[String]) -> Vec<Stri
     out
 }
 
-fn flatten_frontmatter(source: &str) -> String {
-    let Some(fm) = parse_frontmatter(source) else {
+fn flatten_frontmatter(doc: &Document) -> String {
+    let Some(fm) = &doc.frontmatter else {
         return String::new();
     };
     let mut buf = String::new();
@@ -280,6 +284,24 @@ impl Walker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn project_with_doc_matches_project_on_the_same_source() {
+        let sources = [
+            "",
+            "plain prose only\n",
+            "---\ntitle: T\ntags: [A, b/c]\nauthor: jane\nn: 3\n---\n\n# H1\n\nbody [[link|alias]] ![[img.png]] #inline/tag\n\n```rs\nfn f() {}\n```\n",
+            "---\ntitle: : :\n  - bad\n---\n\nmalformed frontmatter body\n",
+            "> quote with #q\n\n- item [[a]]\n- item `code`\n",
+        ];
+        for src in sources {
+            assert_eq!(
+                project_with_doc("notes/x.md", &parse(src), 7, 11),
+                project("notes/x.md", src, 7, 11),
+                "projection diverged for {src:?}"
+            );
+        }
+    }
 
     #[test]
     fn title_uses_frontmatter_when_present() {

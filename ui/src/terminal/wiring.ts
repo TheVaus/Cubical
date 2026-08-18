@@ -10,7 +10,7 @@ import {
 } from "../api/ipc";
 import type { Command } from "../core/commands";
 import { corePluginEnabled } from "../settings/corePlugins";
-import { openTab, type TabSet } from "../tabs/tabModel";
+import { canOpenTab, openTab, type TabSet } from "../tabs/tabModel";
 import { createConsentGate } from "./consent";
 import {
   TERMINAL_COMMAND_ID,
@@ -83,10 +83,12 @@ export function createTerminalWiring(deps: TerminalWiringDeps): TerminalWiring {
   const open = () => {
     const vaultId = deps.vaultId();
     if (vaultId === null || !enabled()) return;
+    const view = terminalView(String(nextKey + 1));
+    if (!canOpenTab(deps.tabs(), view)) return;
     void (async () => {
       await deps.flushAutosave();
       nextKey += 1;
-      deps.setTabs((s) => openTab(s, terminalView(String(nextKey))));
+      deps.setTabs((s) => openTab(s, view));
       await offerConsent(vaultId);
     })();
   };
