@@ -18,7 +18,7 @@ impl VaultLockGuard {
 
 impl Drop for VaultLockGuard {
     fn drop(&mut self) {
-        use fs4::FileExt;
+        use fs4::fs_std::FileExt;
         let _ = std::fs::remove_file(&self.owner_path);
         let _ = FileExt::unlock(&self.file);
     }
@@ -52,7 +52,7 @@ pub(crate) fn acquire_in(
     canonical_vault_path: &Path,
     socket_path: Option<&str>,
 ) -> io::Result<Acquire> {
-    use fs4::FileExt;
+    use fs4::fs_std::FileExt;
 
     std::fs::create_dir_all(dir)?;
     let lock_path = dir.join(lock_filename(canonical_vault_path));
@@ -66,7 +66,7 @@ pub(crate) fn acquire_in(
     let owner_path = lock_path.with_extension("owner");
 
     match file.try_lock_exclusive() {
-        Ok(()) => {
+        Ok(true) => {
             write_payload(&owner_path, canonical_vault_path, socket_path)?;
             Ok(Acquire::Acquired(VaultLockGuard {
                 file,
@@ -74,7 +74,7 @@ pub(crate) fn acquire_in(
                 owner_path,
             }))
         }
-        Err(e) if is_already_held(&e) => {
+        Ok(false) => {
             let owner = read_owner(&owner_path).unwrap_or(LockOwner {
                 pid: 0,
                 socket_path: None,
@@ -83,12 +83,6 @@ pub(crate) fn acquire_in(
         }
         Err(e) => Err(e),
     }
-}
-
-fn is_already_held(e: &io::Error) -> bool {
-    e.kind() == io::ErrorKind::WouldBlock
-        || (e.raw_os_error().is_some()
-            && e.raw_os_error() == fs4::lock_contended_error().raw_os_error())
 }
 
 fn write_payload(
