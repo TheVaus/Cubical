@@ -40,11 +40,14 @@ These are what a model's priors override, so they are stated as prohibitions:
 pieces**, and capture the real exit code — `scripts/check.sh | tail` reports
 `tail`'s status, not the gate's.
 
-One known flake aborts it: `cubical-core`'s
-`dropping_handle_stops_event_delivery_within_100ms` (issue #52). Because
-`set -e` stops the script there, everything after it does not run. If you hit
-it, re-run the remaining crates and the gate scripts **explicitly** before
-claiming green, and say in your report that you did.
+`set -e` stops the script at the first failure, so a stage that never ran looks
+exactly like a stage that passed. Check that the run reached the end: the last
+line of a good run is `All gates green.` If it stopped early, the gates after
+that point are **unknown**, not passing.
+
+There is no standing exemption. The workspace has no known flaky test — the one
+that used to abort this script was fixed, and a red gate now means a real
+failure. Do not report green on a run you did not see finish.
 
 ## Committing
 
