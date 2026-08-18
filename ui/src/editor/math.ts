@@ -46,6 +46,9 @@ export const mathBlockRenderer: BlockRenderer = {
   languages: ["math", "latex", "katex"],
   frameClass: "cm-block-frame cm-math-frame",
   estimatedHeight: 48,
+  completions: [
+    { language: "math", detail: "Math", aliases: ["latex", "katex"] },
+  ],
   active: (state) => state.facet(mathEnabledFacet),
   render: (source) => renderMath(source, { displayMode: true }),
 };
