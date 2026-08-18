@@ -18,8 +18,6 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 
 import Button from "@ds/components/forms/Button/Button";
 import IconButton from "@ds/components/forms/IconButton/IconButton";
-import Menu, { type MenuItem } from "@ds/components/overlay/Menu/Menu";
-import Modal from "@ds/components/overlay/Modal/Modal";
 import Icon from "@ds/components/graphics/Icon/Icon";
 
 import Editor, { type EditorApi } from "./Editor";
@@ -107,21 +105,16 @@ import {
   createPropertyResolver,
   type PropertyResolver,
 } from "./editor/propertyResolver";
-import { isValidNoteName, noteNameError } from "./vault/noteName";
 import { createDataviewRunner, type DataviewRunner } from "./editor/dataview";
 import {
   createAutocompleteProvider,
   type AutocompleteProvider,
 } from "./editor/autocompleteProvider";
-import { computeWindow } from "./virtualList";
-import {
-  buildFileTree,
-  buildStableTreeRows,
-  countFilesUnderFolder,
-  splitFileName,
-  type FlatRow,
-} from "./explorer/fileTree";
+import { buildFileTree, countFilesUnderFolder } from "./explorer/fileTree";
 import { createFileActions } from "./explorer/fileActions";
+import FileTreePanel from "./explorer/FileTreePanel";
+import FileContextMenu from "./explorer/FileContextMenu";
+import DeleteDialog from "./explorer/DeleteDialog";
 import { buildBlockRefLink } from "./editor/blockRef";
 import { formatBrokenBlockRefs } from "./statusbar/brokenRefs";
 import { formatPendingRewrites } from "./statusbar/pendingRewritesLabel";
@@ -149,9 +142,6 @@ import { corePluginOn } from "./settings/corePlugins";
 import { VaultSwitcher } from "./VaultSwitcher";
 
 const AUTOSAVE_DEBOUNCE_MS = 300;
-
-const FILE_ROW_HEIGHT = 32;
-const FILE_LIST_OVERSCAN = 8;
 
 const App: Component = () => {
   const {
@@ -208,41 +198,6 @@ const App: Component = () => {
   const propertiesFrontmatter = () => activeSummary()?.frontmatter ?? null;
   const blockCount = () => activeSummary()?.blocks ?? 0;
   const wordCount = () => activeSummary()?.words ?? 0;
-
-  const [scrollTop, setScrollTop] = createSignal(0);
-  const [viewportHeight, setViewportHeight] = createSignal(600);
-  const [collapsedFolders, setCollapsedFolders] = createSignal<Set<string>>(
-    new Set(),
-  );
-  const toggleFolder = (path: string) =>
-    setCollapsedFolders((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
-  let prevTreeRows: FlatRow[] = [];
-  const treeRows = createMemo<FlatRow[]>(() => {
-    prevTreeRows = buildStableTreeRows(
-      prevTreeRows,
-      files(),
-      folders(),
-      collapsedFolders(),
-    );
-    return prevTreeRows;
-  });
-  const fileWindow = createMemo(() =>
-    computeWindow(
-      scrollTop(),
-      viewportHeight(),
-      FILE_ROW_HEIGHT,
-      treeRows().length,
-      FILE_LIST_OVERSCAN,
-    ),
-  );
-  const visibleRows = createMemo(() =>
-    treeRows().slice(fileWindow().startIndex, fileWindow().endIndex),
-  );
 
   const [wikilinkResolver, setWikilinkResolver] =
     createSignal<WikiLinkResolver | null>(null);
@@ -665,12 +620,6 @@ const App: Component = () => {
     void handleRenameCommit(fromPath, target);
   };
 
-  const renameTarget = (fromPath: string, basename: string) => {
-    const i = fromPath.lastIndexOf("/");
-    const dir = i >= 0 ? fromPath.slice(0, i + 1) : "";
-    return dir + basename.trim();
-  };
-
   const handleContentChange = (_content: string) => {
     doc.markDirty();
     doc.scheduleWrite();
@@ -898,52 +847,6 @@ const App: Component = () => {
       const message = errorMessage(e);
       setError(message);
     }
-  };
-
-  const buildContextMenuItems = (menu: {
-    kind: "file" | "folder" | "empty";
-    path: string;
-  }): MenuItem[] => {
-    const items: MenuItem[] = [];
-    if (menu.kind !== "file") {
-      items.push({
-        id: "new-file",
-        label: "New File",
-        onSelect: () => {
-          fileActions.closeContextMenu();
-          void fileActions.newFileInTree(menu.path);
-        },
-      });
-      items.push({
-        id: "new-folder",
-        label: "New Folder",
-        onSelect: () => {
-          fileActions.closeContextMenu();
-          void fileActions.newFolderInTree(menu.path);
-        },
-      });
-    }
-    if (menu.kind !== "empty") {
-      items.push({
-        id: "rename",
-        label: "Rename…",
-        onSelect: () => {
-          fileActions.closeContextMenu();
-          fileActions.startRename(menu.path);
-        },
-      });
-      items.push({
-        id: "delete",
-        label: "Delete…",
-        danger: true,
-        onSelect: () => {
-          const kind = menu.kind === "folder" ? "folder" : "file";
-          fileActions.closeContextMenu();
-          fileActions.requestDelete(menu.path, kind);
-        },
-      });
-    }
-    return items;
   };
 
   onMount(async () => {
@@ -1305,315 +1208,17 @@ const App: Component = () => {
                 onNavigate={(path) => void handleNavigateWikilink(path, null)}
                 refreshSignal={searchRefreshTick()}
               >
-                <div
-                  class="tree-header"
-                  style={{
-                    display: "flex",
-                    "align-items": "center",
-                    "justify-content": "space-between",
-                    gap: "var(--space-2)",
-                    padding: "var(--space-1) var(--space-2)",
-                  }}
-                >
-                  <span
-                    style={{
-                      "font-size": "var(--text-xs)",
-                      "text-transform": "uppercase",
-                      "letter-spacing": "0.05em",
-                      color: "var(--c-fg-muted)",
-                    }}
-                  >
-                    Files
-                  </span>
-                  <span style={{ display: "flex", gap: "var(--space-1)" }}>
-                    <IconButton
-                      label="New file"
-                      size="sm"
-                      disabled={!vaultId()}
-                      onClick={() => void fileActions.newFile("")}
-                      style={{ "font-size": "var(--text-sm)" }}
-                    >
-                      <Icon name="plus" />
-                    </IconButton>
-                    <IconButton
-                      label="New folder"
-                      size="sm"
-                      disabled={!vaultId()}
-                      onClick={() => void fileActions.newFolder("")}
-                      style={{ "font-size": "var(--text-sm)" }}
-                    >
-                      <Icon name="folder-plus" />
-                    </IconButton>
-                  </span>
-                </div>
-                <div
-                  role="listbox"
-                  aria-label="Vault files"
-                  ref={(el) => setViewportHeight(el.clientHeight || 600)}
-                  onScroll={(e) => {
-                    setScrollTop(e.currentTarget.scrollTop);
-                    setViewportHeight(e.currentTarget.clientHeight);
-                  }}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    fileActions.openContextMenu({
-                      kind: "empty",
-                      path: "",
-                      x: e.clientX,
-                      y: e.clientY,
-                    });
-                  }}
-                  style={{
-                    "overflow-y": "auto",
-                    position: "relative",
-                    flex: 1,
-                    "min-height": 0,
-                    "min-width": 0,
-                  }}
-                >
-                  <Show
-                    when={treeRows().length > 0}
-                    fallback={
-                      <div
-                        style={{
-                          padding: "var(--space-3)",
-                          "font-size": "var(--text-sm)",
-                          color: "var(--c-fg-muted)",
-                        }}
-                      >
-                        No files yet…
-                      </div>
-                    }
-                  >
-                    <div
-                      style={{
-                        height: `${fileWindow().totalHeight}px`,
-                        position: "relative",
-                      }}
-                    >
-                      <div
-                        style={{
-                          transform: `translateY(${fileWindow().offsetY}px)`,
-                        }}
-                      >
-                        <For each={visibleRows()}>
-                          {(row) => {
-                            const folderPad = `calc(var(--space-2) + ${row.depth} * var(--space-4))`;
-                            if (row.kind === "folder") {
-                              const isRenamingFolder = () =>
-                                fileActions.renamingPath() === row.path;
-                              return (
-                                <div
-                                  class="tree-row tree-row--folder"
-                                  role="treeitem"
-                                  aria-expanded={!row.collapsed}
-                                  style={{
-                                    height: `${FILE_ROW_HEIGHT}px`,
-                                    "padding-left": folderPad,
-                                  }}
-                                  onClick={() => {
-                                    if (isRenamingFolder()) return;
-                                    toggleFolder(row.path);
-                                  }}
-                                  onContextMenu={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    fileActions.openContextMenu({
-                                      kind: "folder",
-                                      path: row.path,
-                                      x: e.clientX,
-                                      y: e.clientY,
-                                    });
-                                  }}
-                                >
-                                  <span class="tree-row__twisty">
-                                    <Icon
-                                      name={
-                                        row.collapsed
-                                          ? "chevron-right"
-                                          : "chevron-down"
-                                      }
-                                      size={14}
-                                    />
-                                  </span>
-                                  <Show
-                                    when={isRenamingFolder()}
-                                    fallback={
-                                      <span class="tree-row__name">
-                                        {row.name}
-                                      </span>
-                                    }
-                                  >
-                                    <input
-                                      type="text"
-                                      class="tree-row__input"
-                                      value={row.name}
-                                      autofocus
-                                      onClick={(e) => e.stopPropagation()}
-                                      onKeyDown={(e) => {
-                                        if (e.key === "Enter") {
-                                          e.preventDefault();
-                                          void handleRenameCommit(
-                                            row.path,
-                                            renameTarget(
-                                              row.path,
-                                              e.currentTarget.value,
-                                            ),
-                                            true,
-                                          );
-                                        } else if (e.key === "Escape") {
-                                          e.preventDefault();
-                                          fileActions.startRename(null);
-                                        }
-                                      }}
-                                      onBlur={(e) =>
-                                        void handleRenameCommit(
-                                          row.path,
-                                          renameTarget(
-                                            row.path,
-                                            e.currentTarget.value,
-                                          ),
-                                          true,
-                                        )
-                                      }
-                                    />
-                                  </Show>
-                                </div>
-                              );
-                            }
-                            const isMarkdown = row.typeId === "markdown";
-                            const isUnsupported =
-                              !isMarkdown && !hasViewer(row.path);
-                            const isSelected = () =>
-                              selectedPath() === row.path;
-                            const isRenaming = () =>
-                              fileActions.renamingPath() === row.path;
-                            const parts = () => splitFileName(row.name);
-                            return (
-                              <div
-                                class="tree-row tree-row--file"
-                                classList={{
-                                  "tree-row--selected": isSelected(),
-                                  "tree-row--unsupported": isUnsupported,
-                                }}
-                                role="option"
-                                aria-selected={isSelected()}
-                                style={{
-                                  height: `${FILE_ROW_HEIGHT}px`,
-                                  "padding-left": `calc(${folderPad} + 1rem + var(--space-1))`,
-                                }}
-                                onClick={() => {
-                                  if (isRenaming()) return;
-                                  const entry = files().find(
-                                    (f) => f.path === row.path,
-                                  );
-                                  if (entry) void handleSelectFile(entry);
-                                }}
-                                onContextMenu={(e) => {
-                                  if (!isMarkdown) return;
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  fileActions.openContextMenu({
-                                    kind: "file",
-                                    path: row.path,
-                                    x: e.clientX,
-                                    y: e.clientY,
-                                  });
-                                }}
-                              >
-                                <Show
-                                  when={isRenaming()}
-                                  fallback={
-                                    <span
-                                      class="tree-row__name"
-                                      classList={{
-                                        "tree-row__name--dotted":
-                                          isMarkdown &&
-                                          !isValidNoteName(row.name),
-                                        "tree-row__name--unsupported":
-                                          isUnsupported,
-                                      }}
-                                      title={
-                                        isMarkdown && !isValidNoteName(row.name)
-                                          ? noteNameError(row.name)
-                                          : isUnsupported
-                                            ? `Cubical has no viewer for .${splitFileName(row.name).ext} files — the file is untouched on disk.`
-                                            : undefined
-                                      }
-                                    >
-                                      {parts().stem}
-                                      <Show when={parts().ext !== ""}>
-                                        <span class="tree-row__ext">
-                                          .{parts().ext}
-                                        </span>
-                                      </Show>
-                                      <Show
-                                        when={
-                                          isMarkdown &&
-                                          !isValidNoteName(row.name)
-                                        }
-                                      >
-                                        <span
-                                          class="tree-row__dotted-badge"
-                                          aria-hidden="true"
-                                        >
-                                          {" "}
-                                          <Icon name="warning" />
-                                        </span>
-                                      </Show>
-                                      <Show when={isUnsupported}>
-                                        <span
-                                          class="tree-row__unsupported-badge"
-                                          aria-label="Unsupported file"
-                                          role="img"
-                                        >
-                                          {" "}
-                                          <Icon name="info" />
-                                        </span>
-                                      </Show>
-                                    </span>
-                                  }
-                                >
-                                  <input
-                                    type="text"
-                                    class="tree-row__input"
-                                    value={row.name}
-                                    autofocus
-                                    onClick={(e) => e.stopPropagation()}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter") {
-                                        e.preventDefault();
-                                        void handleRenameCommit(
-                                          row.path,
-                                          renameTarget(
-                                            row.path,
-                                            e.currentTarget.value,
-                                          ),
-                                        );
-                                      } else if (e.key === "Escape") {
-                                        e.preventDefault();
-                                        fileActions.startRename(null);
-                                      }
-                                    }}
-                                    onBlur={(e) =>
-                                      void handleRenameCommit(
-                                        row.path,
-                                        renameTarget(
-                                          row.path,
-                                          e.currentTarget.value,
-                                        ),
-                                      )
-                                    }
-                                  />
-                                </Show>
-                              </div>
-                            );
-                          }}
-                        </For>
-                      </div>
-                    </div>
-                  </Show>
-                </div>
+                <FileTreePanel
+                  files={files()}
+                  folders={folders()}
+                  vaultId={vaultId()}
+                  selectedPath={selectedPath()}
+                  actions={fileActions}
+                  onSelectFile={(entry) => void handleSelectFile(entry)}
+                  onRenameCommit={(from, target, isFolder) =>
+                    void handleRenameCommit(from, target, isFolder)
+                  }
+                />
               </SearchPanel>
               <div class="side__footer">
                 <div class="vault-switcher-anchor">
@@ -2188,94 +1793,9 @@ const App: Component = () => {
         </footer>
       </Show>
 
-      <Show when={fileActions.contextMenu()}>
-        {(menu) => (
-          <>
-            <div
-              onClick={() => fileActions.closeContextMenu()}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                fileActions.closeContextMenu();
-              }}
-              style={{
-                position: "fixed",
-                inset: 0,
-                "z-index": 12,
-                background: "transparent",
-              }}
-            />
-            <div
-              style={{
-                position: "fixed",
-                top: `${menu().y}px`,
-                left: `${menu().x}px`,
-                "z-index": 13,
-              }}
-            >
-              <Menu items={buildContextMenuItems(menu())} />
-            </div>
-          </>
-        )}
-      </Show>
+      <FileContextMenu actions={fileActions} />
 
-      <Show when={fileActions.deleteTarget()}>
-        {(target) => (
-          <Modal
-            open={true}
-            size="sm"
-            placement="center"
-            ariaLabel="Confirm delete"
-            onClose={() => {
-              if (!fileActions.deleteInFlight()) fileActions.cancelDelete();
-            }}
-          >
-            <div
-              style={{
-                padding: "var(--space-4)",
-                display: "flex",
-                "flex-direction": "column",
-                gap: "var(--space-3)",
-              }}
-            >
-              <p
-                style={{
-                  margin: 0,
-                  "font-size": "var(--text-sm)",
-                  color: "var(--c-fg-primary)",
-                }}
-              >
-                {target().kind === "folder"
-                  ? `Delete "${target().path}" and its ${target().fileCount} file${
-                      target().fileCount === 1 ? "" : "s"
-                    }?`
-                  : `Delete "${target().path}"?`}
-              </p>
-              <div
-                style={{
-                  display: "flex",
-                  "justify-content": "flex-end",
-                  gap: "var(--space-2)",
-                }}
-              >
-                <Button
-                  variant="secondary"
-                  disabled={fileActions.deleteInFlight()}
-                  onClick={() => fileActions.cancelDelete()}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  variant="danger"
-                  disabled={fileActions.deleteInFlight()}
-                  onClick={() => void fileActions.confirmDelete()}
-                >
-                  {fileActions.deleteInFlight() ? "Deleting…" : "Delete"}
-                </Button>
-              </div>
-            </div>
-          </Modal>
-        )}
-      </Show>
+      <DeleteDialog actions={fileActions} />
 
       <TerminalConsentDialog
         prompt={terminalTab.consentPrompt}

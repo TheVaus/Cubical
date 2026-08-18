@@ -26,6 +26,12 @@ export function validateRenameTarget(
   return null;
 }
 
+export function renameTarget(fromPath: string, basename: string): string {
+  const i = fromPath.lastIndexOf("/");
+  const dir = i >= 0 ? fromPath.slice(0, i + 1) : "";
+  return dir + basename.trim();
+}
+
 export function reprefixNestedPath(
   path: string,
   folderPath: string,
