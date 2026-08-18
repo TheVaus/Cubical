@@ -507,6 +507,22 @@ of throwing into the completion pipeline.
 The link trigger stops at `#` and `|`; in-bracket anchor completion requires the
 literal `#^` so it can never collide with heading completion.
 
+**Fence-language completion is derived from the block-renderer registry, not
+from a list.** `fenceComplete.ts` builds its options by calling
+`activeRenderers` — the same function `blockRenderersField` calls to decide what
+to render — so the languages offered are exactly the ones that will produce a
+rendered block, and a renderer switched off by its setting stops being offered
+at the same moment it stops rendering. A hand-maintained language list would
+drift from the registry in both directions: a language offered with nothing to
+render it, and a renderer nobody can discover. Give a renderer its `languages`
+(or a richer `completions`) and both surfaces follow; when two renderers claim
+the same language the first registration wins, and a language prefix ranks above
+an alias prefix.
+
+The trigger fires only where a fence is actually being opened — it reuses
+`isOpenAbove` from `autoClose.ts` rather than matching backticks, so typing
+inside an open block does not offer to open another.
+
 ## Offset conversions
 
 CodeMirror positions are UTF-16 code units; backend commands that locate a line
