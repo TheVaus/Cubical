@@ -468,6 +468,32 @@ describe("reset, on switching documents", () => {
     expect(session.conflictHash()).toBeNull();
     expect(session.isDirty()).toBe(false);
   });
+  it("ignores the tail of a write that lands after the reset", async () => {
+    const { session, onWritten } = build();
+    let resolveWrite: (v: unknown) => void = () => {};
+    wrote.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          resolveWrite = r;
+        }),
+    );
+
+    session.markDirty();
+    const inFlight = session.flush();
+    await settle();
+
+    session.reset();
+    resolveWrite({ new_content_hash: "h-outgoing" });
+    await inFlight;
+    await settle();
+
+    expect(onWritten).not.toHaveBeenCalled();
+
+    session.markDirty();
+    await session.flush();
+
+    expect(seenHashOfLastWrite()).toBeUndefined();
+  });
 });
 
 describe("cancelScheduledWrite", () => {

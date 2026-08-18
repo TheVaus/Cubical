@@ -75,6 +75,11 @@ in favour of the local buffer. Quitting with a conflict open therefore drops the
 unsaved buffer rather than overwriting the copy on disk — the disk copy is the
 one that cannot be recovered afterwards.
 
+**A write is disowned if the document changed while it was in flight.** `reset`
+bumps a generation counter that `performWrite` captures before awaiting, so a
+response arriving after a vault or file switch cannot repopulate `seenHash`,
+`lastWrittenHash` or `dirty` from the outgoing document.
+
 **Seed both hashes when the caller already knows the on-disk hash** (e.g. a
 file it just created). Otherwise the watcher's created-echo arrives as an
 unrecognised external edit and raises a false "changed outside Cubical" banner
