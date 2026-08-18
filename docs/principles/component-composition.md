@@ -2,7 +2,7 @@
 
 **Rule:** Put new frontend state in the feature that reads it, and keep every `ui/src` file under its size budget.
 
-**Gate:** `scripts/gates/composition.py` — a per-file ratchet plus a shell rule, both configured in `scripts/component-budgets.json`. Baseline: `App.tsx` at 2323 lines and 32 signals/stores, down from 3274, with the `./api/ipc` import waived under issue #86 until vault boot and the watcher listeners move out. The document session moved to `core/documentSession.ts`; the waiver names what is left.
+**Gate:** `scripts/gates/composition.py` — a per-file ratchet plus a shell rule, both configured in `scripts/component-budgets.json`, which owns the current figures. `App.tsx` is being ratcheted down from the 3274 lines that prompted the rule, with the `./api/ipc` import waived under issue #86 until vault boot and the watcher listeners move out. The document session moved to `core/documentSession.ts` and the file explorer to `explorer/`; the waiver names what is left.
 
 **Why:** `App.tsx` reached 3274 lines as one function — ~70 signals, ~1500 lines of JSX, a 190-line `onMount`. No agent can hold that in context, so every edit to it is guesswork, and nothing inside the closure is reachable from a test. The autosave, dirty and conflict logic that [`../implementation/frontend.md`](../implementation/frontend.md) calls the sharpest data-loss hazard in the app had no unit test, because it *could* not have one — that was the argument for extracting it first.
 
