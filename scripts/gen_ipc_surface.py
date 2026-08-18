@@ -17,6 +17,7 @@ node_modules/ or graphify-out/ is touched, so a fresh clone generates the same
 bytes.
 """
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -54,9 +55,19 @@ def rust_sources(crate: Path) -> list[Path]:
     Using the git index rather than a filesystem walk keeps `crates/cubical-app/gen/`
     (Tauri codegen, gitignored) and any other untracked artifact out of the scan, so
     a built tree and a fresh clone produce identical output.
+
+    `GIT_DIR` and friends are stripped from the environment because `git push`
+    exports them to its hooks. With `GIT_DIR` set, `git ls-files` reports paths
+    from the work-tree root rather than from `cwd`, so joining them onto `crate`
+    doubles the prefix and every source path fails to open.
     """
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if k not in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE")
+    }
     out = subprocess.check_output(
-        ["git", "ls-files", "-z", "--", "*.rs"], cwd=crate, text=True)
+        ["git", "ls-files", "-z", "--", "*.rs"], cwd=crate, text=True, env=env)
     return sorted(crate / name for name in out.split("\0") if name)
 
 

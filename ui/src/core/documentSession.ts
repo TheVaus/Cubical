@@ -51,6 +51,7 @@ export function createDocumentSession(
   let lastWrittenHash: string | null = null;
   let dirty = false;
   let pendingWrite: Promise<void> | null = null;
+  let generation = 0;
 
   const performWrite = async (): Promise<void> => {
     const id = deps.vaultId();
@@ -58,6 +59,7 @@ export function createDocumentSession(
     const editor = deps.editor();
     if (!id || !path || !editor) return;
     const content = editor.getContent();
+    const writingFor = generation;
     try {
       const req: Parameters<typeof writeFileText>[0] = {
         vault_id: id,
@@ -66,6 +68,7 @@ export function createDocumentSession(
       };
       if (seenHash !== null) req.expected_seen_hash = seenHash;
       const resp = await writeFileText(req);
+      if (writingFor !== generation) return;
       lastWrittenHash = resp.new_content_hash;
       seenHash = resp.new_content_hash;
       if (editor.getContent() === content) {
@@ -73,6 +76,7 @@ export function createDocumentSession(
       }
       deps.onWritten();
     } catch (e) {
+      if (writingFor !== generation) return;
       deps.reportError(errorMessage(e));
     }
   };
@@ -80,6 +84,7 @@ export function createDocumentSession(
   const autosave = createDebounced(() => void flush(), deps.autosaveDebounceMs);
 
   const flush = async (): Promise<void> => {
+    if (conflictHash() !== null) return;
     autosave.cancel();
     if (!dirty && pendingWrite === null) return;
     const prior = pendingWrite ?? Promise.resolve();
@@ -152,6 +157,7 @@ export function createDocumentSession(
     cancelScheduledWrite: autosave.cancel,
     flush,
     reset: () => {
+      generation += 1;
       autosave.cancel();
       setConflictHash(null);
       seenHash = null;
@@ -180,6 +186,7 @@ export function createDocumentSession(
     },
     writeBeforeUnload: () => {
       autosave.cancel();
+      if (conflictHash() !== null) return;
       if (dirty) void performWrite();
     },
   };
