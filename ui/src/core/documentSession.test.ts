@@ -339,6 +339,36 @@ describe("an external change to the open file", () => {
     expect(editor.replaceContent).not.toHaveBeenCalled();
     expect(read).not.toHaveBeenCalled();
   });
+  it("does not reload a second external change once a conflict is open and the buffer has gone clean", async () => {
+    const { session, editor } = build();
+    let resolveWrite: (v: unknown) => void = () => {};
+    wrote.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          resolveWrite = r;
+        }),
+    );
+
+    session.markDirty();
+    const inFlight = session.flush();
+    await settle();
+
+    session.applyExternalChange("note.md", "h-first");
+    resolveWrite({ new_content_hash: "h-written" });
+    await inFlight;
+    await settle();
+
+    expect(session.isDirty()).toBe(false);
+    expect(session.conflictHash()).toBe("h-first");
+
+    read.mockClear();
+    session.applyExternalChange("note.md", "h-second");
+    await settle();
+
+    expect(session.conflictHash()).toBe("h-second");
+    expect(read).not.toHaveBeenCalled();
+    expect(editor.replaceContent).not.toHaveBeenCalled();
+  });
 });
 
 describe("resolving a conflict", () => {
