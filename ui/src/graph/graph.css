@@ -1,0 +1,14 @@
+.graph {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  background: var(--c-bg-primary);
+}
+
+.graph__status {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--c-fg-muted);
+}

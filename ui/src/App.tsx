@@ -26,11 +26,11 @@ import {
   TerminalButton,
   TerminalCloseDialog,
   TerminalConsentDialog,
-  TerminalPanel,
+  TerminalTabPanes,
   createTerminalWiring,
   isTerminalView,
-  terminalTabIds,
 } from "./terminal";
+import { GRAPH_COMMAND_ID, GraphButton, GraphTabPane, createGraphWiring, isGraphView } from "./graph";
 import Properties from "./Properties";
 import { RecentVaultList } from "./RecentVaultList";
 import SettingsModal from "./settings/SettingsModal";
@@ -718,14 +718,17 @@ const App: Component = () => {
     if (tabs().activeId !== null) await loadActiveTabContent();
   };
 
-  const terminalTab = createTerminalWiring({
+  const tabFeature = {
     vaultId,
     corePlugins: settings.corePlugins,
     tabs,
-    setTabs: (updater) => setTabs(updater),
-    closeTab: (id) => forceCloseTabById(id),
+    setTabs: (updater: (s: TabSet) => TabSet) => setTabs(updater),
+    closeTab: (id: string) => forceCloseTabById(id),
     flushAutosave: () => flushAutosave(),
-  });
+  };
+
+  const terminalTab = createTerminalWiring(tabFeature);
+  const graphTab = createGraphWiring(tabFeature);
 
   const handleSelectFile = async (
     file: FileEntry,
@@ -978,6 +981,7 @@ const App: Component = () => {
         },
       },
       [TERMINAL_COMMAND_ID]: terminalTab.command,
+      [GRAPH_COMMAND_ID]: graphTab.command,
     };
     const onGlobalKey = (e: KeyboardEvent) => {
       const c = resolveGlobal(settings.effectiveBindings(), globalCommands, e);
@@ -1115,6 +1119,11 @@ const App: Component = () => {
           <TerminalButton
             available={terminalTab.available}
             onOpen={terminalTab.open}
+            view={view}
+          />
+          <GraphButton
+            available={graphTab.available}
+            onOpen={graphTab.open}
             view={view}
           />
         </div>
@@ -1267,7 +1276,7 @@ const App: Component = () => {
           <main class="editor-layer">
             <div class="editor-scroll">
               <div class="editor-inner">
-                <Show when={!isTerminalView(view())}>
+                <Show when={!isTerminalView(view()) && !isGraphView(view())}>
                   <Show
                     when={view().kind === "file"}
                     fallback={
@@ -1490,24 +1499,14 @@ const App: Component = () => {
                     </Show>
                   </Show>
                 </Show>
-                <For each={terminalTabIds(tabs().tabs)}>
-                  {(id) => (
-                    <div
-                      style={{
-                        display: id === tabs().activeId ? "contents" : "none",
-                      }}
-                    >
-                      <TerminalPanel
-                        vaultId={vaultId()!}
-                        resolvedTheme={settings.resolvedTheme()}
-                        onOpened={(terminalId) =>
-                          terminalTab.register(id, terminalId)
-                        }
-                        onClosed={() => terminalTab.forget(id)}
-                      />
-                    </div>
-                  )}
-                </For>
+                <GraphTabPane vaultId={vaultId} tabs={tabs} />
+                <TerminalTabPanes
+                  tabs={tabs}
+                  vaultId={vaultId}
+                  resolvedTheme={settings.resolvedTheme}
+                  onOpened={terminalTab.register}
+                  onClosed={terminalTab.forget}
+                />
               </div>
             </div>
           </main>

@@ -91,6 +91,29 @@ describe("openTab", () => {
     expect(s.tabs.at(-1)?.id).toBe("file:new.md");
   });
 
+  it("focuses the existing graph tab rather than opening a second", () => {
+    let s = emptyTabs;
+    s = openTab(s, { kind: "graph" });
+    s = openTab(s, fileView("a.md"));
+    s = openTab(s, { kind: "graph" });
+
+    expect(s.tabs.filter((t) => t.view.kind === "graph")).toHaveLength(1);
+    expect(s.activeId).toBe("graph");
+  });
+
+  it("never replaces the graph tab, so a running layout is not orphaned", () => {
+    let s = emptyTabs;
+    s = openTab(s, { kind: "graph" });
+    for (let i = 0; i < MAX_TABS - 1; i++) s = openTab(s, fileView(`n${i}.md`));
+    s = activateTab(s, "graph");
+
+    s = openTab(s, fileView("new.md"));
+
+    expect(s.tabs.map((t) => t.id)).toContain("graph");
+    expect(s.tabs).toHaveLength(MAX_TABS);
+    expect(s.activeId).toBe("file:new.md");
+  });
+
   it("leaves a slot a file can always take, however many terminals are opened", () => {
     let s = emptyTabs;
     for (let i = 0; i < MAX_TABS + 6; i++)

@@ -1,6 +1,6 @@
 export { TerminalButton } from "./TerminalButton";
 export { TerminalCloseDialog, TerminalConsentDialog } from "./TerminalDialogs";
-export { TerminalPanel } from "./TerminalPanel";
+export { TerminalTabPanes } from "./TerminalTabPanes";
 export {
   TERMINAL_COMMAND_ID,
   TERMINAL_COMMAND_TITLE,
