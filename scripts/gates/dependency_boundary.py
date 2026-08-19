@@ -30,6 +30,7 @@ LAYERS = {
     "cubical-index": 0,
     "cubical-search": 1,
     "cubical-query": 1,
+    "cubical-graph": 1,
     "cubical-sync": 1,
     "cubical-core": 2,
     "cubical-engine": 3,
