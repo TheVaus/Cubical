@@ -1,6 +1,7 @@
 mod build;
 mod error;
 mod model;
+mod quadtree;
 
 pub use build::build_model;
 pub use error::GraphError;
