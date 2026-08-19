@@ -29,6 +29,9 @@ interface Harness {
   state: GraphState;
   fileChanged: (vaultId: string) => void;
   snapshots: () => GraphSnapshot;
+  subscribed: () => boolean;
+  holdSnapshot: () => void;
+  releaseSnapshot: () => void;
   setVaultId: (id: string | null) => void;
   cancelled: string[];
   snapshotsFor: string[];
@@ -41,6 +44,8 @@ interface Harness {
 function harness(opts?: { nodes?: number }): Harness {
   let nodes = opts?.nodes ?? 2;
   let notify: ((payload: { vault_id: string }) => void) | null = null;
+  let held = false;
+  let release: (() => void) | null = null;
   const cancelled: string[] = [];
   const snapshotsFor: string[] = [];
   let emit: (frame: LayoutFrame) => void = () => {};
@@ -54,6 +59,7 @@ function harness(opts?: { nodes?: number }): Harness {
       vaultId,
       snapshot: async (id) => {
         snapshotsFor.push(id);
+        if (held) await new Promise<void>((r) => (release = r));
         return snapshotOf(nodes);
       },
       subscribe: async (handler) => {
@@ -77,6 +83,15 @@ function harness(opts?: { nodes?: number }): Harness {
       state,
       fileChanged: (vaultId) => notify?.({ vault_id: vaultId }),
       snapshots: () => snapshotOf(nodes),
+      subscribed: () => notify !== null,
+      holdSnapshot: () => {
+        held = true;
+      },
+      releaseSnapshot: () => {
+        held = false;
+        release?.();
+        release = null;
+      },
       setVaultId,
       cancelled,
       snapshotsFor,
@@ -250,7 +265,7 @@ describe("liveness", () => {
     expect(h.snapshotsFor.length).toBe(before);
   });
 
-  it("stops listening once the view is torn down", async () => {
+  it("refetches nothing after stop, because there is no snapshot to reconcile", async () => {
     const h = harness();
     await ready(h);
     const before = h.snapshotsFor.length;
@@ -260,5 +275,32 @@ describe("liveness", () => {
     await settle();
 
     expect(h.snapshotsFor.length).toBe(before);
+  });
+
+  it("detaches the watcher subscription when the view is disposed", async () => {
+    const h = harness();
+    await ready(h);
+    expect(h.subscribed()).toBe(true);
+
+    h.dispose();
+    dispose = undefined;
+    await settle();
+
+    expect(h.subscribed()).toBe(false);
+  });
+
+  it("abandons an in-flight refetch rather than letting it resurrect a deleted node", async () => {
+    const h = harness();
+    await ready(h);
+
+    h.holdSnapshot();
+    h.fileChanged("v1");
+    await settle();
+
+    h.state.stop();
+    h.releaseSnapshot();
+    await settle();
+
+    expect(h.state.snapshot()).toBeNull();
   });
 });

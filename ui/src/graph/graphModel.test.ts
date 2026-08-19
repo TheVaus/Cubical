@@ -174,3 +174,46 @@ describe("view filter", () => {
     expect(mask[1]).toBe(1);
   });
 });
+
+describe("scope keeps the layers hanging off what it kept", () => {
+  const snapshot = {
+    nodes: [
+      node(0, "note", "notes/Kept.md"),
+      node(1, "note", "other/Dropped.md"),
+      node(2, "tag", "work"),
+      node(3, "ghost", "nowhere"),
+      node(4, "tag", "unrelated"),
+    ],
+    edges: [edge(0, 2), edge(0, 3), edge(1, 4)],
+  };
+
+  it("keeps a tag attached to a scoped-in note, though its key cannot match a path", () => {
+    const mask = visibleNodes(snapshot, { ...DEFAULT_FILTER, scope: "notes/" });
+    expect(mask[0]).toBe(1);
+    expect(mask[2]).toBe(1);
+    expect(mask[3]).toBe(1);
+  });
+
+  it("still drops a tag attached only to a scoped-out note", () => {
+    const mask = visibleNodes(snapshot, { ...DEFAULT_FILTER, scope: "notes/" });
+    expect(mask[1]).toBe(0);
+    expect(mask[4]).toBe(0);
+  });
+
+  it("does not resurrect a kind whose toggle is off", () => {
+    const mask = visibleNodes(snapshot, {
+      kinds: { ...DEFAULT_FILTER.kinds, tag: false },
+      scope: "notes/",
+    });
+    expect(mask[2]).toBe(0);
+    expect(mask[3]).toBe(1);
+  });
+
+  it("does not pull in another note just because it is linked", () => {
+    const linked = {
+      nodes: [node(0, "note", "notes/A.md"), node(1, "note", "other/B.md")],
+      edges: [edge(0, 1)],
+    };
+    expect(Array.from(visibleNodes(linked, { ...DEFAULT_FILTER, scope: "notes/" }))).toEqual([1, 0]);
+  });
+});

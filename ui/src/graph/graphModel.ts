@@ -95,9 +95,26 @@ export function visibleNodes(
   filter: GraphViewFilter,
 ): Uint8Array {
   if (snapshot === null) return new Uint8Array(0);
-  const mask = new Uint8Array(snapshot.nodes.length);
-  for (let i = 0; i < snapshot.nodes.length; i++) {
+  const count = snapshot.nodes.length;
+  const mask = new Uint8Array(count);
+  for (let i = 0; i < count; i++) {
     mask[i] = nodeMatches(snapshot.nodes[i]!, filter) ? 1 : 0;
+  }
+
+  if (filter.scope.trim() === "") return mask;
+
+  const attached = new Uint8Array(count);
+  for (const e of snapshot.edges) {
+    if (e.source >= count || e.target >= count) continue;
+    if (mask[e.source] === 1) attached[e.target] = 1;
+    if (mask[e.target] === 1) attached[e.source] = 1;
+  }
+  for (let i = 0; i < count; i++) {
+    if (mask[i] === 1 || attached[i] !== 1) continue;
+    const node = snapshot.nodes[i]!;
+    if (node.kind !== "tag" && node.kind !== "ghost") continue;
+    if (filter.kinds[node.kind] === false) continue;
+    mask[i] = 1;
   }
   return mask;
 }

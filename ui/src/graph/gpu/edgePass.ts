@@ -1,6 +1,7 @@
 import { EDGE_STRIDE_BYTES } from "./instances";
 
 const SHADER = /* wgsl */ `
+const EDGE_WIDTH_PX: f32 = 1.5;
 struct View {
   scale: vec2<f32>,
   centre: vec2<f32>,
@@ -54,7 +55,7 @@ fn vs(
     dir = along / len;
   }
   let normal = vec2<f32>(-dir.y, dir.x);
-  let widthWorld = max(1.0 * view.zoom, 1.0) / view.zoom;
+  let widthWorld = EDGE_WIDTH_PX / max(view.zoom, 1e-6);
   let world = tail + dir * (local.x * len) + normal * (local.y * widthWorld);
 
   out.clip = vec4<f32>((world - view.centre) * view.scale, 0.0, 1.0);

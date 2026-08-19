@@ -17,7 +17,7 @@ export function GraphCanvas(props: {
   positions: () => Float32Array;
   theme: () => string;
   visible: () => Uint8Array;
-  onHover: (node: number | null) => void;
+  onHover: (node: number | null, screen: [number, number] | null) => void;
   onActivate: (node: number) => void;
 }): JSXElement {
   let canvas!: HTMLCanvasElement;

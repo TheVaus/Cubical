@@ -15,7 +15,7 @@ Workspace members: `crates/*` → 11 crates.
 | `cubical-cli` | `crates/cubical-cli/` | Terminal frontend over cubical-engine — proof that the engine drives with no Tauri. | `Cargo.toml` `description` | **yes** |
 | `cubical-core` | `crates/cubical-core/` | Vault, file watcher, file-type registry, frontmatter I/O. Core building blocks shared by the rest of Cubical, with no Tauri dependency. | `Cargo.toml` `description` | **yes** |
 | `cubical-engine` | `crates/cubical-engine/` | Frontend-agnostic engine: command handlers, state, events, and IPC types. No Tauri — consumed by the Tauri shell and (future) CLI. | `Cargo.toml` `description` | **yes** |
-| `cubical-graph` | `crates/cubical-graph/` | — | **none — no `description`, no carried-over wording** | **yes** |
+| `cubical-graph` | `crates/cubical-graph/` | Vault link graph: builds a node/edge model from the index and lays it out with a deterministic force simulation. No Tauri, no IPC, no UI. | `Cargo.toml` `description` | **yes** |
 | `cubical-index` | `crates/cubical-index/` | libSQL schema, migrations, and queries. Owns the on-disk index database at .cubical/index.db. | `Cargo.toml` `description` | **yes** |
 | `cubical-ipc` | `crates/cubical-ipc/` | Wire protocol + shared dispatch between the Cubical app backend and the cubical CLI frontend. | `Cargo.toml` `description` | **yes** |
 | `cubical-query` | `crates/cubical-query/` | dataview-style query parser + evaluator | carried over from `docs/README.md` | **yes** |

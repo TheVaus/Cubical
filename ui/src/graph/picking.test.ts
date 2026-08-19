@@ -92,3 +92,33 @@ describe("pick grid", () => {
     expect(hitTest(grid, -1e6, -1e6)).toBeNull();
   });
 });
+
+describe("slop and the search ring", () => {
+  it("finds a node further away than one cell when the slop reaches it", () => {
+    const positions: number[] = [];
+    const radii: number[] = [];
+    for (let i = 0; i < 400; i++) {
+      positions.push((i % 20) * 10, Math.floor(i / 20) * 10);
+      radii.push(1);
+    }
+    const grid = buildPickGrid(
+      Float32Array.from(positions),
+      Float32Array.from(radii),
+    );
+    expect(grid).not.toBeNull();
+    expect(grid!.cell).toBeLessThan(40);
+
+    expect(hitTest(grid, 100, 100, 0)).not.toBeNull();
+    expect(hitTest(grid, 105, 105, 0)).toBeNull();
+    expect(hitTest(grid, 105, 105, 40)).not.toBeNull();
+  });
+
+  it("still returns the nearest node when a generous slop reaches several", () => {
+    const grid = buildPickGrid(
+      Float32Array.from([0, 0, 60, 0]),
+      Float32Array.from([1, 1]),
+    );
+    expect(hitTest(grid, 40, 0, 100)).toBe(1);
+    expect(hitTest(grid, 20, 0, 100)).toBe(0);
+  });
+});

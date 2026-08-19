@@ -37,7 +37,7 @@ function fail(reason: DeviceFailure, detail = ""): DeviceError {
 export async function acquireDevice(
   canvas: HTMLCanvasElement,
   onLost: (info: GPUDeviceLostInfo) => void,
-  navigatorGpu: GPU | undefined = navigator.gpu,
+  navigatorGpu: GPU | undefined,
 ): Promise<DeviceResult | DeviceError> {
   if (navigatorGpu === undefined) return fail("unsupported");
 

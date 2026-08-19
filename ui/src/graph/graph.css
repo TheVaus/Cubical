@@ -42,8 +42,7 @@
 
 .graph__hover {
   position: absolute;
-  left: var(--space-3);
-  bottom: var(--space-3);
+  transform: translate(-50%, calc(-100% - var(--space-3)));
   display: flex;
   align-items: baseline;
   gap: var(--space-2);

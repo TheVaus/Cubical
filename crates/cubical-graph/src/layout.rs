@@ -29,7 +29,12 @@ struct Rng(u64);
 
 impl Rng {
     fn new(seed: u64) -> Self {
-        Self(seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1))
+        let state = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+        Self(if state == 0 {
+            0x9E37_79B9_7F4A_7C15
+        } else {
+            state
+        })
     }
 
     fn next_f32(&mut self) -> f32 {

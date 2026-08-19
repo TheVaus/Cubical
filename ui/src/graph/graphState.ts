@@ -64,7 +64,10 @@ export function createGraphState(deps: GraphStateDeps): GraphState {
   let run = 0;
   let running: string | null = null;
   let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+  let refreshGeneration = 0;
   let unlisten: (() => void) | null = null;
+  let subscribing = false;
+  let disposed = false;
 
   const reset = () => {
     setStatus("idle");
@@ -79,9 +82,13 @@ export function createGraphState(deps: GraphStateDeps): GraphState {
     const previous = snapshot();
     if (vaultId === null || previous === null) return;
     const frozen = positionsByKey(previous, positions());
+    const token = run;
+    const generation = ++refreshGeneration;
     void (async () => {
       const next = await fetchSnapshot(vaultId).catch(() => null);
-      if (next === null || vaultId !== deps.vaultId()) return;
+      if (next === null) return;
+      if (token !== run || generation !== refreshGeneration) return;
+      if (vaultId !== deps.vaultId()) return;
       setSnapshot(next);
       setPositions(reconcilePositions(next, frozen));
     })();
@@ -97,6 +104,7 @@ export function createGraphState(deps: GraphStateDeps): GraphState {
 
   const stop = () => {
     run += 1;
+    refreshGeneration += 1;
     if (refreshTimer !== null) {
       clearTimeout(refreshTimer);
       refreshTimer = null;
@@ -134,10 +142,17 @@ export function createGraphState(deps: GraphStateDeps): GraphState {
         setIteration(done.iterations);
         setStatus("ready");
         running = null;
-        if (unlisten === null) {
-          unlisten = await subscribe((payload) => {
+        if (unlisten === null && !subscribing) {
+          subscribing = true;
+          const off = await subscribe((payload) => {
             if (payload.vault_id === deps.vaultId()) scheduleRefresh();
           }).catch(() => null);
+          subscribing = false;
+          if (disposed) {
+            off?.();
+          } else {
+            unlisten = off;
+          }
         }
       } catch (e) {
         if (!current()) return;
@@ -149,6 +164,7 @@ export function createGraphState(deps: GraphStateDeps): GraphState {
   };
 
   onCleanup(() => {
+    disposed = true;
     stop();
     unlisten?.();
     unlisten = null;

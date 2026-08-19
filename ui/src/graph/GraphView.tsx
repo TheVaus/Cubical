@@ -31,11 +31,22 @@ export function GraphView(props: {
 }): JSXElement {
   const state = createGraphState({ vaultId: props.vaultId });
   const [hovered, setHovered] = createSignal<number | null>(null);
+  const [hoverAt, setHoverAt] = createSignal<[number, number] | null>(null);
   const [filter, setFilter] = createSignal<GraphViewFilter>(DEFAULT_FILTER);
 
   const visible = createMemo(() => visibleNodes(state.snapshot(), filter()));
 
   const hoveredNode = () => nodeAt(state.snapshot(), hovered());
+
+  const labelStyle = () => {
+    const at = hoverAt();
+    if (at === null) return {};
+    const dpr = window.devicePixelRatio || 1;
+    return {
+      left: `${at[0] / dpr}px`,
+      top: `${at[1] / dpr}px`,
+    };
+  };
 
   const activate = (index: number) => {
     const path = openablePath(nodeAt(state.snapshot(), index));
@@ -77,7 +88,10 @@ export function GraphView(props: {
           positions={state.positions}
           theme={props.theme}
           visible={visible}
-          onHover={setHovered}
+          onHover={(node, screen) => {
+            setHovered(node);
+            setHoverAt(screen);
+          }}
           onActivate={activate}
         />
         <GraphFilters
@@ -88,7 +102,7 @@ export function GraphView(props: {
         />
         <Show when={hoveredNode()}>
           {(node) => (
-            <div class="graph__hover" role="status">
+            <div class="graph__hover" role="status" style={labelStyle()}>
               <span class="graph__hover-label">{node().label}</span>
               <span class="graph__hover-kind">{node().kind}</span>
             </div>

@@ -4,26 +4,16 @@ import {
   fitTo,
   pan,
   screenToWorld,
+  worldToScreen,
   zoomAt,
   type Camera,
   type Viewport,
 } from "./camera";
-import {
-  acquireDevice,
-  buildEdgeInstances,
-  buildNodeInstances,
-  createRenderer,
-  degrees,
-  edgeInstanceCount,
-  readPalette,
-  sizeCanvas,
-  type Renderer,
-} from "./gpu";
+import { acquireDevice, createRenderer, sizeCanvas, type Renderer } from "./gpu";
 import { FAILURE_MESSAGES } from "./gpu/device";
 import { radiusFor } from "./gpu/instances";
-import { colourForFolder, folderOf, readFolderColours } from "./graphColor";
 import { buildAdjacency, type Adjacency } from "./graphModel";
-import { edgeFlags, nodeFlags } from "./hover";
+import { createInstanceSource, degrees, radiiFor } from "./instanceSource";
 import { buildPickGrid, hitTest, type PickGrid } from "./picking";
 import { createPointerControls } from "./pointer";
 
@@ -35,7 +25,7 @@ export interface RenderLoopDeps {
   theme: () => string;
   visible: () => Uint8Array;
   onFailure: (message: string | null) => void;
-  onHover: (node: number | null) => void;
+  onHover: (node: number | null, screen: [number, number] | null) => void;
   onActivate: (node: number) => void;
 }
 
@@ -61,6 +51,7 @@ export function createGraphRenderLoop(deps: RenderLoopDeps): RenderLoop {
   let grid: PickGrid | null = null;
   let hovered: number | null = null;
   let degree = degrees(0, []);
+  const instances = createInstanceSource(deps.host);
 
   const controls = createPointerControls({
     element: deps.canvas,
@@ -86,7 +77,7 @@ export function createGraphRenderLoop(deps: RenderLoopDeps): RenderLoop {
     onHover: (node) => {
       if (node === hovered) return;
       hovered = node;
-      deps.onHover(node);
+      deps.onHover(node, screenOf(node));
       reflag();
       request();
     },
@@ -117,38 +108,19 @@ export function createGraphRenderLoop(deps: RenderLoopDeps): RenderLoop {
 
   const uploadInstances = (snapshot: GraphSnapshot, positions: Float32Array) => {
     if (renderer === null) return;
-    const palette = readPalette(deps.host);
-    const folderColours = readFolderColours(deps.host);
-    const visible = deps.visible();
-    const colours = new Uint32Array(snapshot.nodes.length);
-    for (let i = 0; i < snapshot.nodes.length; i++) {
-      const node = snapshot.nodes[i]!;
-      colours[i] =
-        node.kind === "note"
-          ? colourForFolder(folderOf(node.key), folderColours)
-          : palette[node.kind];
-    }
-    const nodeCount = Math.min(
-      snapshot.nodes.length,
-      Math.floor(positions.length / 2),
+    const payload = instances.build(
+      snapshot,
+      positions,
+      adjacency,
+      degree,
+      hovered,
+      deps.visible(),
     );
     renderer.setInstances(
-      buildNodeInstances(
-        snapshot.nodes,
-        positions,
-        degree,
-        palette,
-        nodeFlags(snapshot.nodes.length, adjacency, hovered, visible),
-        colours,
-      ),
-      nodeCount,
-      buildEdgeInstances(
-        snapshot.edges,
-        positions,
-        palette,
-        edgeFlags(snapshot.edges, hovered, visible),
-      ),
-      edgeInstanceCount(snapshot.edges, positions),
+      payload.nodes,
+      payload.nodeCount,
+      payload.edges,
+      payload.edgeCount,
     );
   };
 
@@ -158,10 +130,18 @@ export function createGraphRenderLoop(deps: RenderLoopDeps): RenderLoop {
     uploadInstances(snapshot, lastPositions);
   };
 
+  const screenOf = (node: number | null): [number, number] | null => {
+    if (node === null || lastPositions === null) return null;
+    const x = lastPositions[node * 2];
+    const y = lastPositions[node * 2 + 1];
+    if (x === undefined || y === undefined) return null;
+    return worldToScreen(camera, viewport, x, y);
+  };
+
   const refilter = () => {
     if (hovered !== null && deps.visible()[hovered] === 0) {
       hovered = null;
-      deps.onHover(null);
+      deps.onHover(null, null);
     }
     reflag();
     request();
@@ -176,16 +156,20 @@ export function createGraphRenderLoop(deps: RenderLoopDeps): RenderLoop {
     const theme = deps.theme();
     if (positions !== lastPositions || theme !== lastTheme) {
       const structureChanged = positions !== lastPositions;
+      if (theme !== lastTheme) instances.invalidateTheme();
       lastPositions = positions;
       lastTheme = theme;
       if (structureChanged) {
         adjacency = buildAdjacency(snapshot.nodes.length, snapshot.edges);
         degree = degrees(snapshot.nodes.length, snapshot.edges);
-        const radii = new Float32Array(
-          Math.min(snapshot.nodes.length, Math.floor(positions.length / 2)),
+        grid = buildPickGrid(
+          positions,
+          radiiFor(
+            degree,
+            Math.min(snapshot.nodes.length, Math.floor(positions.length / 2)),
+            radiusFor,
+          ),
         );
-        for (let i = 0; i < radii.length; i++) radii[i] = radiusFor(degree[i] ?? 0);
-        grid = buildPickGrid(positions, radii);
       }
       uploadInstances(snapshot, positions);
       if (!fitted && positions.length > 0) {
@@ -193,6 +177,7 @@ export function createGraphRenderLoop(deps: RenderLoopDeps): RenderLoop {
         fitted = true;
       }
     }
+    if (hovered !== null) deps.onHover(hovered, screenOf(hovered));
     renderer.draw(camera, viewport);
   };
 
@@ -209,7 +194,7 @@ export function createGraphRenderLoop(deps: RenderLoopDeps): RenderLoop {
   };
 
   const init = async () => {
-    const result = await acquireDevice(deps.canvas, onLost);
+    const result = await acquireDevice(deps.canvas, onLost, navigator.gpu);
     if (disposed) return;
     if (!result.ok) {
       deps.onFailure(result.detail);

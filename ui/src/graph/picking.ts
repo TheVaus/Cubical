@@ -84,13 +84,14 @@ export function hitTest(
   if (grid === null) return null;
   const cx = Math.floor((worldX - grid.minX) / grid.cell);
   const cy = Math.floor((worldY - grid.minY) / grid.cell);
+  const ring = 1 + Math.ceil(Math.max(slop, 0) / grid.cell);
 
   let best: number | null = null;
   let bestDistance = Infinity;
 
-  for (let gy = cy - 1; gy <= cy + 1; gy++) {
+  for (let gy = cy - ring; gy <= cy + ring; gy++) {
     if (gy < 0 || gy >= grid.rows) continue;
-    for (let gx = cx - 1; gx <= cx + 1; gx++) {
+    for (let gx = cx - ring; gx <= cx + ring; gx++) {
       if (gx < 0 || gx >= grid.cols) continue;
       for (const i of grid.buckets[gy * grid.cols + gx]!) {
         const dx = grid.positions[i * 2]! - worldX;
