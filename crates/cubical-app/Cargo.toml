@@ -45,6 +45,10 @@ nix = { version = "0.31", features = ["signal", "process"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+# The graph integration test drives a real scan, so the index rows under test
+# are the ones the scanner writes rather than hand-seeded SQL.
+cubical-core = { path = "../cubical-core" }
+tokio-util = { workspace = true }
 
 [features]
 # By default, Tauri runs against the dev server.

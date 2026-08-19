@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod agent_instructions;
+mod graph;
 mod recent_vaults;
 mod tab_sessions;
 mod tauri_sink;
@@ -54,6 +55,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::new())
         .manage(terminal::TerminalRegistry::default())
+        .manage(cubical_engine::commands::graph::LayoutRegistry::new())
         .setup(|_app| {
             #[cfg(unix)]
             {
@@ -129,6 +131,9 @@ pub fn run() {
             dataview_query,
             reload_settings,
             close_vault,
+            graph::graph_snapshot,
+            graph::graph_layout,
+            graph::graph_layout_cancel,
             terminal::terminal_open,
             terminal::terminal_write,
             terminal::terminal_resize,
@@ -144,6 +149,8 @@ pub fn run() {
         .run(|_app, _event| {
             if matches!(_event, tauri::RunEvent::Exit) {
                 terminal::reap_all_blocking(&_app.state::<terminal::TerminalRegistry>());
+                _app.state::<cubical_engine::commands::graph::LayoutRegistry>()
+                    .cancel_all();
                 #[cfg(unix)]
                 remove_bound_socket();
             }
@@ -718,9 +725,11 @@ async fn reload_settings(
 async fn close_vault(
     state: tauri::State<'_, AppState>,
     registry: tauri::State<'_, terminal::TerminalRegistry>,
+    layouts: tauri::State<'_, cubical_engine::commands::graph::LayoutRegistry>,
     app: tauri::AppHandle,
     req: CloseVaultRequest,
 ) -> Result<(), CubicalError> {
+    layouts.cancel(&req.vault_id);
     terminal::reap_vault(registry.inner(), &req.vault_id).await;
     commands::vault::close_vault(
         state.inner(),

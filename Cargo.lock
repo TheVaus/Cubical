@@ -760,6 +760,7 @@ name = "cubical-app"
 version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
+ "cubical-core",
  "cubical-engine",
  "cubical-ipc",
  "futures-util",
@@ -773,6 +774,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tempfile",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-subscriber",
 ]
@@ -833,6 +835,7 @@ dependencies = [
  "base64 0.23.1",
  "cubical-ast",
  "cubical-core",
+ "cubical-graph",
  "cubical-index",
  "cubical-query",
  "cubical-search",
