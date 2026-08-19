@@ -6,24 +6,56 @@
     "machine-readable copy the gate reads - keep the two in step.",
     "",
     "WHY THERE IS A MACHINE CLASS AT ALL:",
-    "the budget is wall-clock, and roughly a third of it is Tantivy, which uses",
-    "min(cores, 8) indexing threads. A 2-core CI runner is plausibly ~3x slower",
-    "on that phase through no fault of the change under test. Asserting the",
-    "13 s number on such a runner would produce a gate that fails randomly, and",
-    "a gate that fails randomly is a gate people learn to ignore.",
+    "the budget is wall-clock, and roughly a third of the scan budget is",
+    "Tantivy, which uses min(cores, 8) indexing threads. A 2-core CI runner is",
+    "plausibly ~3x slower on that phase through no fault of the change under",
+    "test. Asserting the 13 s number on such a runner would produce a gate that",
+    "fails randomly, and a gate that fails randomly is a gate people learn to",
+    "ignore.",
     "",
     "So the gate REFUSES TO ASSERT below min_cores rather than scaling the",
     "number by a fudge factor. A skipped measurement is honest; a measurement",
-    "adjusted by a guess is not."
+    "adjusted by a guess is not. The refusal applies to every benchmark here,",
+    "for the same reason.",
+    "",
+    "THE BENCHMARK SHAPE:",
+    "each entry under `benchmarks` names a cargo example and how to drive it.",
+    "`args` is a template - {tmpdir} is a scratch directory the gate creates and",
+    "removes, {size} the fixture size, {runs} the run count. The example is",
+    "expected to run itself `runs` times and print a median line that",
+    "`median_pattern` captures, because the example knows what part of its own",
+    "work is being measured and the gate does not."
   ],
 
   "min_cores": 8,
   "reference_machine": "10-core arm64 darwin (the machine the medians were taken on)",
 
-  "budgets": [
-    { "notes": 1000,  "runs": 3, "max_median_secs": 1.5 },
-    { "notes": 10000, "runs": 3, "max_median_secs": 13.0 }
-  ],
+  "benchmarks": {
+    "scan": {
+      "crate": "cubical-core",
+      "example": "scan_bench",
+      "args": ["{tmpdir}", "{size}", "{runs}"],
+      "median_pattern": "^open\\+scan\\s*:.*?median\\s+([0-9.]+)\\s*s",
+      "label": "cold open+scan",
+      "unit": "notes",
+      "budgets": [
+        { "size": 1000,  "runs": 3, "max_median_secs": 1.5 },
+        { "size": 10000, "runs": 3, "max_median_secs": 13.0 }
+      ],
+      "default_size": 1000
+    },
 
-  "default_notes": 1000
+    "graph_layout": {
+      "crate": "cubical-graph",
+      "example": "layout_bench",
+      "args": ["{size}", "{runs}"],
+      "median_pattern": "^layout\\s*:.*?median\\s+([0-9.]+)\\s*s",
+      "label": "graph layout",
+      "unit": "nodes",
+      "budgets": [
+        { "size": 10000, "runs": 3, "max_median_secs": 5.5 }
+      ],
+      "default_size": 10000
+    }
+  }
 }
