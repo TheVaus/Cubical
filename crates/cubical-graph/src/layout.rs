@@ -1,3 +1,4 @@
+use crate::error::GraphError;
 use crate::model::{GraphModel, NodeId};
 use crate::quadtree::Quadtree;
 
@@ -40,9 +41,19 @@ impl Rng {
 }
 
 pub fn layout(model: &GraphModel, params: &LayoutParams) -> Positions {
+    layout_streaming(model, params, 0, &mut |_, _| {}, &|| false).unwrap_or_default()
+}
+
+pub fn layout_streaming(
+    model: &GraphModel,
+    params: &LayoutParams,
+    every: u32,
+    on_frame: &mut dyn FnMut(u32, &Positions),
+    cancelled: &dyn Fn() -> bool,
+) -> Result<Positions, GraphError> {
     let n = model.nodes().len();
     if n == 0 {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let mut rng = Rng::new(params.seed);
     let span = params.area.sqrt();
@@ -53,54 +64,78 @@ pub fn layout(model: &GraphModel, params: &LayoutParams) -> Positions {
     let mut temperature = span / 10.0;
     let cooling = temperature / (params.iterations as f32 + 1.0);
 
-    for _ in 0..params.iterations {
-        let tree = Quadtree::build(&pos);
-        let mut disp = vec![(0.0f32, 0.0f32); n];
-
-        for (i, d) in disp.iter_mut().enumerate() {
-            let (rx, ry) = tree.repulsion(pos[i], params.theta, k);
-            d.0 += rx;
-            d.1 += ry;
-            d.0 -= pos[i].0 * params.gravity * k;
-            d.1 -= pos[i].1 * params.gravity * k;
+    for iteration in 1..=params.iterations {
+        if cancelled() {
+            return Err(GraphError::Cancelled);
         }
-
-        for e in model.edges() {
-            let s = e.source.0 as usize;
-            let t = e.target.0 as usize;
-            if s >= n || t >= n {
-                continue;
-            }
-            let dx = pos[s].0 - pos[t].0;
-            let dy = pos[s].1 - pos[t].1;
-            let d = (dx * dx + dy * dy).sqrt();
-            if d < 1e-3 {
-                continue;
-            }
-            let f = d * d / k;
-            let ux = dx / d * f;
-            let uy = dy / d * f;
-            disp[s].0 -= ux;
-            disp[s].1 -= uy;
-            disp[t].0 += ux;
-            disp[t].1 += uy;
-        }
-
-        for i in 0..n {
-            let (dx, dy) = disp[i];
-            let d = (dx * dx + dy * dy).sqrt();
-            if d < 1e-6 {
-                continue;
-            }
-            let limit = d.min(temperature);
-            pos[i].0 += dx / d * limit;
-            pos[i].1 += dy / d * limit;
-        }
-
+        step(
+            model,
+            &mut pos,
+            k,
+            temperature,
+            params.theta,
+            params.gravity,
+        );
         temperature = (temperature - cooling).max(0.0);
+        if every > 0 && iteration % every == 0 {
+            on_frame(iteration, &pos);
+        }
     }
 
-    pos
+    Ok(pos)
+}
+
+fn step(
+    model: &GraphModel,
+    pos: &mut Positions,
+    k: f32,
+    temperature: f32,
+    theta: f32,
+    gravity: f32,
+) {
+    let n = pos.len();
+    let tree = Quadtree::build(pos);
+    let mut disp = vec![(0.0f32, 0.0f32); n];
+
+    for (i, d) in disp.iter_mut().enumerate() {
+        let (rx, ry) = tree.repulsion(pos[i], theta, k);
+        d.0 += rx;
+        d.1 += ry;
+        d.0 -= pos[i].0 * gravity * k;
+        d.1 -= pos[i].1 * gravity * k;
+    }
+
+    for e in model.edges() {
+        let s = e.source.0 as usize;
+        let t = e.target.0 as usize;
+        if s >= n || t >= n {
+            continue;
+        }
+        let dx = pos[s].0 - pos[t].0;
+        let dy = pos[s].1 - pos[t].1;
+        let d = (dx * dx + dy * dy).sqrt();
+        if d < 1e-3 {
+            continue;
+        }
+        let f = d * d / k;
+        let ux = dx / d * f;
+        let uy = dy / d * f;
+        disp[s].0 -= ux;
+        disp[s].1 -= uy;
+        disp[t].0 += ux;
+        disp[t].1 += uy;
+    }
+
+    for i in 0..n {
+        let (dx, dy) = disp[i];
+        let d = (dx * dx + dy * dy).sqrt();
+        if d < 1e-6 {
+            continue;
+        }
+        let limit = d.min(temperature);
+        pos[i].0 += dx / d * limit;
+        pos[i].1 += dy / d * limit;
+    }
 }
 
 pub fn position_of(pos: &Positions, id: NodeId) -> Option<(f32, f32)> {
@@ -213,5 +248,56 @@ mod tests {
         let p = layout(&m, &LayoutParams::default());
         assert_eq!(p.len(), 1);
         assert!(p[0].0.is_finite() && p[0].1.is_finite());
+    }
+
+    #[test]
+    fn streaming_emits_frames_at_the_requested_interval() {
+        let m = two_clusters();
+        let params = LayoutParams {
+            iterations: 100,
+            ..LayoutParams::default()
+        };
+        let mut seen: Vec<u32> = Vec::new();
+        let out =
+            layout_streaming(&m, &params, 10, &mut |i, _| seen.push(i), &|| false).expect("layout");
+        assert_eq!(seen.len(), 10);
+        assert_eq!(seen.first().copied(), Some(10));
+        assert_eq!(seen.last().copied(), Some(100));
+        assert_eq!(out.len(), 6);
+    }
+
+    #[test]
+    fn streaming_matches_the_non_streaming_result() {
+        let m = two_clusters();
+        let params = LayoutParams::default();
+        let streamed =
+            layout_streaming(&m, &params, 10, &mut |_, _| {}, &|| false).expect("layout");
+        assert_eq!(streamed, layout(&m, &params));
+    }
+
+    #[test]
+    fn cancellation_stops_the_simulation() {
+        let m = two_clusters();
+        let params = LayoutParams {
+            iterations: 1_000_000,
+            ..LayoutParams::default()
+        };
+        let err = layout_streaming(&m, &params, 1, &mut |_, _| {}, &|| true).unwrap_err();
+        assert!(matches!(err, GraphError::Cancelled));
+    }
+
+    #[test]
+    fn frames_carry_the_positions_at_that_iteration() {
+        let m = two_clusters();
+        let params = LayoutParams {
+            iterations: 20,
+            ..LayoutParams::default()
+        };
+        let mut lengths: Vec<usize> = Vec::new();
+        layout_streaming(&m, &params, 10, &mut |_, p| lengths.push(p.len()), &|| {
+            false
+        })
+        .expect("layout");
+        assert_eq!(lengths, vec![6, 6]);
     }
 }
