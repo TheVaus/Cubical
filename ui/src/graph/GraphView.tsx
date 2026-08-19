@@ -1,11 +1,22 @@
-import { Match, Switch, createEffect, on, type JSXElement } from "solid-js";
+import {
+  Match,
+  Show,
+  Switch,
+  createEffect,
+  on,
+  type JSXElement,
+} from "solid-js";
 
 import Callout from "@ds/components/feedback/Callout/Callout";
 
+import { GraphCanvas } from "./GraphCanvas";
 import { createGraphState } from "./graphState";
 import "./graph.css";
 
-export function GraphView(props: { vaultId: () => string | null }): JSXElement {
+export function GraphView(props: {
+  vaultId: () => string | null;
+  theme: () => string;
+}): JSXElement {
   const state = createGraphState({ vaultId: props.vaultId });
 
   createEffect(on(props.vaultId, () => state.start()));
@@ -37,6 +48,13 @@ export function GraphView(props: { vaultId: () => string | null }): JSXElement {
           </p>
         </Match>
       </Switch>
+      <Show when={state.snapshot() !== null}>
+        <GraphCanvas
+          snapshot={state.snapshot}
+          positions={state.positions}
+          theme={props.theme}
+        />
+      </Show>
     </div>
   );
 }

@@ -1499,7 +1499,7 @@ const App: Component = () => {
                     </Show>
                   </Show>
                 </Show>
-                <GraphTabPane vaultId={vaultId} tabs={tabs} />
+                <GraphTabPane vaultId={vaultId} tabs={tabs} theme={settings.resolvedTheme} />
                 <TerminalTabPanes
                   tabs={tabs}
                   vaultId={vaultId}
