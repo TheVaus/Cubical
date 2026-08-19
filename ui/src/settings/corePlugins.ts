@@ -1,3 +1,4 @@
+import { GRAPH_PLUGIN } from "../graph/registration";
 import { TERMINAL_PLUGIN } from "../terminal/registration";
 import type { Setting } from "../api/ipc";
 
@@ -36,6 +37,7 @@ export const CORE_PLUGINS: CorePlugin[] = [
     defaultEnabled: true,
   },
   TERMINAL_PLUGIN,
+  GRAPH_PLUGIN,
 ];
 
 export function corePluginEnabled(

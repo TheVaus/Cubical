@@ -1,0 +1,94 @@
+.graph {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  background: var(--c-bg-primary);
+}
+
+.graph__status {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--c-fg-muted);
+}
+
+.graph__canvas-host {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.graph__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  cursor: grab;
+}
+
+.graph__canvas:active {
+  cursor: grabbing;
+}
+
+.graph__fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+}
+
+.graph__hover {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - var(--space-3)));
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--c-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--c-bg-secondary, var(--c-bg-primary));
+  pointer-events: none;
+  max-width: calc(100% - var(--space-6));
+}
+
+.graph__hover-label {
+  font-size: var(--text-sm);
+  color: var(--c-fg-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph__hover-kind {
+  font-size: var(--text-xs);
+  color: var(--c-fg-muted);
+}
+
+.graph__filters {
+  position: absolute;
+  top: var(--space-3);
+  left: var(--space-3);
+  right: var(--space-3);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--c-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--c-bg-secondary, var(--c-bg-primary));
+}
+
+.graph__filters-scope {
+  flex: 1 1 12rem;
+  min-width: 8rem;
+}
+
+.graph__filters-count {
+  font-size: var(--text-xs);
+  color: var(--c-fg-muted);
+  white-space: nowrap;
+}

@@ -3,6 +3,7 @@ pub mod backlinks;
 pub mod blocks;
 pub mod dataview;
 pub mod embeds;
+pub mod graph;
 pub mod integrity;
 pub mod link_match;
 pub mod links;

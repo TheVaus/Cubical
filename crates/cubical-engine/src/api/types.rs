@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+pub use cubical_graph::{EdgeKind, GraphEdge, GraphNode, NodeId, NodeKind};
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ScanStatus {
@@ -650,4 +652,55 @@ impl From<cubical_query::QueryResult> for DataviewResult {
             cubical_query::QueryResult::Count { count } => Self::Count { count },
         }
     }
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphFilter {
+    pub kinds: Option<Vec<cubical_graph::NodeKind>>,
+    pub path_prefix: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphSnapshotRequest {
+    pub vault_id: String,
+    #[serde(default)]
+    pub filter: GraphFilter,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphSnapshot {
+    pub nodes: Vec<cubical_graph::GraphNode>,
+    pub edges: Vec<cubical_graph::GraphEdge>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphLayoutRequest {
+    pub vault_id: String,
+    pub snapshot: GraphSnapshot,
+    pub seed: Option<u64>,
+    pub iterations: Option<u32>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphLayoutCancelRequest {
+    pub vault_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LayoutFrame {
+    pub iteration: u32,
+    pub positions: Vec<f32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LayoutComplete {
+    pub iterations: u32,
+    pub positions: Vec<f32>,
 }

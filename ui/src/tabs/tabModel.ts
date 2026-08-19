@@ -1,7 +1,8 @@
 export type TabView =
   | { kind: "file"; path: string }
   | { kind: "tag"; tagPath: string }
-  | { kind: "terminal"; key: string };
+  | { kind: "terminal"; key: string }
+  | { kind: "graph" };
 
 export interface Tab {
   id: string;
@@ -23,6 +24,8 @@ export function tabId(view: TabView): string {
       return `tag:${view.tagPath}`;
     case "terminal":
       return `terminal:${view.key}`;
+    case "graph":
+      return "graph";
   }
 }
 
@@ -44,7 +47,7 @@ export function activeTab(s: TabSet): Tab | null {
 export const MAX_TABS = 8;
 
 function isReplaceable(t: Tab): boolean {
-  return t.view.kind !== "terminal";
+  return t.view.kind !== "terminal" && t.view.kind !== "graph";
 }
 
 type Slot = { at: number } | "existing" | "append" | "full";
@@ -53,7 +56,7 @@ function slotFor(s: TabSet, view: TabView, max: number): Slot {
   const id = tabId(view);
   if (s.tabs.some((t) => t.id === id)) return "existing";
   if (
-    view.kind === "terminal" &&
+    (view.kind === "terminal" || view.kind === "graph") &&
     s.tabs.filter((t) => !isReplaceable(t)).length >= max - 1
   ) {
     return "full";
