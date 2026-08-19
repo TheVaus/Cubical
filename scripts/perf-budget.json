@@ -6,24 +6,60 @@
     "machine-readable copy the gate reads - keep the two in step.",
     "",
     "WHY THERE IS A MACHINE CLASS AT ALL:",
-    "the budget is wall-clock, and roughly a third of it is Tantivy, which uses",
-    "min(cores, 8) indexing threads. A 2-core CI runner is plausibly ~3x slower",
-    "on that phase through no fault of the change under test. Asserting the",
-    "13 s number on such a runner would produce a gate that fails randomly, and",
-    "a gate that fails randomly is a gate people learn to ignore.",
+    "the scan budget is wall-clock, and roughly a third of it is Tantivy, which",
+    "uses min(cores, 8) indexing threads. A 2-core CI runner is plausibly ~3x",
+    "slower on that phase through no fault of the change under test. Asserting",
+    "the 13 s number on such a runner would produce a gate that fails randomly,",
+    "and a gate that fails randomly is a gate people learn to ignore.",
     "",
     "So the gate REFUSES TO ASSERT below min_cores rather than scaling the",
     "number by a fudge factor. A skipped measurement is honest; a measurement",
-    "adjusted by a guess is not."
+    "adjusted by a guess is not.",
+    "",
+    "BENCHMARKS:",
+    "each entry names the crate and example to run, an argv template, and the",
+    "regex that pulls a median out of its stdout. Templates substitute {tmpdir},",
+    "{size} and {runs}. 'gate_repeats' says who takes the median: false means",
+    "the harness runs 'runs' times itself and prints one median (scan_bench),",
+    "true means the gate invokes the command 'runs' times and takes the median",
+    "of the parsed values (layout_bench, which measures a single run).",
+    "",
+    "Running perf.py with no --benchmark measures EVERY entry here. That is",
+    "deliberate: a declared ceiling that nothing runs is not a budget."
   ],
 
   "min_cores": 8,
   "reference_machine": "10-core arm64 darwin (the machine the medians were taken on)",
 
-  "budgets": [
-    { "notes": 1000,  "runs": 3, "max_median_secs": 1.5 },
-    { "notes": 10000, "runs": 3, "max_median_secs": 13.0 }
-  ],
-
-  "default_notes": 1000
+  "benchmarks": {
+    "scan": {
+      "label": "cold open+scan",
+      "crate": "cubical-core",
+      "example": "scan_bench",
+      "needs_tmpdir": true,
+      "args": ["{tmpdir}", "{size}", "{runs}"],
+      "gate_repeats": false,
+      "median_pattern": "^open\\+scan\\s*:.*?median\\s+([0-9.]+)\\s*s",
+      "size_noun": "notes",
+      "budgets": [
+        { "size": 1000,  "runs": 3, "max_median_secs": 1.5 },
+        { "size": 10000, "runs": 3, "max_median_secs": 13.0 }
+      ],
+      "default_size": 1000
+    },
+    "graph_layout": {
+      "label": "graph layout",
+      "crate": "cubical-graph",
+      "example": "layout_bench",
+      "needs_tmpdir": false,
+      "args": ["{size}"],
+      "gate_repeats": true,
+      "median_pattern": "laid out \\d+ nodes in ([0-9.]+)s",
+      "size_noun": "nodes",
+      "budgets": [
+        { "size": 10000, "runs": 3, "max_median_secs": 5.5 }
+      ],
+      "default_size": 10000
+    }
+  }
 }
