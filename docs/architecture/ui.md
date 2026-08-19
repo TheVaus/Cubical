@@ -69,6 +69,8 @@ Two locked rules govern how it grows:
 
 Some surfaces stayed **deliberately bespoke** where no design-system component fit at migration time — but that set has since shrunk. Issue #35 authored the net-new primitives that unblocked most of them: `Select` (the native `<select>`s), `DatePicker` (the native date pickers), `Popover` (the VaultSwitcher / Pending Rewrites / set-info positioned dropdowns), `Link` (the "Open as raw" text links), and a richer pill `Tag` (ChipList's multi-control chips) — all merged 2026-07-19 — plus `TwoPaneModal` (the nav+body Settings modal), merged 2026-07-20. One surface remains bespoke, awaiting the last net-new primitive still parked in #35: the ranked multi-kind **OmniBar** palette (needs a richer `CommandPalette` — the flat `{id,label,onRun}` DS one would regress its fuzzy rank, kind badges, and recency). The migration record and the full bespoke rationale live in the campaign handoff [`../archive/work/handoffs/2026-07-17-ds-migration-progress.md`](../archive/work/handoffs/2026-07-17-ds-migration-progress.md); the net-new-primitive backlog (6 done, 1 remaining) is GitHub issue #35, and the deferred migratable inline tail is #34.
 
+A second surface is bespoke by construction rather than by backlog: the **graph hover label** (`ui/src/graph/GraphView.tsx`). `Tooltip` and `Popover` both anchor to a child element, and a node drawn at canvas coordinates is not one — there is no element to anchor to. It is a plain positioned `div`, uses only DS tokens, and would become migratable only if the DS gained a primitive that anchors to a point rather than to a child.
+
 ### 11.7 App composition
 
 §11.6 governs where a *primitive* comes from. This section governs what `ui/src` is made of.

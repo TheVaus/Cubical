@@ -1,0 +1,104 @@
+import { describe, expect, it } from "vitest";
+
+import type { GraphEdge, GraphNode } from "../api/ipc";
+import {
+  buildAdjacency,
+  focusSet,
+  neighboursOf,
+  nodeAt,
+  openablePath,
+} from "./graphModel";
+
+const edge = (source: number, target: number): GraphEdge => ({
+  source,
+  target,
+  kind: "link",
+});
+
+const node = (id: number, kind: GraphNode["kind"], key: string): GraphNode => ({
+  id,
+  kind,
+  key,
+  label: key,
+});
+
+const sorted = (a: Uint32Array) => Array.from(a).sort((x, y) => x - y);
+
+describe("adjacency", () => {
+  it("is undirected: both endpoints list each other", () => {
+    const adj = buildAdjacency(3, [edge(0, 1), edge(0, 2)]);
+    expect(sorted(neighboursOf(adj, 0))).toEqual([1, 2]);
+    expect(sorted(neighboursOf(adj, 1))).toEqual([0]);
+    expect(sorted(neighboursOf(adj, 2))).toEqual([0]);
+  });
+
+  it("gives an isolated node no neighbours", () => {
+    const adj = buildAdjacency(2, []);
+    expect(neighboursOf(adj, 0)).toHaveLength(0);
+  });
+
+  it("keeps a parallel edge as two entries, matching the drawn edges", () => {
+    const adj = buildAdjacency(2, [edge(0, 1), edge(0, 1)]);
+    expect(sorted(neighboursOf(adj, 0))).toEqual([1, 1]);
+  });
+
+  it("handles a self-loop without corrupting the offsets", () => {
+    const adj = buildAdjacency(2, [edge(0, 0), edge(0, 1)]);
+    expect(sorted(neighboursOf(adj, 0))).toEqual([0, 0, 1]);
+    expect(sorted(neighboursOf(adj, 1))).toEqual([0]);
+  });
+
+  it("drops an edge pointing past the node count", () => {
+    const adj = buildAdjacency(2, [edge(0, 5), edge(0, 1)]);
+    expect(sorted(neighboursOf(adj, 0))).toEqual([1]);
+  });
+
+  it("returns empty rather than throwing for an out-of-range node", () => {
+    const adj = buildAdjacency(2, [edge(0, 1)]);
+    expect(neighboursOf(adj, 99)).toHaveLength(0);
+    expect(neighboursOf(adj, -1)).toHaveLength(0);
+  });
+
+  it("keeps every node's slice within its own bounds on a larger graph", () => {
+    const edges: GraphEdge[] = [];
+    for (let i = 0; i < 99; i++) edges.push(edge(i, i + 1));
+    const adj = buildAdjacency(100, edges);
+    let total = 0;
+    for (let i = 0; i < 100; i++) total += neighboursOf(adj, i).length;
+    expect(total).toBe(edges.length * 2);
+    expect(adj.offsets[100]).toBe(edges.length * 2);
+  });
+});
+
+describe("focus set", () => {
+  it("is the node plus its immediate neighbours, and nothing further", () => {
+    const adj = buildAdjacency(4, [edge(0, 1), edge(1, 2), edge(2, 3)]);
+    expect([...focusSet(adj, 1)].sort()).toEqual([0, 1, 2]);
+  });
+
+  it("is just the node itself when it is isolated", () => {
+    const adj = buildAdjacency(2, []);
+    expect([...focusSet(adj, 0)]).toEqual([0]);
+  });
+});
+
+describe("node lookup and openability", () => {
+  it("resolves an index to its node, and null off the end", () => {
+    const snapshot = { nodes: [node(0, "note", "a.md")], edges: [] };
+    expect(nodeAt(snapshot, 0)?.key).toBe("a.md");
+    expect(nodeAt(snapshot, 9)).toBeNull();
+    expect(nodeAt(snapshot, null)).toBeNull();
+    expect(nodeAt(null, 0)).toBeNull();
+  });
+
+  it("opens notes and attachments by path", () => {
+    expect(openablePath(node(0, "note", "a.md"))).toBe("a.md");
+    expect(openablePath(node(1, "attachment", "img.png"))).toBe("img.png");
+  });
+
+  it("does not open a ghost or a tag, which have no file behind them", () => {
+    expect(openablePath(node(2, "ghost", "nowhere"))).toBeNull();
+    expect(openablePath(node(3, "tag", "work"))).toBeNull();
+    expect(openablePath(null)).toBeNull();
+  });
+});

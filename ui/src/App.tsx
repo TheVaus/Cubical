@@ -1499,7 +1499,7 @@ const App: Component = () => {
                     </Show>
                   </Show>
                 </Show>
-                <GraphTabPane vaultId={vaultId} tabs={tabs} theme={settings.resolvedTheme} />
+                <GraphTabPane vaultId={vaultId} tabs={tabs} theme={settings.resolvedTheme} onOpenFile={(p) => void handleNavigateWikilink(p, null)} />
                 <TerminalTabPanes
                   tabs={tabs}
                   vaultId={vaultId}

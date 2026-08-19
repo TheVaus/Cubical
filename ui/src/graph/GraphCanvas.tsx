@@ -16,6 +16,8 @@ export function GraphCanvas(props: {
   snapshot: () => GraphSnapshot | null;
   positions: () => Float32Array;
   theme: () => string;
+  onHover: (node: number | null) => void;
+  onActivate: (node: number) => void;
 }): JSXElement {
   let canvas!: HTMLCanvasElement;
   let host!: HTMLDivElement;
@@ -29,6 +31,8 @@ export function GraphCanvas(props: {
       positions: props.positions,
       theme: props.theme,
       onFailure: setFailure,
+      onHover: props.onHover,
+      onActivate: props.onActivate,
     });
     createEffect(() => {
       props.positions();

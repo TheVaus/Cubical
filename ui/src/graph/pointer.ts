@@ -13,7 +13,12 @@ export interface PointerDeps {
     y: number,
     factor: number,
   ) => Camera;
+  onProbe: (screenX: number, screenY: number) => number | null;
+  onHover: (node: number | null) => void;
+  onActivate: (node: number) => void;
 }
+
+export const CLICK_SLOP_PX = 4;
 
 export interface PointerControls {
   destroy: () => void;
@@ -42,6 +47,9 @@ export function createPointerControls(deps: PointerDeps): PointerControls {
   let dragging: number | null = null;
   let lastX = 0;
   let lastY = 0;
+  let downX = 0;
+  let downY = 0;
+  let moved = false;
 
   const dpr = () => window.devicePixelRatio || 1;
 
@@ -50,11 +58,25 @@ export function createPointerControls(deps: PointerDeps): PointerControls {
     dragging = e.pointerId;
     lastX = e.clientX;
     lastY = e.clientY;
+    downX = e.clientX;
+    downY = e.clientY;
+    moved = false;
     element.setPointerCapture(e.pointerId);
   };
 
+  const probeAt = (e: { clientX: number; clientY: number }) => {
+    const [x, y] = devicePoint(e, element.getBoundingClientRect(), dpr());
+    return deps.onProbe(x, y);
+  };
+
   const onPointerMove = (e: PointerEvent) => {
-    if (dragging !== e.pointerId) return;
+    if (dragging !== e.pointerId) {
+      deps.onHover(probeAt(e));
+      return;
+    }
+    if (Math.hypot(e.clientX - downX, e.clientY - downY) > CLICK_SLOP_PX) {
+      moved = true;
+    }
     const scale = dpr();
     deps.setCamera(
       deps.pan(deps.camera(), (e.clientX - lastX) * scale, (e.clientY - lastY) * scale),
@@ -66,6 +88,10 @@ export function createPointerControls(deps: PointerDeps): PointerControls {
   const onPointerUp = (e: PointerEvent) => {
     if (dragging !== e.pointerId) return;
     dragging = null;
+    if (!moved) {
+      const node = probeAt(e);
+      if (node !== null) deps.onActivate(node);
+    }
     if (element.hasPointerCapture(e.pointerId)) {
       element.releasePointerCapture(e.pointerId);
     }
@@ -79,6 +105,9 @@ export function createPointerControls(deps: PointerDeps): PointerControls {
     );
   };
 
+  const onPointerLeave = () => deps.onHover(null);
+
+  element.addEventListener("pointerleave", onPointerLeave);
   element.addEventListener("pointerdown", onPointerDown);
   element.addEventListener("pointermove", onPointerMove);
   element.addEventListener("pointerup", onPointerUp);
@@ -87,6 +116,7 @@ export function createPointerControls(deps: PointerDeps): PointerControls {
 
   return {
     destroy: () => {
+      element.removeEventListener("pointerleave", onPointerLeave);
       element.removeEventListener("pointerdown", onPointerDown);
       element.removeEventListener("pointermove", onPointerMove);
       element.removeEventListener("pointerup", onPointerUp);

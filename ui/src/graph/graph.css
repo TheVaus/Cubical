@@ -39,3 +39,31 @@
   justify-content: center;
   padding: var(--space-4);
 }
+
+.graph__hover {
+  position: absolute;
+  left: var(--space-3);
+  bottom: var(--space-3);
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--c-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--c-bg-secondary, var(--c-bg-primary));
+  pointer-events: none;
+  max-width: calc(100% - var(--space-6));
+}
+
+.graph__hover-label {
+  font-size: var(--text-sm);
+  color: var(--c-fg-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph__hover-kind {
+  font-size: var(--text-xs);
+  color: var(--c-fg-muted);
+}

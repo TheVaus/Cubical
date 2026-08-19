@@ -5,9 +5,6 @@ import { createEdgePass } from "./edgePass";
 import type { GpuContext } from "./device";
 import { createNodePass } from "./nodePass";
 
-const VERTEX = GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST;
-const UNIFORM = GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
-
 export interface Renderer {
   setInstances: (
     nodes: ArrayBuffer,
@@ -21,6 +18,9 @@ export interface Renderer {
 
 export function createRenderer(gpu: GpuContext): Renderer {
   const { device, context, format } = gpu;
+
+  const VERTEX = GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST;
+  const UNIFORM = GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
 
   const nodePipeline = createNodePass(device, format);
   const edgePipeline = createEdgePass(device, format);

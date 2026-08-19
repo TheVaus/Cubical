@@ -1,5 +1,13 @@
 import type { GraphSnapshot } from "../api/ipc";
-import { boundsOf, fitTo, pan, zoomAt, type Camera, type Viewport } from "./camera";
+import {
+  boundsOf,
+  fitTo,
+  pan,
+  screenToWorld,
+  zoomAt,
+  type Camera,
+  type Viewport,
+} from "./camera";
 import {
   acquireDevice,
   buildEdgeInstances,
@@ -12,6 +20,10 @@ import {
   type Renderer,
 } from "./gpu";
 import { FAILURE_MESSAGES } from "./gpu/device";
+import { radiusFor } from "./gpu/instances";
+import { buildAdjacency, type Adjacency } from "./graphModel";
+import { edgeFlags, nodeFlags } from "./hover";
+import { buildPickGrid, hitTest, type PickGrid } from "./picking";
 import { createPointerControls } from "./pointer";
 
 export interface RenderLoopDeps {
@@ -21,12 +33,16 @@ export interface RenderLoopDeps {
   positions: () => Float32Array;
   theme: () => string;
   onFailure: (message: string | null) => void;
+  onHover: (node: number | null) => void;
+  onActivate: (node: number) => void;
 }
 
 export interface RenderLoop {
   request: () => void;
   destroy: () => void;
 }
+
+export const HOVER_SLOP = 4;
 
 export function createGraphRenderLoop(deps: RenderLoopDeps): RenderLoop {
   let renderer: Renderer | null = null;
@@ -38,6 +54,10 @@ export function createGraphRenderLoop(deps: RenderLoopDeps): RenderLoop {
   let lastPositions: Float32Array | null = null;
   let lastTheme = "";
   let viewport: Viewport = { width: 1, height: 1 };
+  let adjacency: Adjacency = buildAdjacency(0, []);
+  let grid: PickGrid | null = null;
+  let hovered: number | null = null;
+  let degree = degrees(0, []);
 
   const controls = createPointerControls({
     element: deps.canvas,
@@ -49,6 +69,18 @@ export function createGraphRenderLoop(deps: RenderLoopDeps): RenderLoop {
     },
     pan,
     zoomAt,
+    onProbe: (screenX, screenY) => {
+      const [worldX, worldY] = screenToWorld(camera, viewport, screenX, screenY);
+      return hitTest(grid, worldX, worldY, HOVER_SLOP / Math.max(camera.zoom, 1e-6));
+    },
+    onHover: (node) => {
+      if (node === hovered) return;
+      hovered = node;
+      deps.onHover(node);
+      reflag();
+      request();
+    },
+    onActivate: (node) => deps.onActivate(node),
   });
 
   const request = () => {
@@ -73,6 +105,38 @@ export function createGraphRenderLoop(deps: RenderLoopDeps): RenderLoop {
   const observer = new ResizeObserver(resize);
   observer.observe(deps.host);
 
+  const uploadInstances = (snapshot: GraphSnapshot, positions: Float32Array) => {
+    if (renderer === null) return;
+    const palette = readPalette(deps.host);
+    const nodeCount = Math.min(
+      snapshot.nodes.length,
+      Math.floor(positions.length / 2),
+    );
+    renderer.setInstances(
+      buildNodeInstances(
+        snapshot.nodes,
+        positions,
+        degree,
+        palette,
+        nodeFlags(snapshot.nodes.length, adjacency, hovered),
+      ),
+      nodeCount,
+      buildEdgeInstances(
+        snapshot.edges,
+        positions,
+        palette,
+        edgeFlags(snapshot.edges, hovered),
+      ),
+      edgeInstanceCount(snapshot.edges, positions),
+    );
+  };
+
+  const reflag = () => {
+    const snapshot = deps.snapshot();
+    if (snapshot === null || lastPositions === null) return;
+    uploadInstances(snapshot, lastPositions);
+  };
+
   const render = () => {
     if (renderer === null || disposed) return;
     const snapshot = deps.snapshot();
@@ -81,16 +145,19 @@ export function createGraphRenderLoop(deps: RenderLoopDeps): RenderLoop {
 
     const theme = deps.theme();
     if (positions !== lastPositions || theme !== lastTheme) {
+      const structureChanged = positions !== lastPositions;
       lastPositions = positions;
       lastTheme = theme;
-      const palette = readPalette(deps.host);
-      const degree = degrees(snapshot.nodes.length, snapshot.edges);
-      renderer.setInstances(
-        buildNodeInstances(snapshot.nodes, positions, degree, palette),
-        Math.min(snapshot.nodes.length, Math.floor(positions.length / 2)),
-        buildEdgeInstances(snapshot.edges, positions, palette),
-        edgeInstanceCount(snapshot.edges, positions),
-      );
+      if (structureChanged) {
+        adjacency = buildAdjacency(snapshot.nodes.length, snapshot.edges);
+        degree = degrees(snapshot.nodes.length, snapshot.edges);
+        const radii = new Float32Array(
+          Math.min(snapshot.nodes.length, Math.floor(positions.length / 2)),
+        );
+        for (let i = 0; i < radii.length; i++) radii[i] = radiusFor(degree[i] ?? 0);
+        grid = buildPickGrid(positions, radii);
+      }
+      uploadInstances(snapshot, positions);
       if (!fitted && positions.length > 0) {
         camera = fitTo(boundsOf(positions), viewport);
         fitted = true;
