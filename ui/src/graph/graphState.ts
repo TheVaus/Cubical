@@ -4,10 +4,12 @@ import {
   graphLayout,
   graphLayoutCancel,
   graphSnapshot,
+  onVaultFileChanged,
   type GraphSnapshot,
   type LayoutComplete,
   type LayoutFrame,
 } from "../api/ipc";
+import { positionsByKey, reconcilePositions } from "./reconcile";
 
 export type GraphStatus =
   | "idle"
@@ -15,6 +17,8 @@ export type GraphStatus =
   | "laying-out"
   | "ready"
   | "error";
+
+export const REFRESH_DEBOUNCE_MS = 400;
 
 export interface GraphStateDeps {
   vaultId: () => string | null;
@@ -25,6 +29,10 @@ export interface GraphStateDeps {
     onFrame: (frame: LayoutFrame) => void,
   ) => Promise<LayoutComplete>;
   cancel?: (vaultId: string) => Promise<void>;
+  subscribe?: (
+    handler: (payload: { vault_id: string }) => void,
+  ) => Promise<() => void>;
+  debounceMs?: number;
 }
 
 export interface GraphState {
@@ -35,6 +43,7 @@ export interface GraphState {
   error: () => string | null;
   start: () => void;
   stop: () => void;
+  refresh: () => void;
 }
 
 const EMPTY = new Float32Array(0);
@@ -43,6 +52,8 @@ export function createGraphState(deps: GraphStateDeps): GraphState {
   const fetchSnapshot = deps.snapshot ?? ((id: string) => graphSnapshot(id));
   const runLayout = deps.layout ?? graphLayout;
   const cancelLayout = deps.cancel ?? graphLayoutCancel;
+  const subscribe = deps.subscribe ?? onVaultFileChanged;
+  const debounceMs = deps.debounceMs ?? REFRESH_DEBOUNCE_MS;
 
   const [status, setStatus] = createSignal<GraphStatus>("idle");
   const [snapshot, setSnapshot] = createSignal<GraphSnapshot | null>(null);
@@ -52,6 +63,8 @@ export function createGraphState(deps: GraphStateDeps): GraphState {
 
   let run = 0;
   let running: string | null = null;
+  let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+  let unlisten: (() => void) | null = null;
 
   const reset = () => {
     setStatus("idle");
@@ -61,8 +74,33 @@ export function createGraphState(deps: GraphStateDeps): GraphState {
     setError(null);
   };
 
+  const refresh = () => {
+    const vaultId = deps.vaultId();
+    const previous = snapshot();
+    if (vaultId === null || previous === null) return;
+    const frozen = positionsByKey(previous, positions());
+    void (async () => {
+      const next = await fetchSnapshot(vaultId).catch(() => null);
+      if (next === null || vaultId !== deps.vaultId()) return;
+      setSnapshot(next);
+      setPositions(reconcilePositions(next, frozen));
+    })();
+  };
+
+  const scheduleRefresh = () => {
+    if (refreshTimer !== null) clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => {
+      refreshTimer = null;
+      refresh();
+    }, debounceMs);
+  };
+
   const stop = () => {
     run += 1;
+    if (refreshTimer !== null) {
+      clearTimeout(refreshTimer);
+      refreshTimer = null;
+    }
     const vaultId = running;
     running = null;
     reset();
@@ -96,6 +134,11 @@ export function createGraphState(deps: GraphStateDeps): GraphState {
         setIteration(done.iterations);
         setStatus("ready");
         running = null;
+        if (unlisten === null) {
+          unlisten = await subscribe((payload) => {
+            if (payload.vault_id === deps.vaultId()) scheduleRefresh();
+          }).catch(() => null);
+        }
       } catch (e) {
         if (!current()) return;
         running = null;
@@ -105,7 +148,11 @@ export function createGraphState(deps: GraphStateDeps): GraphState {
     })();
   };
 
-  onCleanup(stop);
+  onCleanup(() => {
+    stop();
+    unlisten?.();
+    unlisten = null;
+  });
 
   return {
     status,
@@ -115,5 +162,6 @@ export function createGraphState(deps: GraphStateDeps): GraphState {
     error,
     start,
     stop,
+    refresh: scheduleRefresh,
   };
 }

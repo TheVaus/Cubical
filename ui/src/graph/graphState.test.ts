@@ -27,6 +27,8 @@ function snapshotOf(nodes: number): GraphSnapshot {
 
 interface Harness {
   state: GraphState;
+  fileChanged: (vaultId: string) => void;
+  snapshots: () => GraphSnapshot;
   setVaultId: (id: string | null) => void;
   cancelled: string[];
   snapshotsFor: string[];
@@ -37,7 +39,8 @@ interface Harness {
 }
 
 function harness(opts?: { nodes?: number }): Harness {
-  const nodes = opts?.nodes ?? 2;
+  let nodes = opts?.nodes ?? 2;
+  let notify: ((payload: { vault_id: string }) => void) | null = null;
   const cancelled: string[] = [];
   const snapshotsFor: string[] = [];
   let emit: (frame: LayoutFrame) => void = () => {};
@@ -53,6 +56,13 @@ function harness(opts?: { nodes?: number }): Harness {
         snapshotsFor.push(id);
         return snapshotOf(nodes);
       },
+      subscribe: async (handler) => {
+        notify = handler;
+        return () => {
+          notify = null;
+        };
+      },
+      debounceMs: 5,
       layout: (_id, _snap, onFrame) =>
         new Promise<LayoutComplete>((resolve, reject) => {
           emit = onFrame;
@@ -65,6 +75,8 @@ function harness(opts?: { nodes?: number }): Harness {
     });
     h = {
       state,
+      fileChanged: (vaultId) => notify?.({ vault_id: vaultId }),
+      snapshots: () => snapshotOf(nodes),
       setVaultId,
       cancelled,
       snapshotsFor,
@@ -191,5 +203,62 @@ describe("graph state", () => {
 
     expect(h.state.status()).toBe("error");
     expect(h.state.error()).toBe("index is gone");
+  });
+});
+
+describe("liveness", () => {
+  const settle = () => new Promise((r) => setTimeout(r, 40));
+
+  async function ready(h: ReturnType<typeof harness>) {
+    h.state.start();
+    await flush();
+    h.settle({ iterations: 300, positions: [1, 2, 3, 4] });
+    await flush();
+  }
+
+  it("refetches once for a burst of changes rather than once per event", async () => {
+    const h = harness();
+    await ready(h);
+    const before = h.snapshotsFor.length;
+
+    for (let i = 0; i < 10; i++) h.fileChanged("v1");
+    await settle();
+
+    expect(h.snapshotsFor.length).toBe(before + 1);
+  });
+
+  it("keeps the existing positions rather than relaying out", async () => {
+    const h = harness();
+    await ready(h);
+    expect(Array.from(h.state.positions())).toEqual([1, 2, 3, 4]);
+
+    h.fileChanged("v1");
+    await settle();
+
+    expect(Array.from(h.state.positions())).toEqual([1, 2, 3, 4]);
+    expect(h.state.status()).toBe("ready");
+  });
+
+  it("ignores a change in another vault", async () => {
+    const h = harness();
+    await ready(h);
+    const before = h.snapshotsFor.length;
+
+    h.fileChanged("v2");
+    await settle();
+
+    expect(h.snapshotsFor.length).toBe(before);
+  });
+
+  it("stops listening once the view is torn down", async () => {
+    const h = harness();
+    await ready(h);
+    const before = h.snapshotsFor.length;
+
+    h.state.stop();
+    h.fileChanged("v1");
+    await settle();
+
+    expect(h.snapshotsFor.length).toBe(before);
   });
 });
