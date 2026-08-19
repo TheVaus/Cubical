@@ -62,6 +62,11 @@ export async function acquireDevice(
   const format = navigatorGpu.getPreferredCanvasFormat();
   context.configure({ device, format, alphaMode: "premultiplied" });
 
+  device.addEventListener("uncapturederror", (event) => {
+    const e = event as GPUUncapturedErrorEvent;
+    console.error("graph: WebGPU error", e.error.message);
+  });
+
   void device.lost.then(onLost);
 
   return { ok: true, gpu: { device, context, format } };

@@ -34,13 +34,13 @@ fn unpack(rgba: u32) -> vec4<f32> {
 @vertex
 fn vs(
   @builtin(vertex_index) vertexIndex: u32,
-  @location(0) from: vec2<f32>,
-  @location(1) to: vec2<f32>,
+  @location(0) tail: vec2<f32>,
+  @location(1) head: vec2<f32>,
   @location(2) rgba: u32,
   @location(3) flags: u32,
 ) -> VsOut {
   let local = corner(vertexIndex);
-  let along = to - from;
+  let along = head - tail;
   let len = length(along);
   var dir = vec2<f32>(1.0, 0.0);
   if (len > 1e-6) {
@@ -48,7 +48,7 @@ fn vs(
   }
   let normal = vec2<f32>(-dir.y, dir.x);
   let widthWorld = max(1.0 * view.zoom, 1.0) / view.zoom;
-  let world = from + dir * (local.x * len) + normal * (local.y * widthWorld);
+  let world = tail + dir * (local.x * len) + normal * (local.y * widthWorld);
 
   var out: VsOut;
   out.clip = vec4<f32>((world - view.centre) * view.scale, 0.0, 1.0);
