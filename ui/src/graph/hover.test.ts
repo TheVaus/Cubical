@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { GraphEdge } from "../api/ipc";
-import { FLAG_DIMMED, FLAG_FOCUSED } from "./gpu/instances";
+import { FLAG_DIMMED, FLAG_FOCUSED, FLAG_HIDDEN } from "./gpu/instances";
 import { buildAdjacency } from "./graphModel";
 import { edgeFlags, nodeFlags } from "./hover";
 
@@ -61,5 +61,37 @@ describe("hover edge flags", () => {
       FLAG_DIMMED,
       FLAG_DIMMED,
     ]);
+  });
+});
+
+describe("filter visibility", () => {
+  const visible = Uint8Array.from([1, 1, 0, 1]);
+
+  it("hides a filtered-out node outright rather than dimming it", () => {
+    expect(nodeFlags(4, adjacency, null, visible)[2]).toBe(FLAG_HIDDEN);
+  });
+
+  it("leaves visible nodes untouched when nothing is hovered", () => {
+    const flags = nodeFlags(4, adjacency, null, visible);
+    expect(flags[0]).toBe(0);
+    expect(flags[3]).toBe(0);
+  });
+
+  it("keeps hidden beating focused, so a filtered node cannot be hover-revealed", () => {
+    expect(nodeFlags(4, adjacency, 2, visible)[2]).toBe(FLAG_HIDDEN);
+  });
+
+  it("still focuses and dims among the nodes that remain visible", () => {
+    const flags = nodeFlags(4, adjacency, 1, visible);
+    expect(flags[1]).toBe(FLAG_FOCUSED);
+    expect(flags[0]).toBe(0);
+    expect(flags[3]).toBe(FLAG_DIMMED);
+  });
+
+  it("hides an edge when either endpoint is filtered out", () => {
+    const flags = edgeFlags(edges, null, visible);
+    expect(flags[0]).toBe(0);
+    expect(flags[1]).toBe(FLAG_HIDDEN);
+    expect(flags[2]).toBe(FLAG_HIDDEN);
   });
 });

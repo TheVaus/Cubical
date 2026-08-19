@@ -4,6 +4,7 @@ export {
   BASE_RADIUS,
   FLAG_DIMMED,
   FLAG_FOCUSED,
+  FLAG_HIDDEN,
   buildEdgeInstances,
   buildNodeInstances,
   degrees,

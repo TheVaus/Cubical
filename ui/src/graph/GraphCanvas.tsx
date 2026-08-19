@@ -16,6 +16,7 @@ export function GraphCanvas(props: {
   snapshot: () => GraphSnapshot | null;
   positions: () => Float32Array;
   theme: () => string;
+  visible: () => Uint8Array;
   onHover: (node: number | null) => void;
   onActivate: (node: number) => void;
 }): JSXElement {
@@ -30,6 +31,7 @@ export function GraphCanvas(props: {
       snapshot: props.snapshot,
       positions: props.positions,
       theme: props.theme,
+      visible: props.visible,
       onFailure: setFailure,
       onHover: props.onHover,
       onActivate: props.onActivate,
@@ -38,6 +40,10 @@ export function GraphCanvas(props: {
       props.positions();
       props.theme();
       loop.request();
+    });
+    createEffect(() => {
+      props.visible();
+      loop.refilter();
     });
     onCleanup(loop.destroy);
   });

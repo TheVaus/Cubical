@@ -39,6 +39,13 @@ fn vs(
   @location(2) rgba: u32,
   @location(3) flags: u32,
 ) -> VsOut {
+  var out: VsOut;
+  if ((flags & 4u) != 0u) {
+    out.clip = vec4<f32>(0.0, 0.0, 2.0, 1.0);
+    out.colour = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+    return out;
+  }
+
   let local = corner(vertexIndex);
   let along = head - tail;
   let len = length(along);
@@ -50,7 +57,6 @@ fn vs(
   let widthWorld = max(1.0 * view.zoom, 1.0) / view.zoom;
   let world = tail + dir * (local.x * len) + normal * (local.y * widthWorld);
 
-  var out: VsOut;
   out.clip = vec4<f32>((world - view.centre) * view.scale, 0.0, 1.0);
   var colour = unpack(rgba);
   if ((flags & 1u) != 0u) {

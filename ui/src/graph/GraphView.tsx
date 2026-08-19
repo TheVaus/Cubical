@@ -3,6 +3,7 @@ import {
   Show,
   Switch,
   createEffect,
+  createMemo,
   createSignal,
   on,
   type JSXElement,
@@ -12,7 +13,15 @@ import Callout from "@ds/components/feedback/Callout/Callout";
 
 import { GraphCanvas } from "./GraphCanvas";
 import { createGraphState } from "./graphState";
-import { nodeAt, openablePath } from "./graphModel";
+import { GraphFilters } from "./GraphFilters";
+import {
+  DEFAULT_FILTER,
+  countVisible,
+  nodeAt,
+  openablePath,
+  visibleNodes,
+  type GraphViewFilter,
+} from "./graphModel";
 import "./graph.css";
 
 export function GraphView(props: {
@@ -22,6 +31,9 @@ export function GraphView(props: {
 }): JSXElement {
   const state = createGraphState({ vaultId: props.vaultId });
   const [hovered, setHovered] = createSignal<number | null>(null);
+  const [filter, setFilter] = createSignal<GraphViewFilter>(DEFAULT_FILTER);
+
+  const visible = createMemo(() => visibleNodes(state.snapshot(), filter()));
 
   const hoveredNode = () => nodeAt(state.snapshot(), hovered());
 
@@ -64,8 +76,15 @@ export function GraphView(props: {
           snapshot={state.snapshot}
           positions={state.positions}
           theme={props.theme}
+          visible={visible}
           onHover={setHovered}
           onActivate={activate}
+        />
+        <GraphFilters
+          filter={filter}
+          setFilter={setFilter}
+          visible={() => countVisible(visible())}
+          total={() => state.snapshot()?.nodes.length ?? 0}
         />
         <Show when={hoveredNode()}>
           {(node) => (

@@ -67,3 +67,29 @@
   font-size: var(--text-xs);
   color: var(--c-fg-muted);
 }
+
+.graph__filters {
+  position: absolute;
+  top: var(--space-3);
+  left: var(--space-3);
+  right: var(--space-3);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--c-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--c-bg-secondary, var(--c-bg-primary));
+}
+
+.graph__filters-scope {
+  flex: 1 1 12rem;
+  min-width: 8rem;
+}
+
+.graph__filters-count {
+  font-size: var(--text-xs);
+  color: var(--c-fg-muted);
+  white-space: nowrap;
+}

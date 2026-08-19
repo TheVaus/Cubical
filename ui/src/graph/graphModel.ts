@@ -65,3 +65,45 @@ export function openablePath(node: GraphNode | null): string | null {
   if (node.kind === "note" || node.kind === "attachment") return node.key;
   return null;
 }
+
+export interface GraphViewFilter {
+  kinds: Record<GraphNode["kind"], boolean>;
+  scope: string;
+}
+
+export const ALL_KINDS: GraphNode["kind"][] = [
+  "note",
+  "attachment",
+  "tag",
+  "ghost",
+];
+
+export const DEFAULT_FILTER: GraphViewFilter = {
+  kinds: { note: true, attachment: true, tag: true, ghost: true },
+  scope: "",
+};
+
+export function nodeMatches(node: GraphNode, filter: GraphViewFilter): boolean {
+  if (filter.kinds[node.kind] === false) return false;
+  const scope = filter.scope.trim().toLowerCase();
+  if (scope === "") return true;
+  return node.key.toLowerCase().includes(scope);
+}
+
+export function visibleNodes(
+  snapshot: GraphSnapshot | null,
+  filter: GraphViewFilter,
+): Uint8Array {
+  if (snapshot === null) return new Uint8Array(0);
+  const mask = new Uint8Array(snapshot.nodes.length);
+  for (let i = 0; i < snapshot.nodes.length; i++) {
+    mask[i] = nodeMatches(snapshot.nodes[i]!, filter) ? 1 : 0;
+  }
+  return mask;
+}
+
+export function countVisible(mask: Uint8Array): number {
+  let n = 0;
+  for (const v of mask) if (v === 1) n += 1;
+  return n;
+}

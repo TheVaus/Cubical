@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import type { GraphEdge, GraphNode } from "../api/ipc";
 import {
+  DEFAULT_FILTER,
   buildAdjacency,
+  countVisible,
   focusSet,
   neighboursOf,
   nodeAt,
   openablePath,
+  visibleNodes,
 } from "./graphModel";
 
 const edge = (source: number, target: number): GraphEdge => ({
@@ -100,5 +103,74 @@ describe("node lookup and openability", () => {
     expect(openablePath(node(2, "ghost", "nowhere"))).toBeNull();
     expect(openablePath(node(3, "tag", "work"))).toBeNull();
     expect(openablePath(null)).toBeNull();
+  });
+});
+
+describe("view filter", () => {
+  const snapshot = {
+    nodes: [
+      node(0, "note", "characters/Frodo.md"),
+      node(1, "note", "concepts/Tags.md"),
+      node(2, "tag", "work"),
+      node(3, "ghost", "nowhere"),
+      node(4, "attachment", "assets/map.png"),
+    ],
+    edges: [],
+  };
+
+  it("shows everything by default", () => {
+    expect(Array.from(visibleNodes(snapshot, DEFAULT_FILTER))).toEqual([
+      1, 1, 1, 1, 1,
+    ]);
+  });
+
+  it("hides a whole kind when its toggle is off", () => {
+    const filter = {
+      ...DEFAULT_FILTER,
+      kinds: { ...DEFAULT_FILTER.kinds, tag: false, ghost: false },
+    };
+    expect(Array.from(visibleNodes(snapshot, filter))).toEqual([1, 1, 0, 0, 1]);
+  });
+
+  it("scopes by a path fragment, case-insensitively", () => {
+    const filter = { ...DEFAULT_FILTER, scope: "CHARACTERS/" };
+    expect(Array.from(visibleNodes(snapshot, filter))).toEqual([1, 0, 0, 0, 0]);
+  });
+
+  it("ignores a blank or whitespace-only scope rather than hiding everything", () => {
+    expect(countVisible(visibleNodes(snapshot, { ...DEFAULT_FILTER, scope: "   " }))).toBe(5);
+  });
+
+  it("combines kind and scope as an intersection", () => {
+    const scopedOnly = { ...DEFAULT_FILTER, scope: "concepts/" };
+    expect(Array.from(visibleNodes(snapshot, scopedOnly))).toEqual([
+      0, 1, 0, 0, 0,
+    ]);
+
+    const alsoKindFiltered = {
+      kinds: { ...DEFAULT_FILTER.kinds, note: false },
+      scope: "concepts/",
+    };
+    expect(Array.from(visibleNodes(snapshot, alsoKindFiltered))).toEqual([
+      0, 0, 0, 0, 0,
+    ]);
+  });
+
+  it("can hide everything, and says so rather than throwing", () => {
+    const filter = {
+      kinds: { note: false, attachment: false, tag: false, ghost: false },
+      scope: "",
+    };
+    expect(countVisible(visibleNodes(snapshot, filter))).toBe(0);
+  });
+
+  it("has an empty mask when there is no snapshot", () => {
+    expect(visibleNodes(null, DEFAULT_FILTER)).toHaveLength(0);
+  });
+
+  it("keeps the mask index-aligned with the node array, which the flags rewrite relies on", () => {
+    const mask = visibleNodes(snapshot, { ...DEFAULT_FILTER, scope: "concepts" });
+    expect(mask).toHaveLength(snapshot.nodes.length);
+    expect(mask[1]).toBe(1);
   });
 });

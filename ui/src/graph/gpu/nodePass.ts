@@ -40,12 +40,19 @@ fn vs(
   @location(2) rgba: u32,
   @location(3) flags: u32,
 ) -> VsOut {
+  var out: VsOut;
+  if ((flags & 4u) != 0u) {
+    out.clip = vec4<f32>(0.0, 0.0, 2.0, 1.0);
+    out.local = vec2<f32>(2.0, 2.0);
+    out.colour = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+    return out;
+  }
+
   let local = corner(vertexIndex);
   let screenRadius = max(radius * view.zoom, 1.5);
   let worldRadius = screenRadius / view.zoom;
   let world = centre + local * worldRadius;
 
-  var out: VsOut;
   out.clip = vec4<f32>((world - view.centre) * view.scale, 0.0, 1.0);
   out.local = local;
   var colour = unpack(rgba);

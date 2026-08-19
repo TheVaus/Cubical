@@ -5,6 +5,7 @@ export const EDGE_STRIDE_BYTES = 24;
 
 export const FLAG_DIMMED = 1;
 export const FLAG_FOCUSED = 2;
+export const FLAG_HIDDEN = 4;
 
 export const BASE_RADIUS = 3;
 
@@ -36,6 +37,7 @@ export function buildNodeInstances(
   degree: Uint32Array,
   palette: Palette,
   flags?: Uint8Array,
+  colours?: Uint32Array,
 ): ArrayBuffer {
   const count = Math.min(nodes.length, Math.floor(positions.length / 2));
   const data = new ArrayBuffer(count * NODE_STRIDE_BYTES);
@@ -46,7 +48,7 @@ export function buildNodeInstances(
     f32[w] = positions[i * 2]!;
     f32[w + 1] = positions[i * 2 + 1]!;
     f32[w + 2] = radiusFor(degree[i] ?? 0);
-    u32[w + 3] = palette[nodes[i]!.kind];
+    u32[w + 3] = colours?.[i] ?? palette[nodes[i]!.kind];
     u32[w + 4] = flags?.[i] ?? 0;
   }
   return data;
