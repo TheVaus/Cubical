@@ -7,3 +7,9 @@ pub enum GraphError {
     #[error("layout cancelled")]
     Cancelled,
 }
+
+impl From<libsql::Error> for GraphError {
+    fn from(source: libsql::Error) -> Self {
+        GraphError::Index(IndexError::LibSql(source))
+    }
+}
