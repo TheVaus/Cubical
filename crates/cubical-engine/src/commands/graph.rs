@@ -194,6 +194,8 @@ mod tests {
     use super::*;
 
     use std::sync::atomic::AtomicU32;
+
+    const RUNAWAY: u32 = 50_000;
     use std::time::{Duration, Instant};
 
     use crate::state::{OpenVault, ScanStatusBackend};
@@ -406,28 +408,25 @@ mod tests {
         let registry = Arc::new(LayoutRegistry::new());
         let frames = Arc::new(AtomicU32::new(0));
         let seen = Arc::clone(&frames);
-
-        let driver = Arc::clone(&registry);
-        let canceller = tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(50)).await;
-            driver.cancel("v1");
-        });
+        let canceller = Arc::clone(&registry);
 
         let started = Instant::now();
-        let err = graph_layout(&registry, layout_request("v1", 200, 5_000_000), move |_| {
-            seen.fetch_add(1, Ordering::Relaxed);
+        let err = graph_layout(&registry, layout_request("v1", 200, RUNAWAY), move |_| {
+            if seen.fetch_add(1, Ordering::Relaxed) == 0 {
+                canceller.cancel("v1");
+            }
         })
         .await
         .expect_err("should cancel");
         let elapsed = started.elapsed();
-        canceller.await.expect("canceller");
 
         assert!(matches!(err, CubicalError::LayoutCancelled));
+        assert_eq!(
+            frames.load(Ordering::Relaxed),
+            1,
+            "no frame may be emitted after the cancel is observed"
+        );
         assert!(elapsed < Duration::from_secs(20), "took {elapsed:?}");
-
-        let at_cancel = frames.load(Ordering::Relaxed);
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        assert_eq!(frames.load(Ordering::Relaxed), at_cancel);
         assert!(!registry.is_running("v1"));
     }
 
@@ -435,40 +434,51 @@ mod tests {
     async fn cancelling_one_vault_does_not_disturb_another() {
         let registry = Arc::new(LayoutRegistry::new());
 
-        let slow = Arc::clone(&registry);
+        let doomed = Arc::clone(&registry);
+        let canceller = Arc::clone(&registry);
         let slow_run = tokio::spawn(async move {
-            graph_layout(&slow, layout_request("v1", 200, 5_000_000), |_| {}).await
+            graph_layout(&doomed, layout_request("v1", 200, RUNAWAY), move |_| {
+                canceller.cancel("v1");
+            })
+            .await
         });
 
-        let fast = Arc::clone(&registry);
-        let fast_run =
-            tokio::spawn(
-                async move { graph_layout(&fast, layout_request("v2", 6, 50), |_| {}).await },
-            );
+        let healthy = Arc::clone(&registry);
+        let fast_run = tokio::spawn(async move {
+            graph_layout(&healthy, layout_request("v2", 6, 50), |_| {}).await
+        });
 
         let done = fast_run.await.expect("join").expect("v2 layout");
         assert_eq!(done.positions.len(), 12);
+        assert_eq!(done.iterations, 50);
 
-        registry.cancel("v1");
         let err = slow_run.await.expect("join").expect_err("v1 cancelled");
         assert!(matches!(err, CubicalError::LayoutCancelled));
+        assert!(!registry.is_running("v2"));
     }
 
     #[tokio::test]
     async fn a_second_layout_on_one_vault_cancels_the_first() {
         let registry = Arc::new(LayoutRegistry::new());
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
 
         let first_registry = Arc::clone(&registry);
+        let mut started = Some(tx);
         let first = tokio::spawn(async move {
             graph_layout(
                 &first_registry,
-                layout_request("v1", 200, 5_000_000),
-                |_| {},
+                layout_request("v1", 200, RUNAWAY),
+                move |_| {
+                    if let Some(tx) = started.take() {
+                        let _ = tx.send(());
+                    }
+                },
             )
             .await
         });
 
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        rx.await.expect("the first layout reached its first frame");
+
         graph_layout(&registry, layout_request("v1", 6, 50), |_| {})
             .await
             .expect("second layout");
