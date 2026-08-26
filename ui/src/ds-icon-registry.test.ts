@@ -5,7 +5,7 @@ const EXPECTED: IconName[] = [
   "plus", "folder-plus", "info", "chevron-right", "chevron-down",
   "close", "edit", "settings", "warning", "sun", "moon", "link",
   "file-text", "bar-chart", "palette", "puzzle", "library", "keyboard",
-  "hash", "command", "terminal",
+  "hash", "command", "terminal", "waypoints",
 ];
 
 describe("DS icon registry", () => {

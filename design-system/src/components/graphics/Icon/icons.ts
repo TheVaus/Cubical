@@ -2,7 +2,7 @@ export type IconName =
   | "plus" | "folder-plus" | "info" | "chevron-right" | "chevron-down"
   | "close" | "edit" | "settings" | "warning" | "sun" | "moon" | "link"
   | "file-text" | "bar-chart" | "palette" | "puzzle" | "library" | "keyboard"
-  | "hash" | "command" | "terminal";
+  | "hash" | "command" | "terminal" | "waypoints";
 
 export const ICONS: Record<IconName, string> = {
   "plus": `<path d="M5 12h14"/><path d="M12 5v14"/>`,
@@ -26,4 +26,5 @@ export const ICONS: Record<IconName, string> = {
   "keyboard": `<path d="M10 8h.01"/><path d="M12 12h.01"/><path d="M14 8h.01"/><path d="M16 12h.01"/><path d="M18 8h.01"/><path d="M6 8h.01"/><path d="M7 16h10"/><path d="M8 12h.01"/><rect width="20" height="16" x="2" y="4" rx="2"/>`,
   "command": `<path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"/>`,
   "terminal": `<path d="M12 19h8"/><path d="m4 17 6-6-6-6"/>`,
+  "waypoints": `<path d="m10.586 5.414-5.172 5.172"/><path d="m18.586 13.414-5.172 5.172"/><path d="M6 12h12"/><circle cx="12" cy="20" r="2"/><circle cx="12" cy="4" r="2"/><circle cx="20" cy="12" r="2"/><circle cx="4" cy="12" r="2"/>`,
 };

@@ -6,7 +6,7 @@ One rule per file, fixed skeleton, stable id. The **Rule** line is the
 entire principle — read this table, then open only the file you need.
 A gate failure names its principle file; that file is the explanation.
 
-24 principles. 13 enforced by a gate today.
+24 principles. 14 enforced by a gate today.
 
 | Principle | Rule | Gate |
 |---|---|---|
@@ -25,7 +25,7 @@ A gate failure names its principle file; that file is the explanation.
 | [`implementation-anchors`](implementation-anchors.md) | Anchor every invariant in `implementation/**` to symbols that still exist. | `scripts/gates/symbol_anchors.py` |
 | [`native-capability-gateway`](native-capability-gateway.md) | Any feature whose purpose is handing an unsandboxed capability to arbitrary external code must satisfy all three conditions before it ships. | — |
 | [`no-comments`](no-comments.md) | Write the explanation in the owning doc, not in the code. | `scripts/gates/comments.py` |
-| [`performance`](performance.md) | Hold every change to the measured scan bar; ratchet it down, never up. | planned: `perf` |
+| [`performance`](performance.md) | Hold every change to the measured bars; ratchet them down, never up. | `perf` |
 | [`rust-style`](rust-style.md) | `cargo fmt` and `cargo clippy -- -D warnings` must be clean, and `unwrap()`/`expect()` stay out of library code. | `scripts/check.sh` |
 | [`sessions`](sessions.md) | Pick the lightest process that fits, record the *why* once at the end, and never end a session without a commit, a push and an open PR. | `scripts/session.sh` |
 | [`single-owner-facts`](single-owner-facts.md) | Link to the doc that owns a fact; never restate it. | `scripts/check_docs.py` |

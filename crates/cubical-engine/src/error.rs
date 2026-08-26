@@ -49,6 +49,9 @@ pub enum CubicalError {
 
     #[error("invalid request: {0}")]
     InvalidRequest(String),
+
+    #[error("graph layout cancelled")]
+    LayoutCancelled,
 }
 
 impl CubicalError {
@@ -68,6 +71,7 @@ impl CubicalError {
             Self::Watcher(_) => "Watcher",
             Self::Search(_) => "Search",
             Self::InvalidRequest(_) => "InvalidRequest",
+            Self::LayoutCancelled => "LayoutCancelled",
         }
     }
 }
@@ -105,6 +109,15 @@ impl From<IndexError> for CubicalError {
             IndexError::LibSql(e) => Self::Db(e.to_string()),
             IndexError::SchemaTooNew(v) => Self::SchemaVersionUnsupported(v),
             other @ IndexError::UnknownEnum { .. } => Self::Db(other.to_string()),
+        }
+    }
+}
+
+impl From<cubical_graph::GraphError> for CubicalError {
+    fn from(value: cubical_graph::GraphError) -> Self {
+        match value {
+            cubical_graph::GraphError::Index(e) => Self::from(e),
+            cubical_graph::GraphError::Cancelled => Self::LayoutCancelled,
         }
     }
 }

@@ -20,6 +20,7 @@
     "cubical-ast",
     "cubical-core",
     "cubical-engine",
+    "cubical-graph",
     "cubical-index",
     "cubical-ipc",
     "cubical-query",

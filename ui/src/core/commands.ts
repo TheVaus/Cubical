@@ -93,6 +93,12 @@ export const COMMAND_DEFAULTS: readonly BindingDefault[] = [
     scope: "global",
     defaultKey: "Mod-Shift-t",
   },
+  {
+    id: "graph.open",
+    title: "Open graph view",
+    scope: "global",
+    defaultKey: "Mod-Shift-g",
+  },
 ];
 
 export const DEFAULT_BINDINGS: readonly KeyBinding[] = COMMAND_DEFAULTS.map(
