@@ -1,6 +1,8 @@
 import { type Component, createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 
 import Button from "@ds/components/forms/Button/Button";
+import Icon from "@ds/components/graphics/Icon/Icon";
+import IconButton from "@ds/components/forms/IconButton/IconButton";
 
 import {
   COMMAND_DEFAULTS,
@@ -94,9 +96,13 @@ const ShortcutsPanel: Component<ShortcutsPanelProps> = (props) => {
             >
               <kbd>Press keys…</kbd>
             </Show>
-            <Button variant="secondary" size="sm" onClick={() => startListening(c.id)}>
-              Change
-            </Button>
+            <IconButton
+              label={`Change the shortcut for ${c.title}`}
+              size="sm"
+              onClick={() => startListening(c.id)}
+            >
+              <Icon name="edit" size={14} />
+            </IconButton>
             <Show when={props.overrides[c.id] !== undefined}>
               <Button variant="secondary" size="sm" onClick={() => resetRow(c.id)}>
                 Reset
