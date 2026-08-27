@@ -50,16 +50,17 @@ const SettingsModal = (props: SettingsModalProps) => {
         <EditorPane settings={props.settings} info={info} />
       </Show>
       <Show when={tab() === "wikilinks"}>
-        <WikilinksPane settings={props.settings} info={info} />
+        <WikilinksPane settings={props.settings} />
       </Show>
       <Show when={tab() === "plugins"}>
-        <PluginsPane settings={props.settings} info={info} />
+        <PluginsPane settings={props.settings} />
       </Show>
       <Show when={tab() === "statusbar"}>
         <StatusbarPane settings={props.settings} />
       </Show>
       <Show when={tab() === "vault"}>
         <VaultPane
+          settings={props.settings}
           vaultPath={props.vaultPath}
           busy={props.busy}
           onOpenAnother={() => props.onOpenAnotherVault()}
