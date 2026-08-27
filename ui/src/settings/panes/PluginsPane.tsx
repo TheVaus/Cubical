@@ -1,7 +1,7 @@
 import { createSignal, For, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
 
-import Button from "@ds/components/forms/Button/Button";
+import IconButton from "@ds/components/forms/IconButton/IconButton";
 import Icon from "@ds/components/graphics/Icon/Icon";
 
 import { CORE_PLUGINS, type PluginDocId } from "../corePlugins";
@@ -28,21 +28,19 @@ const PluginsPane = (props: { settings: SettingsState }) => {
                 <div class="set-row__text">
                   <div class="set-row__lab">{p.name}</div>
                   <div class="set-row__desc">{p.description}</div>
-                  <Show when={p.docId}>
-                    {(id) => (
-                      <div class="set-row__more">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setDocId(id())}
-                        >
-                          How it works
-                        </Button>
-                      </div>
-                    )}
-                  </Show>
                 </div>
                 <div class="set-row__control">
+                  <Show when={p.docId}>
+                    {(id) => (
+                      <IconButton
+                        label={`How ${p.name} works`}
+                        size="sm"
+                        onClick={() => setDocId(id())}
+                      >
+                        <Icon name="info" />
+                      </IconButton>
+                    )}
+                  </Show>
                   <OnOffControl
                     value={props.settings.corePlugins()[p.id] ?? p.defaultEnabled}
                     onChange={(v) =>
@@ -59,10 +57,13 @@ const PluginsPane = (props: { settings: SettingsState }) => {
       {(active) => (
         <>
           <div class="set-doc__head">
-            <Button variant="ghost" size="sm" onClick={() => setDocId(null)}>
-              <Icon name="chevron-right" size={14} class="set-doc__back" />
-              Plugins
-            </Button>
+            <IconButton
+              label="Back to plugins"
+              size="sm"
+              onClick={() => setDocId(null)}
+            >
+              <Icon name="chevron-right" class="set-doc__back" />
+            </IconButton>
           </div>
           <h2 class="set-h2">{active().title}</h2>
           <div class="set-doc">

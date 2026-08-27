@@ -5,6 +5,21 @@ const MathDoc = () => (
       written back to the file — the Markdown on disk stays the LaTeX you typed.
     </p>
 
+    <dl class="set-doc__help">
+      <dt>```math … ```</dt>
+      <dd>a fenced block, typeset centred on its own</dd>
+      <dt>```latex, ```katex</dt>
+      <dd>the same block under either alias</dd>
+      <dt>$$ … $$</dt>
+      <dd>the same, opened and closed inline in the prose</dd>
+      <dt>\begin{"{aligned}"} …</dt>
+      <dd>multi-line environments, as KaTeX supports them</dd>
+      <dt>cursor inside</dt>
+      <dd>turns the expression back into source to edit</dd>
+      <dt>a parse error</dt>
+      <dd>shown in place, in monospace, never swallowed</dd>
+    </dl>
+
     <h3 class="set-doc__h3">Two ways to write it</h3>
     <p>
       A fenced block tagged <code>math</code> (or <code>latex</code>,{" "}

@@ -6,6 +6,21 @@ const PropertyRefsDoc = () => (
       the value in a note's frontmatter, reference it everywhere else.
     </p>
 
+    <dl class="set-doc__help">
+      <dt>[[Note.key]]</dt>
+      <dd>the value of key in that note's frontmatter</dd>
+      <dt>[[.key]]</dt>
+      <dd>the value of key in the note you are writing</dd>
+      <dt>text, 42, true</dt>
+      <dd>scalars render as themselves</dd>
+      <dt>a YAML list</dt>
+      <dd>renders comma-separated on one line</dd>
+      <dt>an unresolved ref</dt>
+      <dd>stays as raw [[…]] text, dashed-underlined</dd>
+      <dt>cursor on the line</dt>
+      <dd>turns every ref on it back into source to edit</dd>
+    </dl>
+
     <h3 class="set-doc__h3">Two forms</h3>
     <dl class="set-doc__dl">
       <dt>

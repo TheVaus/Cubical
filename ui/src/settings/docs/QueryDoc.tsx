@@ -6,6 +6,25 @@ const QueryDoc = () => (
       recomputed from the index as notes change, so a query never goes stale.
     </p>
 
+    <dl class="set-doc__help">
+      <dt>LIST</dt>
+      <dd>every matching note, as links you can click</dd>
+      <dt>TABLE key, key</dt>
+      <dd>a row per note, a column per frontmatter key</dd>
+      <dt>COUNT</dt>
+      <dd>how many notes match, and nothing else</dd>
+      <dt>FROM #tag</dt>
+      <dd>only notes carrying that tag, nested tags included</dd>
+      <dt>FROM "folder"</dt>
+      <dd>only notes under that folder, subfolders included</dd>
+      <dt>WHERE key = value</dt>
+      <dd>keep notes whose frontmatter compares true</dd>
+      <dt>AND key &gt;= 2</dt>
+      <dd>add another condition, all must hold</dd>
+      <dt>SORT key DESC</dt>
+      <dd>order by a frontmatter key, ascending by default</dd>
+    </dl>
+
     <h3 class="set-doc__h3">Shape</h3>
     <pre class="set-doc__pre">
       {`LIST | TABLE key, key… | COUNT
