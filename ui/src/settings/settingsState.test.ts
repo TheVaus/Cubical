@@ -77,6 +77,20 @@ describe("persistence", () => {
     expect(s.rightSidebarPanel()).toBe("backlinks");
     expect(written).not.toHaveBeenCalled();
   });
+
+  it("persists the left-sidebar mode", () => {
+    const s = build();
+    s.setLeftSidebarModeValue("tags");
+    expect(s.leftSidebarMode()).toBe("tags");
+    expect(written).toHaveBeenCalledWith("v1", "ui.left_sidebar_mode", "tags");
+  });
+
+  it("refuses an unknown left-sidebar mode", () => {
+    const s = build();
+    s.setLeftSidebarModeValue("nonsense");
+    expect(s.leftSidebarMode()).toBe("files");
+    expect(written).not.toHaveBeenCalled();
+  });
 });
 
 describe("statusbar", () => {
@@ -128,6 +142,7 @@ describe("resetForVaultSwitch", () => {
     s.setRawOverride(true);
     s.toggleRightSidebar();
     s.setRightSidebarPanelValue("integrity");
+    s.setLeftSidebarModeValue("tags");
     s.setShortcutOverridesValue({ "file.new": "Mod-J" });
     written.mockClear();
 
@@ -136,6 +151,7 @@ describe("resetForVaultSwitch", () => {
     expect(s.rawOverride()).toBe(null);
     expect(s.rightSidebarCollapsed()).toBe(false);
     expect(s.rightSidebarPanel()).toBe("backlinks");
+    expect(s.leftSidebarMode()).toBe("files");
     expect(s.shortcutOverrides()).toEqual({});
     expect(written).not.toHaveBeenCalled();
   });

@@ -21,6 +21,7 @@ import {
 } from "../statusbar/segments";
 
 export type RightSidebarPanel = "backlinks" | "unlinked_mentions" | "integrity";
+export type LeftSidebarMode = "files" | "tags";
 
 export interface SettingsStateDeps {
   vaultId: Accessor<string | null>;
@@ -74,6 +75,8 @@ export interface SettingsState {
   toggleRightSidebar: () => void;
   rightSidebarPanel: Accessor<RightSidebarPanel>;
   setRightSidebarPanelValue: (id: string) => void;
+  leftSidebarMode: Accessor<LeftSidebarMode>;
+  setLeftSidebarModeValue: (id: string) => void;
 
   shortcutOverrides: Accessor<Record<string, string>>;
   setShortcutOverridesValue: (next: Record<string, string>) => void;
@@ -128,6 +131,9 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
   );
   const [rightSidebarPanel, setRightSidebarPanel] =
     createSignal<RightSidebarPanel>(SETTINGS_DEFAULTS.rightSidebarPanel);
+  const [leftSidebarMode, setLeftSidebarMode] = createSignal<LeftSidebarMode>(
+    SETTINGS_DEFAULTS.leftSidebarMode,
+  );
   const [shortcutOverrides, setShortcutOverrides] = createSignal<
     Record<string, string>
   >({});
@@ -234,6 +240,12 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
     persistSetting(vid(), "ui.right_sidebar_panel", id);
   };
 
+  const setLeftSidebarModeValue = (id: string) => {
+    if (id !== "files" && id !== "tags") return;
+    setLeftSidebarMode(id);
+    persistSetting(vid(), "ui.left_sidebar_mode", id);
+  };
+
   const setShortcutOverridesValue = (next: Record<string, string>) => {
     setShortcutOverrides(next);
     persistSetting(vid(), "shortcuts.overrides", next);
@@ -243,6 +255,7 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
     setRawOverride(null);
     setRightSidebarCollapsed(false);
     setRightSidebarPanel("backlinks");
+    setLeftSidebarMode("files");
     setShortcutOverrides({});
   };
 
@@ -351,6 +364,12 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
       SETTINGS_DEFAULTS.rightSidebarPanel,
       setRightSidebarPanel,
     );
+    await seedSetting(
+      vaultId,
+      "ui.left_sidebar_mode",
+      SETTINGS_DEFAULTS.leftSidebarMode,
+      setLeftSidebarMode,
+    );
     await seedSetting(vaultId, "shortcuts.overrides", {}, setShortcutOverrides);
   };
 
@@ -390,6 +409,8 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
     rightSidebarCollapsed,
     toggleRightSidebar,
     rightSidebarPanel,
+    leftSidebarMode,
+    setLeftSidebarModeValue,
     setRightSidebarPanelValue,
     shortcutOverrides,
     setShortcutOverridesValue,

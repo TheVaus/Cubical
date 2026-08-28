@@ -1,8 +1,5 @@
 import { createMemo, createSignal, For, Show, type Component } from "solid-js";
 
-import IconButton from "@ds/components/forms/IconButton/IconButton";
-import Icon from "@ds/components/graphics/Icon/Icon";
-
 import type { FileEntry } from "../api/ipc";
 import { renameTarget } from "../fileRename";
 import { computeWindow } from "../virtualList";
@@ -66,47 +63,6 @@ const FileTreePanel: Component<FileTreePanelProps> = (props) => {
 
   return (
     <>
-      <div
-        class="tree-header"
-        style={{
-          display: "flex",
-          "align-items": "center",
-          "justify-content": "space-between",
-          gap: "var(--space-2)",
-          padding: "var(--space-1) var(--space-2)",
-        }}
-      >
-        <span
-          style={{
-            "font-size": "var(--text-xs)",
-            "text-transform": "uppercase",
-            "letter-spacing": "0.05em",
-            color: "var(--c-fg-muted)",
-          }}
-        >
-          Files
-        </span>
-        <span style={{ display: "flex", gap: "var(--space-1)" }}>
-          <IconButton
-            label="New file"
-            size="sm"
-            disabled={!props.vaultId}
-            onClick={() => void props.actions.newFile("")}
-            style={{ "font-size": "var(--text-sm)" }}
-          >
-            <Icon name="plus" />
-          </IconButton>
-          <IconButton
-            label="New folder"
-            size="sm"
-            disabled={!props.vaultId}
-            onClick={() => void props.actions.newFolder("")}
-            style={{ "font-size": "var(--text-sm)" }}
-          >
-            <Icon name="folder-plus" />
-          </IconButton>
-        </span>
-      </div>
       <div
         role="listbox"
         aria-label="Vault files"
