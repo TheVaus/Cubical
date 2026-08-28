@@ -49,38 +49,14 @@ pub async fn get_property(
         });
     };
     match fm.entries.iter().find(|(k, _)| k == &req.property) {
-        Some((_, v)) => match scalar_to_display(v) {
-            Some(value) => Ok(GetPropertyResponse {
-                kind: PropertyRefKind::Resolved,
-                value: Some(value),
-            }),
-            None => Ok(GetPropertyResponse {
-                kind: PropertyRefKind::PropertyMissing,
-                value: None,
-            }),
-        },
-        None => Ok(GetPropertyResponse {
+        Some((_, serde_json::Value::Null)) | None => Ok(GetPropertyResponse {
             kind: PropertyRefKind::PropertyMissing,
             value: None,
         }),
-    }
-}
-
-fn scalar_to_display(v: &serde_json::Value) -> Option<String> {
-    use serde_json::Value;
-    match v {
-        Value::String(s) => Some(s.clone()),
-        Value::Number(n) => Some(n.to_string()),
-        Value::Bool(b) => Some(b.to_string()),
-        Value::Array(items) => {
-            let parts: Vec<String> = items.iter().filter_map(scalar_to_display).collect();
-            if parts.is_empty() {
-                None
-            } else {
-                Some(parts.join(", "))
-            }
-        }
-        Value::Object(_) | Value::Null => None,
+        Some((_, v)) => Ok(GetPropertyResponse {
+            kind: PropertyRefKind::Resolved,
+            value: Some(v.clone()),
+        }),
     }
 }
 
@@ -89,6 +65,7 @@ mod tests {
     use super::*;
     use crate::state::{AppState, OpenVault, ScanStatusBackend};
     use cubical_core::Vault;
+    use serde_json::json;
     use tempfile::tempdir;
     use tokio_util::sync::CancellationToken;
 
@@ -132,7 +109,7 @@ mod tests {
         .await
         .expect("ok");
         assert!(matches!(resp.kind, PropertyRefKind::Resolved));
-        assert_eq!(resp.value.as_deref(), Some("2019"));
+        assert_eq!(resp.value, Some(json!(2019)));
     }
 
     #[tokio::test]
@@ -155,7 +132,7 @@ mod tests {
         )
         .await
         .expect("ok");
-        assert_eq!(name.value.as_deref(), Some("Ann"));
+        assert_eq!(name.value, Some(json!("Ann")));
         let aliases = get_property(
             &state,
             GetPropertyRequest {
@@ -166,7 +143,41 @@ mod tests {
         )
         .await
         .expect("ok");
-        assert_eq!(aliases.value.as_deref(), Some("A, B"));
+        assert_eq!(aliases.value, Some(json!(["A", "B"])));
+    }
+
+    #[tokio::test]
+    async fn get_property_distinguishes_a_quoted_number_from_a_number() {
+        let dir = tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("Hero.md"),
+            "---\nage: 5\nlabel: \"5\"\n---\n",
+        )
+        .unwrap();
+        let (vault, state) = state_with_vault_at(dir.path(), "v1").await;
+        scan(&vault).await;
+        let age = get_property(
+            &state,
+            GetPropertyRequest {
+                vault_id: "v1".into(),
+                note_raw: "Hero".into(),
+                property: "age".into(),
+            },
+        )
+        .await
+        .expect("ok");
+        let label = get_property(
+            &state,
+            GetPropertyRequest {
+                vault_id: "v1".into(),
+                note_raw: "Hero".into(),
+                property: "label".into(),
+            },
+        )
+        .await
+        .expect("ok");
+        assert_eq!(age.value, Some(json!(5)));
+        assert_eq!(label.value, Some(json!("5")));
     }
 
     #[tokio::test]

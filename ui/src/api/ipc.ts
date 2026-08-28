@@ -624,7 +624,7 @@ export type PropertyRefKind =
 
 export interface GetPropertyResponse {
   kind: PropertyRefKind;
-  value: string | null;
+  value: unknown;
 }
 
 export function getProperty(

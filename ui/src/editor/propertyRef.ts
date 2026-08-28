@@ -93,8 +93,9 @@ function renderStateFor(
     resolver?.fetch(tok.note, tok.property);
     return { status: "loading", raw };
   }
-  if (hit.kind === "resolved" && hit.value !== null) {
-    return { status: "resolved", value: hit.value };
+  if (hit.kind === "resolved") {
+    const display = scalarToDisplay(hit.value);
+    if (display !== null) return { status: "resolved", value: display };
   }
   return { status: "broken", raw };
 }
