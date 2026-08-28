@@ -6,7 +6,7 @@ resolver = "2"
 version = "0.1.0"
 edition = "2021"
 license = "BUSL-1.1"
-repository = "https://github.com/danielvekar/cubical"
+repository = "https://github.com/TheVaus/Cubical"
 authors = ["Daniel Vekar"]
 
 [workspace.dependencies]
