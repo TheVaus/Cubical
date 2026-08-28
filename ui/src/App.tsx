@@ -137,7 +137,7 @@ import TagPage from "./TagPage";
 import OmniBar from "./omnibar/OmniBar";
 import { type OmniItem, type RankedItem } from "./omnibar/ranker";
 import { OMNI_COMMANDS } from "./omnibar/commands";
-import { corePluginOn } from "./settings/corePlugins";
+import { corePluginActive } from "./settings/corePlugins";
 import { VaultSwitcher } from "./VaultSwitcher";
 
 const AUTOSAVE_DEBOUNCE_MS = 300;
@@ -156,6 +156,7 @@ const App: Component = () => {
     setFilesTotalEstimate,
   } = createVaultSession();
   const settings = createSettingsState({ vaultId });
+  const pluginOn = (id: string) => corePluginActive(settings.corePlugins(), id);
   const [files, setFiles] = createSignal<FileEntry[]>([]);
   const [folders, setFolders] = createSignal<string[]>([]);
   const [error, setError] = createSignal<string | null>(null);
@@ -1439,19 +1440,13 @@ const App: Component = () => {
                                   wikilinkResolver={wikilinkResolver()}
                                   embedResolver={embedResolver()}
                                   propertyResolver={propertyResolver()}
-                                  propertyRefsEnabled={corePluginOn(
-                                    settings.corePlugins(),
+                                  propertyRefsEnabled={pluginOn(
                                     "property-refs",
                                   )}
-                                  mathEnabled={corePluginOn(
-                                    settings.corePlugins(),
-                                    "math",
-                                  )}
+                                  mathEnabled={pluginOn("math")}
+                                  equationsEnabled={pluginOn("equations")}
                                   dataviewRunner={
-                                    corePluginOn(
-                                      settings.corePlugins(),
-                                      "dataview",
-                                    )
+                                    pluginOn("dataview")
                                       ? dataviewRunner()
                                       : null
                                   }

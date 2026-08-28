@@ -478,6 +478,9 @@
 .set-row__desc--path {
   font-family: var(--font-mono);
 }
+.set-row__desc--blocked {
+  color: var(--c-warning, var(--c-fg-muted));
+}
 .set-row__control {
   position: relative;
   flex: 0 0 auto;

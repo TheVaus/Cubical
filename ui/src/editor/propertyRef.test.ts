@@ -213,3 +213,47 @@ describe("propertyRefExtension", () => {
     expect(renderedValue).toBe("2019");
   });
 });
+
+describe("propertyRefExtension — raw typed values", () => {
+  it("renders a numeric value that arrives unstringified", () => {
+    const resolver = stubResolver({
+      "Gandalf age": { kind: "resolved", value: 2019 },
+    });
+    const view = makeView("intro\n\nAge: [[Gandalf.age]].\n", resolver, 0);
+    const span = view.contentDOM.querySelector(".cm-md-propref");
+    expect(span?.textContent).toBe("2019");
+    view.destroy();
+  });
+
+  it("joins a list value that arrives as an array", () => {
+    const resolver = stubResolver({
+      "Hero aliases": { kind: "resolved", value: ["A", "B"] },
+    });
+    const view = makeView("intro\n\nAliases: [[Hero.aliases]].\n", resolver, 0);
+    const span = view.contentDOM.querySelector(".cm-md-propref");
+    expect(span?.textContent).toBe("A, B");
+    view.destroy();
+  });
+
+  it("marks a value with no scalar rendering as broken", () => {
+    const resolver = stubResolver({
+      "Hero meta": { kind: "resolved", value: { nested: true } },
+    });
+    const view = makeView("intro\n\nMeta: [[Hero.meta]].\n", resolver, 0);
+    const span = view.contentDOM.querySelector(".cm-md-propref");
+    expect(span?.className).toContain("broken");
+    view.destroy();
+  });
+});
+
+describe("propertyRefExtension — list flattening parity", () => {
+  it("flattens a nested list the way the engine used to", () => {
+    const resolver = stubResolver({
+      "Hero tags": { kind: "resolved", value: [["a", "b"], "c"] },
+    });
+    const view = makeView("intro\n\nTags: [[Hero.tags]].\n", resolver, 0);
+    const span = view.contentDOM.querySelector(".cm-md-propref");
+    expect(span?.textContent).toBe("a, b, c");
+    view.destroy();
+  });
+});

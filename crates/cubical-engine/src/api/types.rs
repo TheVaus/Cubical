@@ -397,7 +397,7 @@ pub enum PropertyRefKind {
 #[derive(Debug, Clone, Serialize)]
 pub struct GetPropertyResponse {
     pub kind: PropertyRefKind,
-    pub value: Option<String>,
+    pub value: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

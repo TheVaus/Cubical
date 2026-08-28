@@ -41,23 +41,29 @@ function scalarToDisplay(value: unknown): string | null {
     return String(value);
   }
   if (Array.isArray(value)) {
-    const parts = value.filter(
-      (v) =>
-        typeof v === "string" ||
-        typeof v === "number" ||
-        typeof v === "boolean",
-    );
-    return parts.length ? parts.map(String).join(", ") : null;
+    const parts = value
+      .map((v) => scalarToDisplay(v))
+      .filter((v): v is string => v !== null);
+    return parts.length ? parts.join(", ") : null;
   }
   return null;
 }
 
-function selfValue(docText: string, property: string): string | null {
+export function frontmatterEntries(docText: string): Map<string, unknown> {
   const split = splitFrontmatter(docText);
-  if (split.yaml === null || split.span === null) return null;
+  if (split.yaml === null || split.span === null) return new Map();
   const fm = parseFrontmatterYaml(split.yaml, split.span);
-  const entry = fm?.entries.find(([k]) => k === property);
-  return entry ? scalarToDisplay(entry[1]) : null;
+  return new Map(fm?.entries ?? []);
+}
+
+export function selfPropertyValue(docText: string, property: string): unknown {
+  const entries = frontmatterEntries(docText);
+  return entries.has(property) ? entries.get(property) : undefined;
+}
+
+function selfValue(docText: string, property: string): string | null {
+  const value = selfPropertyValue(docText, property);
+  return value === undefined ? null : scalarToDisplay(value);
 }
 
 class PropertyRefWidget extends WidgetType {
@@ -93,8 +99,9 @@ function renderStateFor(
     resolver?.fetch(tok.note, tok.property);
     return { status: "loading", raw };
   }
-  if (hit.kind === "resolved" && hit.value !== null) {
-    return { status: "resolved", value: hit.value };
+  if (hit.kind === "resolved") {
+    const display = scalarToDisplay(hit.value);
+    if (display !== null) return { status: "resolved", value: display };
   }
   return { status: "broken", raw };
 }
