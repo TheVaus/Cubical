@@ -66,5 +66,9 @@ function walk(expr: Expr, resolve: ResolveRef): EvalOutcome {
 export function evaluate(source: string, resolve: ResolveRef): EvalOutcome {
   const parsed = parse(source);
   if (!parsed.ok) return fail(parsed.reason);
-  return walk(parsed.expr, resolve);
+  const outcome = walk(parsed.expr, resolve);
+  if (outcome.status === "ok" && !Number.isFinite(outcome.value)) {
+    return fail("not_a_number");
+  }
+  return outcome;
 }

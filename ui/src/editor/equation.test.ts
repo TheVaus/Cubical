@@ -5,7 +5,11 @@ import { EditorView } from "@codemirror/view";
 import { markdown } from "@codemirror/lang-markdown";
 
 import { wikilinkExtension } from "./wikilink";
-import { equationExtension, equationsEnabledFacet } from "./equation";
+import {
+  equationExtension,
+  equationsEnabledFacet,
+  makeRefResolver,
+} from "./equation";
 import { propertyResolverFacet } from "./propertyRef";
 import type { PropertyResolver } from "./propertyResolver";
 import type { GetPropertyResponse } from "../api/ipc";
@@ -97,5 +101,26 @@ describe("equationExtension — inline", () => {
     const view = makeView("intro\n\nShe was `= 5-3` old.\n", null, 0, false);
     expect(text(view)).toBeUndefined();
     view.destroy();
+  });
+});
+
+describe("makeRefResolver", () => {
+  const doc = "---\nlevel: 5\nname: Ann\n---\nbody\n";
+
+  it("parses the note's frontmatter once however many refs resolve", () => {
+    let reads = 0;
+    const resolve = makeRefResolver(null, () => {
+      reads += 1;
+      return doc;
+    });
+    for (let i = 0; i < 50; i += 1) resolve(null, "level");
+    expect(reads).toBe(1);
+  });
+
+  it("still resolves every self ref correctly while memoized", () => {
+    const resolve = makeRefResolver(null, () => doc);
+    expect(resolve(null, "level")).toEqual({ kind: "number", value: 5 });
+    expect(resolve(null, "name")).toEqual({ kind: "not_a_number" });
+    expect(resolve(null, "ghost")).toEqual({ kind: "missing_property" });
   });
 });

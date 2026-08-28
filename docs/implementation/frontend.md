@@ -286,14 +286,17 @@ the decoration compartment. Raw-source mode reconfigures that compartment to
 **Every preview-only extension MUST be a member of this bundle.** Adding one to
 the editor's base extension list, or to a separate compartment, is a bug: raw
 source will not kill it. Current members are the decoration plugin, the embed
-block field, the block-renderer field, the display-math field and the
-property-ref field, each with its base theme.
+block field, the block-renderer field, the display-math field, the property-ref
+field and the equation field, each with its base theme.
 
-`livePreviewFor(rawSource, mathEnabled)` — not the bare bundle — is what the
-editor installs. Settings that only gate a preview extension belong in that
-function as a facet, so they ride inside the compartment raw source already
-kills, instead of earning a compartment and a reconfigure effect of their own in
-`Editor.tsx`.
+`livePreviewFor(rawSource, plugins)` — not the bare bundle — is what the editor
+installs, where `plugins` is a `LivePreviewPlugins` record. Settings that only
+gate a preview extension belong in that record, so they ride inside the
+compartment raw source already kills, instead of earning a compartment and a
+reconfigure effect of their own in `Editor.tsx`. The record exists because the
+third such setting arrived: `propertyRefsEnabled` had taken the compartment
+route this paragraph forbids, and folding it in alongside `math` and
+`equations` removed a compartment rather than adding one.
 
 ## Fenced blocks go through the renderer registry
 

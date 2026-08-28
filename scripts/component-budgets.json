@@ -1,7 +1,7 @@
 {
   "_": [
     "Per-file size budgets for ui/src, and the shell rule for App.tsx, read by",
-    "scripts/gates/composition.py. THIS FILE IS THE ALLOWLIST \u2014 it is the one",
+    "scripts/gates/composition.py. THIS FILE IS THE ALLOWLIST — it is the one",
     "source, and docs/architecture/ui.md 11.7 links here rather than restating it.",
     "",
     "A budget is a ceiling, not a target. The gate fails when a file exceeds its",
@@ -11,7 +11,7 @@
     ".ts is in scope as well as .tsx. Capping only components would let any",
     "component meet its cap by moving the logic into a helper beside it.",
     "",
-    "'bespoke' means a deliberate exception \u2014 the file is one cohesive thing and",
+    "'bespoke' means a deliberate exception — the file is one cohesive thing and",
     "splitting it would invent a boundary the behaviour does not have.",
     "'debt' means a file that should shrink, tracked by an issue. Debt is not an",
     "exception; it is a number that should be going down."
@@ -22,18 +22,18 @@
       "max_lines": 1810,
       "kind": "debt",
       "issue": 86,
-      "note": "Being split into feature-owned components. Was 3274, then 2323 before the file explorer moved to explorer/, then 1816 once it did, then 1815 when the terminal tab panes moved to terminal/TerminalTabPanes.tsx to pay for the graph tab. Ratchet this down as each extraction lands. Completion is not a line count: it is the three extractions the ./api/ipc waiver names \u2014 document session (done), vault boot, watcher listeners. A composition root wiring this many features lands well above default_max_lines once those are out, and chasing a smaller number would mean components taking fifteen props, which is the boundary-that-does-not-exist this gate is meant to prevent. Ratcheted 1815 -> 1810 when equations landed: the four repeated corePluginOn(settings.corePlugins(), ...) call sites in the Editor props collapsed to a single pluginOn helper, which also made the plugin dependency check uniform."
+      "note": "Being split into feature-owned components. Was 3274, then 2323 before the file explorer moved to explorer/, then 1816 once it did, then 1815 when the terminal tab panes moved to terminal/TerminalTabPanes.tsx to pay for the graph tab. Ratchet this down as each extraction lands. Completion is not a line count: it is the three extractions the ./api/ipc waiver names — document session (done), vault boot, watcher listeners. A composition root wiring this many features lands well above default_max_lines once those are out, and chasing a smaller number would mean components taking fifteen props, which is the boundary-that-does-not-exist this gate is meant to prevent. Ratcheted 1815 -> 1810 when equations landed: the four repeated corePluginOn(settings.corePlugins(), ...) call sites in the Editor props collapsed to a single pluginOn helper, which also made the plugin dependency check uniform."
     },
     "ui/src/api/ipc.ts": {
       "max_lines": 1174,
       "kind": "bespoke",
-      "note": "The whole typed IPC surface. It is one chokepoint on purpose (implementation/frontend.md), and the Setting union is the only registry of setting keys \u2014 splitting it would give that registry two homes. Raised 1103 -> 1104 for plugins.math_enabled, then 1104 -> 1173 for the graph commands and their wire types: then 1173 -> 1174 for plugins.equations_enabled: a new setting key or command costs exactly its own lines here and has nowhere else to live."
+      "note": "The whole typed IPC surface. It is one chokepoint on purpose (implementation/frontend.md), and the Setting union is the only registry of setting keys — splitting it would give that registry two homes. Raised 1103 -> 1104 for plugins.math_enabled, then 1104 -> 1173 for the graph commands and their wire types, then 1173 -> 1174 for plugins.equations_enabled: a new setting key or command costs exactly its own lines here and has nowhere else to live."
     },
     "ui/src/Editor.tsx": {
       "max_lines": 721,
       "kind": "debt",
       "issue": 86,
-      "note": "CodeMirror host: extension assembly, the imperative EditorApi, and the anchor-scroll queue. Ratcheted 730 -> 721 when equations landed: math, equations and property-refs are all live-preview plugin flags, so livePreviewFor now takes them as one LivePreviewPlugins record and the separate propertyRefsEnabled compartment and its reconfigure effect are gone."
+      "note": "CodeMirror host: extension assembly, the imperative EditorApi, and the anchor-scroll queue. Ratcheted 730 -> 721 when equations landed: math, equations and property-refs are all live-preview plugin flags, so livePreviewFor takes them as one LivePreviewPlugins record and the separate propertyRefsEnabled compartment and its reconfigure effect are gone."
     },
     "ui/src/Properties.tsx": {
       "max_lines": 719,
@@ -95,9 +95,7 @@
   "shell": {
     "file": "ui/src/App.tsx",
     "max_reactive_declarations": 29,
-    "forbidden_imports": [
-      "./api/ipc"
-    ],
+    "forbidden_imports": ["./api/ipc"],
     "waived_imports": {
       "./api/ipc": {
         "kind": "debt",

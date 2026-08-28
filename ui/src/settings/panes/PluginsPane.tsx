@@ -4,7 +4,11 @@ import { Dynamic } from "solid-js/web";
 import IconButton from "@ds/components/forms/IconButton/IconButton";
 import Icon from "@ds/components/graphics/Icon/Icon";
 
-import { CORE_PLUGINS, type PluginDocId } from "../corePlugins";
+import {
+  CORE_PLUGINS,
+  missingRequirements,
+  type PluginDocId,
+} from "../corePlugins";
 import { PLUGIN_DOCS } from "../docs";
 import OnOffControl from "../OnOffControl";
 import type { SettingsState } from "../settingsState";
@@ -28,6 +32,17 @@ const PluginsPane = (props: { settings: SettingsState }) => {
                 <div class="set-row__text">
                   <div class="set-row__lab">{p.name}</div>
                   <div class="set-row__desc">{p.description}</div>
+                  <Show
+                    when={
+                      missingRequirements(props.settings.corePlugins(), p)[0]
+                    }
+                  >
+                    {(blocker) => (
+                      <div class="set-row__desc set-row__desc--blocked">
+                        Inactive: needs {blocker().name}, which is off.
+                      </div>
+                    )}
+                  </Show>
                 </div>
                 <div class="set-row__control">
                   <Show when={p.docId}>

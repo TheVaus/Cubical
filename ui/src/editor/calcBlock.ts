@@ -35,7 +35,11 @@ export function renderCalcBlock(
   const host = document.createElement("div");
   host.className = "cm-calc";
   const resolver = state.facet(propertyResolverFacet);
-  const resolve = makeRefResolver(resolver, () => state.doc.toString());
+  let docText: string | undefined;
+  const resolve = makeRefResolver(
+    resolver,
+    () => (docText ??= state.doc.toString()),
+  );
 
   const lines = source.split("\n").filter((line) => line.trim().length > 0);
   if (lines.length === 0) {

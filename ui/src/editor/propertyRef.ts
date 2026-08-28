@@ -41,23 +41,24 @@ function scalarToDisplay(value: unknown): string | null {
     return String(value);
   }
   if (Array.isArray(value)) {
-    const parts = value.filter(
-      (v) =>
-        typeof v === "string" ||
-        typeof v === "number" ||
-        typeof v === "boolean",
-    );
-    return parts.length ? parts.map(String).join(", ") : null;
+    const parts = value
+      .map((v) => scalarToDisplay(v))
+      .filter((v): v is string => v !== null);
+    return parts.length ? parts.join(", ") : null;
   }
   return null;
 }
 
-export function selfPropertyValue(docText: string, property: string): unknown {
+export function frontmatterEntries(docText: string): Map<string, unknown> {
   const split = splitFrontmatter(docText);
-  if (split.yaml === null || split.span === null) return undefined;
+  if (split.yaml === null || split.span === null) return new Map();
   const fm = parseFrontmatterYaml(split.yaml, split.span);
-  const entry = fm?.entries.find(([k]) => k === property);
-  return entry ? entry[1] : undefined;
+  return new Map(fm?.entries ?? []);
+}
+
+export function selfPropertyValue(docText: string, property: string): unknown {
+  const entries = frontmatterEntries(docText);
+  return entries.has(property) ? entries.get(property) : undefined;
 }
 
 function selfValue(docText: string, property: string): string | null {

@@ -1,6 +1,7 @@
-const SIGNIFICANT_DECIMALS = 10;
+const SIGNIFICANT_DIGITS = 12;
 
 export function formatResult(value: number): string {
   if (!Number.isFinite(value)) return String(value);
-  return String(Number(value.toFixed(SIGNIFICANT_DECIMALS)));
+  if (value === 0) return "0";
+  return String(Number(value.toPrecision(SIGNIFICANT_DIGITS)));
 }

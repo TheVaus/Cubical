@@ -245,3 +245,15 @@ describe("propertyRefExtension — raw typed values", () => {
     view.destroy();
   });
 });
+
+describe("propertyRefExtension — list flattening parity", () => {
+  it("flattens a nested list the way the engine used to", () => {
+    const resolver = stubResolver({
+      "Hero tags": { kind: "resolved", value: [["a", "b"], "c"] },
+    });
+    const view = makeView("intro\n\nTags: [[Hero.tags]].\n", resolver, 0);
+    const span = view.contentDOM.querySelector(".cm-md-propref");
+    expect(span?.textContent).toBe("a, b, c");
+    view.destroy();
+  });
+});

@@ -15,8 +15,12 @@ describe("formatResult", () => {
     expect(formatResult(12.67)).toBe("12.67");
   });
 
-  it("trims trailing zeros", () => {
-    expect(formatResult(1.5000000001e-11 + 3)).toBe("3");
+  it("trims the trailing noise of a decimal product", () => {
+    expect(formatResult(2.675 * 100)).toBe("267.5");
+  });
+
+  it("keeps a small addend that is a real value, not noise", () => {
+    expect(formatResult(1.5000000001e-11 + 3)).toBe("3.00000000002");
   });
 
   it("renders a negative result", () => {
@@ -27,3 +31,17 @@ describe("formatResult", () => {
     expect(formatResult(1200 * 1.2)).toBe("1440");
   });
 })
+
+describe("formatResult — precision", () => {
+  it("keeps a small magnitude instead of collapsing it to zero", () => {
+    expect(formatResult(0.0000000001 / 3)).not.toBe("0");
+  });
+
+  it("keeps twelve significant digits of a repeating fraction", () => {
+    expect(formatResult(1 / 3)).toBe("0.333333333333");
+  });
+
+  it("does not invent precision beyond the rounding point", () => {
+    expect(formatResult(2 / 3)).toBe("0.666666666667");
+  });
+});

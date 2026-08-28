@@ -3,6 +3,7 @@ import {
   CORE_PLUGINS,
   corePluginAvailable,
   corePluginEnabled,
+  missingRequirements,
   corePluginOn,
 } from "./corePlugins";
 
@@ -100,5 +101,26 @@ describe("equations", () => {
   test("does not depend on the math plugin", () => {
     expect(equations.requires ?? []).not.toContain("math");
     expect(corePluginOn({ math: false }, "equations")).toBe(true);
+  });
+});
+
+describe("missingRequirements", () => {
+  const equations = CORE_PLUGINS.find((p) => p.id === "equations")!;
+
+  test("is empty when every requirement is on", () => {
+    expect(missingRequirements({}, equations)).toEqual([]);
+  });
+
+  test("names the plugin that is off, so the UI can say which", () => {
+    expect(
+      missingRequirements({ "property-refs": false }, equations).map(
+        (p) => p.name,
+      ),
+    ).toEqual(["Property references"]);
+  });
+
+  test("is empty for a plugin that requires nothing", () => {
+    const math = CORE_PLUGINS.find((p) => p.id === "math")!;
+    expect(missingRequirements({ "property-refs": false }, math)).toEqual([]);
   });
 });

@@ -21,9 +21,9 @@ import {
   type EquationRenderState,
 } from "./equationRender";
 import {
+  frontmatterEntries,
   propertyResolverFacet,
   propertyResolverUpdated,
-  selfPropertyValue,
 } from "./propertyRef";
 import type { PropertyResolver } from "./propertyResolver";
 
@@ -40,10 +40,10 @@ const NUMERIC: ReadonlySet<CellKind> = new Set<CellKind>([
 ]);
 
 export function numericOperand(value: unknown): RefResolution {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
+  if (!NUMERIC.has(inferType(value)) || typeof value !== "number") {
     return { kind: "not_a_number" };
   }
-  return NUMERIC.has(inferType(value))
+  return Number.isFinite(value)
     ? { kind: "number", value }
     : { kind: "not_a_number" };
 }
@@ -59,12 +59,14 @@ export function makeRefResolver(
   resolver: PropertyResolver | null,
   getDocText: () => string,
 ): ResolveRef {
+  let own: Map<string, unknown> | undefined;
+  const ownEntries = () => (own ??= frontmatterEntries(getDocText()));
   return (note, property) => {
     if (note === null) {
-      const value = selfPropertyValue(getDocText(), property);
-      return value === undefined
-        ? { kind: "missing_property" }
-        : numericOperand(value);
+      const entries = ownEntries();
+      return entries.has(property)
+        ? numericOperand(entries.get(property))
+        : { kind: "missing_property" };
     }
     const hit = resolver?.get(note, property);
     if (!hit) {

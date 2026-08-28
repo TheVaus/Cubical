@@ -65,11 +65,20 @@ export function corePluginEnabled(
   return state[plugin.id] ?? plugin.defaultEnabled;
 }
 
+export function missingRequirements(
+  state: Record<string, boolean>,
+  plugin: CorePlugin,
+): CorePlugin[] {
+  return (plugin.requires ?? [])
+    .filter((id) => !corePluginOn(state, id))
+    .flatMap((id) => CORE_PLUGINS.filter((p) => p.id === id));
+}
+
 export function corePluginAvailable(
   state: Record<string, boolean>,
   plugin: CorePlugin,
 ): boolean {
-  return (plugin.requires ?? []).every((id) => corePluginOn(state, id));
+  return missingRequirements(state, plugin).length === 0;
 }
 
 export function corePluginOn(

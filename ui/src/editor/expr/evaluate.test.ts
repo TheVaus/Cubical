@@ -125,3 +125,22 @@ describe("evaluate — totality", () => {
     expect(num(nested)).toEqual({ status: "error", kind: "too_complex" });
   });
 });
+
+describe("evaluate — non-finite results", () => {
+  it("refuses a result that overflowed to Infinity", () => {
+    const huge = Array(16).fill("99999999999999999999").join(" * ");
+    expect(num(huge)).toEqual({ status: "error", kind: "not_a_number" });
+  });
+
+  it("refuses a NaN result", () => {
+    const huge = Array(16).fill("99999999999999999999").join(" * ");
+    expect(num(`(${huge}) - (${huge})`).status).not.toBe("ok");
+  });
+
+  it("still allows an ordinary large product", () => {
+    expect(num("1000000 * 1000000")).toEqual({
+      status: "ok",
+      value: 1000000000000,
+    });
+  });
+});
