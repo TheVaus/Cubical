@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   CORE_PLUGINS,
+  corePluginAvailable,
   corePluginEnabled,
   corePluginOn,
 } from "./corePlugins";
@@ -44,12 +45,13 @@ describe("CORE_PLUGINS", () => {
     expect(dataview.settingKey).toBe("plugins.dataview_enabled");
   });
 
-  test("points the three explainable plugins at a doc, and no others", () => {
+  test("points the explainable plugins at a doc, and no others", () => {
     const withDocs = CORE_PLUGINS.filter((p) => p.docId !== undefined);
     expect(withDocs.map((p) => p.docId)).toEqual([
       "query",
       "property-refs",
       "math",
+      "equations",
     ]);
   });
 
@@ -73,5 +75,30 @@ describe("CORE_PLUGINS", () => {
     expect(terminal.settingKey).toBe("plugins.terminal_enabled");
     expect(terminal.defaultEnabled).toBe(false);
     expect(corePluginEnabled({}, terminal)).toBe(false);
+  });
+});
+
+describe("equations", () => {
+  const equations = CORE_PLUGINS.find((p) => p.id === "equations")!;
+
+  test("ships default-on with its own setting key", () => {
+    expect(equations.settingKey).toBe("plugins.equations_enabled");
+    expect(equations.defaultEnabled).toBe(true);
+  });
+
+  test("declares its dependency on property references", () => {
+    expect(equations.requires).toEqual(["property-refs"]);
+  });
+
+  test("is unavailable when a plugin it requires is off", () => {
+    expect(corePluginAvailable({ "property-refs": false }, equations)).toBe(
+      false,
+    );
+    expect(corePluginAvailable({}, equations)).toBe(true);
+  });
+
+  test("does not depend on the math plugin", () => {
+    expect(equations.requires ?? []).not.toContain("math");
+    expect(corePluginOn({ math: false }, "equations")).toBe(true);
   });
 });

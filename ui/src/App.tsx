@@ -1449,6 +1449,16 @@ const App: Component = () => {
                                     settings.corePlugins(),
                                     "math",
                                   )}
+                                  equationsEnabled={
+                                    corePluginOn(
+                                      settings.corePlugins(),
+                                      "equations",
+                                    ) &&
+                                    corePluginOn(
+                                      settings.corePlugins(),
+                                      "property-refs",
+                                    )
+                                  }
                                   dataviewRunner={
                                     corePluginOn(
                                       settings.corePlugins(),

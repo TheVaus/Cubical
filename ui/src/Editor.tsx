@@ -136,6 +136,7 @@ export interface EditorProps {
   propertyResolver?: PropertyResolver | null;
   propertyRefsEnabled?: boolean;
   mathEnabled?: boolean;
+  equationsEnabled?: boolean;
   dataviewRunner?: DataviewRunner | null;
   openNotePath?: string | null;
   autocompleteProvider?: AutocompleteProvider | null;
@@ -356,7 +357,11 @@ const Editor: Component<EditorProps> = (props) => {
           markdown({ extensions: [wikilinkExtension, tagExtension] }),
           EditorView.lineWrapping,
           decorationCompartment.of(
-            livePreviewFor(props.rawSource, props.mathEnabled ?? true),
+            livePreviewFor(
+              props.rawSource,
+              props.mathEnabled ?? true,
+              props.equationsEnabled ?? true,
+            ),
           ),
           colorSourceCompartment.of(
             props.rawSource && props.colorizeSource ? colorSourceHighlight : [],
@@ -539,10 +544,17 @@ const Editor: Component<EditorProps> = (props) => {
 
   createEffect(
     on(
-      () => [props.rawSource, props.mathEnabled ?? true] as const,
-      ([raw, math]) => {
+      () =>
+        [
+          props.rawSource,
+          props.mathEnabled ?? true,
+          props.equationsEnabled ?? true,
+        ] as const,
+      ([raw, math, equations]) => {
         view?.dispatch({
-          effects: decorationCompartment.reconfigure(livePreviewFor(raw, math)),
+          effects: decorationCompartment.reconfigure(
+            livePreviewFor(raw, math, equations),
+          ),
         });
       },
       { defer: true },

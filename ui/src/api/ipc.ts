@@ -250,6 +250,7 @@ export type Setting =
   | { key: "plugins.dataview_enabled"; value: boolean }
   | { key: "plugins.property_refs_enabled"; value: boolean }
   | { key: "plugins.math_enabled"; value: boolean }
+  | { key: "plugins.equations_enabled"; value: boolean }
   | { key: "plugins.terminal_enabled"; value: boolean }
   | { key: "plugins.graph_view_enabled"; value: boolean }
   | { key: "properties.typed_enabled"; value: boolean }
