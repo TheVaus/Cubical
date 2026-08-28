@@ -53,7 +53,6 @@ import {
 } from "./editor/embed";
 import type { PropertyResolver } from "./editor/propertyResolver";
 import {
-  propertyRefsEnabledFacet,
   propertyResolverFacet,
   propertyResolverUpdated,
 } from "./editor/propertyRef";
@@ -95,8 +94,6 @@ const wikilinkResolverCompartment = new Compartment();
 const embedResolverCompartment = new Compartment();
 
 const propertyResolverCompartment = new Compartment();
-
-const propertyRefsEnabledCompartment = new Compartment();
 
 const openNotePathCompartment = new Compartment();
 
@@ -156,6 +153,12 @@ export interface EditorProps {
 const AST_DEBOUNCE_MS = 150;
 
 const Editor: Component<EditorProps> = (props) => {
+  const preview = () =>
+    livePreviewFor(props.rawSource, {
+      math: props.mathEnabled ?? true,
+      equations: props.equationsEnabled ?? true,
+      propertyRefs: props.propertyRefsEnabled ?? true,
+    });
   let host!: HTMLDivElement;
   let view: EditorView | undefined;
   let astPending: ReturnType<typeof setTimeout> | undefined;
@@ -356,13 +359,7 @@ const Editor: Component<EditorProps> = (props) => {
           keymapCompartment.of(buildEditorKeymap(props.editorBindings)),
           markdown({ extensions: [wikilinkExtension, tagExtension] }),
           EditorView.lineWrapping,
-          decorationCompartment.of(
-            livePreviewFor(
-              props.rawSource,
-              props.mathEnabled ?? true,
-              props.equationsEnabled ?? true,
-            ),
-          ),
+          decorationCompartment.of(preview()),
           colorSourceCompartment.of(
             props.rawSource && props.colorizeSource ? colorSourceHighlight : [],
           ),
@@ -374,9 +371,6 @@ const Editor: Component<EditorProps> = (props) => {
           ),
           propertyResolverCompartment.of(
             propertyResolverFacet.of(props.propertyResolver ?? null),
-          ),
-          propertyRefsEnabledCompartment.of(
-            propertyRefsEnabledFacet.of(props.propertyRefsEnabled ?? true),
           ),
           dataviewRunnerCompartment.of(
             dataviewRunnerFacet.of(props.dataviewRunner ?? null),
@@ -547,14 +541,13 @@ const Editor: Component<EditorProps> = (props) => {
       () =>
         [
           props.rawSource,
-          props.mathEnabled ?? true,
-          props.equationsEnabled ?? true,
+          props.mathEnabled,
+          props.equationsEnabled,
+          props.propertyRefsEnabled,
         ] as const,
-      ([raw, math, equations]) => {
+      () => {
         view?.dispatch({
-          effects: decorationCompartment.reconfigure(
-            livePreviewFor(raw, math, equations),
-          ),
+          effects: decorationCompartment.reconfigure(preview()),
         });
       },
       { defer: true },
@@ -633,20 +626,6 @@ const Editor: Component<EditorProps> = (props) => {
           ),
         });
         subscribePropertyResolver(resolver, view);
-      },
-      { defer: true },
-    ),
-  );
-
-  createEffect(
-    on(
-      () => props.propertyRefsEnabled,
-      (enabled) => {
-        view?.dispatch({
-          effects: propertyRefsEnabledCompartment.reconfigure(
-            propertyRefsEnabledFacet.of(enabled ?? true),
-          ),
-        });
       },
       { defer: true },
     ),

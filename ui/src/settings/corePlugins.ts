@@ -79,3 +79,13 @@ export function corePluginOn(
   const plugin = CORE_PLUGINS.find((p) => p.id === id);
   return plugin ? corePluginEnabled(state, plugin) : false;
 }
+
+export function corePluginActive(
+  state: Record<string, boolean>,
+  id: string,
+): boolean {
+  const plugin = CORE_PLUGINS.find((p) => p.id === id);
+  return plugin
+    ? corePluginEnabled(state, plugin) && corePluginAvailable(state, plugin)
+    : false;
+}

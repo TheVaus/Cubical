@@ -13,7 +13,11 @@ import { dataviewBlockRenderer, dataviewBaseTheme } from "./dataview";
 import { mathBlockRenderer, mathBaseTheme, mathEnabledFacet } from "./math";
 import { displayMathField } from "./mathDollar";
 import { equationField, equationBaseTheme, equationsEnabledFacet } from "./equation";
-import { propertyRefField, propertyRefBaseTheme } from "./propertyRef";
+import {
+  propertyRefField,
+  propertyRefBaseTheme,
+  propertyRefsEnabledFacet,
+} from "./propertyRef";
 
 export const livePreviewBundle: Extension = [
   livePreviewDecorations,
@@ -37,16 +41,22 @@ export const livePreviewBundle: Extension = [
   calcBlockBaseTheme,
 ];
 
+export interface LivePreviewPlugins {
+  math: boolean;
+  equations: boolean;
+  propertyRefs: boolean;
+}
+
 export function livePreviewFor(
   rawSource: boolean,
-  mathEnabled: boolean,
-  equationsEnabled = true,
+  plugins: LivePreviewPlugins,
 ): Extension {
   return rawSource
     ? []
     : [
         livePreviewBundle,
-        mathEnabledFacet.of(mathEnabled),
-        equationsEnabledFacet.of(equationsEnabled),
+        mathEnabledFacet.of(plugins.math),
+        equationsEnabledFacet.of(plugins.equations),
+        propertyRefsEnabledFacet.of(plugins.propertyRefs),
       ];
 }
