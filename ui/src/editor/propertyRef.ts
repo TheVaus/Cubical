@@ -52,12 +52,17 @@ function scalarToDisplay(value: unknown): string | null {
   return null;
 }
 
-function selfValue(docText: string, property: string): string | null {
+export function selfPropertyValue(docText: string, property: string): unknown {
   const split = splitFrontmatter(docText);
-  if (split.yaml === null || split.span === null) return null;
+  if (split.yaml === null || split.span === null) return undefined;
   const fm = parseFrontmatterYaml(split.yaml, split.span);
   const entry = fm?.entries.find(([k]) => k === property);
-  return entry ? scalarToDisplay(entry[1]) : null;
+  return entry ? entry[1] : undefined;
+}
+
+function selfValue(docText: string, property: string): string | null {
+  const value = selfPropertyValue(docText, property);
+  return value === undefined ? null : scalarToDisplay(value);
 }
 
 class PropertyRefWidget extends WidgetType {
