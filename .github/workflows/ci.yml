@@ -123,8 +123,19 @@ jobs:
       - name: Install pinned Rust toolchain
         run: rustc --version && cargo --version
 
+      # save-if restricts *writing* to main. Restoring is unconditional, and a
+      # PR still restores from main's cache — GitHub scopes a branch's caches to
+      # that branch plus its base. Letting PRs write too is what put this repo at
+      # 9.64 GB against a hard 10 GB quota: six Rust caches per lockfile
+      # generation (3 OS x 2 jobs, 0.5-1 GB each) means two generations fill it,
+      # GitHub then evicts least-recently-used, and the entry evicted is
+      # whichever one main needed next. That is the intermittent cold rebuild
+      # where a 2-minute Linux gate becomes ten. A PR's own cache is written once
+      # and read never — it is dead the moment the branch merges.
       - name: Cache Rust build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -172,13 +183,19 @@ jobs:
     # build time; macOS and Linux stayed green while carrying the same broken
     # assets, and the first thing to fail would have been a release tag.
     #
-    # Push and tag only, not per-PR. A full tauri build is ~15 minutes per
-    # platform, and this catches a merge-time class of bug, not a review-time
-    # one — tripling PR turnaround for it is a bad trade even though public
-    # repos do not bill standard runners.
+    # Push and tag only, not per-PR. This catches a merge-time class of bug, not
+    # a review-time one — adding it to PR turnaround is a bad trade even though
+    # public repos do not bill standard runners.
+    #
+    # It deliberately does NOT `needs: gates`. It used to, which made a push to
+    # main strictly serial — the gate set (6 min, Windows-bound) and only then
+    # the bundle — for a wall clock nobody waited out. The two share no
+    # artifacts and answer different questions, so running them together costs
+    # only the runner minutes of a bundle built on a commit whose gates were
+    # going to fail, on a public repo where standard runners are unbilled. The
+    # `ci` job below still requires both, so nothing merges on half an answer.
     name: Bundle smoke (${{ matrix.os }})
     if: github.event_name == 'push'
-    needs: gates
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -209,8 +226,12 @@ jobs:
             libsoup-3.0-dev \
             patchelf
 
+      # Same quota rule as the gate set. This job is push-only, so in practice
+      # only a tag build is newly excluded from writing.
       - name: Cache Rust build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -231,15 +252,21 @@ jobs:
         working-directory: design-system
         run: npm ci
 
-      - name: Install Tauri CLI
-        run: cargo install tauri-cli --version "^2" --locked
-
       # --debug keeps this a smoke test rather than a release build: it proves
       # bundling works without paying for a full optimised compile. Bundle
       # targets are per-platform so Linux does not pull AppImage's external
       # tooling on every run — the release workflow (#101) owns the full set.
+      #
+      # The CLI comes from npm, not `cargo install tauri-cli --version "^2"
+      # --locked`, which compiled it from source on every single run: 5m28s on
+      # Linux, 8m50s on macOS, 9m49s on Windows — around two thirds of this job
+      # spent building the tool rather than testing the app, and not cacheable
+      # by rust-cache, which caches the workspace target dir and the registry,
+      # not ~/.cargo/bin. @tauri-apps/cli ships a prebuilt native binary per
+      # platform and resolves in seconds. `@^2` is the same version floor the
+      # cargo install had; npm picks the matching @tauri-apps/cli-<target>.
       - name: Build bundle
-        run: cargo tauri build --debug --bundles ${{ matrix.bundles }}
+        run: npx --yes @tauri-apps/cli@^2 build --debug --bundles ${{ matrix.bundles }}
 
   ci:
     # The one check a branch ruleset should require, and the reason it exists:
