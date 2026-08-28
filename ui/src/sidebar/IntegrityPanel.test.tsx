@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 
 import type { DanglingLinkGroup } from "../api/ipc";
@@ -164,5 +165,77 @@ describe("IntegrityPanel", () => {
     await flush();
     expect(listDanglingLinks).not.toHaveBeenCalled();
     expect(host.textContent).toContain("Open a vault");
+  });
+});
+
+describe("IntegrityPanel — a refresh must not blank the list", () => {
+  it("keeps rows on screen while a same-vault refresh is in flight", async () => {
+    const [tick, setTick] = createSignal(0);
+    const host = mount(() => (
+      <IntegrityPanel vaultId="v1" refreshSignal={tick()} onRowClick={noop} />
+    ));
+    await flush();
+    expect(host.textContent).toContain("plan");
+
+    let release!: (v: {
+      groups: DanglingLinkGroup[];
+      truncated: boolean;
+    }) => void;
+    listDanglingLinks.mockReturnValueOnce(
+      new Promise((resolve) => {
+        release = resolve as never;
+      }),
+    );
+
+    setTick(1);
+    await flush();
+
+    expect(host.textContent).not.toContain("Loading…");
+    expect(host.textContent).toContain("plan");
+
+    release({ groups: [{ ...GROUP }], truncated: false });
+    await flush();
+    expect(host.textContent).toContain("plan");
+  });
+
+  it("reuses the row DOM node across a refresh that changed nothing", async () => {
+    const [tick, setTick] = createSignal(0);
+    const host = mount(() => (
+      <IntegrityPanel vaultId="v1" refreshSignal={tick()} onRowClick={noop} />
+    ));
+    await flush();
+    const before = host.querySelector('li[role="listitem"]');
+    expect(before).not.toBeNull();
+
+    listDanglingLinks.mockResolvedValue({
+      groups: [
+        {
+          ...GROUP,
+          occurrences: GROUP.occurrences.map((o) => ({ ...o })),
+          candidates: GROUP.candidates.map((c) => ({ ...c })),
+        },
+      ],
+      truncated: false,
+    });
+    setTick(1);
+    await flush();
+
+    expect(host.querySelector('li[role="listitem"]')).toBe(before);
+  });
+
+  it("still blanks to loading when the vault changes", async () => {
+    const [vault, setVault] = createSignal("v1");
+    const host = mount(() => (
+      <IntegrityPanel vaultId={vault()} refreshSignal={0} onRowClick={noop} />
+    ));
+    await flush();
+    expect(host.textContent).toContain("plan");
+
+    listDanglingLinks.mockReturnValueOnce(new Promise(() => {}));
+    setVault("v2");
+    await flush();
+
+    expect(host.textContent).toContain("Loading…");
+    expect(host.textContent).not.toContain("notes/plan.md");
   });
 });

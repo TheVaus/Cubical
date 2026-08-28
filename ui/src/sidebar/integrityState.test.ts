@@ -106,3 +106,67 @@ describe("integrity labels", () => {
     expect(candidateKey(g, g.candidates[0]!)).toBe("plan→archive/roadmap.md");
   });
 });
+
+describe("reduceIntegrityState — refresh keeps the panel steady", () => {
+  const loadedWith = (g: DanglingLinkGroup[]): IntegrityViewState =>
+    reduceIntegrityState(
+      { kind: "loading" },
+      { type: "fetch:success", groups: g, truncated: false },
+    );
+
+  it("leaves a loaded list untouched while a refresh is in flight", () => {
+    const loaded = loadedWith([group()]);
+    expect(reduceIntegrityState(loaded, { type: "refresh:start" })).toBe(loaded);
+  });
+
+  it("leaves an empty result untouched while a refresh is in flight", () => {
+    const empty = loadedWith([]);
+    expect(reduceIntegrityState(empty, { type: "refresh:start" })).toBe(empty);
+  });
+
+  it("falls back to loading when a refresh starts with nothing on screen", () => {
+    expect(
+      reduceIntegrityState({ kind: "idle" }, { type: "refresh:start" }).kind,
+    ).toBe("loading");
+    expect(
+      reduceIntegrityState({ kind: "error", message: "boom" }, { type: "refresh:start" }).kind,
+    ).toBe("loading");
+  });
+
+  it("reuses a group's object reference across a whole refresh cycle", () => {
+    const loaded = loadedWith([group()]);
+    const during = reduceIntegrityState(loaded, { type: "refresh:start" });
+    const after = reduceIntegrityState(during, {
+      type: "fetch:success",
+      groups: [group()],
+      truncated: false,
+    });
+
+    expect(after.kind).toBe("loaded");
+    if (loaded.kind === "loaded" && after.kind === "loaded") {
+      expect(after.groups[0]).toBe(loaded.groups[0]);
+    }
+  });
+
+  it("gives a fresh reference to a group whose referrers actually changed", () => {
+    const loaded = loadedWith([group()]);
+    const during = reduceIntegrityState(loaded, { type: "refresh:start" });
+    const edited = group({ total: 3 });
+    const after = reduceIntegrityState(during, {
+      type: "fetch:success",
+      groups: [edited],
+      truncated: false,
+    });
+
+    expect(after.kind).toBe("loaded");
+    if (after.kind === "loaded") {
+      expect(after.groups[0]).toBe(edited);
+    }
+  });
+
+  it("still blanks to loading when the vault changes", () => {
+    expect(
+      reduceIntegrityState(loadedWith([group()]), { type: "fetch:start" }).kind,
+    ).toBe("loading");
+  });
+});

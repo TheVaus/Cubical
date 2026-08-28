@@ -58,10 +58,10 @@
       "note": "Mirrors the Rust normalizer. Divergence is a correctness bug, so it stays one file that can be diffed against its counterpart."
     },
     "ui/src/sidebar/IntegrityPanel.tsx": {
-      "max_lines": 386,
+      "max_lines": 388,
       "kind": "debt",
       "issue": 86,
-      "note": "Vault-health rows and their fetch effect."
+      "note": "Vault-health rows and their fetch effect. Raised 386 -> 388 for the refresh-is-not-a-load fix: one import and one tracker declaration. The cold/warm decision itself is shared in sidebar/refreshTarget.ts rather than inlined here, so this is the whole per-panel cost."
     },
     "ui/src/settings/settingsState.ts": {
       "max_lines": 400,
@@ -81,10 +81,10 @@
       "note": "The ranked multi-kind palette named as the one deliberately bespoke surface in architecture/ui.md 11.6."
     },
     "ui/src/sidebar/UnlinkedMentions.tsx": {
-      "max_lines": 276,
+      "max_lines": 278,
       "kind": "debt",
       "issue": 86,
-      "note": "Mention rows plus the untrack-your-own-writes fetch effect."
+      "note": "Mention rows plus the untrack-your-own-writes fetch effect. Raised 276 -> 278 for the refresh-is-not-a-load fix: one import and one tracker declaration, the same two lines as IntegrityPanel."
     },
     "ui/src/core/commands.ts": {
       "max_lines": 266,
