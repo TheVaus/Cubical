@@ -10,6 +10,12 @@ lists, math, callouts and other CommonMark extensions are **not** enabled in
 `pulldown-cmark`'s `Options` — cross-app importers are out of v1 scope. Adding
 a node type is a document-model decision, not a parser tweak.
 
+This constrains the AST, not what the editor may render. A form decorated over
+a node that already exists — a fenced info string, a blockquote marker — needs
+no node and no parity fixture; ` ```math ` renders today on exactly that basis.
+See the design owner's "A fenced-code info string is not an AST-bearing
+extension".
+
 ## Serialization shape is an IPC contract
 
 **Anchors:** Inline · Block · Document
