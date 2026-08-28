@@ -55,6 +55,10 @@ const FileContextMenu: Component<FileContextMenuProps> = (props) => {
                   dismiss();
                   props.actions.requestDelete(path, kind);
                 },
+                renameTag: (tagPath) => {
+                  dismiss();
+                  props.actions.startTagRename(tagPath);
+                },
               })}
             />
           </div>

@@ -246,6 +246,7 @@ export type Setting =
       key: "ui.right_sidebar_panel";
       value: "backlinks" | "unlinked_mentions" | "integrity";
     }
+  | { key: "ui.left_sidebar_mode"; value: "files" | "tags" }
   | { key: "pending_rewrites.flush_interval_secs"; value: number }
   | { key: "plugins.dataview_enabled"; value: boolean }
   | { key: "plugins.property_refs_enabled"; value: boolean }
@@ -537,6 +538,23 @@ export interface ListTagsResponse {
 
 export function listTags(req: ListTagsRequest): Promise<ListTagsResponse> {
   return invoke("list_tags", { req });
+}
+
+export interface ListTagAssignmentsRequest {
+  vault_id: string;
+}
+export interface TagAssignmentDto {
+  tag_path: string;
+  file_path: string;
+}
+export interface ListTagAssignmentsResponse {
+  assignments: TagAssignmentDto[];
+}
+
+export function listTagAssignments(
+  req: ListTagAssignmentsRequest,
+): Promise<ListTagAssignmentsResponse> {
+  return invoke("list_tag_assignments", { req });
 }
 
 export interface BlockIdAutocompleteRequest {

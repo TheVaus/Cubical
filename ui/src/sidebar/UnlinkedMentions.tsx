@@ -21,6 +21,7 @@ import {
   reduceMentionsState,
   type MentionsViewState,
 } from "./unlinkedMentionsState";
+import { createTargetTracker } from "./refreshTarget";
 
 export interface UnlinkedMentionsProps {
   vaultId: string | null;
@@ -38,6 +39,7 @@ const UnlinkedMentions: Component<UnlinkedMentionsProps> = (props) => {
   } | null>(null);
 
   let token = 0;
+  const tracker = createTargetTracker();
   createEffect(() => {
     const vid = props.vaultId;
     const p = props.path;
@@ -49,7 +51,7 @@ const UnlinkedMentions: Component<UnlinkedMentionsProps> = (props) => {
     }
 
     const my = ++token;
-    setState(reduceMentionsState(untrack(state), { type: "fetch:start" }));
+    setState(reduceMentionsState(untrack(state), tracker.start(vid, p)));
     getUnlinkedMentions({ vault_id: vid, path: p })
       .then((resp) => {
         if (my !== token) return;

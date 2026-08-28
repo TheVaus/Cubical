@@ -7,9 +7,10 @@ const noop = () => ({
   newFolder: vi.fn(),
   rename: vi.fn(),
   remove: vi.fn(),
+  renameTag: vi.fn(),
 });
 
-const ids = (kind: "file" | "folder" | "empty", path = "notes") =>
+const ids = (kind: "file" | "folder" | "empty" | "tag", path = "notes") =>
   buildContextMenuItems({ kind, path }, noop()).map((i) => i.id);
 
 describe("buildContextMenuItems", () => {
@@ -28,6 +29,21 @@ describe("buildContextMenuItems", () => {
 
   it("omits creation on a file, which cannot contain anything", () => {
     expect(ids("file", "notes/a.md")).toEqual(["rename", "delete"]);
+  });
+
+  it("offers only a tag rename on a tag, which owns no files of its own", () => {
+    expect(ids("tag", "project/alpha")).toEqual(["rename-tag"]);
+  });
+
+  it("routes a tag rename to the tag handler with the full tag path", () => {
+    const on = noop();
+    const items = buildContextMenuItems(
+      { kind: "tag", path: "project/alpha" },
+      on,
+    );
+    items[0]!.onSelect();
+    expect(on.renameTag).toHaveBeenCalledWith("project/alpha");
+    expect(on.rename).not.toHaveBeenCalled();
   });
 
   it("marks only delete as dangerous", () => {

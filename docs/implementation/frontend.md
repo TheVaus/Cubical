@@ -548,7 +548,8 @@ allocated object each render — even with identical field values — tears down
 and remounts that row's DOM.
 
 Every list builder that re-derives its output from scratch on a signal update
-(file tree, backlinks, mentions, search results) must run its result through
+(file tree, backlinks, mentions, dangling-link groups, search results) must run its
+result through
 the list-stability helper, which reuses the previous frame's references for
 unchanged items. Skip it and unrelated rows lose their mounted DOM (and any
 in-progress interaction) on every refresh.
@@ -589,6 +590,36 @@ rules together:
   blew the JS stack synchronously, and once a file was selected it spun on the
   fetch-start state and never reached loaded, because each iteration's token
   superseded the previous fetch. A regression test covers it.
+
+## A refresh is not a load
+
+**Anchors:** createTargetTracker · StartAction · stabilizeByKey
+
+The right sidebar re-reads itself on a debounced tick that fires after every
+pause in typing, because editing a note changes its backlinks, its unlinked
+mentions and the vault's dangling links. The path the user actually watches is
+therefore the *refresh*, not the first load.
+
+Every panel reducer has two entry actions, and the distinction is the whole
+point:
+
+- `fetch:start` — the **target changed** (a different note, a different vault).
+  Nothing on screen still applies, so it blanks to `loading`.
+- `refresh:start` — the **same target, re-read**. A `loaded` or `empty` state is
+  returned *by reference*, so the panel keeps showing what it has until the new
+  rows land and Solid sees no state change at all.
+
+The component picks between them by remembering the target it last fetched.
+Dispatching `fetch:start` on every tick is not a subtle degradation: it replaces
+the list with a one-line "Loading…" placeholder and rebuilds it a moment later,
+so the sidebar visibly collapses and re-expands on every pause in typing.
+
+It also silently disables list stability, which is why the two rules have to be
+read together. The stability helper reuses the previous frame's rows, but it can
+only recover them from a `loaded` state — a refresh that blanks to `loading`
+first has already thrown them away, so its `prev` is always empty and every row
+is rebuilt regardless. The state has to survive the refresh for the
+reconciliation to have anything to reuse.
 
 ## Frontmatter serialization
 

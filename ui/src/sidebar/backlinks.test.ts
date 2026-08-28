@@ -161,3 +161,47 @@ describe("Backlinks effect — self-trigger loop guard", () => {
     }).toThrow("looped");
   });
 });
+
+describe("reduceBacklinksState — refresh keeps the panel steady", () => {
+  const loadedWith = (b: Backlink[]): BacklinksViewState =>
+    reduceBacklinksState({ kind: "loading" }, { type: "fetch:success", backlinks: b });
+
+  it("leaves a loaded list untouched while a refresh is in flight", () => {
+    const loaded = loadedWith([sample]);
+    expect(reduceBacklinksState(loaded, { type: "refresh:start" })).toBe(loaded);
+  });
+
+  it("leaves an empty result untouched while a refresh is in flight", () => {
+    const empty = loadedWith([]);
+    expect(reduceBacklinksState(empty, { type: "refresh:start" })).toBe(empty);
+  });
+
+  it("falls back to loading when a refresh starts with nothing on screen", () => {
+    expect(
+      reduceBacklinksState({ kind: "idle" }, { type: "refresh:start" }).kind,
+    ).toBe("loading");
+    expect(
+      reduceBacklinksState({ kind: "error", message: "boom" }, { type: "refresh:start" }).kind,
+    ).toBe("loading");
+  });
+
+  it("preserves row identity across a whole refresh cycle", () => {
+    const loaded = loadedWith([sample]);
+    const during = reduceBacklinksState(loaded, { type: "refresh:start" });
+    const after = reduceBacklinksState(during, {
+      type: "fetch:success",
+      backlinks: [{ ...sample }],
+    });
+
+    expect(after.kind).toBe("loaded");
+    if (loaded.kind === "loaded" && after.kind === "loaded") {
+      expect(after.backlinks[0]).toBe(loaded.backlinks[0]);
+    }
+  });
+
+  it("still blanks to loading when the target file changes", () => {
+    expect(
+      reduceBacklinksState(loadedWith([sample]), { type: "fetch:start" }).kind,
+    ).toBe("loading");
+  });
+});

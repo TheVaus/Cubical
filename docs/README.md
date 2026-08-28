@@ -120,6 +120,7 @@ ci-definition             | .github/workflows/ci.yml                   | -
 issue-templates           | .github/ISSUE_TEMPLATE/                    | -
 pr-contract               | .github/pull_request_template.md           | -
 security-policy           | .github/SECURITY.md                        | -
+license                   | LICENSE                                    | -
 ```
 
 ### What the checker cannot do

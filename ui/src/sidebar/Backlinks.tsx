@@ -15,6 +15,7 @@ import {
   reduceBacklinksState,
   type BacklinksViewState,
 } from "./backlinksState";
+import { createTargetTracker } from "./refreshTarget";
 
 export interface BacklinksProps {
   vaultId: string | null;
@@ -27,6 +28,7 @@ const Backlinks: Component<BacklinksProps> = (props) => {
   const [state, setState] = createSignal<BacklinksViewState>({ kind: "idle" });
 
   let token = 0;
+  const tracker = createTargetTracker();
   createEffect(() => {
     const vid = props.vaultId;
     const p = props.path;
@@ -38,7 +40,7 @@ const Backlinks: Component<BacklinksProps> = (props) => {
     }
 
     const my = ++token;
-    setState(reduceBacklinksState(untrack(state), { type: "fetch:start" }));
+    setState(reduceBacklinksState(untrack(state), tracker.start(vid, p)));
     getBacklinks({ vault_id: vid, path: p })
       .then((resp) => {
         if (my !== token) return;

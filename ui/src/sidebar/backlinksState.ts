@@ -21,6 +21,7 @@ export type BacklinksViewState =
 
 export type BacklinksAction =
   | { type: "fetch:start" }
+  | { type: "refresh:start" }
   | { type: "fetch:success"; backlinks: Backlink[] }
   | { type: "fetch:error"; message: string }
   | { type: "file:cleared" };
@@ -32,6 +33,10 @@ export function reduceBacklinksState(
   switch (action.type) {
     case "fetch:start":
       return { kind: "loading" };
+    case "refresh:start":
+      return state.kind === "loaded" || state.kind === "empty"
+        ? state
+        : { kind: "loading" };
     case "fetch:success": {
       const prevBacklinks = state.kind === "loaded" ? state.backlinks : [];
       const backlinks = stabilizeByKey(

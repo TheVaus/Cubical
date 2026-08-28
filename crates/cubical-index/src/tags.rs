@@ -115,6 +115,31 @@ pub async fn all_tag_paths(conn: &IndexConn) -> Result<Vec<String>, IndexError> 
     Ok(out)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TagAssignment {
+    pub tag_path: String,
+    pub file_path: String,
+}
+
+pub async fn all_tag_assignments(conn: &IndexConn) -> Result<Vec<TagAssignment>, IndexError> {
+    let mut rows = conn
+        .connection()
+        .query(
+            "SELECT DISTINCT tag_path, file_path FROM tags \
+             ORDER BY tag_path, file_path",
+            (),
+        )
+        .await?;
+    let mut out = Vec::new();
+    while let Some(row) = rows.next().await? {
+        out.push(TagAssignment {
+            tag_path: row.get(0)?,
+            file_path: row.get(1)?,
+        });
+    }
+    Ok(out)
+}
+
 pub async fn tags_for_file(conn: &IndexConn, file_path: &str) -> Result<Vec<TagRow>, IndexError> {
     let mut rows = conn
         .connection()
@@ -164,6 +189,13 @@ mod tests {
         TagRow {
             tag_path: tag.into(),
             source,
+        }
+    }
+
+    fn assignment(tag: &str, file: &str) -> TagAssignment {
+        TagAssignment {
+            tag_path: tag.into(),
+            file_path: file.into(),
         }
     }
 
@@ -224,6 +256,66 @@ mod tests {
     async fn all_tag_paths_empty_when_no_tags() {
         let (_dir, conn) = open_test_index().await;
         assert!(all_tag_paths(&conn).await.expect("all tags").is_empty());
+    }
+
+    #[tokio::test]
+    async fn all_tag_assignments_pairs_every_tag_with_every_carrier() {
+        let (_dir, conn) = open_test_index().await;
+        seed_file(&conn, "a.md").await;
+        seed_file(&conn, "b.md").await;
+        replace_tags_for_file(
+            &conn,
+            "a.md",
+            &[
+                row("project/cubical", TagSource::Inline),
+                row("alpha", TagSource::Inline),
+            ],
+        )
+        .await
+        .expect("replace a");
+        replace_tags_for_file(
+            &conn,
+            "b.md",
+            &[row("project/cubical", TagSource::Frontmatter)],
+        )
+        .await
+        .expect("replace b");
+        let got = all_tag_assignments(&conn).await.expect("assignments");
+        assert_eq!(
+            got,
+            vec![
+                assignment("alpha", "a.md"),
+                assignment("project/cubical", "a.md"),
+                assignment("project/cubical", "b.md"),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn all_tag_assignments_collapses_a_tag_carried_by_two_sources() {
+        let (_dir, conn) = open_test_index().await;
+        seed_file(&conn, "a.md").await;
+        replace_tags_for_file(
+            &conn,
+            "a.md",
+            &[
+                row("todo", TagSource::Inline),
+                row("todo", TagSource::Frontmatter),
+            ],
+        )
+        .await
+        .expect("replace");
+        let got = all_tag_assignments(&conn).await.expect("assignments");
+        assert_eq!(got, vec![assignment("todo", "a.md")]);
+    }
+
+    #[tokio::test]
+    async fn all_tag_assignments_empty_when_no_tags() {
+        let (_dir, conn) = open_test_index().await;
+        assert!(all_tag_assignments(&conn)
+            .await
+            .expect("assignments")
+            .is_empty());
     }
 
     #[tokio::test]

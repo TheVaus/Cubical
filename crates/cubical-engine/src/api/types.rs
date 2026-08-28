@@ -293,6 +293,22 @@ pub struct ListTagsResponse {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct ListTagAssignmentsRequest {
+    pub vault_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TagAssignmentDto {
+    pub tag_path: String,
+    pub file_path: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ListTagAssignmentsResponse {
+    pub assignments: Vec<TagAssignmentDto>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct CloseVaultRequest {
     pub vault_id: String,
 }

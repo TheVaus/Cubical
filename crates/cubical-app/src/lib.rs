@@ -22,15 +22,16 @@ use cubical_engine::api::types::{
     GetSettingResponse, GetVaultInfoRequest, GetVaultInfoResponse, LinkAutocompleteRequest,
     LinkAutocompleteResponse, ListDanglingLinksRequest, ListDanglingLinksResponse,
     ListFilesRequest, ListFilesResponse, ListRecentRenameOpsRequest, ListRecentRenameOpsResponse,
-    ListTagsRequest, ListTagsResponse, OpenVaultRequest, OpenVaultResponse, QueryTagPageRequest,
-    QueryTagPageResponse, ReadFileBytesRequest, ReadFileBytesResponse, ReadFileTextRequest,
-    ReadFileTextResponse, ReloadSettingsRequest, ReloadSettingsResponse, RenameBlockIdRequest,
-    RenameBlockIdResponse, RenameFileRequest, RenameFileResponse, RenameFolderRequest,
-    RenameFolderResponse, RenameTagRequest, RenameTagResponse, RepairDanglingLinkRequest,
-    RepairDanglingLinkResponse, ResolveLinkRequest, ResolveLinkResponse, SearchHealthDto,
-    SearchIndexStatusDto, SearchRequest, SearchResponse, SearchVaultRequest, SetSettingRequest,
-    SetSettingResponse, TagAutocompleteRequest, TagAutocompleteResponse, UndoRenameRequest,
-    UndoRenameResponse, WriteFileTextRequest, WriteFileTextResponse,
+    ListTagAssignmentsRequest, ListTagAssignmentsResponse, ListTagsRequest, ListTagsResponse,
+    OpenVaultRequest, OpenVaultResponse, QueryTagPageRequest, QueryTagPageResponse,
+    ReadFileBytesRequest, ReadFileBytesResponse, ReadFileTextRequest, ReadFileTextResponse,
+    ReloadSettingsRequest, ReloadSettingsResponse, RenameBlockIdRequest, RenameBlockIdResponse,
+    RenameFileRequest, RenameFileResponse, RenameFolderRequest, RenameFolderResponse,
+    RenameTagRequest, RenameTagResponse, RepairDanglingLinkRequest, RepairDanglingLinkResponse,
+    ResolveLinkRequest, ResolveLinkResponse, SearchHealthDto, SearchIndexStatusDto, SearchRequest,
+    SearchResponse, SearchVaultRequest, SetSettingRequest, SetSettingResponse,
+    TagAutocompleteRequest, TagAutocompleteResponse, UndoRenameRequest, UndoRenameResponse,
+    WriteFileTextRequest, WriteFileTextResponse,
 };
 use cubical_engine::commands;
 use cubical_engine::error::CubicalError;
@@ -106,6 +107,7 @@ pub fn run() {
             link_mention,
             get_backlinks,
             query_tag_page,
+            list_tag_assignments,
             link_autocomplete,
             tag_autocomplete,
             list_tags,
@@ -489,6 +491,14 @@ async fn tag_autocomplete(
     req: TagAutocompleteRequest,
 ) -> Result<TagAutocompleteResponse, CubicalError> {
     commands::autocomplete::tag_autocomplete(state.inner(), req).await
+}
+
+#[tauri::command]
+async fn list_tag_assignments(
+    state: tauri::State<'_, AppState>,
+    req: ListTagAssignmentsRequest,
+) -> Result<ListTagAssignmentsResponse, CubicalError> {
+    commands::tags::list_tag_assignments(state.inner(), req).await
 }
 
 #[tauri::command]

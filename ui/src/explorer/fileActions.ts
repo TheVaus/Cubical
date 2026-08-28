@@ -7,7 +7,7 @@ import { showToast } from "../toastState";
 export type EntryKind = "file" | "folder";
 
 export interface ContextMenuTarget {
-  kind: EntryKind | "empty";
+  kind: EntryKind | "empty" | "tag";
   path: string;
   x: number;
   y: number;
@@ -35,6 +35,8 @@ export interface FileActions {
   readonly deleteInFlight: () => boolean;
   readonly renamingPath: () => string | null;
   readonly startRename: (path: string | null) => void;
+  readonly renamingTag: () => string | null;
+  readonly startTagRename: (tagPath: string | null) => void;
   readonly newFile: (parentDir: string) => Promise<void>;
   readonly newFolder: (parentDir: string) => Promise<void>;
   readonly newFileInTree: (parentDir: string) => Promise<void>;
@@ -54,6 +56,7 @@ export function createFileActions(deps: FileActionsDeps): FileActions {
   );
   const [deleteInFlight, setDeleteInFlight] = createSignal(false);
   const [renamingPath, setRenamingPath] = createSignal<string | null>(null);
+  const [renamingTag, setRenamingTag] = createSignal<string | null>(null);
 
   const newFile = async (parentDir: string) => {
     const id = deps.vaultId();
@@ -124,6 +127,8 @@ export function createFileActions(deps: FileActionsDeps): FileActions {
     deleteInFlight,
     renamingPath,
     startRename: (path: string | null) => setRenamingPath(path),
+    renamingTag,
+    startTagRename: (tagPath: string | null) => setRenamingTag(tagPath),
     newFile,
     newFolder,
     newFileInTree,
@@ -140,6 +145,7 @@ export function createFileActions(deps: FileActionsDeps): FileActions {
       setContextMenu(null);
       setDeleteTarget(null);
       setRenamingPath(null);
+      setRenamingTag(null);
       setDeleteInFlight(false);
     },
   };

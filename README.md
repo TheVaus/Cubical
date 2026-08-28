@@ -177,4 +177,7 @@ cargo test --workspace     # Rust
 
 ## License
 
-Cubical is released under the [MIT License](LICENSE).
+Cubical is source-available under the [Business Source License 1.1](LICENSE).
+Free for personal use by individuals; use by or on behalf of an organisation
+requires a commercial licence. Each released version converts to the MIT License
+four years after it is published.
