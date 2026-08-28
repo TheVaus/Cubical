@@ -116,3 +116,47 @@ describe("reduceMentionsState", () => {
     }
   });
 });
+
+describe("reduceMentionsState — refresh keeps the panel steady", () => {
+  const loadedWith = (m: Mention[]): MentionsViewState =>
+    reduceMentionsState({ kind: "loading" }, { type: "fetch:success", mentions: m });
+
+  it("leaves a loaded list untouched while a refresh is in flight", () => {
+    const loaded = loadedWith([sample]);
+    expect(reduceMentionsState(loaded, { type: "refresh:start" })).toBe(loaded);
+  });
+
+  it("leaves an empty result untouched while a refresh is in flight", () => {
+    const empty = loadedWith([]);
+    expect(reduceMentionsState(empty, { type: "refresh:start" })).toBe(empty);
+  });
+
+  it("falls back to loading when a refresh starts with nothing on screen", () => {
+    expect(
+      reduceMentionsState({ kind: "idle" }, { type: "refresh:start" }).kind,
+    ).toBe("loading");
+    expect(
+      reduceMentionsState({ kind: "error", message: "boom" }, { type: "refresh:start" }).kind,
+    ).toBe("loading");
+  });
+
+  it("preserves row identity across a whole refresh cycle", () => {
+    const loaded = loadedWith([sample]);
+    const during = reduceMentionsState(loaded, { type: "refresh:start" });
+    const after = reduceMentionsState(during, {
+      type: "fetch:success",
+      mentions: [{ ...sample }],
+    });
+
+    expect(after.kind).toBe("loaded");
+    if (loaded.kind === "loaded" && after.kind === "loaded") {
+      expect(after.mentions[0]).toBe(loaded.mentions[0]);
+    }
+  });
+
+  it("still blanks to loading when the target file changes", () => {
+    expect(
+      reduceMentionsState(loadedWith([sample]), { type: "fetch:start" }).kind,
+    ).toBe("loading");
+  });
+});

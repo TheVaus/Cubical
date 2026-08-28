@@ -20,6 +20,7 @@ import {
   reduceIntegrityState,
   type IntegrityViewState,
 } from "./integrityState";
+import { createTargetTracker } from "./refreshTarget";
 
 export interface IntegrityPanelProps {
   vaultId: string | null;
@@ -34,10 +35,11 @@ const IntegrityPanel: Component<IntegrityPanelProps> = (props) => {
   const [busy, setBusy] = createSignal<string | null>(null);
 
   let token = 0;
+  const tracker = createTargetTracker();
 
   const load = (vaultId: string) => {
     const my = ++token;
-    setState(reduceIntegrityState(untrack(state), { type: "fetch:start" }));
+    setState(reduceIntegrityState(untrack(state), tracker.start(vaultId)));
     listDanglingLinks({ vault_id: vaultId })
       .then((resp) => {
         if (my !== token) return;

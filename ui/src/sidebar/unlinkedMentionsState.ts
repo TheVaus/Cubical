@@ -14,6 +14,7 @@ export type MentionsViewState =
 
 export type MentionsAction =
   | { type: "fetch:start" }
+  | { type: "refresh:start" }
   | { type: "fetch:success"; mentions: Mention[] }
   | { type: "fetch:error"; message: string }
   | { type: "file:cleared" }
@@ -26,6 +27,10 @@ export function reduceMentionsState(
   switch (action.type) {
     case "fetch:start":
       return { kind: "loading" };
+    case "refresh:start":
+      return state.kind === "loaded" || state.kind === "empty"
+        ? state
+        : { kind: "loading" };
     case "fetch:success": {
       const prevMentions = state.kind === "loaded" ? state.mentions : [];
       const mentions = stabilizeByKey(
