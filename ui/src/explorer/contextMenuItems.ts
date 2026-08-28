@@ -7,6 +7,7 @@ export interface ContextMenuHandlers {
   newFolder: (parentDir: string) => void;
   rename: (path: string) => void;
   remove: (path: string, kind: EntryKind) => void;
+  renameTag: (tagPath: string) => void;
 }
 
 export function buildContextMenuItems(
@@ -14,6 +15,15 @@ export function buildContextMenuItems(
   on: ContextMenuHandlers,
 ): MenuItem[] {
   const items: MenuItem[] = [];
+  if (target.kind === "tag") {
+    return [
+      {
+        id: "rename-tag",
+        label: "Rename Tag…",
+        onSelect: () => on.renameTag(target.path),
+      },
+    ];
+  }
   if (target.kind !== "file") {
     items.push({
       id: "new-file",

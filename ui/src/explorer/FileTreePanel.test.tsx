@@ -36,6 +36,8 @@ function stubActions(over: Partial<FileActions> = {}): FileActions {
     deleteInFlight: () => false,
     renamingPath: () => null,
     startRename: vi.fn(),
+    renamingTag: () => null,
+    startTagRename: vi.fn(),
     newFile: vi.fn(async () => {}),
     newFolder: vi.fn(async () => {}),
     newFileInTree: vi.fn(async () => {}),

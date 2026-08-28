@@ -34,5 +34,6 @@ export function resetSettings(settings: SettingsState): void {
     settings.toggleRightSidebar();
   }
   settings.setRightSidebarPanelValue(SETTINGS_DEFAULTS.rightSidebarPanel);
+  settings.setLeftSidebarModeValue(SETTINGS_DEFAULTS.leftSidebarMode);
   settings.setShortcutOverridesValue({});
 }

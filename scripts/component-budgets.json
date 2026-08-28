@@ -19,15 +19,15 @@
   "default_max_lines": 250,
   "budgets": {
     "ui/src/App.tsx": {
-      "max_lines": 1815,
+      "max_lines": 1813,
       "kind": "debt",
       "issue": 86,
-      "note": "Being split into feature-owned components. Was 3274, then 2323 before the file explorer moved to explorer/, then 1816 once it did, then 1815 when the terminal tab panes moved to terminal/TerminalTabPanes.tsx to pay for the graph tab. Ratchet this down as each extraction lands. Completion is not a line count: it is the three extractions the ./api/ipc waiver names — document session (done), vault boot, watcher listeners. A composition root wiring this many features lands well above default_max_lines once those are out, and chasing a smaller number would mean components taking fifteen props, which is the boundary-that-does-not-exist this gate is meant to prevent."
+      "note": "Being split into feature-owned components. Was 3274, then 2323 before the file explorer moved to explorer/, then 1816 once it did, then 1815 when the terminal tab panes moved to terminal/TerminalTabPanes.tsx to pay for the graph tab, then 1813 when the left sidebar's search wrapper and tree composition moved to explorer/ExplorerPanel.tsx, which paid for the Files/Tags mode switch with two lines to spare. Ratchet this down as each extraction lands. Completion is not a line count: it is the three extractions the ./api/ipc waiver names — document session (done), vault boot, watcher listeners. A composition root wiring this many features lands well above default_max_lines once those are out, and chasing a smaller number would mean components taking fifteen props, which is the boundary-that-does-not-exist this gate is meant to prevent."
     },
     "ui/src/api/ipc.ts": {
-      "max_lines": 1173,
+      "max_lines": 1191,
       "kind": "bespoke",
-      "note": "The whole typed IPC surface. It is one chokepoint on purpose (implementation/frontend.md), and the Setting union is the only registry of setting keys — splitting it would give that registry two homes. Raised 1103 -> 1104 for plugins.math_enabled, then 1104 -> 1173 for the graph commands and their wire types: a new setting key or command costs exactly its own lines here and has nowhere else to live."
+      "note": "The whole typed IPC surface. It is one chokepoint on purpose (implementation/frontend.md), and the Setting union is the only registry of setting keys — splitting it would give that registry two homes. Raised 1103 -> 1104 for plugins.math_enabled, then 1104 -> 1173 for the graph commands and their wire types, then 1173 -> 1191 for list_tag_assignments and the ui.left_sidebar_mode key: a new setting key or command costs exactly its own lines here and has nowhere else to live."
     },
     "ui/src/Editor.tsx": {
       "max_lines": 730,
@@ -64,9 +64,9 @@
       "note": "Vault-health rows and their fetch effect. Raised 386 -> 388 for the refresh-is-not-a-load fix: one import and one tracker declaration. The cold/warm decision itself is shared in sidebar/refreshTarget.ts rather than inlined here, so this is the whole per-panel cost."
     },
     "ui/src/settings/settingsState.ts": {
-      "max_lines": 400,
+      "max_lines": 421,
       "kind": "bespoke",
-      "note": "The vault's persisted configuration surface: one signal, one setter and one hydrate step per setting. Length here tracks the number of settings, not tangled logic. Raised from 381 when every default moved to settings/defaults.ts \u2014 one named constant per default, so the signal initialiser and the hydrate fallback can no longer disagree, at the cost of a wrapped line each."
+      "note": "The vault's persisted configuration surface: one signal, one setter and one hydrate step per setting. Length here tracks the number of settings, not tangled logic. Raised from 381 when every default moved to settings/defaults.ts \u2014 one named constant per default, so the signal initialiser and the hydrate fallback can no longer disagree, at the cost of a wrapped line each. Raised 400 -> 421 for ui.left_sidebar_mode: one signal, one setter, one hydrate step, exactly as the note describes."
     },
     "ui/src/statusbar/PendingRewrites.tsx": {
       "max_lines": 350,

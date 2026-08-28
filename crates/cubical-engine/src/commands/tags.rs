@@ -1,8 +1,11 @@
 use std::path::Path;
 
-use cubical_index::files_for_tag_prefix;
+use cubical_index::{all_tag_assignments, files_for_tag_prefix};
 
-use crate::api::types::{QueryTagPageRequest, QueryTagPageResponse, TagPageFile};
+use crate::api::types::{
+    ListTagAssignmentsRequest, ListTagAssignmentsResponse, QueryTagPageRequest,
+    QueryTagPageResponse, TagAssignmentDto, TagPageFile,
+};
 use crate::error::CubicalError;
 use crate::state::AppState;
 
@@ -34,6 +37,27 @@ pub async fn query_tag_page(
         .collect();
 
     Ok(QueryTagPageResponse { files })
+}
+
+pub async fn list_tag_assignments(
+    state: &AppState,
+    req: ListTagAssignmentsRequest,
+) -> Result<ListTagAssignmentsResponse, CubicalError> {
+    let guard = state.vaults().read().await;
+    let open = guard
+        .get(&req.vault_id)
+        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
+
+    let assignments = all_tag_assignments(open.vault.index())
+        .await?
+        .into_iter()
+        .map(|a| TagAssignmentDto {
+            tag_path: a.tag_path,
+            file_path: a.file_path,
+        })
+        .collect();
+
+    Ok(ListTagAssignmentsResponse { assignments })
 }
 
 #[cfg(test)]
@@ -221,6 +245,77 @@ mod tests {
             QueryTagPageRequest {
                 vault_id: "ghost".into(),
                 tag_path: "todo".into(),
+            },
+        )
+        .await
+        .expect_err("vault-not-open");
+        assert!(matches!(err, CubicalError::VaultNotOpen(v) if v == "ghost"));
+    }
+
+    #[tokio::test]
+    async fn list_tag_assignments_returns_every_tag_file_pair() {
+        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        seed_file(&vault, "a.md").await;
+        seed_file(&vault, "b.md").await;
+        replace_tags_for_file(
+            vault.index(),
+            "a.md",
+            &[
+                tag("project/alpha", TagSource::Inline),
+                tag("todo", TagSource::Frontmatter),
+            ],
+        )
+        .await
+        .expect("tags a");
+        replace_tags_for_file(vault.index(), "b.md", &[tag("todo", TagSource::Inline)])
+            .await
+            .expect("tags b");
+
+        let resp = list_tag_assignments(
+            &state,
+            ListTagAssignmentsRequest {
+                vault_id: "v1".into(),
+            },
+        )
+        .await
+        .expect("ok");
+
+        let pairs: Vec<(String, String)> = resp
+            .assignments
+            .into_iter()
+            .map(|a| (a.tag_path, a.file_path))
+            .collect();
+        assert_eq!(
+            pairs,
+            vec![
+                ("project/alpha".to_string(), "a.md".to_string()),
+                ("todo".to_string(), "a.md".to_string()),
+                ("todo".to_string(), "b.md".to_string()),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn list_tag_assignments_empty_vault_yields_empty_response() {
+        let (_dir, _vault, state) = fresh_state_with_vault("v1").await;
+        let resp = list_tag_assignments(
+            &state,
+            ListTagAssignmentsRequest {
+                vault_id: "v1".into(),
+            },
+        )
+        .await
+        .expect("ok");
+        assert!(resp.assignments.is_empty());
+    }
+
+    #[tokio::test]
+    async fn list_tag_assignments_unknown_vault_errors() {
+        let (_dir, _vault, state) = fresh_state_with_vault("v1").await;
+        let err = list_tag_assignments(
+            &state,
+            ListTagAssignmentsRequest {
+                vault_id: "ghost".into(),
             },
         )
         .await

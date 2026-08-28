@@ -112,7 +112,7 @@ import {
 } from "./editor/autocompleteProvider";
 import { buildFileTree, countFilesUnderFolder } from "./explorer/fileTree";
 import { createFileActions } from "./explorer/fileActions";
-import FileTreePanel from "./explorer/FileTreePanel";
+import ExplorerPanel from "./explorer/ExplorerPanel";
 import FileContextMenu from "./explorer/FileContextMenu";
 import DeleteDialog from "./explorer/DeleteDialog";
 import { buildBlockRefLink } from "./editor/blockRef";
@@ -132,7 +132,6 @@ import { reprefixNestedPath, validateRenameTarget } from "./fileRename";
 import { watchSystemTheme } from "./styles/theme";
 import Backlinks from "./sidebar/Backlinks";
 import UnlinkedMentions from "./sidebar/UnlinkedMentions";
-import SearchPanel from "./sidebar/SearchPanel";
 import IntegrityPanel from "./sidebar/IntegrityPanel";
 import TagPage from "./TagPage";
 import OmniBar from "./omnibar/OmniBar";
@@ -1212,23 +1211,22 @@ const App: Component = () => {
             classList={{ "side--collapsed": leftCollapsed() }}
           >
             <div class="side__body">
-              <SearchPanel
+              <ExplorerPanel
+                files={files()}
+                folders={folders()}
                 vaultId={vaultId()}
-                onNavigate={(path) => void handleNavigateWikilink(path, null)}
+                selectedPath={selectedPath()}
+                mode={settings.leftSidebarMode()}
                 refreshSignal={searchRefreshTick()}
-              >
-                <FileTreePanel
-                  files={files()}
-                  folders={folders()}
-                  vaultId={vaultId()}
-                  selectedPath={selectedPath()}
-                  actions={fileActions}
-                  onSelectFile={(entry) => void handleSelectFile(entry)}
-                  onRenameCommit={(from, target, isFolder) =>
-                    void handleRenameCommit(from, target, isFolder)
-                  }
-                />
-              </SearchPanel>
+                actions={fileActions}
+                onModeChange={settings.setLeftSidebarModeValue}
+                onRefresh={() => void refreshFileList()}
+                onNavigate={(path) => void handleNavigateWikilink(path, null)}
+                onSelectFile={(entry) => void handleSelectFile(entry)}
+                onRenameCommit={(from, target, isFolder) =>
+                  void handleRenameCommit(from, target, isFolder)
+                }
+              />
               <div class="side__footer">
                 <div class="vault-switcher-anchor">
                   <button
