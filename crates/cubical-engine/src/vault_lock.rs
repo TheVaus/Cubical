@@ -18,9 +18,8 @@ impl VaultLockGuard {
 
 impl Drop for VaultLockGuard {
     fn drop(&mut self) {
-        use fs4::fs_std::FileExt;
         let _ = std::fs::remove_file(&self.owner_path);
-        let _ = FileExt::unlock(&self.file);
+        let _ = fs4::FileExt::unlock(&self.file);
     }
 }
 
@@ -52,8 +51,6 @@ pub(crate) fn acquire_in(
     canonical_vault_path: &Path,
     socket_path: Option<&str>,
 ) -> io::Result<Acquire> {
-    use fs4::fs_std::FileExt;
-
     std::fs::create_dir_all(dir)?;
     let lock_path = dir.join(lock_filename(canonical_vault_path));
     let file = OpenOptions::new()
@@ -65,8 +62,8 @@ pub(crate) fn acquire_in(
 
     let owner_path = lock_path.with_extension("owner");
 
-    match file.try_lock_exclusive() {
-        Ok(true) => {
+    match fs4::FileExt::try_lock(&file) {
+        Ok(()) => {
             write_payload(&owner_path, canonical_vault_path, socket_path)?;
             Ok(Acquire::Acquired(VaultLockGuard {
                 file,
@@ -74,14 +71,14 @@ pub(crate) fn acquire_in(
                 owner_path,
             }))
         }
-        Ok(false) => {
+        Err(fs4::TryLockError::WouldBlock) => {
             let owner = read_owner(&owner_path).unwrap_or(LockOwner {
                 pid: 0,
                 socket_path: None,
             });
             Ok(Acquire::Held(owner))
         }
-        Err(e) => Err(e),
+        Err(fs4::TryLockError::Error(e)) => Err(e),
     }
 }
 
