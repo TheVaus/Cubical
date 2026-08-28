@@ -72,5 +72,6 @@ scripts/session.sh end    # gate, drift, untouched issues
 
 Shipping installable builds is the open thread: tiers are locked in
 [`distribution.md`](docs/architecture/distribution.md), the work is #97, and the
-signing + repo-visibility calls are still open in #96.
+signing call is still open in #96. The repo is public and CI runs the three-OS
+matrix per PR; #109 tracks turning on the protections that unlocks.
 Layer 5 is the open v1.0 cut — [`layers.md`](docs/architecture/layers.md).
