@@ -30,7 +30,7 @@
       "note": "The whole typed IPC surface. It is one chokepoint on purpose (implementation/frontend.md), and the Setting union is the only registry of setting keys — splitting it would give that registry two homes. Raised 1103 -> 1104 for plugins.math_enabled, then 1104 -> 1173 for the graph commands and their wire types: a new setting key or command costs exactly its own lines here and has nowhere else to live."
     },
     "ui/src/Editor.tsx": {
-      "max_lines": 748,
+      "max_lines": 730,
       "kind": "debt",
       "issue": 86,
       "note": "CodeMirror host: extension assembly, the imperative EditorApi, and the anchor-scroll queue."
