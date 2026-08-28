@@ -4,16 +4,16 @@ import { toggleInfo, type InfoId } from "./settingsInfo";
 
 describe("toggleInfo", () => {
   it("opens a popover from the closed state", () => {
-    expect(toggleInfo(null, "dataview")).toBe("dataview");
+    expect(toggleInfo(null, "typed-props")).toBe("typed-props");
   });
 
   it("closes when the same id is clicked again", () => {
-    expect(toggleInfo("dataview", "dataview")).toBeNull();
+    expect(toggleInfo("typed-props", "typed-props")).toBeNull();
   });
 
   it("switches directly from one popover to another", () => {
-    const next: InfoId | null = toggleInfo("dataview", "typed-props");
-    expect(next).toBe("typed-props");
+    const next: InfoId | null = toggleInfo("typed-props", "shortcuts");
+    expect(next).toBe("shortcuts");
   });
 });
 

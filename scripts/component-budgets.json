@@ -64,9 +64,9 @@
       "note": "Vault-health rows and their fetch effect."
     },
     "ui/src/settings/settingsState.ts": {
-      "max_lines": 381,
+      "max_lines": 400,
       "kind": "bespoke",
-      "note": "The vault's persisted configuration surface: one signal, one setter and one hydrate step per setting. Length here tracks the number of settings, not tangled logic."
+      "note": "The vault's persisted configuration surface: one signal, one setter and one hydrate step per setting. Length here tracks the number of settings, not tangled logic. Raised from 381 when every default moved to settings/defaults.ts \u2014 one named constant per default, so the signal initialiser and the hydrate fallback can no longer disagree, at the cost of a wrapped line each."
     },
     "ui/src/statusbar/PendingRewrites.tsx": {
       "max_lines": 350,

@@ -2,7 +2,7 @@
 
 # Design system component inventory
 
-Every component under `design-system/src/components` — 23 of them. **Check this list before hand-rolling a control** ([`../docs/principles/design-system.md`](../docs/principles/design-system.md)).
+Every component under `design-system/src/components` — 24 of them. **Check this list before hand-rolling a control** ([`../docs/principles/design-system.md`](../docs/principles/design-system.md)).
 
 Regenerate with `python3 scripts/gen_ds_inventory.py`; `--check` fails if the file is stale. Names, import paths and props are parsed from the source. Purposes are **hand-curated** in the generator — this repo bans comments, so there is no doc-comment to read — and a component with no entry says so instead of guessing.
 
@@ -13,7 +13,7 @@ Regenerate with `python3 scripts/gen_ds_inventory.py`; `--check` fails if the fi
 | `feedback/` | `Badge`, `Callout`, `Toast`, `Tooltip` |
 | `forms/` | `Button`, `DatePicker`, `IconButton`, `Link`, `SegmentedControl`, `Select`, `TextInput`, `Toggle` |
 | `graphics/` | `Icon` |
-| `overlay/` | `CommandPalette`, `Menu`, `Modal`, `Popover`, `TwoPaneModal` |
+| `overlay/` | `CommandPalette`, `ConfirmDialog`, `Menu`, `Modal`, `Popover`, `TwoPaneModal` |
 
 ## `brand/`
 
@@ -408,6 +408,27 @@ export interface Command {
   onRun: () => void;
 }
 ```
+
+### ConfirmDialog
+
+Yes/no confirmation over a `Modal` — message, cancel, and a danger or primary confirm. Swallows Escape, so a dialog opened from another overlay does not close both.
+
+```ts
+import ConfirmDialog from "@ds/components/overlay/ConfirmDialog/ConfirmDialog";
+```
+
+| Prop | Type | Required |
+|---|---|---|
+| `open` | `boolean` | yes |
+| `title` | `string` | yes |
+| `ariaLabel` | `string` | no |
+| `confirmLabel` | `string` | yes |
+| `cancelLabel` | `string` | no |
+| `tone` | `'danger' \| 'primary'` | no |
+| `busy` | `boolean` | no |
+| `onConfirm` | `() => void` | yes |
+| `onCancel` | `() => void` | yes |
+| `children` | `JSX.Element` | yes |
 
 ### Menu
 

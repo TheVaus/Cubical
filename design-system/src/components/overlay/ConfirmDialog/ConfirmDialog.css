@@ -1,0 +1,30 @@
+.ds-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4);
+}
+
+.ds-confirm__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  color: var(--c-fg-primary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-body);
+}
+
+.ds-confirm__body p {
+  margin: 0;
+}
+
+.ds-confirm__body p + p {
+  color: var(--c-fg-secondary);
+  font-size: var(--text-xs);
+}
+
+.ds-confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}

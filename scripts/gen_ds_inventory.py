@@ -54,6 +54,9 @@ PURPOSES = {
     "Menu": "Bare dropdown list of menu items with optional shortcut hints "
             "and danger/disabled states; has no own open state, wrap it in "
             "`Popover`.",
+    "ConfirmDialog": "Yes/no confirmation over a `Modal` — message, cancel, and a "
+                     "danger or primary confirm. Swallows Escape, so a dialog "
+                     "opened from another overlay does not close both.",
     "Modal": "Dialog surface in a portal — scrim, Escape-to-close, top or "
              "centered placement.",
     "Popover": "Anchored floating surface with placement, backdrop click and "

@@ -38,6 +38,21 @@ describe("CORE_PLUGINS", () => {
     expect(dataview.defaultEnabled).toBe(true);
   });
 
+  test("shows the dataview entry as Query while keeping its stored id and key", () => {
+    expect(dataview.name).toBe("Query");
+    expect(dataview.id).toBe("dataview");
+    expect(dataview.settingKey).toBe("plugins.dataview_enabled");
+  });
+
+  test("points the three explainable plugins at a doc, and no others", () => {
+    const withDocs = CORE_PLUGINS.filter((p) => p.docId !== undefined);
+    expect(withDocs.map((p) => p.docId)).toEqual([
+      "query",
+      "property-refs",
+      "math",
+    ]);
+  });
+
   test("ships the property-refs entry, default-on", () => {
     const pr = CORE_PLUGINS.find((p) => p.id === "property-refs")!;
     expect(pr).toBeDefined();

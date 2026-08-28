@@ -3,7 +3,7 @@ import { createMemo, createSignal, type Accessor } from "solid-js";
 import { getSetting } from "../api/ipc";
 import { persistSetting, seedSetting } from "../core/settings";
 import { resolveBindings, type KeyBinding } from "../core/commands";
-import { DEFAULT_LIVE_TAB_LIMIT, clampLimit } from "../tabs/lru";
+import { clampLimit } from "../tabs/lru";
 import { resolveRawState } from "../editor/rawSource";
 import {
   applyTheme,
@@ -11,6 +11,7 @@ import {
   type ThemeMode,
 } from "../styles/theme";
 import { CORE_PLUGINS, type BooleanSettingKey } from "./corePlugins";
+import { SETTINGS_DEFAULTS } from "./defaults";
 import {
   STATUSBAR_DEFAULT,
   STATUSBAR_ENABLED_KEY,
@@ -85,30 +86,48 @@ export interface SettingsState {
 export function createSettingsState(deps: SettingsStateDeps): SettingsState {
   const vid = () => deps.vaultId();
 
-  const [themeMode, setThemeMode] = createSignal<ThemeMode>("system");
+  const [themeMode, setThemeMode] = createSignal<ThemeMode>(SETTINGS_DEFAULTS.themeMode);
   const [resolvedTheme, setResolvedTheme] = createSignal<ResolvedTheme>(
-    applyTheme("system"),
+    applyTheme(SETTINGS_DEFAULTS.themeMode),
   );
 
-  const [rawDefault, setRawDefault] = createSignal(false);
+  const [rawDefault, setRawDefault] = createSignal(
+    SETTINGS_DEFAULTS.rawSourceDefault,
+  );
   const [rawOverride, setRawOverride] = createSignal<boolean | null>(null);
-  const [minimapEnabled, setMinimapEnabled] = createSignal(false);
-  const [colorizeSource, setColorizeSource] = createSignal(false);
-  const [liveTabLimit, setLiveTabLimit] = createSignal(DEFAULT_LIVE_TAB_LIMIT);
-  const [rewriteBrokenLinks, setRewriteBrokenLinks] = createSignal(true);
-  const [typedProps, setTypedProps] = createSignal(false);
-  const [dateDefault, setDateDefault] = createSignal("YYYY-MM-DD");
-  const [currencyDefault, setCurrencyDefault] = createSignal("usd");
-  const [tagsKeyAsTags, setTagsKeyAsTags] = createSignal(true);
+  const [minimapEnabled, setMinimapEnabled] = createSignal(
+    SETTINGS_DEFAULTS.minimapEnabled,
+  );
+  const [colorizeSource, setColorizeSource] = createSignal(
+    SETTINGS_DEFAULTS.colorizeSource,
+  );
+  const [liveTabLimit, setLiveTabLimit] = createSignal(
+    SETTINGS_DEFAULTS.liveTabLimit,
+  );
+  const [rewriteBrokenLinks, setRewriteBrokenLinks] = createSignal(
+    SETTINGS_DEFAULTS.rewriteBrokenLinks,
+  );
+  const [typedProps, setTypedProps] = createSignal(SETTINGS_DEFAULTS.typedProps);
+  const [dateDefault, setDateDefault] = createSignal(
+    SETTINGS_DEFAULTS.dateDefault,
+  );
+  const [currencyDefault, setCurrencyDefault] = createSignal(
+    SETTINGS_DEFAULTS.currencyDefault,
+  );
+  const [tagsKeyAsTags, setTagsKeyAsTags] = createSignal(
+    SETTINGS_DEFAULTS.tagsKeyAsTags,
+  );
   const [corePlugins, setCorePlugins] = createSignal<Record<string, boolean>>(
     {},
   );
   const [statusbarConfig, setStatusbarConfig] = createSignal<
     Record<string, boolean>
   >({});
-  const [rightSidebarCollapsed, setRightSidebarCollapsed] = createSignal(false);
+  const [rightSidebarCollapsed, setRightSidebarCollapsed] = createSignal(
+    SETTINGS_DEFAULTS.rightSidebarCollapsed,
+  );
   const [rightSidebarPanel, setRightSidebarPanel] =
-    createSignal<RightSidebarPanel>("backlinks");
+    createSignal<RightSidebarPanel>(SETTINGS_DEFAULTS.rightSidebarPanel);
   const [shortcutOverrides, setShortcutOverrides] = createSignal<
     Record<string, string>
   >({});
@@ -241,55 +260,55 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
     await seedSetting(
       vaultId,
       "editor.raw_source_default",
-      false,
+      SETTINGS_DEFAULTS.rawSourceDefault,
       setRawDefault,
     );
     await seedSetting(
       vaultId,
       "editor.minimap_enabled",
-      false,
+      SETTINGS_DEFAULTS.minimapEnabled,
       setMinimapEnabled,
     );
     await seedSetting(
       vaultId,
       "editor.live_tab_limit",
-      DEFAULT_LIVE_TAB_LIMIT,
+      SETTINGS_DEFAULTS.liveTabLimit,
       (v) => setLiveTabLimit(clampLimit(v)),
     );
     await seedSetting(
       vaultId,
       "editor.colorize_raw_source",
-      false,
+      SETTINGS_DEFAULTS.colorizeSource,
       setColorizeSource,
     );
     await seedSetting(
       vaultId,
       "wikilinks.rewrite_broken_links_on_rename",
-      true,
+      SETTINGS_DEFAULTS.rewriteBrokenLinks,
       setRewriteBrokenLinks,
     );
     await seedSetting(
       vaultId,
       "properties.typed_enabled",
-      false,
+      SETTINGS_DEFAULTS.typedProps,
       setTypedProps,
     );
     await seedSetting(
       vaultId,
       "properties.date_format_default",
-      "YYYY-MM-DD",
+      SETTINGS_DEFAULTS.dateDefault,
       setDateDefault,
     );
     await seedSetting(
       vaultId,
       "properties.default_currency",
-      "usd",
+      SETTINGS_DEFAULTS.currencyDefault,
       setCurrencyDefault,
     );
     await seedSetting(
       vaultId,
       "properties.tags_key_as_tags",
-      true,
+      SETTINGS_DEFAULTS.tagsKeyAsTags,
       setTagsKeyAsTags,
     );
 
@@ -323,13 +342,13 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
     await seedSetting(
       vaultId,
       "ui.right_sidebar_collapsed",
-      false,
+      SETTINGS_DEFAULTS.rightSidebarCollapsed,
       setRightSidebarCollapsed,
     );
     await seedSetting(
       vaultId,
       "ui.right_sidebar_panel",
-      "backlinks",
+      SETTINGS_DEFAULTS.rightSidebarPanel,
       setRightSidebarPanel,
     );
     await seedSetting(vaultId, "shortcuts.overrides", {}, setShortcutOverrides);

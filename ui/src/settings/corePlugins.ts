@@ -4,37 +4,44 @@ import type { Setting } from "../api/ipc";
 
 export type BooleanSettingKey = Extract<Setting, { value: boolean }>["key"];
 
+export type PluginDocId = "query" | "property-refs" | "math";
+
 export interface CorePlugin {
   id: string;
   name: string;
   description: string;
   settingKey: BooleanSettingKey;
   defaultEnabled: boolean;
+  docId?: PluginDocId;
 }
 
 export const CORE_PLUGINS: CorePlugin[] = [
   {
     id: "dataview",
-    name: "Dataview",
-    description: "Render ```query blocks as live tables, lists, and counts.",
+    name: "Query",
+    description:
+      "Turn a ```query block into a live table, list, or count of notes, built from tags, folders, and frontmatter.",
     settingKey: "plugins.dataview_enabled",
     defaultEnabled: true,
+    docId: "query",
   },
   {
     id: "property-refs",
     name: "Property references",
     description:
-      "Render [[note.prop]] / [[.prop]] as inline frontmatter values.",
+      "Show a frontmatter value inline: [[note.prop]] pulls from another note, [[.prop]] from this one.",
     settingKey: "plugins.property_refs_enabled",
     defaultEnabled: true,
+    docId: "property-refs",
   },
   {
     id: "math",
     name: "Math",
     description:
-      "Typeset ```math blocks and $$…$$ display math with KaTeX.",
+      "Typeset LaTeX with KaTeX — ```math blocks and $$…$$ display math render as you write.",
     settingKey: "plugins.math_enabled",
     defaultEnabled: true,
+    docId: "math",
   },
   TERMINAL_PLUGIN,
   GRAPH_PLUGIN,
