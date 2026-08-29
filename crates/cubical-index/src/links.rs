@@ -123,38 +123,26 @@ pub async fn backlinks_for(
     Ok(out)
 }
 
-fn escape_like_literal(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for ch in s.chars() {
-        if ch == '\\' || ch == '%' || ch == '_' {
-            out.push('\\');
-        }
-        out.push(ch);
-    }
-    out
-}
-
 pub async fn files_for_link_query(
     conn: &IndexConn,
     query: &str,
     limit: u32,
 ) -> Result<Vec<String>, IndexError> {
-    let needle = query.to_lowercase();
-    let like = format!("%{}%", escape_like_literal(&needle));
+    let needle = crate::fold_name(query);
     let mut rows = conn
         .connection()
         .query(
-            "SELECT path FROM files \
-             WHERE type_id = 'markdown' \
-               AND (?1 = '' OR LOWER(path) LIKE ?2 ESCAPE '\\') \
-             ORDER BY path \
-             LIMIT ?3",
-            params![needle, like, i64::from(limit)],
+            "SELECT path FROM files WHERE type_id = 'markdown' ORDER BY path",
+            params![],
         )
         .await?;
     let mut out = Vec::new();
-    while let Some(row) = rows.next().await? {
-        out.push(row.get::<String>(0)?);
+    while out.len() < limit as usize {
+        let Some(row) = rows.next().await? else { break };
+        let path: String = row.get(0)?;
+        if crate::fold_name(&path).contains(&needle) {
+            out.push(path);
+        }
     }
     Ok(out)
 }
@@ -208,6 +196,31 @@ mod tests {
         let path = dir.path().join("index.db");
         let conn = open_index(&path).await.expect("open");
         (dir, conn)
+    }
+
+    #[tokio::test]
+    async fn link_query_folds_the_full_unicode_range() {
+        let (_dir, conn) = open_test_index().await;
+        seed_file(&conn, "CAFÉ.md").await;
+        seed_file(&conn, "café.md").await;
+        seed_file(&conn, "Straße.md").await;
+
+        for query in ["café", "CAFÉ", "Café"] {
+            let got = files_for_link_query(&conn, query, 50).await.expect("query");
+            assert_eq!(
+                got,
+                vec!["CAFÉ.md".to_string(), "café.md".to_string()],
+                "query {query} must offer both spellings",
+            );
+        }
+
+        let got = files_for_link_query(&conn, "STRASSE", 50)
+            .await
+            .expect("query");
+        assert!(
+            got.is_empty(),
+            "folding is case folding, not transliteration"
+        );
     }
 
     #[tokio::test]
@@ -361,9 +374,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn files_for_link_query_excludes_non_markdown_and_escapes_like() {
+    async fn files_for_link_query_excludes_non_markdown_and_matches_underscore_literally() {
         let (_dir, conn) = open_test_index().await;
         seed_file(&conn, "real_note.md").await;
+        seed_file(&conn, "realXnote.md").await;
         conn.connection()
             .execute(
                 "INSERT INTO files \
@@ -375,9 +389,16 @@ mod tests {
             .unwrap();
 
         let got = files_for_link_query(&conn, "note", 50).await.unwrap();
-        assert_eq!(got, vec!["real_note.md".to_string()]);
+        assert_eq!(
+            got,
+            vec!["realXnote.md".to_string(), "real_note.md".to_string()]
+        );
 
         let exact = files_for_link_query(&conn, "real_note", 50).await.unwrap();
-        assert_eq!(exact, vec!["real_note.md".to_string()]);
+        assert_eq!(
+            exact,
+            vec!["real_note.md".to_string()],
+            "_ is a literal, never a single-character wildcard",
+        );
     }
 }

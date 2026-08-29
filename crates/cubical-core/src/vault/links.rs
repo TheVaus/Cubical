@@ -5,8 +5,8 @@ use cubical_ast::{Anchor, Block, Document, Inline, ListItem};
 use cubical_index::{replace_links_for_file, LinkRow};
 
 use crate::vault::parse::parse_off_executor;
-use crate::vault::relpath::fold_name;
 use crate::vault::Vault;
+use cubical_index::fold_name;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LinkExtraction {
@@ -232,17 +232,16 @@ impl PathResolver {
 
     #[must_use]
     pub fn resolve(&self, target_raw: &str) -> Option<String> {
-        let target = target_raw.trim();
-        if target.is_empty() {
+        if target_raw.is_empty() {
             return None;
         }
-        if let Some(&i) = self.exact.get(target) {
+        if let Some(&i) = self.exact.get(target_raw) {
             return Some(self.all[i].clone());
         }
-        if let Some(&i) = self.exact_stem.get(target) {
+        if let Some(&i) = self.exact_stem.get(target_raw) {
             return Some(self.all[i].clone());
         }
-        let target_lower = fold_name(target);
+        let target_lower = fold_name(target_raw);
         if let Some(idxs) = self.by_basename.get(&target_lower) {
             if idxs.len() == 1 {
                 return Some(self.all[idxs[0]].clone());

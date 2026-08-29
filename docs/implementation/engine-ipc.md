@@ -151,19 +151,29 @@ it is atomic with the FK rekeys.
 
 ### Adopting an external rename
 
-**Anchors:** rename_file · adopt_external_rename · commit_rename · path_tracked · rekey_file_in_tx · enqueue_referrers_in_tx · destination_is_free
+**Anchors:** rename_file · adopt_external_rename · commit_rename · path_tracked · rekey_file_in_tx · enqueue_referrers_in_tx · is_vacant · find_rename_source
 
 `rename_file` validates, performs `fs::rename`, then calls `commit_rename`.
 `adopt_external_rename` validates and calls `commit_rename` — nothing else.
 Beyond the shared path check below, each does its validation inline, and the
 only extracted piece is `commit_rename` itself.
 
-`rename_file` asks `destination_is_free` rather than `to_abs.exists()`. On a
-case-insensitive volume a bare `exists()` is true for `Note.md` when only
-`note.md` is there, which made fixing a title's capitalisation impossible on
-macOS and Windows. `destination_is_free` reads the directory's real entries: an
-existing destination that is only the source under another spelling is allowed
-through, a genuinely distinct file is still refused.
+**`exists()` is not "is this path really on disk."** On a case-insensitive
+volume a bare `exists()` is true for `Note.md` when only `note.md` is there, so
+every question about path occupancy goes through one predicate,
+`paths::is_vacant(counterpart_rel, rel, abs)`. It reads the directory's real
+entries, and disbelieves `exists()` only when the path that could be
+masquerading is the counterpart of the very move being considered — a genuinely
+distinct file still occupies its path.
+
+One predicate because the same lie broke three call sites, one per direction of
+the question. `rename_file` and `rename_folder` ask whether the **destination**
+is vacant, which is what makes fixing a title's capitalisation possible on macOS
+and Windows. `adopt_external_rename` asks whether the **source** is vacant —
+`exists()` there reported the file still present after Finder had renamed it,
+so adoption declined, the rename degraded to delete + create, and every referrer
+went stale. `find_rename_source` asks the same of each pairing candidate, so a
+case-only `Removed`/`Created` pair is unambiguous rather than filtered away.
 
 `commit_rename` performs **no filesystem mutation** — that is the invariant
 that lets one sequence serve both a rename Cubical is about to perform and one
@@ -308,15 +318,39 @@ runs the real `UPDATE` against a real index and asserts the matched set equals
 `classify_candidate`'s. Two notions of token matching is precisely the drift this
 layer exists to prevent — extend `link_match`, never re-derive.
 
-**Case-insensitive means the same thing on both sides of a rename.**
-"Case-insensitive" above is `vault::relpath::names_eq_folded`, and
-`PathResolver` folds through the same `fold_name`. It cannot be SQL: `LOWER()` in libSQL is ASCII-only under the
-core-only pin ([`Cargo.toml`](../../Cargo.toml)), so a SQL-side fold would
-resolve `[[CAFÉ]]` to `café.md` when rendering and then fail to reattach that
-referrer on rename — a stale link produced by the fold, not by a missing
-rewrite. `reconnect_broken_links_to` therefore reads the candidate tokens and
-folds them in Rust. `classification_folds_the_way_path_resolution_folds` is what
-holds the two sides together.
+**Case-insensitive means one function, everywhere.**
+"Case-insensitive" above is `cubical_index::names_eq_folded`, and
+`PathResolver`, wikilink autocomplete and the graph's ghost interning all fold
+through the same `fold_name`. It cannot be SQL: `LOWER()` in libSQL is ASCII-only
+under the core-only pin ([`Cargo.toml`](../../Cargo.toml)), so a SQL-side fold
+would resolve `[[CAFÉ]]` to `café.md` when rendering and then fail to reattach
+that referrer on rename — a stale link produced by the fold, not by a missing
+rewrite. Every query that folds therefore reads its candidates and folds them in
+Rust. `classification_folds_the_way_path_resolution_folds` is what holds the two
+sides together.
+
+The fold lives in `cubical-index` rather than beside the path validators in
+`vault::relpath` for one reason: the layering. `cubical-graph` and
+`cubical-index` sit below `cubical-core`, so a fold owned by core is a fold they
+cannot call — and each site that cannot call it writes its own. Layer 0 is the
+lowest place all four callers share.
+
+**Whitespace is trimmed at the boundary, never by a matcher.** `cubical_ast::wikilink`
+(and its TypeScript twin, held together by the parity fixtures) yields the
+trimmed target, so `[[  Daily  ]]` is the token `Daily` everywhere the index
+carries it. Requests are the other boundary: the engine has more than one
+frontend and the UI has trigger-detecting regexes that are not the parser, so
+`commands` trims what arrives — `split_target_anchor` for the link and embed
+resolvers, `block_id_autocomplete` for its own target.
+
+Past those two boundaries nothing trims again. `PathResolver`,
+`classify_candidate` and `token_names_file` all take the token as given: a
+matcher that re-normalises hides whether its input was normalised, and the three
+would then be free to disagree about what a token is. `MATRIX_TOKENS` carries a
+padded row so the agreement is pinned rather than assumed. A rewrite that touches
+a padded link emits the canonical unpadded form, because `emit_wikilink`
+round-trips the parsed target — the rename normalises spacing it did not create,
+which is the cost of having exactly one spelling of a token.
 
 `FrontmatterTitle` is the one rank with no reattachment twin. It is
 **candidate-only**: offered to the user, never used by any automatic rewrite. That asymmetry is the

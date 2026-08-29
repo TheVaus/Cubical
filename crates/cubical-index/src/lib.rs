@@ -3,6 +3,7 @@
 mod audit;
 mod blocks;
 mod error;
+mod fold;
 mod folders;
 mod links;
 mod migrations;
@@ -16,6 +17,7 @@ pub use blocks::{
     replace_blocks_for_file, BlockRefRow, BlockRow, BrokenBlockRef,
 };
 pub use error::IndexError;
+pub use fold::{fold_name, names_eq_folded};
 pub use folders::{delete_folder, list_folders, sweep_stale_folders, upsert_folder};
 pub use links::{
     backlinks_for, files_for_link_query, links_from, links_to, replace_links_for_file, BacklinkRow,
