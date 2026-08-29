@@ -1,4 +1,4 @@
-use cubical_core::vault::names_eq_folded;
+use cubical_index::names_eq_folded;
 
 pub(crate) fn strip_md_suffix(path: &str) -> &str {
     path.strip_suffix(".md").unwrap_or(path)
@@ -38,7 +38,6 @@ impl CandidateRank {
 }
 
 pub(crate) fn classify_candidate(candidate_path: &str, token: &str) -> Option<CandidateRank> {
-    let token = token.trim();
     if token.is_empty() {
         return None;
     }
@@ -151,7 +150,7 @@ mod tests {
         "café.md",
         "notes/Straße.md",
     ];
-    const MATRIX_TOKENS: [&str; 13] = [
+    const MATRIX_TOKENS: [&str; 14] = [
         "plan",
         "Plan",
         "PLAN",
@@ -165,6 +164,7 @@ mod tests {
         "notes/straße",
         "notes/STRASSE",
         "notes/Straße",
+        "  plan  ",
     ];
 
     #[tokio::test]

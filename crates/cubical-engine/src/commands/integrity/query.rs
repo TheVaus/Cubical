@@ -163,7 +163,7 @@ fn rank_candidates(
         if ranked.iter().any(|(_, p)| *p == path.as_str()) {
             continue;
         }
-        if title.trim().eq_ignore_ascii_case(target_raw.trim()) {
+        if cubical_index::names_eq_folded(title.trim(), target_raw) {
             ranked.push((CandidateRank::FrontmatterTitle, path.as_str()));
         }
     }

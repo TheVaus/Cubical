@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 
-use cubical_core::vault::names_eq_folded;
 use cubical_core::vault::pending::apply_pending;
 use cubical_core::vault::search_refresh::{delete_search_index, refresh_search_index_with_doc};
 use cubical_core::{
@@ -9,7 +8,8 @@ use cubical_core::{
 };
 use cubical_index::{
     delete_pending_for_target, delete_rename_op, list_recent_rename_ops as list_ops,
-    pending_count_breakdown, pending_count_total, pending_for_target, pending_targets,
+    names_eq_folded, pending_count_breakdown, pending_count_total, pending_for_target,
+    pending_targets,
 };
 use libsql::params;
 
@@ -414,7 +414,7 @@ pub async fn rename_file(
     if from_path == to_path {
         return Err(CubicalError::InvalidRequest("from_path == to_path".into()));
     }
-    if !paths::destination_is_free(&from_path, &to_path, &to_abs) {
+    if !paths::is_vacant(&from_path, &to_path, &to_abs) {
         return Err(CubicalError::InvalidRequest(format!(
             "destination path already exists: {to_path}"
         )));
@@ -483,7 +483,9 @@ pub(crate) async fn adopt_external_rename(
     if from_path == to_path || from_path.is_empty() || to_path.is_empty() {
         return Ok(false);
     }
-    if !vault.root().join(to_path).is_file() || vault.root().join(from_path).exists() {
+    if !vault.root().join(to_path).is_file()
+        || !paths::is_vacant(to_path, from_path, &vault.root().join(from_path))
+    {
         return Ok(false);
     }
 
@@ -524,7 +526,7 @@ pub async fn rename_folder(
     if from_path == to_path {
         return Err(CubicalError::InvalidRequest("from_path == to_path".into()));
     }
-    if !paths::destination_is_free(&from_path, &to_path, &to_abs) {
+    if !paths::is_vacant(&from_path, &to_path, &to_abs) {
         return Err(CubicalError::InvalidRequest(format!(
             "destination path already exists: {to_path}"
         )));

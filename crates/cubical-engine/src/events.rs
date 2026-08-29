@@ -1612,6 +1612,83 @@ mod tests {
         }
 
         #[tokio::test]
+        async fn a_padded_wikilink_is_reattached_because_the_parser_owns_the_trim() {
+            let dir = tempdir().unwrap();
+            std::fs::write(dir.path().join("Daily.md"), "# Daily\n").unwrap();
+            std::fs::write(dir.path().join("Project.md"), "see [[  Daily  ]] today\n").unwrap();
+            let live = live_vault(&dir, &["Daily.md", "Project.md"]).await;
+
+            rename_file(
+                &live.state,
+                &NoopEventSink,
+                RenameFileRequest {
+                    vault_id: VAULT_ID.into(),
+                    from_path: "Daily.md".into(),
+                    to_path: "Journal.md".into(),
+                },
+            )
+            .await
+            .expect("in-app rename");
+
+            let pending = cubical_index::pending_for_target(live.vault.index(), "Project.md")
+                .await
+                .unwrap();
+            assert_eq!(pending.len(), 1, "the padded referrer is enqueued");
+            assert_eq!(
+                pending[0].old_token, "Daily",
+                "the token was trimmed once, by the parser",
+            );
+
+            flush(&live.state).await;
+            assert_eq!(
+                std::fs::read_to_string(dir.path().join("Project.md")).unwrap(),
+                "see [[Journal]] today\n",
+                "the rewrite emits the canonical unpadded form",
+            );
+        }
+
+        #[tokio::test]
+        async fn renamed_event_adopts_a_case_only_external_rename() {
+            let dir = tempdir().unwrap();
+            std::fs::write(dir.path().join("Daily.md"), "# Daily\n").unwrap();
+            std::fs::write(dir.path().join("Project.md"), "see [[Daily]] today\n").unwrap();
+            let live = live_vault(&dir, &["Daily.md", "Project.md"]).await;
+
+            std::fs::rename(dir.path().join("Daily.md"), dir.path().join("daily.md")).unwrap();
+
+            let folds_case = dir.path().join("DAILY.md").exists();
+            assert_eq!(
+                dir.path().join("Daily.md").exists(),
+                folds_case,
+                "only a folding volume still reports the old spelling as present, \
+                 and that is the leg where a bare exists() declines the adoption",
+            );
+
+            let flush_own_writes: FlushOwnWrites = Arc::new(Mutex::new(HashSet::new()));
+            let settings = RwLock::new(SettingsMap::new());
+            let tombstones = new_tombstones();
+            apply_watch_event_to_db(
+                &live.vault,
+                &WatchEvent::Renamed {
+                    from: "Daily.md".to_string(),
+                    to: "daily.md".to_string(),
+                },
+                Some(&watch_ctx(&flush_own_writes, &settings, &tombstones)),
+            )
+            .await;
+
+            assert!(file_row_exists(&live.vault, "daily.md").await);
+            assert!(!file_row_exists(&live.vault, "Daily.md").await);
+
+            flush(&live.state).await;
+            assert_eq!(
+                std::fs::read_to_string(dir.path().join("Project.md")).unwrap(),
+                "see [[daily]] today\n",
+                "a case-only external rename reattaches its referrers",
+            );
+        }
+
+        #[tokio::test]
         async fn already_committed_rename_is_not_adopted_again() {
             let dir = tempdir().unwrap();
             std::fs::write(dir.path().join("Journal.md"), "# Daily\n").unwrap();

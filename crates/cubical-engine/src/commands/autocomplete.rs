@@ -87,7 +87,7 @@ pub async fn block_id_autocomplete(
         known.push(row.get(0)?);
     }
 
-    let target_path = match resolve_target(&req.target_raw, &known) {
+    let target_path = match resolve_target(req.target_raw.trim(), &known) {
         Some(p) => p,
         None => return Ok(BlockIdAutocompleteResponse { candidates: vec![] }),
     };
@@ -270,19 +270,22 @@ mod tests {
         .await
         .expect("seed blocks");
 
-        let resp = block_id_autocomplete(
-            &state,
-            BlockIdAutocompleteRequest {
-                vault_id: "v1".into(),
-                target_raw: "Daily".into(),
-            },
-        )
-        .await
-        .expect("ok");
-        assert_eq!(
-            resp.candidates,
-            vec!["intro".to_string(), "summary".to_string()]
-        );
+        for target_raw in ["Daily", "  Daily  "] {
+            let resp = block_id_autocomplete(
+                &state,
+                BlockIdAutocompleteRequest {
+                    vault_id: "v1".into(),
+                    target_raw: target_raw.into(),
+                },
+            )
+            .await
+            .expect("ok");
+            assert_eq!(
+                resp.candidates,
+                vec!["intro".to_string(), "summary".to_string()],
+                "target_raw {target_raw:?} names the same file",
+            );
+        }
     }
 
     #[tokio::test]

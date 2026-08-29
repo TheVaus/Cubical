@@ -134,7 +134,7 @@ pub(crate) async fn find_rename_source(
                 .cloned()
                 .collect(),
         );
-        pool.retain(|_, source| !exists_on_disk(vault, source.path()));
+        pool.retain(|_, source| !exists_on_disk(vault, source.path(), to_path));
         if pool.len() == 1 {
             return pool.into_values().next();
         }
@@ -174,7 +174,7 @@ pub(crate) async fn find_rename_source(
         return None;
     }
     let source = pool.into_values().next()?;
-    if exists_on_disk(vault, source.path()) {
+    if exists_on_disk(vault, source.path(), to_path) {
         return None;
     }
     Some(source)
@@ -195,8 +195,8 @@ fn candidate_pool(
     pool
 }
 
-fn exists_on_disk(vault: &Vault, rel: &str) -> bool {
-    vault.root().join(rel).exists()
+fn exists_on_disk(vault: &Vault, rel: &str, to_path: &str) -> bool {
+    !crate::commands::paths::is_vacant(to_path, rel, &vault.root().join(rel))
 }
 
 async fn tracked_by_inode(vault: &Vault, inode: i64, to_path: &str) -> Vec<String> {

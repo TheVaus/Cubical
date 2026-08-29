@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use cubical_index::IndexConn;
+use cubical_index::{fold_name, IndexConn};
 use libsql::params;
 
 use crate::error::GraphError;
@@ -104,7 +104,7 @@ pub async fn build_model(conn: &IndexConn) -> Result<GraphModel, GraphError> {
                 });
             }
             None => {
-                let key = target_raw.to_lowercase();
+                let key = fold_name(&target_raw);
                 let target = b.intern(NodeKind::Ghost, &key, &target_raw);
                 edges.push(GraphEdge {
                     source,

@@ -31,8 +31,7 @@ pub use mentions::{extract_text_runs, find_mention_occurrences, MentionHit, Text
 pub use parse::parse_off_executor;
 pub use pending::{apply_pending, materialize_on_read};
 pub use relpath::{
-    contained_join, directory_holds_exact_name, fold_name, names_eq_folded, validate_rel_dir,
-    validate_rel_file, RelPathError,
+    contained_join, directory_holds_exact_name, validate_rel_dir, validate_rel_file, RelPathError,
 };
 pub use scan::{scan, ScanProgress};
 pub use tags::{extract_tags, refresh_tags, refresh_tags_with_doc, TagExtraction};
