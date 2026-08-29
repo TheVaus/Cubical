@@ -2398,9 +2398,10 @@ mod tests {
         .await
         .expect("case-only rename should succeed");
 
-        assert!(cubical_core::vault::directory_holds_exact_name(
-            &vault.root().join("Note.md")
-        ));
+        assert_eq!(
+            cubical_core::vault::directory_holds_exact_name(&vault.root().join("Note.md")),
+            Some(true)
+        );
         assert!(path_tracked(vault.index().connection(), "Note.md")
             .await
             .unwrap());

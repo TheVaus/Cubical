@@ -83,14 +83,14 @@ pub async fn link_mention(
     state: &AppState,
     req: LinkMentionRequest,
 ) -> Result<LinkMentionResponse, CubicalError> {
-    let (source_path, abs, conn) = {
+    let (vault, conn) = {
         let guard = state.vaults().read().await;
         let open = guard
             .get(&req.vault_id)
             .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
-        let (rel, abs) = crate::commands::paths::vault_file(&open.vault, &req.source_path)?;
-        (rel, abs, open.vault.index().connection().clone())
+        (open.vault.clone(), open.vault.index().connection().clone())
     };
+    let (source_path, abs) = crate::commands::paths::vault_file(&vault, &req.source_path)?;
 
     let pending_count = {
         let mut rows = conn

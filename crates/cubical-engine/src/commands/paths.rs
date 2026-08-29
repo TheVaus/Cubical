@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use cubical_core::vault::{relpath, RelPathError};
 use cubical_core::Vault;
@@ -17,13 +17,13 @@ pub(crate) fn vault_file(vault: &Vault, raw: &str) -> Result<(String, PathBuf), 
     relpath::contained_join(vault.root(), raw).map_err(reject)
 }
 
-pub(crate) fn destination_is_free(from_rel: &str, to_rel: &str, to_abs: &std::path::Path) -> bool {
+pub(crate) fn destination_is_free(from_rel: &str, to_rel: &str, to_abs: &Path) -> bool {
     if !to_abs.exists() {
         return true;
     }
     from_rel != to_rel
         && relpath::names_eq_folded(from_rel, to_rel)
-        && !relpath::directory_holds_exact_name(to_abs)
+        && relpath::directory_holds_exact_name(to_abs) == Some(false)
 }
 
 pub(crate) fn vault_dir(vault: &Vault, raw: &str) -> Result<(String, PathBuf), CubicalError> {

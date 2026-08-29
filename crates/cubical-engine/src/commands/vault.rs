@@ -495,7 +495,7 @@ pub async fn read_file_text(
             )));
         }
         (
-            open.vault.root().join(&req.path),
+            paths::vault_file(&open.vault, &req.path)?.1,
             open.vault.clone(),
             type_id == "markdown",
         )
@@ -575,7 +575,7 @@ pub async fn read_file_bytes(
                 req.path,
             )));
         }
-        open.vault.root().join(&req.path)
+        paths::vault_file(&open.vault, &req.path)?.1
     };
 
     let bytes = tokio::task::spawn_blocking(move || std::fs::read(&abs_path))
@@ -628,7 +628,7 @@ pub async fn write_file_text(
             )));
         }
         let current_hash: String = row.get(1)?;
-        (open.vault.root().join(&req.path), current_hash)
+        (paths::vault_file(&open.vault, &req.path)?.1, current_hash)
     };
 
     let new_hash = sha256_bytes_hex(req.content.as_bytes());

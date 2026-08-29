@@ -35,13 +35,18 @@ subdirectory escapes a purely textual check.
 Constraining only the source is not enough. `rename_file` once checked that
 `from_path` was tracked and nothing at all about `to_path`, which made it an
 arbitrary-write primitive over a `#[tauri::command]` that is also reachable on
-the `cubical-ipc` socket. Read-only commands that look a path up in the index
-first (`read_file_text`, `get_embed`) are contained by that lookup; anything
-that joins a request path directly must route through `commands::paths`.
+the `cubical-ipc` socket. Commands that resolve a path through the index first
+(`get_embed`, `get_backlinks`) are contained by that lookup — the scan walks
+with `follow_links(false)`, so no key in `files` can escape the root. Anything
+that joins a request path directly routes through `commands::paths` regardless,
+including the index-gated writers, so the rule needs no exemption to state.
 
-A **leading separator is vault-root-relative, not absolute**: `/notes/a.md`
-means `notes/a.md`. This is deliberate leniency retained from the original
-validator — it is contained either way.
+Two deliberate asymmetries. A **leading separator is vault-root-relative, not
+absolute**: `/notes/a.md` means `notes/a.md`, leniency retained from the
+original validator and contained either way. A **backslash is rejected, never
+translated**: `a\b.md` is one legal filename on Unix and two segments on
+Windows, so folding it to `a/b.md` would let a request reach a different file
+than the one it named — a wrong-target `delete_path`, not merely a lax check.
 
 ## Error folding
 
@@ -289,14 +294,14 @@ never the engine — decide the repair.
 the ranking: `classify_candidate` returns a `CandidateRank` (exact path → exact
 basename → case-insensitive path → case-insensitive basename), and
 `reconnect_broken_links_to` matches the same set. That equality is not a
-convention, it is a test: `classification_agrees_with_the_reconnect_sql_predicate`
+convention, it is a test: `classification_agrees_with_the_reattachment_predicate`
 runs the real `UPDATE` against a real index and asserts the matched set equals
 `classify_candidate`'s. Two notions of token matching is precisely the drift this
 layer exists to prevent — extend `link_match`, never re-derive.
 
-**Case-insensitive means the same thing everywhere.** "Case-insensitive" above
-is `vault::relpath::names_eq_folded`, and `PathResolver` folds through the same
-`fold_name`. It cannot be SQL: `LOWER()` in libSQL is ASCII-only under the
+**Case-insensitive means the same thing on both sides of a rename.**
+"Case-insensitive" above is `vault::relpath::names_eq_folded`, and
+`PathResolver` folds through the same `fold_name`. It cannot be SQL: `LOWER()` in libSQL is ASCII-only under the
 core-only pin ([`Cargo.toml`](../../Cargo.toml)), so a SQL-side fold would
 resolve `[[CAFÉ]]` to `café.md` when rendering and then fail to reattach that
 referrer on rename — a stale link produced by the fold, not by a missing

@@ -168,7 +168,7 @@ mod tests {
     ];
 
     #[tokio::test]
-    async fn classification_agrees_with_the_reconnect_sql_predicate() {
+    async fn classification_agrees_with_the_reattachment_predicate() {
         for candidate in MATRIX_PATHS {
             let dir = tempdir().unwrap();
             let vault = Vault::open(dir.path()).await.expect("open");

@@ -33,8 +33,6 @@ pub fn names_eq_folded(a: &str, b: &str) -> bool {
     a == b || fold_name(a) == fold_name(b)
 }
 
-const SEPARATORS: [char; 2] = ['/', '\\'];
-
 fn segment_ok(seg: &str) -> bool {
     if seg.is_empty() || seg == "." || seg == ".." {
         return false;
@@ -54,17 +52,14 @@ fn segments(raw: &str) -> Result<Vec<&str>, RelPathError> {
     if raw.contains('\0') {
         return Err(RelPathError::Invalid(raw.escape_debug().to_string()));
     }
-    let mut lead = raw.chars();
-    if lead.next().is_some_and(|c| SEPARATORS.contains(&c))
-        && lead.next().is_some_and(|c| SEPARATORS.contains(&c))
-    {
+    if raw.contains('\\') || raw.starts_with("//") {
         return Err(RelPathError::Invalid(raw.to_string()));
     }
-    let trimmed = raw.trim_matches(|c| SEPARATORS.contains(&c));
+    let trimmed = raw.trim_matches('/');
     if trimmed.is_empty() {
         return Ok(Vec::new());
     }
-    let segs: Vec<&str> = trimmed.split(SEPARATORS).collect();
+    let segs: Vec<&str> = trimmed.split('/').collect();
     if segs.iter().any(|s| !segment_ok(s)) {
         return Err(RelPathError::Invalid(raw.to_string()));
     }
@@ -106,16 +101,14 @@ pub fn contained_join(root: &Path, raw: &str) -> Result<(String, PathBuf), RelPa
 }
 
 #[must_use]
-pub fn directory_holds_exact_name(abs: &Path) -> bool {
-    let (Some(parent), Some(name)) = (abs.parent(), abs.file_name()) else {
-        return false;
-    };
-    let Ok(entries) = std::fs::read_dir(parent) else {
-        return false;
-    };
-    entries
-        .filter_map(Result::ok)
-        .any(|e| e.file_name() == name)
+pub fn directory_holds_exact_name(abs: &Path) -> Option<bool> {
+    let (parent, name) = (abs.parent()?, abs.file_name()?);
+    let entries = std::fs::read_dir(parent).ok()?;
+    Some(
+        entries
+            .filter_map(Result::ok)
+            .any(|e| e.file_name() == name),
+    )
 }
 
 #[cfg(test)]
@@ -170,6 +163,18 @@ mod tests {
             assert!(
                 validate_rel_file(raw).is_err(),
                 "expected rejection of {raw}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_backslash_is_rejected_rather_than_read_as_a_separator() {
+        for raw in [r"a\b.md", r"notes\plan.md", r"AC\DC.md"] {
+            assert_eq!(
+                validate_rel_file(raw),
+                Err(RelPathError::Invalid(raw.to_string())),
+                "{raw} names one file on Unix and two segments on Windows; \
+                 translating it would reach a different file"
             );
         }
     }
@@ -233,7 +238,18 @@ mod tests {
     fn directory_holds_exact_name_distinguishes_a_case_only_collision() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("note.md"), b"x").unwrap();
-        assert!(directory_holds_exact_name(&dir.path().join("note.md")));
-        assert!(!directory_holds_exact_name(&dir.path().join("Note.md")));
+        assert_eq!(
+            directory_holds_exact_name(&dir.path().join("note.md")),
+            Some(true)
+        );
+        assert_eq!(
+            directory_holds_exact_name(&dir.path().join("Note.md")),
+            Some(false)
+        );
+        assert_eq!(
+            directory_holds_exact_name(&dir.path().join("gone/Note.md")),
+            None,
+            "an unreadable directory answers nothing, never 'free'"
+        );
     }
 }
