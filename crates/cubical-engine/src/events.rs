@@ -185,6 +185,7 @@ pub fn spawn_scan_dispatcher(
 ) {
     tokio::spawn(async move {
         let started = Instant::now();
+        let scan_started_secs = crate::commands::rename::unix_now_secs();
         let (tx, mut rx) = mpsc::channel::<ScanProgress>(64);
         let scan_handle = tokio::spawn(scan(vault.clone(), cancel.clone(), tx));
 
@@ -209,14 +210,15 @@ pub fn spawn_scan_dispatcher(
         let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
 
         let (new_status, new_search_state) = match scan_outcome {
-            Ok(Ok(file_count)) => {
+            Ok(Ok(outcome)) => {
+                journal_renames_found_by_scan(&vault, &outcome, scan_started_secs).await;
                 crate::commands::rename::replay_rename_journal(&vault, sink.as_ref(), &vault_id)
                     .await;
                 emit_scan_complete(
                     sink.as_ref(),
                     VaultScanComplete {
                         vault_id: vault_id.clone(),
-                        file_count,
+                        file_count: outcome.file_count,
                         duration_ms: elapsed_ms,
                     },
                 );
@@ -309,6 +311,36 @@ pub fn spawn_watcher_dispatcher(
         }
         tracing::debug!(vault_id = %vault_id, "watcher dispatcher: channel closed");
     });
+}
+
+async fn journal_renames_found_by_scan(
+    vault: &Vault,
+    outcome: &cubical_core::ScanOutcome,
+    scan_started_secs: i64,
+) {
+    let pairs = crate::rename_pairing::pair_vanished_after_scan(
+        vault,
+        &outcome.vanished,
+        scan_started_secs,
+    )
+    .await;
+    for (from, to) in pairs {
+        let entry = cubical_core::vault::rename_journal::RenameJournalEntry {
+            op_id: 0,
+            kind: "file".to_string(),
+            from: from.clone(),
+            to: to.clone(),
+            at: crate::commands::rename::unix_now_secs(),
+        };
+        match cubical_core::vault::rename_journal::append_entry(vault.root(), &entry) {
+            Ok(()) => tracing::info!(
+                %from,
+                %to,
+                "scan: paired a rename made while the vault was not open",
+            ),
+            Err(e) => tracing::warn!(%from, %to, error = %e, "scan: rename journal append failed"),
+        }
+    }
 }
 
 async fn handle_watch_batch(vault: &Vault, batch: Vec<WatchEvent>, ctx: &WatchContext<'_>) {
@@ -1624,6 +1656,150 @@ mod tests {
                 tokio::time::sleep(POLL_STEP).await;
             }
             false
+        }
+
+        async fn reopen_after_closed_app_rename(
+            dir: &TempDir,
+            seed: &[(&str, &str)],
+            renames: &[(&str, &str)],
+            drop_inodes: bool,
+        ) -> Vault {
+            for (rel, body) in seed {
+                let abs = dir.path().join(rel);
+                std::fs::create_dir_all(abs.parent().unwrap()).unwrap();
+                std::fs::write(abs, body).unwrap();
+            }
+            {
+                let vault = Vault::open(dir.path()).await.expect("open");
+                let (tx, _rx) = mpsc::channel(64);
+                cubical_core::vault::scan(vault.clone(), CancellationToken::new(), tx)
+                    .await
+                    .expect("scan");
+                let sql = if drop_inodes {
+                    "UPDATE files SET last_seen = last_seen - 60, inode = NULL"
+                } else {
+                    "UPDATE files SET last_seen = last_seen - 60"
+                };
+                vault.index().connection().execute(sql, ()).await.unwrap();
+            }
+            for (from, to) in renames {
+                let to_abs = dir.path().join(to);
+                std::fs::create_dir_all(to_abs.parent().unwrap()).unwrap();
+                std::fs::rename(dir.path().join(from), to_abs).unwrap();
+            }
+
+            let vault = Vault::open(dir.path()).await.expect("reopen");
+            let scan_started_secs = crate::commands::rename::unix_now_secs();
+            let (tx, _rx) = mpsc::channel(64);
+            let outcome = cubical_core::vault::scan(vault.clone(), CancellationToken::new(), tx)
+                .await
+                .expect("rescan");
+            journal_renames_found_by_scan(&vault, &outcome, scan_started_secs).await;
+            crate::commands::rename::replay_rename_journal(&vault, &NoopEventSink, VAULT_ID).await;
+            vault
+        }
+
+        async fn link_target(vault: &Vault, source: &str) -> Option<String> {
+            let mut rows = vault
+                .index()
+                .connection()
+                .query(
+                    "SELECT target_path FROM links WHERE source_path = ?1",
+                    params![source],
+                )
+                .await
+                .unwrap();
+            match rows.next().await.unwrap() {
+                Some(r) => r.get(0).unwrap(),
+                None => None,
+            }
+        }
+
+        #[tokio::test]
+        async fn a_rename_made_while_the_vault_was_closed_is_paired_and_rewritten() {
+            let dir = tempdir().unwrap();
+            let vault = reopen_after_closed_app_rename(
+                &dir,
+                &[("Daily.md", "# Daily\n"), ("Notes.md", "see [[Daily]]\n")],
+                &[("Daily.md", "Journal.md")],
+                true,
+            )
+            .await;
+
+            assert_eq!(
+                link_target(&vault, "Notes.md").await.as_deref(),
+                Some("Journal.md"),
+                "content hash alone pairs the move when no inode is recorded",
+            );
+
+            let pending = cubical_index::pending_for_target(vault.index(), "Notes.md")
+                .await
+                .unwrap();
+            assert_eq!(pending.len(), 1, "the text rewrite is queued");
+            assert_eq!(pending[0].old_token, "Daily");
+            assert_eq!(pending[0].new_token, "Journal");
+        }
+
+        #[tokio::test]
+        async fn a_closed_app_rename_that_also_edited_the_file_pairs_on_inode() {
+            let dir = tempdir().unwrap();
+            for (rel, body) in [("Daily.md", "# Daily\n"), ("Notes.md", "see [[Daily]]\n")] {
+                std::fs::write(dir.path().join(rel), body).unwrap();
+            }
+            {
+                let vault = Vault::open(dir.path()).await.expect("open");
+                let (tx, _rx) = mpsc::channel(64);
+                cubical_core::vault::scan(vault.clone(), CancellationToken::new(), tx)
+                    .await
+                    .expect("scan");
+                vault
+                    .index()
+                    .connection()
+                    .execute("UPDATE files SET last_seen = last_seen - 60", ())
+                    .await
+                    .unwrap();
+            }
+            std::fs::rename(dir.path().join("Daily.md"), dir.path().join("Journal.md")).unwrap();
+            std::fs::write(dir.path().join("Journal.md"), "# Daily\n\nedited too\n").unwrap();
+
+            let vault = Vault::open(dir.path()).await.expect("reopen");
+            let scan_started_secs = crate::commands::rename::unix_now_secs();
+            let (tx, _rx) = mpsc::channel(64);
+            let outcome = cubical_core::vault::scan(vault.clone(), CancellationToken::new(), tx)
+                .await
+                .expect("rescan");
+            journal_renames_found_by_scan(&vault, &outcome, scan_started_secs).await;
+            crate::commands::rename::replay_rename_journal(&vault, &NoopEventSink, VAULT_ID).await;
+
+            assert_eq!(
+                link_target(&vault, "Notes.md").await.as_deref(),
+                Some("Journal.md"),
+                "the content changed, so only the inode can pair this move",
+            );
+        }
+
+        #[tokio::test]
+        async fn two_closed_app_renames_sharing_content_are_refused() {
+            let dir = tempdir().unwrap();
+            let vault = reopen_after_closed_app_rename(
+                &dir,
+                &[
+                    ("A.md", "same\n"),
+                    ("B.md", "same\n"),
+                    ("Notes.md", "see [[A]]\n"),
+                ],
+                &[("A.md", "X.md"), ("B.md", "Y.md")],
+                true,
+            )
+            .await;
+
+            let target = link_target(&vault, "Notes.md").await;
+            assert_eq!(
+                target, None,
+                "with no inode to separate them, two files sharing content are \
+                 indistinguishable — pairing must refuse rather than guess, since a wrong \
+                 rewrite corrupts markdown (got {target:?})",
+            );
         }
 
         #[tokio::test]

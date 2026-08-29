@@ -395,7 +395,7 @@ async fn cold_run(dir: &Path) -> Result<(f64, f64, u32, u64), BenchError> {
     let (tx, mut rx) = mpsc::channel::<ScanProgress>(64);
     let handle = tokio::spawn(scan(vault.clone(), CancellationToken::new(), tx));
     let pump = tokio::spawn(async move { while rx.recv().await.is_some() {} });
-    let processed = handle.await??;
+    let processed = handle.await??.file_count;
     let _ = pump.await;
     let scan_secs = t_scan.elapsed().as_secs_f64();
 

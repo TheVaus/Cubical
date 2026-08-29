@@ -64,7 +64,7 @@ pub(super) async fn mint_rename_op_id(vault: &cubical_core::Vault) -> Result<i64
     Ok(next)
 }
 
-pub(super) fn unix_now_secs() -> i64 {
+pub(crate) fn unix_now_secs() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::SystemTime::UNIX_EPOCH)
         .map(|d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
