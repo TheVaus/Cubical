@@ -180,11 +180,20 @@ mod tests {
     }
 
     #[test]
-    fn a_colon_inside_a_name_is_not_a_drive_prefix() {
-        assert_eq!(
-            validate_rel_file("notes/C: A Study.md").unwrap(),
-            "notes/C: A Study.md"
-        );
+    fn a_bare_drive_letter_is_rejected_but_a_colon_in_a_name_is_the_os_call() {
+        assert!(validate_rel_file("C:/x.md").is_err());
+        assert!(validate_rel_file("notes/C:/x.md").is_err());
+
+        let named = validate_rel_file("notes/C: A Study.md");
+        if cfg!(windows) {
+            assert!(
+                named.is_err(),
+                "Windows reads 'C: A Study.md' as drive-relative, and ':' is not \
+                 a legal filename byte there anyway"
+            );
+        } else {
+            assert_eq!(named.unwrap(), "notes/C: A Study.md");
+        }
     }
 
     #[test]

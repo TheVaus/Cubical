@@ -41,6 +41,15 @@ with `follow_links(false)`, so no key in `files` can escape the root. Anything
 that joins a request path directly routes through `commands::paths` regardless,
 including the index-gated writers, so the rule needs no exemption to state.
 
+The drive-letter rule is deliberately **minimal**: a segment that is exactly
+`C:` is refused everywhere, and anything longer is left to the host's own path
+parsing. So `C: A Study.md` is an ordinary filename on macOS and Linux and is
+refused on Windows, which reads it as drive-relative. That divergence is not
+this validator's to settle — which names are legal on all three platforms is
+[#122](https://github.com/TheVaus/Cubical/issues/122), and the point of that
+issue is that the answer must not emerge from wherever the first validator
+happens to get written.
+
 Two deliberate asymmetries. A **leading separator is vault-root-relative, not
 absolute**: `/notes/a.md` means `notes/a.md`, leniency retained from the
 original validator and contained either way. A **backslash is rejected, never

@@ -2408,14 +2408,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_case_only_destination_that_is_a_different_file_is_still_rejected() {
+    async fn a_fold_collision_with_an_unrelated_file_never_clobbers_it() {
         let (_d, vault, state) = fresh("v1").await;
         seed_file(&vault, "a.md", "markdown").await;
         seed_file(&vault, "note.md", "markdown").await;
         std::fs::write(vault.root().join("a.md"), "a\n").unwrap();
         std::fs::write(vault.root().join("note.md"), "keep me\n").unwrap();
 
-        let err = rename_file(
+        let case_insensitive_volume = vault.root().join("NOTE.md").exists();
+
+        let outcome = rename_file(
             &state,
             &NoopEventSink,
             RenameFileRequest {
@@ -2424,12 +2426,19 @@ mod tests {
                 to_path: "NOTE.md".into(),
             },
         )
-        .await
-        .expect_err("a fold-collision with an unrelated file must not clobber it");
-        assert!(matches!(err, CubicalError::InvalidRequest(_)), "{err:?}");
+        .await;
+
+        if case_insensitive_volume {
+            let err = outcome.expect_err("NOTE.md already names note.md on this volume");
+            assert!(matches!(err, CubicalError::InvalidRequest(_)), "{err:?}");
+        } else {
+            outcome.expect("NOTE.md collides with nothing on a case-sensitive volume");
+        }
+
         assert_eq!(
             std::fs::read_to_string(vault.root().join("note.md")).unwrap(),
-            "keep me\n"
+            "keep me\n",
+            "the unrelated file survives either way"
         );
     }
 
