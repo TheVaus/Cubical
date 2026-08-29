@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use cubical_core::{atomic_write, sha256_bytes_hex, start_watcher, Vault, WatchEvent};
@@ -15,6 +16,7 @@ use crate::api::types::{
     ReloadSettingsResponse, ScanStatus, SetSettingRequest, SetSettingResponse,
     WriteFileTextRequest, WriteFileTextResponse,
 };
+use crate::commands::paths;
 use crate::error::CubicalError;
 use crate::events::{spawn_scan_dispatcher, spawn_watcher_dispatcher, EventSink};
 use crate::state::{AppState, OpenVault, ScanStatusBackend};
@@ -266,19 +268,11 @@ async fn clone_vault(state: &AppState, vault_id: &str) -> Result<Vault, CubicalE
     Ok(open.vault.clone())
 }
 
-fn normalize_parent_dir(parent_dir: &str) -> Result<String, CubicalError> {
-    let trimmed = parent_dir.trim_matches('/');
-    if trimmed.is_empty() {
-        return Ok(String::new());
-    }
-    for seg in trimmed.split('/') {
-        if seg == ".." || seg == "." || seg.is_empty() {
-            return Err(CubicalError::InvalidRequest(format!(
-                "invalid parent_dir: {parent_dir}"
-            )));
-        }
-    }
-    Ok(trimmed.to_string())
+fn normalize_parent_dir(
+    vault: &Vault,
+    parent_dir: &str,
+) -> Result<(String, PathBuf), CubicalError> {
+    paths::vault_dir(vault, parent_dir)
 }
 
 fn first_free_path(
@@ -311,19 +305,8 @@ fn first_free_path(
     )))
 }
 
-fn normalize_rel_file_path(path: &str) -> Result<String, CubicalError> {
-    let trimmed = path.trim_matches('/');
-    if trimmed.is_empty() {
-        return Err(CubicalError::InvalidRequest("empty path".into()));
-    }
-    for seg in trimmed.split('/') {
-        if seg == ".." || seg == "." || seg.is_empty() {
-            return Err(CubicalError::InvalidRequest(format!(
-                "invalid path: {path}"
-            )));
-        }
-    }
-    Ok(trimmed.to_string())
+fn normalize_rel_file_path(vault: &Vault, path: &str) -> Result<(String, PathBuf), CubicalError> {
+    paths::vault_file(vault, path)
 }
 
 async fn create_empty_markdown(vault: &Vault, rel_path: &str) -> Result<String, CubicalError> {
@@ -362,8 +345,7 @@ pub async fn create_file(
     req: CreateFileRequest,
 ) -> Result<CreateFileResponse, CubicalError> {
     let vault = clone_vault(state, &req.vault_id).await?;
-    let parent_rel = normalize_parent_dir(&req.parent_dir)?;
-    let parent_abs = vault.root().join(&parent_rel);
+    let (parent_rel, parent_abs) = normalize_parent_dir(&vault, &req.parent_dir)?;
 
     let rel_path = first_free_path(&parent_rel, &parent_abs, "Untitled", Some("md"))?;
     let content_hash = create_empty_markdown(&vault, &rel_path).await?;
@@ -378,8 +360,8 @@ pub async fn create_file_at_path(
     req: CreateFileAtPathRequest,
 ) -> Result<CreateFileAtPathResponse, CubicalError> {
     let vault = clone_vault(state, &req.vault_id).await?;
-    let rel_path = normalize_rel_file_path(&req.path)?;
-    if vault.root().join(&rel_path).exists() {
+    let (rel_path, abs_path) = normalize_rel_file_path(&vault, &req.path)?;
+    if abs_path.exists() {
         return Err(CubicalError::InvalidRequest(format!(
             "path already exists: {rel_path}"
         )));
@@ -396,8 +378,7 @@ pub async fn create_folder(
     req: CreateFolderRequest,
 ) -> Result<CreateFolderResponse, CubicalError> {
     let vault = clone_vault(state, &req.vault_id).await?;
-    let parent_rel = normalize_parent_dir(&req.parent_dir)?;
-    let parent_abs = vault.root().join(&parent_rel);
+    let (parent_rel, parent_abs) = normalize_parent_dir(&vault, &req.parent_dir)?;
 
     let rel_path = first_free_path(&parent_rel, &parent_abs, "Untitled Folder", None)?;
     let abs_path = vault.root().join(&rel_path);
@@ -414,8 +395,7 @@ pub async fn create_folder(
 
 pub async fn delete_path(state: &AppState, req: DeletePathRequest) -> Result<(), CubicalError> {
     let vault = clone_vault(state, &req.vault_id).await?;
-    let rel_path = normalize_rel_file_path(&req.path)?;
-    let abs_path = vault.root().join(&rel_path);
+    let (rel_path, abs_path) = normalize_rel_file_path(&vault, &req.path)?;
     if !abs_path.exists() {
         return Err(CubicalError::InvalidRequest(format!(
             "path does not exist: {rel_path}"
