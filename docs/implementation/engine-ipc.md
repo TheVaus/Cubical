@@ -14,6 +14,35 @@ only the shims.
 IPC request/response types are framework-free `serde` structs for the same
 reason — they survive a shell migration unchanged.
 
+## Caller-supplied paths
+
+**Anchors:** validate_rel_file · validate_rel_dir · contained_join · vault_file · vault_dir
+
+A path arriving in a request is untrusted input. The vault root is the
+containment boundary, and `commands::paths` is the only way a request path
+becomes a `PathBuf`: `vault_file` and `vault_dir` wrap
+`vault::relpath::contained_join`, which is the one owner of what a
+vault-relative path may be.
+
+Two properties, both learned the hard way. It splits on `/` **and** `\`,
+because a validator that understands only forward slashes passes
+`..\..\evil.md` as a single segment and hands it to an OS that does read the
+backslashes. And it checks containment *after* joining — canonicalising the
+deepest existing ancestor and requiring it under the root — because segment
+parsing is exactly the part that was got wrong, and because a symlinked
+subdirectory escapes a purely textual check.
+
+Constraining only the source is not enough. `rename_file` once checked that
+`from_path` was tracked and nothing at all about `to_path`, which made it an
+arbitrary-write primitive over a `#[tauri::command]` that is also reachable on
+the `cubical-ipc` socket. Read-only commands that look a path up in the index
+first (`read_file_text`, `get_embed`) are contained by that lookup; anything
+that joins a request path directly must route through `commands::paths`.
+
+A **leading separator is vault-root-relative, not absolute**: `/notes/a.md`
+means `notes/a.md`. This is deliberate leniency retained from the original
+validator — it is contained either way.
+
 ## Error folding
 
 The IPC boundary speaks exactly one error type. `CubicalError` folds the
@@ -108,12 +137,19 @@ it is atomic with the FK rekeys.
 
 ### Adopting an external rename
 
-**Anchors:** rename_file · adopt_external_rename · commit_rename · path_tracked · rekey_file_in_tx · enqueue_referrers_in_tx
+**Anchors:** rename_file · adopt_external_rename · commit_rename · path_tracked · rekey_file_in_tx · enqueue_referrers_in_tx · destination_is_free
 
 `rename_file` validates, performs `fs::rename`, then calls `commit_rename`.
 `adopt_external_rename` validates and calls `commit_rename` — nothing else.
-Each does its validation inline; there is no shared validator function, and the
+Beyond the shared path check below, each does its validation inline, and the
 only extracted piece is `commit_rename` itself.
+
+`rename_file` asks `destination_is_free` rather than `to_abs.exists()`. On a
+case-insensitive volume a bare `exists()` is true for `Note.md` when only
+`note.md` is there, which made fixing a title's capitalisation impossible on
+macOS and Windows. `destination_is_free` reads the directory's real entries: an
+existing destination that is only the source under another spelling is allowed
+through, a genuinely distinct file is still refused.
 
 `commit_rename` performs **no filesystem mutation** — that is the invariant
 that lets one sequence serve both a rename Cubical is about to perform and one
@@ -250,16 +286,26 @@ silently, so `commands::integrity` surfaces the remainder and lets the user —
 never the engine — decide the repair.
 
 **One notion of "what file does this token name."** `commands::link_match` owns
-it: `classify_candidate` returns a `CandidateRank` (exact path → exact basename
-→ case-insensitive path → case-insensitive basename), which is the same predicate
-`reconnect_broken_links_to` expresses in SQL. That equality is not a convention,
-it is a test: `classification_agrees_with_the_reconnect_sql_predicate` runs the
-real `UPDATE` against a real index and asserts the matched set equals
+the ranking: `classify_candidate` returns a `CandidateRank` (exact path → exact
+basename → case-insensitive path → case-insensitive basename), and
+`reconnect_broken_links_to` matches the same set. That equality is not a
+convention, it is a test: `classification_agrees_with_the_reconnect_sql_predicate`
+runs the real `UPDATE` against a real index and asserts the matched set equals
 `classify_candidate`'s. Two notions of token matching is precisely the drift this
 layer exists to prevent — extend `link_match`, never re-derive.
 
-`FrontmatterTitle` is the one rank with no SQL twin. It is **candidate-only**:
-offered to the user, never used by any automatic rewrite. That asymmetry is the
+**Case-insensitive means the same thing everywhere.** "Case-insensitive" above
+is `vault::relpath::names_eq_folded`, and `PathResolver` folds through the same
+`fold_name`. It cannot be SQL: `LOWER()` in libSQL is ASCII-only under the
+core-only pin ([`Cargo.toml`](../../Cargo.toml)), so a SQL-side fold would
+resolve `[[CAFÉ]]` to `café.md` when rendering and then fail to reattach that
+referrer on rename — a stale link produced by the fold, not by a missing
+rewrite. `reconnect_broken_links_to` therefore reads the candidate tokens and
+folds them in Rust. `classification_folds_the_way_path_resolution_folds` is what
+holds the two sides together.
+
+`FrontmatterTitle` is the one rank with no reattachment twin. It is
+**candidate-only**: offered to the user, never used by any automatic rewrite. That asymmetry is the
 whole boundary — confident matching stays narrow, consented matching can afford
 to be generous.
 

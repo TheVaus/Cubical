@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use cubical_core::vault::names_eq_folded;
 use cubical_core::vault::pending::apply_pending;
 use cubical_core::vault::search_refresh::{delete_search_index, refresh_search_index_with_doc};
 use cubical_core::{
@@ -1227,6 +1228,10 @@ pub(super) async fn path_tracked(
     Ok(rows.next().await?.is_some())
 }
 
+pub(crate) fn token_names_file(token: &str, old_basename: &str, old_path_no_md: &str) -> bool {
+    names_eq_folded(token, old_basename) || names_eq_folded(token, old_path_no_md)
+}
+
 async fn any_pending_named(
     conn: &libsql::Connection,
     old_basename: &str,
@@ -1234,13 +1239,16 @@ async fn any_pending_named(
 ) -> Result<bool, CubicalError> {
     let mut rows = conn
         .query(
-            "SELECT 1 FROM pending_rewrites \
-             WHERE rewrite_kind = 'wiki_link' \
-             AND (LOWER(old_token) = LOWER(?1) OR LOWER(old_token) = LOWER(?2)) LIMIT 1",
-            params![old_basename, old_path_no_md],
+            "SELECT DISTINCT old_token FROM pending_rewrites WHERE rewrite_kind = 'wiki_link'",
+            (),
         )
         .await?;
-    Ok(rows.next().await?.is_some())
+    while let Some(row) = rows.next().await? {
+        if token_names_file(&row.get::<String>(0)?, old_basename, old_path_no_md) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 async fn select_broken_referrers_naming(
@@ -1250,15 +1258,17 @@ async fn select_broken_referrers_naming(
 ) -> Result<Vec<(String, String)>, CubicalError> {
     let mut rows = conn
         .query(
-            "SELECT DISTINCT source_path, target_raw FROM links \
-             WHERE target_path IS NULL \
-             AND (LOWER(target_raw) = LOWER(?1) OR LOWER(target_raw) = LOWER(?2))",
-            params![old_basename, old_path_no_md],
+            "SELECT DISTINCT source_path, target_raw FROM links WHERE target_path IS NULL",
+            (),
         )
         .await?;
     let mut out = Vec::new();
     while let Some(row) = rows.next().await? {
-        out.push((row.get(0)?, row.get(1)?));
+        let source_path: String = row.get(0)?;
+        let target_raw: String = row.get(1)?;
+        if token_names_file(&target_raw, old_basename, old_path_no_md) {
+            out.push((source_path, target_raw));
+        }
     }
     Ok(out)
 }
@@ -1269,13 +1279,29 @@ pub(super) async fn reconnect_broken_links_to(
     old_basename: &str,
     old_path_no_md: &str,
 ) -> Result<(), CubicalError> {
-    tx.execute(
-        "UPDATE links SET target_path = ?1 \
-         WHERE target_path IS NULL \
-         AND (LOWER(target_raw) = LOWER(?2) OR LOWER(target_raw) = LOWER(?3))",
-        params![to_path, old_basename, old_path_no_md],
-    )
-    .await?;
+    let mut matched: Vec<String> = Vec::new();
+    {
+        let mut rows = tx
+            .query(
+                "SELECT DISTINCT target_raw FROM links WHERE target_path IS NULL",
+                (),
+            )
+            .await?;
+        while let Some(row) = rows.next().await? {
+            let target_raw: String = row.get(0)?;
+            if token_names_file(&target_raw, old_basename, old_path_no_md) {
+                matched.push(target_raw);
+            }
+        }
+    }
+    for target_raw in matched {
+        tx.execute(
+            "UPDATE links SET target_path = ?1 \
+             WHERE target_path IS NULL AND target_raw = ?2",
+            params![to_path, target_raw],
+        )
+        .await?;
+    }
     Ok(())
 }
 
@@ -2195,6 +2221,63 @@ mod tests {
             std::fs::read_to_string(vault.root().join("b.md")).unwrap(),
             "hi\n"
         );
+    }
+
+    #[tokio::test]
+    async fn reconnect_folds_non_ascii_the_way_resolution_does() {
+        use cubical_core::vault::links::PathResolver;
+        use cubical_index::backlinks_for;
+
+        let resolver = PathResolver::build(vec!["café.md".to_string()]);
+        assert_eq!(
+            resolver.resolve("CAFÉ"),
+            Some("café.md".to_string()),
+            "resolution already folds non-ASCII"
+        );
+
+        let (_d, vault, state) = fresh("v1").await;
+        seed_file(&vault, "café.md", "markdown").await;
+        seed_file(&vault, "Broken.md", "markdown").await;
+        replace_links_for_file(
+            vault.index(),
+            "Broken.md",
+            &[LinkRow {
+                target_raw: "CAFÉ".into(),
+                target_path: None,
+                anchor_kind: None,
+                anchor_value: None,
+                display_text: None,
+                is_embed: false,
+                position: 4,
+            }],
+        )
+        .await
+        .unwrap();
+        std::fs::write(vault.root().join("café.md"), "body\n").unwrap();
+        std::fs::write(vault.root().join("Broken.md"), "see [[CAFÉ]]\n").unwrap();
+
+        rename_file(
+            &state,
+            &NoopEventSink,
+            RenameFileRequest {
+                vault_id: "v1".into(),
+                from_path: "café.md".into(),
+                to_path: "coffee.md".into(),
+            },
+        )
+        .await
+        .expect("rename");
+
+        let bl = backlinks_for(vault.index(), "coffee.md").await.unwrap();
+        assert!(
+            bl.iter().any(|r| r.source_path == "Broken.md"),
+            "reattachment must fold [[CAFÉ]] the way resolution folds it",
+        );
+        let p = pending_for_target(vault.index(), "Broken.md")
+            .await
+            .unwrap();
+        assert_eq!(p.len(), 1, "a rewrite is queued for the reconnected link");
+        assert_eq!(p[0].old_token, "CAFÉ");
     }
 
     #[tokio::test]

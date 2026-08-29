@@ -5,6 +5,7 @@ use cubical_ast::{Anchor, Block, Document, Inline, ListItem};
 use cubical_index::{replace_links_for_file, LinkRow};
 
 use crate::vault::parse::parse_off_executor;
+use crate::vault::relpath::fold_name;
 use crate::vault::Vault;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -210,11 +211,11 @@ impl PathResolver {
             let base = f.rsplit('/').next().unwrap_or(f);
             let base_no_ext = base.strip_suffix(".md").unwrap_or(base);
             by_basename
-                .entry(base_no_ext.to_lowercase())
+                .entry(fold_name(base_no_ext))
                 .or_default()
                 .push(i);
             if base != base_no_ext {
-                by_basename.entry(base.to_lowercase()).or_default().push(i);
+                by_basename.entry(fold_name(base)).or_default().push(i);
             }
         }
         for v in by_basename.values_mut() {
@@ -241,7 +242,7 @@ impl PathResolver {
         if let Some(&i) = self.exact_stem.get(target) {
             return Some(self.all[i].clone());
         }
-        let target_lower = target.to_lowercase();
+        let target_lower = fold_name(target);
         if let Some(idxs) = self.by_basename.get(&target_lower) {
             if idxs.len() == 1 {
                 return Some(self.all[idxs[0]].clone());
@@ -250,7 +251,7 @@ impl PathResolver {
             }
         }
         let mut suffix_matches = self.all.iter().filter(|f| {
-            let fl = f.to_lowercase();
+            let fl = fold_name(f);
             if !fl.ends_with(&target_lower) {
                 return false;
             }
