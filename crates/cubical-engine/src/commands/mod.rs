@@ -8,6 +8,7 @@ pub mod integrity;
 pub mod link_match;
 pub mod links;
 pub mod mentions;
+pub(crate) mod paths;
 pub mod property_ref;
 pub mod rename;
 pub mod search;

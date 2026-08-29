@@ -22,18 +22,18 @@ pub async fn create_block_ref(
     let vault = open.vault.clone();
     drop(guard);
 
-    let abs = vault.root().join(&req.target_path);
+    let (target_path, abs) = crate::commands::paths::vault_file(&vault, &req.target_path)?;
     let source = tokio::fs::read_to_string(&abs)
         .await
         .map_err(|e| CubicalError::Io(e.to_string()))?;
 
-    let (new_source, block_id) = mint_block_id(&source, req.position, &req.target_path);
+    let (new_source, block_id) = mint_block_id(&source, req.position, &target_path);
     if new_source != source {
         tokio::fs::write(&abs, &new_source)
             .await
             .map_err(|e| CubicalError::Io(e.to_string()))?;
     }
-    refresh_blocks(&vault, &req.target_path, &new_source)
+    refresh_blocks(&vault, &target_path, &new_source)
         .await
         .map_err(|e| CubicalError::Io(e.to_string()))?;
 

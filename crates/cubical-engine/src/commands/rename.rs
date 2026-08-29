@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use cubical_core::vault::names_eq_folded;
 use cubical_core::vault::pending::apply_pending;
 use cubical_core::vault::search_refresh::{delete_search_index, refresh_search_index_with_doc};
 use cubical_core::{
@@ -22,6 +23,7 @@ use crate::api::types::{
     RenameTagRequest, RenameTagResponse, UndoRenameRequest, UndoRenameResponse,
 };
 use crate::commands::link_match::{basename_without_md, link_name_forms, strip_md_suffix};
+use crate::commands::paths;
 use crate::error::CubicalError;
 use crate::events::{
     emit_flush_complete, emit_pending_rewrites_changed, EventSink, FlushOwnWrites,
@@ -403,23 +405,22 @@ pub async fn rename_file(
     app: &dyn EventSink,
     req: RenameFileRequest,
 ) -> Result<RenameFileResponse, CubicalError> {
-    if req.from_path == req.to_path {
-        return Err(CubicalError::InvalidRequest("from_path == to_path".into()));
-    }
     let (vault, flush_own_writes, _flush_in_progress) =
         clone_vault_with_flush_state(state, &req.vault_id).await?;
     let conn = vault.index().connection();
 
-    let from_abs = vault.root().join(&req.from_path);
-    let to_abs = vault.root().join(&req.to_path);
-    if to_abs.exists() {
+    let (from_path, from_abs) = paths::vault_file(&vault, &req.from_path)?;
+    let (to_path, to_abs) = paths::vault_file(&vault, &req.to_path)?;
+    if from_path == to_path {
+        return Err(CubicalError::InvalidRequest("from_path == to_path".into()));
+    }
+    if !paths::destination_is_free(&from_path, &to_path, &to_abs) {
         return Err(CubicalError::InvalidRequest(format!(
-            "destination path already exists: {}",
-            req.to_path
+            "destination path already exists: {to_path}"
         )));
     }
-    if !path_tracked(conn, &req.from_path).await? {
-        return Err(CubicalError::FileNotFound(req.from_path.clone()));
+    if !path_tracked(conn, &from_path).await? {
+        return Err(CubicalError::FileNotFound(from_path.clone()));
     }
 
     if let Some(parent) = to_abs.parent() {
@@ -443,8 +444,8 @@ pub async fn rename_file(
             vault: &vault,
             flush_own_writes: &flush_own_writes,
             vault_id: &req.vault_id,
-            from_path: &req.from_path,
-            to_path: &req.to_path,
+            from_path: &from_path,
+            to_path: &to_path,
             kind: "file",
             rewrite_broken,
         },
@@ -514,26 +515,25 @@ pub async fn rename_folder(
     app: &dyn EventSink,
     req: RenameFolderRequest,
 ) -> Result<RenameFolderResponse, CubicalError> {
-    if req.from_path == req.to_path {
-        return Err(CubicalError::InvalidRequest("from_path == to_path".into()));
-    }
     let (vault, flush_own_writes, _flush_in_progress) =
         clone_vault_with_flush_state(state, &req.vault_id).await?;
     let conn = vault.index().connection();
 
-    let from_abs = vault.root().join(&req.from_path);
-    let to_abs = vault.root().join(&req.to_path);
-    if to_abs.exists() {
+    let (from_path, from_abs) = paths::vault_file(&vault, &req.from_path)?;
+    let (to_path, to_abs) = paths::vault_file(&vault, &req.to_path)?;
+    if from_path == to_path {
+        return Err(CubicalError::InvalidRequest("from_path == to_path".into()));
+    }
+    if !paths::destination_is_free(&from_path, &to_path, &to_abs) {
         return Err(CubicalError::InvalidRequest(format!(
-            "destination path already exists: {}",
-            req.to_path
+            "destination path already exists: {to_path}"
         )));
     }
     let tracked: bool = {
         let mut rows = conn
             .query(
                 "SELECT 1 FROM folders WHERE path = ?1",
-                params![req.from_path.clone()],
+                params![from_path.clone()],
             )
             .await?;
         rows.next().await?.is_some()
@@ -541,16 +541,16 @@ pub async fn rename_folder(
     if !tracked {
         return Err(CubicalError::InvalidRequest(format!(
             "folder not tracked: {}",
-            req.from_path
+            from_path
         )));
     }
 
-    let prefix = format!("{}/", req.from_path);
+    let prefix = format!("{}/", from_path);
     let file_paths: Vec<String> = {
         let mut rows = conn
             .query(
                 "SELECT path FROM files WHERE path = ?1 OR path LIKE ?2",
-                params![req.from_path.clone(), format!("{prefix}%")],
+                params![from_path.clone(), format!("{prefix}%")],
             )
             .await?;
         let mut out = Vec::new();
@@ -563,7 +563,7 @@ pub async fn rename_folder(
         let mut rows = conn
             .query(
                 "SELECT path FROM folders WHERE path = ?1 OR path LIKE ?2",
-                params![req.from_path.clone(), format!("{prefix}%")],
+                params![from_path.clone(), format!("{prefix}%")],
             )
             .await?;
         let mut out = Vec::new();
@@ -577,10 +577,10 @@ pub async fn rename_folder(
         read_bool_setting(state, &req.vault_id, WIKILINKS_REWRITE_BROKEN_KEY, true).await;
 
     let new_path_for = |old: &str| -> String {
-        if old == req.from_path {
-            req.to_path.clone()
+        if old == from_path {
+            to_path.clone()
         } else {
-            format!("{}{}", req.to_path, &old[req.from_path.len()..])
+            format!("{}{}", to_path, &old[from_path.len()..])
         }
     };
     let path_map: std::collections::HashMap<String, String> = file_paths
@@ -1228,6 +1228,10 @@ pub(super) async fn path_tracked(
     Ok(rows.next().await?.is_some())
 }
 
+pub(crate) fn token_names_file(token: &str, old_basename: &str, old_path_no_md: &str) -> bool {
+    names_eq_folded(token, old_basename) || names_eq_folded(token, old_path_no_md)
+}
+
 async fn any_pending_named(
     conn: &libsql::Connection,
     old_basename: &str,
@@ -1235,13 +1239,16 @@ async fn any_pending_named(
 ) -> Result<bool, CubicalError> {
     let mut rows = conn
         .query(
-            "SELECT 1 FROM pending_rewrites \
-             WHERE rewrite_kind = 'wiki_link' \
-             AND (LOWER(old_token) = LOWER(?1) OR LOWER(old_token) = LOWER(?2)) LIMIT 1",
-            params![old_basename, old_path_no_md],
+            "SELECT DISTINCT old_token FROM pending_rewrites WHERE rewrite_kind = 'wiki_link'",
+            (),
         )
         .await?;
-    Ok(rows.next().await?.is_some())
+    while let Some(row) = rows.next().await? {
+        if token_names_file(&row.get::<String>(0)?, old_basename, old_path_no_md) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 async fn select_broken_referrers_naming(
@@ -1251,15 +1258,17 @@ async fn select_broken_referrers_naming(
 ) -> Result<Vec<(String, String)>, CubicalError> {
     let mut rows = conn
         .query(
-            "SELECT DISTINCT source_path, target_raw FROM links \
-             WHERE target_path IS NULL \
-             AND (LOWER(target_raw) = LOWER(?1) OR LOWER(target_raw) = LOWER(?2))",
-            params![old_basename, old_path_no_md],
+            "SELECT DISTINCT source_path, target_raw FROM links WHERE target_path IS NULL",
+            (),
         )
         .await?;
     let mut out = Vec::new();
     while let Some(row) = rows.next().await? {
-        out.push((row.get(0)?, row.get(1)?));
+        let source_path: String = row.get(0)?;
+        let target_raw: String = row.get(1)?;
+        if token_names_file(&target_raw, old_basename, old_path_no_md) {
+            out.push((source_path, target_raw));
+        }
     }
     Ok(out)
 }
@@ -1270,13 +1279,29 @@ pub(super) async fn reconnect_broken_links_to(
     old_basename: &str,
     old_path_no_md: &str,
 ) -> Result<(), CubicalError> {
-    tx.execute(
-        "UPDATE links SET target_path = ?1 \
-         WHERE target_path IS NULL \
-         AND (LOWER(target_raw) = LOWER(?2) OR LOWER(target_raw) = LOWER(?3))",
-        params![to_path, old_basename, old_path_no_md],
-    )
-    .await?;
+    let mut matched: Vec<String> = Vec::new();
+    {
+        let mut rows = tx
+            .query(
+                "SELECT DISTINCT target_raw FROM links WHERE target_path IS NULL",
+                (),
+            )
+            .await?;
+        while let Some(row) = rows.next().await? {
+            let target_raw: String = row.get(0)?;
+            if token_names_file(&target_raw, old_basename, old_path_no_md) {
+                matched.push(target_raw);
+            }
+        }
+    }
+    for target_raw in matched {
+        tx.execute(
+            "UPDATE links SET target_path = ?1 \
+             WHERE target_path IS NULL AND target_raw = ?2",
+            params![to_path, target_raw],
+        )
+        .await?;
+    }
     Ok(())
 }
 
@@ -2195,6 +2220,225 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(vault.root().join("b.md")).unwrap(),
             "hi\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn reconnect_folds_non_ascii_the_way_resolution_does() {
+        use cubical_core::vault::links::PathResolver;
+        use cubical_index::backlinks_for;
+
+        let resolver = PathResolver::build(vec!["café.md".to_string()]);
+        assert_eq!(
+            resolver.resolve("CAFÉ"),
+            Some("café.md".to_string()),
+            "resolution already folds non-ASCII"
+        );
+
+        let (_d, vault, state) = fresh("v1").await;
+        seed_file(&vault, "café.md", "markdown").await;
+        seed_file(&vault, "Broken.md", "markdown").await;
+        replace_links_for_file(
+            vault.index(),
+            "Broken.md",
+            &[LinkRow {
+                target_raw: "CAFÉ".into(),
+                target_path: None,
+                anchor_kind: None,
+                anchor_value: None,
+                display_text: None,
+                is_embed: false,
+                position: 4,
+            }],
+        )
+        .await
+        .unwrap();
+        std::fs::write(vault.root().join("café.md"), "body\n").unwrap();
+        std::fs::write(vault.root().join("Broken.md"), "see [[CAFÉ]]\n").unwrap();
+
+        rename_file(
+            &state,
+            &NoopEventSink,
+            RenameFileRequest {
+                vault_id: "v1".into(),
+                from_path: "café.md".into(),
+                to_path: "coffee.md".into(),
+            },
+        )
+        .await
+        .expect("rename");
+
+        let bl = backlinks_for(vault.index(), "coffee.md").await.unwrap();
+        assert!(
+            bl.iter().any(|r| r.source_path == "Broken.md"),
+            "reattachment must fold [[CAFÉ]] the way resolution folds it",
+        );
+        let p = pending_for_target(vault.index(), "Broken.md")
+            .await
+            .unwrap();
+        assert_eq!(p.len(), 1, "a rewrite is queued for the reconnected link");
+        assert_eq!(p[0].old_token, "CAFÉ");
+    }
+
+    #[tokio::test]
+    async fn rename_file_rejects_a_destination_outside_the_vault() {
+        let outside = tempfile::tempdir().unwrap();
+        let (_d, vault, state) = fresh("v1").await;
+        seed_file(&vault, "a.md", "markdown").await;
+        std::fs::write(vault.root().join("a.md"), "secret\n").unwrap();
+
+        let escapes = [
+            "../evil.md",
+            "../../evil.md",
+            "notes/../../evil.md",
+            r"..\..\evil.md",
+            r"notes\..\..\evil.md",
+            "C:/evil.md",
+            r"C:\evil.md",
+            r"\\server\share\evil.md",
+        ];
+        for to in escapes {
+            let err = rename_file(
+                &state,
+                &NoopEventSink,
+                RenameFileRequest {
+                    vault_id: "v1".into(),
+                    from_path: "a.md".into(),
+                    to_path: to.into(),
+                },
+            )
+            .await
+            .expect_err(&format!("expected rejection of {to}"));
+            assert!(
+                matches!(err, CubicalError::InvalidRequest(_)),
+                "{to} gave {err:?}"
+            );
+        }
+
+        assert!(vault.root().join("a.md").exists());
+        assert!(!outside.path().join("evil.md").exists());
+        assert!(!vault.root().parent().unwrap().join("evil.md").exists());
+
+        rename_file(
+            &state,
+            &NoopEventSink,
+            RenameFileRequest {
+                vault_id: "v1".into(),
+                from_path: "a.md".into(),
+                to_path: "/etc/evil.md".into(),
+            },
+        )
+        .await
+        .expect("a leading separator is vault-root-relative, not absolute");
+        assert!(vault.root().join("etc/evil.md").is_file());
+        assert!(!std::path::Path::new("/etc/evil.md").exists());
+    }
+
+    #[tokio::test]
+    async fn rename_file_rejects_a_source_outside_the_vault() {
+        let (_d, vault, state) = fresh("v1").await;
+        seed_file(&vault, "a.md", "markdown").await;
+
+        let err = rename_file(
+            &state,
+            &NoopEventSink,
+            RenameFileRequest {
+                vault_id: "v1".into(),
+                from_path: "../../../etc/hosts".into(),
+                to_path: "stolen.md".into(),
+            },
+        )
+        .await
+        .expect_err("expected rejection");
+        assert!(matches!(err, CubicalError::InvalidRequest(_)), "{err:?}");
+        assert!(!vault.root().join("stolen.md").exists());
+    }
+
+    #[tokio::test]
+    async fn rename_folder_rejects_a_destination_outside_the_vault() {
+        let (_d, vault, state) = fresh("v1").await;
+        std::fs::create_dir_all(vault.root().join("notes")).unwrap();
+        cubical_index::upsert_folder(vault.index(), "notes", 0)
+            .await
+            .unwrap();
+
+        for to in ["../escaped", r"..\escaped"] {
+            let err = rename_folder(
+                &state,
+                &NoopEventSink,
+                RenameFolderRequest {
+                    vault_id: "v1".into(),
+                    from_path: "notes".into(),
+                    to_path: to.into(),
+                },
+            )
+            .await
+            .expect_err(&format!("expected rejection of {to}"));
+            assert!(matches!(err, CubicalError::InvalidRequest(_)), "{err:?}");
+        }
+        assert!(vault.root().join("notes").is_dir());
+        assert!(!vault.root().parent().unwrap().join("escaped").exists());
+    }
+
+    #[tokio::test]
+    async fn rename_file_allows_a_case_only_rename() {
+        let (_d, vault, state) = fresh("v1").await;
+        seed_file(&vault, "note.md", "markdown").await;
+        std::fs::write(vault.root().join("note.md"), "body\n").unwrap();
+
+        rename_file(
+            &state,
+            &NoopEventSink,
+            RenameFileRequest {
+                vault_id: "v1".into(),
+                from_path: "note.md".into(),
+                to_path: "Note.md".into(),
+            },
+        )
+        .await
+        .expect("case-only rename should succeed");
+
+        assert_eq!(
+            cubical_core::vault::directory_holds_exact_name(&vault.root().join("Note.md")),
+            Some(true)
+        );
+        assert!(path_tracked(vault.index().connection(), "Note.md")
+            .await
+            .unwrap());
+    }
+
+    #[tokio::test]
+    async fn a_fold_collision_with_an_unrelated_file_never_clobbers_it() {
+        let (_d, vault, state) = fresh("v1").await;
+        seed_file(&vault, "a.md", "markdown").await;
+        seed_file(&vault, "note.md", "markdown").await;
+        std::fs::write(vault.root().join("a.md"), "a\n").unwrap();
+        std::fs::write(vault.root().join("note.md"), "keep me\n").unwrap();
+
+        let case_insensitive_volume = vault.root().join("NOTE.md").exists();
+
+        let outcome = rename_file(
+            &state,
+            &NoopEventSink,
+            RenameFileRequest {
+                vault_id: "v1".into(),
+                from_path: "a.md".into(),
+                to_path: "NOTE.md".into(),
+            },
+        )
+        .await;
+
+        if case_insensitive_volume {
+            let err = outcome.expect_err("NOTE.md already names note.md on this volume");
+            assert!(matches!(err, CubicalError::InvalidRequest(_)), "{err:?}");
+        } else {
+            outcome.expect("NOTE.md collides with nothing on a case-sensitive volume");
+        }
+
+        assert_eq!(
+            std::fs::read_to_string(vault.root().join("note.md")).unwrap(),
+            "keep me\n",
+            "the unrelated file survives either way"
         );
     }
 

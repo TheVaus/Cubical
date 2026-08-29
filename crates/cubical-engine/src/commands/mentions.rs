@@ -83,22 +83,20 @@ pub async fn link_mention(
     state: &AppState,
     req: LinkMentionRequest,
 ) -> Result<LinkMentionResponse, CubicalError> {
-    let (abs, conn) = {
+    let (vault, conn) = {
         let guard = state.vaults().read().await;
         let open = guard
             .get(&req.vault_id)
             .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
-        (
-            open.vault.root().join(&req.source_path),
-            open.vault.index().connection().clone(),
-        )
+        (open.vault.clone(), open.vault.index().connection().clone())
     };
+    let (source_path, abs) = crate::commands::paths::vault_file(&vault, &req.source_path)?;
 
     let pending_count = {
         let mut rows = conn
             .query(
                 "SELECT COUNT(*) FROM pending_rewrites WHERE target_file = ?1",
-                libsql::params![req.source_path.clone()],
+                libsql::params![source_path.clone()],
             )
             .await?;
         let row = rows
@@ -108,12 +106,8 @@ pub async fn link_mention(
         row.get::<i64>(0)?
     };
     if pending_count > 0 {
-        crate::commands::rename::flush_target_for_link_mention(
-            state,
-            &req.vault_id,
-            &req.source_path,
-        )
-        .await?;
+        crate::commands::rename::flush_target_for_link_mention(state, &req.vault_id, &source_path)
+            .await?;
     }
 
     let source = tokio::task::spawn_blocking({
@@ -190,7 +184,7 @@ pub async fn link_mention(
                 libsql::params![
                     new_hash.clone(),
                     new_bytes.len() as i64,
-                    req.source_path.clone(),
+                    source_path.clone(),
                 ],
             )
             .await

@@ -1,3 +1,5 @@
+use cubical_core::vault::names_eq_folded;
+
 pub(crate) fn strip_md_suffix(path: &str) -> &str {
     path.strip_suffix(".md").unwrap_or(path)
 }
@@ -47,10 +49,10 @@ pub(crate) fn classify_candidate(candidate_path: &str, token: &str) -> Option<Ca
     if token == basename {
         return Some(CandidateRank::ExactBasename);
     }
-    if token.eq_ignore_ascii_case(&path_no_md) {
+    if names_eq_folded(token, &path_no_md) {
         return Some(CandidateRank::CaseInsensitivePath);
     }
-    if token.eq_ignore_ascii_case(&basename) {
+    if names_eq_folded(token, &basename) {
         return Some(CandidateRank::CaseInsensitiveBasename);
     }
     None
@@ -119,8 +121,37 @@ mod tests {
         assert_eq!(derive_reattach_token("Dup", "other/Dup.md"), "other/Dup");
     }
 
-    const MATRIX_PATHS: [&str; 3] = ["notes/plan.md", "Plan.md", "archive/old plan.md"];
-    const MATRIX_TOKENS: [&str; 8] = [
+    #[test]
+    fn classification_folds_the_way_path_resolution_folds() {
+        use cubical_core::vault::links::PathResolver;
+
+        for (path, token) in [
+            ("café.md", "CAFÉ"),
+            ("Straße.md", "straße"),
+            ("Plan.md", "plan"),
+            ("ÅNGSTRÖM.md", "ångström"),
+        ] {
+            let resolver = PathResolver::build(vec![path.to_string()]);
+            assert_eq!(
+                resolver.resolve(token).as_deref(),
+                Some(path),
+                "resolution folds {token} onto {path}"
+            );
+            assert!(
+                classify_candidate(path, token).is_some(),
+                "reattachment must fold {token} onto {path} too"
+            );
+        }
+    }
+
+    const MATRIX_PATHS: [&str; 5] = [
+        "notes/plan.md",
+        "Plan.md",
+        "archive/old plan.md",
+        "café.md",
+        "notes/Straße.md",
+    ];
+    const MATRIX_TOKENS: [&str; 13] = [
         "plan",
         "Plan",
         "PLAN",
@@ -129,10 +160,15 @@ mod tests {
         "old plan",
         "archive/old plan",
         "roadmap",
+        "café",
+        "CAFÉ",
+        "notes/straße",
+        "notes/STRASSE",
+        "notes/Straße",
     ];
 
     #[tokio::test]
-    async fn classification_agrees_with_the_reconnect_sql_predicate() {
+    async fn classification_agrees_with_the_reattachment_predicate() {
         for candidate in MATRIX_PATHS {
             let dir = tempdir().unwrap();
             let vault = Vault::open(dir.path()).await.expect("open");

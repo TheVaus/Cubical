@@ -70,12 +70,18 @@ cancellation genuinely hung. See [#52](https://github.com/TheVaus/Cubical/issues
 
 ## Vault-relative paths
 
-**Anchors:** to_vault_relative · WatchEvent · scan
+**Anchors:** to_vault_relative · WatchEvent · scan · validate_rel_file
 
 A path stored anywhere — the `files` and `folders` tables, a `WatchEvent`, the
 rename journal, the own-writes key — is a **vault-relative string joined with
-`/` on every platform**. `to_vault_relative` is the only thing that produces
-one, and both producers (the scan and the watcher's `relativize`) go through it.
+`/` on every platform**. Exactly two things produce one. Paths discovered on
+disk go through `to_vault_relative` (the scan and the watcher's `relativize`).
+Paths arriving from a caller go through `validate_rel_file`, which is why
+`rename_file` stores a `/`-form key on Windows rather than whatever the request
+spelled — see *Caller-supplied paths* in
+[`engine-ipc.md`](engine-ipc.md). A backslash is **rejected** there rather than
+translated: on Unix it is a legal filename byte, so rewriting it would name a
+different file.
 
 This is a correctness rule, not a formatting preference. `Path`'s native
 separator is `\` on Windows, so a stored path built by stringifying a `PathBuf`

@@ -13,7 +13,7 @@ pub mod links;
 pub mod mentions;
 mod parse;
 pub mod pending;
-mod relpath;
+pub mod relpath;
 pub mod rename_journal;
 mod scan;
 pub mod search_refresh;
@@ -30,6 +30,10 @@ pub use links::{
 pub use mentions::{extract_text_runs, find_mention_occurrences, MentionHit, TextRun};
 pub use parse::parse_off_executor;
 pub use pending::{apply_pending, materialize_on_read};
+pub use relpath::{
+    contained_join, directory_holds_exact_name, fold_name, names_eq_folded, validate_rel_dir,
+    validate_rel_file, RelPathError,
+};
 pub use scan::{scan, ScanProgress};
 pub use tags::{extract_tags, refresh_tags, refresh_tags_with_doc, TagExtraction};
 pub use watcher::{start_watcher, WatchEvent, WatcherHandle};
