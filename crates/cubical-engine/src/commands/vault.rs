@@ -122,7 +122,7 @@ pub async fn open_vault(
         vault.clone(),
         watch_rx,
         flush_own_writes.clone(),
-        settings_handle,
+        settings_handle.clone(),
     );
 
     crate::commands::rename::spawn_flush_timer(
@@ -130,6 +130,7 @@ pub async fn open_vault(
         vault,
         flush_own_writes,
         flush_in_progress,
+        settings_handle,
         vault_id.clone(),
         flush_timer_cancel,
     );

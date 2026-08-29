@@ -1398,7 +1398,40 @@ mod tests {
             _watcher: WatcherHandle,
         }
 
+        #[derive(Default)]
+        struct RecordingSink {
+            events: std::sync::Mutex<Vec<AppEvent>>,
+        }
+
+        impl RecordingSink {
+            fn changed_paths(&self) -> Vec<String> {
+                self.events
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter_map(|e| match e {
+                        AppEvent::FileChanged(p) => Some(p.path.clone()),
+                        _ => None,
+                    })
+                    .collect()
+            }
+        }
+
+        impl EventSink for RecordingSink {
+            fn emit(&self, event: AppEvent) {
+                self.events.lock().unwrap().push(event);
+            }
+        }
+
         async fn live_vault(dir: &TempDir, seed: &[&str]) -> LiveVault {
+            live_vault_with_sink(dir, seed, Arc::new(NoopEventSink)).await
+        }
+
+        async fn live_vault_with_sink(
+            dir: &TempDir,
+            seed: &[&str],
+            sink: Arc<dyn EventSink>,
+        ) -> LiveVault {
             let vault = Vault::open(dir.path()).await.expect("vault open");
             for rel in seed {
                 apply_watch_events_batch(&vault, &[WatchEvent::Created(rel.to_string())], None)
@@ -1421,7 +1454,7 @@ mod tests {
             let watcher =
                 start_watcher(&vault, CancellationToken::new(), tx).expect("start watcher");
             spawn_watcher_dispatcher(
-                Arc::new(NoopEventSink),
+                sink,
                 VAULT_ID.into(),
                 vault.clone(),
                 rx,
@@ -1568,6 +1601,50 @@ mod tests {
                 std::fs::read_to_string(dir.path().join("Project.md")).unwrap(),
                 "see [[Journal]] today\n",
                 "the referrer is rewritten exactly once",
+            );
+        }
+
+        async fn wait_for_changed_path(sink: &RecordingSink, path: &str) -> bool {
+            for _ in 0..POLL_LIMIT {
+                if sink.changed_paths().iter().any(|p| p == path) {
+                    return true;
+                }
+                tokio::time::sleep(POLL_STEP).await;
+            }
+            false
+        }
+
+        #[tokio::test]
+        async fn flushing_a_rewrite_announces_the_referrer_change() {
+            let dir = tempdir().unwrap();
+            std::fs::write(dir.path().join("Daily.md"), "# Daily\n").unwrap();
+            std::fs::write(dir.path().join("Project.md"), "see [[Daily]] today\n").unwrap();
+            let sink = Arc::new(RecordingSink::default());
+            let live = live_vault_with_sink(&dir, &["Daily.md", "Project.md"], sink.clone()).await;
+
+            rename_file(
+                &live.state,
+                &NoopEventSink,
+                RenameFileRequest {
+                    vault_id: VAULT_ID.into(),
+                    from_path: "Daily.md".into(),
+                    to_path: "Journal.md".into(),
+                },
+            )
+            .await
+            .expect("rename");
+
+            flush(&live.state).await;
+            assert_eq!(
+                std::fs::read_to_string(dir.path().join("Project.md")).unwrap(),
+                "see [[Journal]] today\n",
+            );
+
+            assert!(
+                wait_for_changed_path(&sink, "Project.md").await,
+                "a flush rewrites bytes the frontend does not have, so it must \
+                 emit vault:file-changed for the referrer (saw: {:?})",
+                sink.changed_paths(),
             );
         }
 
