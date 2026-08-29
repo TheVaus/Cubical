@@ -15,6 +15,7 @@ export interface WikiLinkResolver {
   fetch(targetRaw: string): void;
   resolve(targetRaw: string): Promise<WikiLinkResolution>;
   invalidate(): void;
+  markStale(): void;
   onUpdate(handler: () => void): () => void;
   debug(): ResolverDebugState;
   onEvent(handler: (e: ResolverEvent) => void): () => void;
@@ -28,6 +29,7 @@ export function createWikiLinkResolver(
   ) => Promise<ResolveLinkResponse> = defaultResolveLink,
 ): WikiLinkResolver {
   const cache = new Map<string, WikiLinkResolution>();
+  const stale = new Set<string>();
   const inFlight = new Map<string, { aborted: boolean }>();
   const subscribers = new Set<() => void>();
   const eventSubscribers = new Set<(e: ResolverEvent) => void>();
@@ -45,10 +47,14 @@ export function createWikiLinkResolver(
 
   const resolver: WikiLinkResolver = {
     get(targetRaw) {
+      if (stale.has(targetRaw)) resolver.fetch(targetRaw);
       return cache.get(targetRaw);
     },
     fetch(targetRaw) {
-      if (cache.has(targetRaw) || inFlight.has(targetRaw)) return;
+      if ((cache.has(targetRaw) && !stale.has(targetRaw)) || inFlight.has(targetRaw)) {
+        return;
+      }
+      stale.delete(targetRaw);
       const handle = { aborted: false };
       inFlight.set(targetRaw, handle);
       const startedAt = Date.now();
@@ -103,8 +109,14 @@ export function createWikiLinkResolver(
     },
     invalidate() {
       cache.clear();
+      stale.clear();
       lastError.clear();
       emit({ kind: "invalidate", at: Date.now() });
+      notify();
+    },
+    markStale() {
+      if (cache.size === 0) return;
+      for (const k of cache.keys()) stale.add(k);
       notify();
     },
     onUpdate(handler) {

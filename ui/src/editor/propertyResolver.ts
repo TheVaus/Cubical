@@ -13,6 +13,7 @@ export interface PropertyResolver {
   fetch(note: string, property: string): void;
   resolve(note: string, property: string): Promise<GetPropertyResponse>;
   invalidate(): void;
+  markStale(): void;
   onUpdate(handler: () => void): () => void;
   version(): number;
 }
@@ -22,6 +23,7 @@ export function createPropertyResolver(
   ipc: (req: GetPropertyRequest) => Promise<GetPropertyResponse> = defaultGetProperty,
 ): PropertyResolver {
   const cache = new Map<string, GetPropertyResponse>();
+  const stale = new Set<string>();
   const inFlight = new Set<string>();
   const subscribers = new Set<() => void>();
   let cacheVersion = 0;
@@ -32,11 +34,14 @@ export function createPropertyResolver(
 
   const resolver: PropertyResolver = {
     get(note, property) {
-      return cache.get(cacheKey(note, property));
+      const k = cacheKey(note, property);
+      if (stale.has(k)) resolver.fetch(note, property);
+      return cache.get(k);
     },
     fetch(note, property) {
       const k = cacheKey(note, property);
-      if (cache.has(k) || inFlight.has(k)) return;
+      if ((cache.has(k) && !stale.has(k)) || inFlight.has(k)) return;
+      stale.delete(k);
       inFlight.add(k);
       ipc({ vault_id: vaultId, note_raw: note, property })
         .then((resp) => {
@@ -71,7 +76,13 @@ export function createPropertyResolver(
     },
     invalidate() {
       cache.clear();
+      stale.clear();
       cacheVersion++;
+      notify();
+    },
+    markStale() {
+      if (cache.size === 0) return;
+      for (const k of cache.keys()) stale.add(k);
       notify();
     },
     onUpdate(handler) {

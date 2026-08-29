@@ -573,3 +573,47 @@ describe("closing the window", () => {
     expect(wrote).not.toHaveBeenCalled();
   });
 });
+
+describe("reloadFromDisk", () => {
+  it("pulls the materialized content in after a rename rewrote the links", async () => {
+    const h = build();
+    read.mockResolvedValue({ content: "see [[Journal]]" });
+
+    await h.session.reloadFromDisk();
+
+    expect(read).toHaveBeenCalledWith({ vault_id: "v1", path: "note.md" });
+    expect(h.editor.replaceContent).toHaveBeenCalledWith("see [[Journal]]");
+    expect(h.onContentReplaced).toHaveBeenCalledWith("see [[Journal]]");
+  });
+
+  it("leaves an unsaved buffer alone rather than discarding the user's edits", async () => {
+    const h = build();
+    h.session.markDirty();
+    read.mockResolvedValue({ content: "see [[Journal]]" });
+
+    await h.session.reloadFromDisk();
+
+    expect(read).not.toHaveBeenCalled();
+    expect(h.editor.replaceContent).not.toHaveBeenCalled();
+  });
+
+  it("does not touch the editor when disk already matches the buffer", async () => {
+    const h = build();
+    h.setContent("same");
+    read.mockResolvedValue({ content: "same" });
+
+    await h.session.reloadFromDisk();
+
+    expect(h.editor.replaceContent).not.toHaveBeenCalled();
+    expect(h.onContentReplaced).not.toHaveBeenCalled();
+  });
+
+  it("reports a read failure instead of throwing", async () => {
+    const h = build();
+    read.mockRejectedValue(new Error("boom"));
+
+    await h.session.reloadFromDisk();
+
+    expect(h.reportError).toHaveBeenCalled();
+  });
+});

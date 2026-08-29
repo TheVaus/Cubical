@@ -37,6 +37,7 @@ export interface EmbedResolver {
   fetch(targetRaw: string): void;
   resolve(targetRaw: string): Promise<EmbedResolution>;
   invalidate(): void;
+  markStale(): void;
   onUpdate(handler: () => void): () => void;
   version(): number;
   debug(): ResolverDebugState;
@@ -49,6 +50,7 @@ export function createEmbedResolver(
   ipc: (req: GetEmbedRequest) => Promise<GetEmbedResponse> = defaultGetEmbed,
 ): EmbedResolver {
   const cache = new Map<string, EmbedResolution>();
+  const stale = new Set<string>();
   const inFlight = new Map<string, { aborted: boolean }>();
   const subscribers = new Set<() => void>();
   const eventSubscribers = new Set<(e: ResolverEvent) => void>();
@@ -67,10 +69,14 @@ export function createEmbedResolver(
 
   const resolver: EmbedResolver = {
     get(targetRaw) {
+      if (stale.has(targetRaw)) resolver.fetch(targetRaw);
       return cache.get(targetRaw);
     },
     fetch(targetRaw) {
-      if (cache.has(targetRaw) || inFlight.has(targetRaw)) return;
+      if ((cache.has(targetRaw) && !stale.has(targetRaw)) || inFlight.has(targetRaw)) {
+        return;
+      }
+      stale.delete(targetRaw);
       const handle = { aborted: false };
       inFlight.set(targetRaw, handle);
       const startedAt = Date.now();
@@ -124,9 +130,15 @@ export function createEmbedResolver(
     },
     invalidate() {
       cache.clear();
+      stale.clear();
       cacheVersion++;
       lastError.clear();
       emit({ kind: "invalidate", at: Date.now() });
+      notify();
+    },
+    markStale() {
+      if (cache.size === 0) return;
+      for (const k of cache.keys()) stale.add(k);
       notify();
     },
     onUpdate(handler) {

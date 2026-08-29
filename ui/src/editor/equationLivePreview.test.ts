@@ -18,6 +18,7 @@ function stubResolver(
     fetch: () => undefined,
     resolve: () => Promise.reject(new Error("not used")),
     invalidate: () => undefined,
+    markStale: () => undefined,
     onUpdate: () => () => undefined,
     version: () => 0,
   };

@@ -37,6 +37,7 @@ export interface DocumentSession {
     changedPath: string,
     incomingHash: string | null | undefined,
   ) => boolean;
+  readonly reloadFromDisk: () => Promise<void>;
   readonly takeDisk: () => Promise<void>;
   readonly keepMine: () => void;
   readonly writeBeforeUnload: () => void;
@@ -115,6 +116,23 @@ export function createDocumentSession(
     }
   };
 
+  const reloadFromDisk = async (): Promise<void> => {
+    if (dirty || conflictHash() !== null) return;
+    const id = deps.vaultId();
+    const path = deps.path();
+    const editor = deps.editor();
+    if (!id || !path || !editor) return;
+    try {
+      const resp = await readFileText({ vault_id: id, path });
+      if (resp.content === editor.getContent()) return;
+      editor.replaceContent(resp.content);
+      deps.onContentReplaced(resp.content);
+      dirty = false;
+    } catch (e) {
+      deps.reportError(errorMessage(e));
+    }
+  };
+
   const applyExternalChange = (
     changedPath: string,
     incomingHash: string | null | undefined,
@@ -179,6 +197,7 @@ export function createDocumentSession(
         incomingHash,
         lastWrittenHash,
       }),
+    reloadFromDisk,
     takeDisk,
     keepMine: () => {
       setConflictHash(null);
