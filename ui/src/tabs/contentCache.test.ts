@@ -2,7 +2,11 @@ import { describe, it, expect, vi } from "vitest";
 import { createRoot } from "solid-js";
 import { createStore } from "solid-js/store";
 
-import { pruneContents, staleContentIds } from "./contentCache";
+import {
+  pruneContents,
+  remapContentKeys,
+  staleContentIds,
+} from "./contentCache";
 
 describe("staleContentIds", () => {
   it("names every entry the keep predicate rejects", () => {
@@ -31,6 +35,43 @@ describe("pruneContents", () => {
   it("does not write to the store when nothing is stale", () => {
     const set = vi.fn();
     pruneContents(set, { a: "1" }, () => true);
+    expect(set).not.toHaveBeenCalled();
+  });
+});
+
+describe("remapContentKeys", () => {
+  it("moves an entry to its renamed id", () => {
+    createRoot((dispose) => {
+      const [contents, setContents] = createStore<Record<string, string>>({
+        "file:Daily.md": "body",
+        "file:Other.md": "other",
+      });
+      remapContentKeys(setContents, contents, (id) =>
+        id === "file:Daily.md" ? "file:Journal.md" : id,
+      );
+      expect(contents).toEqual({
+        "file:Journal.md": "body",
+        "file:Other.md": "other",
+      });
+      dispose();
+    });
+  });
+
+  it("keeps the existing entry when the destination is already open", () => {
+    createRoot((dispose) => {
+      const [contents, setContents] = createStore<Record<string, string>>({
+        a: "from",
+        b: "already there",
+      });
+      remapContentKeys(setContents, contents, (id) => (id === "a" ? "b" : id));
+      expect(contents).toEqual({ b: "already there" });
+      dispose();
+    });
+  });
+
+  it("does not write to the store when no id changes", () => {
+    const set = vi.fn();
+    remapContentKeys(set, { a: "1" }, (id) => id);
     expect(set).not.toHaveBeenCalled();
   });
 });

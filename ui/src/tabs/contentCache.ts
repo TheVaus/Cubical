@@ -22,3 +22,22 @@ export function pruneContents(
     }),
   );
 }
+
+export function remapContentKeys(
+  set: SetStoreFunction<ContentCache>,
+  cached: ContentCache,
+  rename: (id: string) => string,
+): void {
+  const moves = Object.keys(cached)
+    .map((from) => ({ from, to: rename(from) }))
+    .filter((m) => m.to !== m.from);
+  if (moves.length === 0) return;
+  set(
+    produce((c: ContentCache) => {
+      for (const { from, to } of moves) {
+        if (!(to in c)) c[to] = c[from]!;
+        delete c[from];
+      }
+    }),
+  );
+}

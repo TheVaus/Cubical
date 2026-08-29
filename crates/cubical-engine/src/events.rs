@@ -1404,6 +1404,18 @@ mod tests {
         }
 
         impl RecordingSink {
+            fn pending_counts(&self) -> Vec<i64> {
+                self.events
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter_map(|e| match e {
+                        AppEvent::PendingRewritesChanged(p) => Some(p.count),
+                        _ => None,
+                    })
+                    .collect()
+            }
+
             fn changed_paths(&self) -> Vec<String> {
                 self.events
                     .lock()
@@ -1612,6 +1624,35 @@ mod tests {
                 tokio::time::sleep(POLL_STEP).await;
             }
             false
+        }
+
+        #[tokio::test]
+        async fn adopting_an_external_rename_announces_the_queued_rewrites() {
+            let dir = tempdir().unwrap();
+            std::fs::write(dir.path().join("Daily.md"), "# Daily\n").unwrap();
+            std::fs::write(dir.path().join("Project.md"), "see [[Daily]] today\n").unwrap();
+            let sink = Arc::new(RecordingSink::default());
+            let live = live_vault_with_sink(&dir, &["Daily.md", "Project.md"], sink.clone()).await;
+
+            std::fs::rename(dir.path().join("Daily.md"), dir.path().join("Journal.md"))
+                .expect("out-of-band move");
+
+            wait_for_journal_entry(&live.vault, "Daily.md").await;
+
+            let mut announced = false;
+            for _ in 0..POLL_LIMIT {
+                if sink.pending_counts().iter().any(|c| *c > 0) {
+                    announced = true;
+                    break;
+                }
+                tokio::time::sleep(POLL_STEP).await;
+            }
+            assert!(
+                announced,
+                "a rename adopted from outside the app queues referrer rewrites the open \
+                 buffers do not have, so it must announce them (counts: {:?})",
+                sink.pending_counts(),
+            );
         }
 
         #[tokio::test]

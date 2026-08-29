@@ -92,7 +92,7 @@ import {
 import { fromTabSessionDto, toTabSessionDto } from "./tabs/session";
 import { activateWithFlush, type ActivationDeps } from "./tabs/activation";
 import { liveFileIds, touch } from "./tabs/lru";
-import { pruneContents } from "./tabs/contentCache";
+import { pruneContents, remapContentKeys } from "./tabs/contentCache";
 import { errorMessage } from "./errorMessage";
 import {
   createWikiLinkResolver,
@@ -577,22 +577,12 @@ const App: Component = () => {
         }
         return out;
       });
-      setContents(
-        produce((c) => {
-          for (const oldId of Object.keys(c)) {
-            const next = renamedId(oldId);
-            if (next === oldId) continue;
-            if (!(next in c)) c[next] = c[oldId]!;
-            delete c[oldId];
-          }
-        }),
-      );
+      remapContentKeys(setContents, contents, renamedId);
       wikilinkResolver()?.invalidate();
       embedResolver()?.invalidate();
       propertyResolver()?.invalidate();
       dataviewRunner()?.invalidate();
-      pruneContents(setContents, contents, (id) => id === tabs().activeId);
-      await doc.reloadFromDisk();
+      await refreshOpenBuffers();
       void refreshFileList();
       rightSidebarRefresh.schedule();
     } catch (e) {
@@ -673,6 +663,11 @@ const App: Component = () => {
       setError(errorMessage(e));
       setSelectedContent(null);
     }
+  };
+
+  const refreshOpenBuffers = async () => {
+    pruneContents(setContents, contents, (id) => id === tabs().activeId);
+    await doc.reloadFromDisk();
   };
 
   const resetDocState = () => {
@@ -895,6 +890,7 @@ const App: Component = () => {
     unlistenPendingChanged = await onVaultPendingRewritesChanged((p) => {
       if (p.vault_id !== vaultId()) return;
       setPendingRewritesCount(p.count);
+      void refreshOpenBuffers();
     });
     unlistenFlushComplete = await onVaultFlushComplete((p) => {
       if (p.vault_id !== vaultId()) return;
