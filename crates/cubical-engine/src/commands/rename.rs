@@ -3407,4 +3407,124 @@ mod tests {
             ),
         );
     }
+
+    async fn closed_app_case(
+        seed: &[(&str, &str)],
+        from: &str,
+        to: &str,
+    ) -> (Option<String>, Vec<(String, Vec<String>)>) {
+        let dir = tempdir().unwrap();
+        for (rel, body) in seed {
+            let abs = dir.path().join(rel);
+            std::fs::create_dir_all(abs.parent().unwrap()).unwrap();
+            std::fs::write(abs, body).unwrap();
+        }
+        {
+            let vault = Vault::open(dir.path()).await.expect("open");
+            let (tx, _rx) = tokio::sync::mpsc::channel(64);
+            cubical_core::vault::scan(vault.clone(), CancellationToken::new(), tx)
+                .await
+                .expect("scan");
+            vault
+                .index()
+                .connection()
+                .execute("UPDATE files SET last_seen = last_seen - 60", ())
+                .await
+                .unwrap();
+        }
+        let to_abs = dir.path().join(to);
+        std::fs::create_dir_all(to_abs.parent().unwrap()).unwrap();
+        std::fs::rename(dir.path().join(from), to_abs).unwrap();
+
+        let vault = Vault::open(dir.path()).await.expect("reopen");
+        let (tx, _rx) = tokio::sync::mpsc::channel(64);
+        cubical_core::vault::scan(vault.clone(), CancellationToken::new(), tx)
+            .await
+            .expect("rescan");
+
+        let state = AppState::new();
+        state.vaults().write().await.insert(
+            "v1".to_string(),
+            OpenVault::new(
+                vault.clone(),
+                CancellationToken::new(),
+                ScanStatusBackend::Complete,
+                None,
+                cubical_core::vault::settings::SettingsMap::new(),
+            ),
+        );
+        replay_rename_journal(&vault, &NoopEventSink, "v1").await;
+
+        let mut rows = vault
+            .index()
+            .connection()
+            .query(
+                "SELECT target_path FROM links WHERE source_path = 'Notes.md'",
+                (),
+            )
+            .await
+            .unwrap();
+        let resolved: Option<String> = match rows.next().await.unwrap() {
+            Some(r) => r.get(0).unwrap(),
+            None => None,
+        };
+        drop(rows);
+
+        let dangling = crate::commands::integrity::list_dangling_links(
+            &state,
+            crate::api::types::ListDanglingLinksRequest {
+                vault_id: "v1".into(),
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+        let groups = dangling
+            .groups
+            .into_iter()
+            .map(|g| {
+                (
+                    g.target_raw,
+                    g.candidates.into_iter().map(|c| c.path).collect::<Vec<_>>(),
+                )
+            })
+            .collect();
+        (resolved, groups)
+    }
+
+    const NOTES: (&str, &str) = ("Notes.md", "see [[Daily]]\n");
+
+    #[tokio::test]
+    async fn a_move_made_while_the_app_was_closed_still_resolves_by_name() {
+        let (resolved, _) = closed_app_case(
+            &[("Daily.md", "# Daily\n"), NOTES],
+            "Daily.md",
+            "archive/Daily.md",
+        )
+        .await;
+        assert_eq!(resolved.as_deref(), Some("archive/Daily.md"));
+    }
+
+    #[tokio::test]
+    async fn a_case_only_rename_made_while_the_app_was_closed_still_resolves() {
+        let (resolved, _) =
+            closed_app_case(&[("Daily.md", "# Daily\n"), NOTES], "Daily.md", "daily.md").await;
+        assert_eq!(resolved.as_deref(), Some("daily.md"));
+    }
+
+    #[tokio::test]
+    async fn a_closed_app_rename_is_offered_for_repair_when_the_title_survives() {
+        let (resolved, groups) = closed_app_case(
+            &[("Daily.md", "---\ntitle: Daily\n---\n"), NOTES],
+            "Daily.md",
+            "Journal.md",
+        )
+        .await;
+        assert_eq!(resolved, None, "the link is dangling");
+        assert_eq!(
+            groups,
+            vec![("Daily".to_string(), vec!["Journal.md".to_string()])],
+            "the frontmatter title carries the old name, so Integrity can offer the file",
+        );
+    }
 }
