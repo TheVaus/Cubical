@@ -1,13 +1,14 @@
 use crate::api::types::{DataviewQueryRequest, DataviewResult};
-use crate::commands::open::open_vault_cloned;
+use crate::commands::open::open_vault_cloned_for;
 use crate::error::CubicalError;
+use crate::plugins::Feature;
 use crate::state::AppState;
 
 pub async fn dataview_query(
     state: &AppState,
     req: DataviewQueryRequest,
 ) -> Result<DataviewResult, CubicalError> {
-    let vault = open_vault_cloned(state, &req.vault_id).await?;
+    let vault = open_vault_cloned_for(state, &req.vault_id, Feature::Dataview).await?;
 
     let query = match cubical_query::parse(&req.source) {
         Ok(q) => q,
@@ -82,6 +83,18 @@ mod tests {
     const BETA: &str =
         "---\nstatus: done\npriority: 1\ndue_date: \"2026-06-01\"\ntags: [project]\n---\n# Beta\n";
     const GAMMA: &str = "---\nstatus: in-progress\npriority: 2\ndue_date: \"2026-08-15\"\ntags: [project]\n---\n# Gamma\n";
+
+    async fn switch(state: &AppState, vault_id: &str, key: &str, on: bool) {
+        let settings = crate::commands::open::with_open_vault(state, vault_id, |open| {
+            std::sync::Arc::clone(&open.settings)
+        })
+        .await
+        .expect("vault open");
+        settings
+            .write()
+            .await
+            .insert(key.to_string(), serde_json::json!(on));
+    }
 
     async fn run_query(state: &AppState, vault_id: &str, source: &str) -> DataviewResult {
         dataview_query(
@@ -211,5 +224,33 @@ mod tests {
             .await
             .expect_err("vault-not-open");
         assert!(matches!(err, CubicalError::VaultNotOpen(v) if v == "ghost"));
+    }
+
+    #[tokio::test]
+    async fn a_query_is_refused_while_the_query_plugin_is_off() {
+        let (_d, state) = scanned_state("v1", &[("alpha.md", ALPHA)]).await;
+        switch(&state, "v1", "plugins.dataview_enabled", false).await;
+
+        let err = dataview_query(
+            &state,
+            DataviewQueryRequest {
+                vault_id: "v1".into(),
+                source: "LIST FROM #project".into(),
+            },
+        )
+        .await
+        .expect_err("a switched-off plugin must not be served");
+
+        assert!(matches!(err, CubicalError::FeatureDisabled(id) if id == "dataview"));
+    }
+
+    #[tokio::test]
+    async fn a_query_runs_again_once_the_plugin_is_switched_back_on() {
+        let (_d, state) = scanned_state("v1", &[("alpha.md", ALPHA)]).await;
+        switch(&state, "v1", "plugins.dataview_enabled", false).await;
+        switch(&state, "v1", "plugins.dataview_enabled", true).await;
+
+        let r = run_query(&state, "v1", "LIST FROM #project").await;
+        assert!(matches!(r, DataviewResult::List { .. }));
     }
 }

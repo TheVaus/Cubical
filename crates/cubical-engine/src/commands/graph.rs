@@ -112,13 +112,19 @@ pub async fn graph_snapshot(
     state: &AppState,
     req: GraphSnapshotRequest,
 ) -> Result<GraphSnapshot, CubicalError> {
-    let vault = crate::commands::open::open_vault_cloned(state, &req.vault_id).await?;
+    let vault = crate::commands::open::open_vault_cloned_for(
+        state,
+        &req.vault_id,
+        crate::plugins::Feature::GraphView,
+    )
+    .await?;
 
     let model = build_model(vault.index()).await?;
     Ok(apply_filter(&model, &req.filter))
 }
 
 pub async fn graph_layout<F>(
+    state: &AppState,
     registry: &LayoutRegistry,
     req: GraphLayoutRequest,
     mut on_frame: F,
@@ -126,6 +132,8 @@ pub async fn graph_layout<F>(
 where
     F: FnMut(LayoutFrame) + Send + 'static,
 {
+    crate::plugins::require(state, &req.vault_id, crate::plugins::Feature::GraphView).await?;
+
     let vault_id = req.vault_id.clone();
     let flag = registry.begin(&vault_id);
 
@@ -208,6 +216,39 @@ mod tests {
             ),
         );
         (dir, vault, state)
+    }
+
+    async fn state_with_vaults(ids: &[&str]) -> (TempDir, Arc<AppState>) {
+        let dir = tempdir().expect("tmpdir");
+        let state = AppState::new();
+        for id in ids {
+            let root = dir.path().join(id);
+            std::fs::create_dir_all(&root).expect("mkdir");
+            let vault = Vault::open(&root).await.expect("open");
+            state.vaults().write().await.insert(
+                (*id).to_string(),
+                OpenVault::new(
+                    vault,
+                    CancellationToken::new(),
+                    ScanStatusBackend::Complete,
+                    None,
+                    cubical_core::vault::settings::SettingsMap::new(),
+                ),
+            );
+        }
+        (dir, Arc::new(state))
+    }
+
+    async fn switch(state: &AppState, vault_id: &str, key: &str, on: bool) {
+        let settings = crate::commands::open::with_open_vault(state, vault_id, |open| {
+            std::sync::Arc::clone(&open.settings)
+        })
+        .await
+        .expect("vault open");
+        settings
+            .write()
+            .await
+            .insert(key.to_string(), serde_json::json!(on));
     }
 
     async fn seed_md(vault: &Vault, rel: &str) {
@@ -366,14 +407,20 @@ mod tests {
 
     #[tokio::test]
     async fn layout_streams_frames_and_completes_with_two_floats_per_node() {
+        let (_dir, state) = state_with_vaults(&["v1"]).await;
         let registry = Arc::new(LayoutRegistry::new());
         let frames = Arc::new(AtomicU32::new(0));
         let seen = Arc::clone(&frames);
 
-        let done = graph_layout(&registry, layout_request("v1", 6, 100), move |frame| {
-            assert_eq!(frame.positions.len(), 12);
-            seen.fetch_add(1, Ordering::Relaxed);
-        })
+        let done = graph_layout(
+            &state,
+            &registry,
+            layout_request("v1", 6, 100),
+            move |frame| {
+                assert_eq!(frame.positions.len(), 12);
+                seen.fetch_add(1, Ordering::Relaxed);
+            },
+        )
         .await
         .expect("layout");
 
@@ -384,8 +431,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_finished_layout_leaves_nothing_registered() {
+        let (_dir, state) = state_with_vaults(&["v1"]).await;
         let registry = Arc::new(LayoutRegistry::new());
-        graph_layout(&registry, layout_request("v1", 4, 20), |_| {})
+        graph_layout(&state, &registry, layout_request("v1", 4, 20), |_| {})
             .await
             .expect("layout");
         assert!(!registry.is_running("v1"));
@@ -393,17 +441,23 @@ mod tests {
 
     #[tokio::test]
     async fn cancelling_stops_the_frames_and_returns_promptly() {
+        let (_dir, state) = state_with_vaults(&["v1"]).await;
         let registry = Arc::new(LayoutRegistry::new());
         let frames = Arc::new(AtomicU32::new(0));
         let seen = Arc::clone(&frames);
         let canceller = Arc::clone(&registry);
 
         let started = Instant::now();
-        let err = graph_layout(&registry, layout_request("v1", 200, RUNAWAY), move |_| {
-            if seen.fetch_add(1, Ordering::Relaxed) == 0 {
-                canceller.cancel("v1");
-            }
-        })
+        let err = graph_layout(
+            &state,
+            &registry,
+            layout_request("v1", 200, RUNAWAY),
+            move |_| {
+                if seen.fetch_add(1, Ordering::Relaxed) == 0 {
+                    canceller.cancel("v1");
+                }
+            },
+        )
         .await
         .expect_err("should cancel");
         let elapsed = started.elapsed();
@@ -420,20 +474,28 @@ mod tests {
 
     #[tokio::test]
     async fn cancelling_one_vault_does_not_disturb_another() {
+        let (_dir, state) = state_with_vaults(&["v1", "v2"]).await;
         let registry = Arc::new(LayoutRegistry::new());
 
         let doomed = Arc::clone(&registry);
         let canceller = Arc::clone(&registry);
+        let slow_state = Arc::clone(&state);
         let slow_run = tokio::spawn(async move {
-            graph_layout(&doomed, layout_request("v1", 200, RUNAWAY), move |_| {
-                canceller.cancel("v1");
-            })
+            graph_layout(
+                &slow_state,
+                &doomed,
+                layout_request("v1", 200, RUNAWAY),
+                move |_| {
+                    canceller.cancel("v1");
+                },
+            )
             .await
         });
 
         let healthy = Arc::clone(&registry);
+        let fast_state = Arc::clone(&state);
         let fast_run = tokio::spawn(async move {
-            graph_layout(&healthy, layout_request("v2", 6, 50), |_| {}).await
+            graph_layout(&fast_state, &healthy, layout_request("v2", 6, 50), |_| {}).await
         });
 
         let done = fast_run.await.expect("join").expect("v2 layout");
@@ -447,13 +509,16 @@ mod tests {
 
     #[tokio::test]
     async fn a_second_layout_on_one_vault_cancels_the_first() {
+        let (_dir, state) = state_with_vaults(&["v1"]).await;
         let registry = Arc::new(LayoutRegistry::new());
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
 
         let first_registry = Arc::clone(&registry);
+        let first_state = Arc::clone(&state);
         let mut started = Some(tx);
         let first = tokio::spawn(async move {
             graph_layout(
+                &first_state,
                 &first_registry,
                 layout_request("v1", 200, RUNAWAY),
                 move |_| {
@@ -467,11 +532,37 @@ mod tests {
 
         rx.await.expect("the first layout reached its first frame");
 
-        graph_layout(&registry, layout_request("v1", 6, 50), |_| {})
+        graph_layout(&state, &registry, layout_request("v1", 6, 50), |_| {})
             .await
             .expect("second layout");
 
         let err = first.await.expect("join").expect_err("first cancelled");
         assert!(matches!(err, CubicalError::LayoutCancelled));
+    }
+
+    #[tokio::test]
+    async fn a_snapshot_is_refused_while_the_graph_plugin_is_off() {
+        let (_dir, _vault, state) = fresh_state_with_vault("v1").await;
+        switch(&state, "v1", "plugins.graph_view_enabled", false).await;
+
+        let err = graph_snapshot(&state, snapshot_request("v1", GraphFilter::default()))
+            .await
+            .expect_err("a switched-off plugin must not be served");
+
+        assert!(matches!(err, CubicalError::FeatureDisabled(id) if id == "graph-view"));
+    }
+
+    #[tokio::test]
+    async fn a_layout_is_refused_while_the_graph_plugin_is_off() {
+        let (_dir, state) = state_with_vaults(&["v1"]).await;
+        switch(&state, "v1", "plugins.graph_view_enabled", false).await;
+        let registry = Arc::new(LayoutRegistry::new());
+
+        let err = graph_layout(&state, &registry, layout_request("v1", 6, 50), |_| {})
+            .await
+            .expect_err("a switched-off plugin must not be served");
+
+        assert!(matches!(err, CubicalError::FeatureDisabled(id) if id == "graph-view"));
+        assert!(!registry.is_running("v1"), "a refusal registers no work");
     }
 }

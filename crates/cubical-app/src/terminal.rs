@@ -9,6 +9,7 @@ mod tests;
 pub use registry::TerminalRegistry;
 
 use base64::Engine as _;
+use cubical_engine::plugins::Feature;
 use cubical_engine::state::AppState;
 use registry::Entry;
 use spawn::OpenSpec;
@@ -55,19 +56,20 @@ pub struct TerminalOpenResponse {
     pub terminal_id: String,
 }
 
-#[tauri::command]
-pub async fn terminal_open(
-    state: tauri::State<'_, AppState>,
-    registry: tauri::State<'_, TerminalRegistry>,
-    vault_id: String,
+pub(crate) async fn prepare_open(
+    state: &AppState,
+    vault_id: &str,
     cols: u16,
     rows: u16,
-    on_output: Channel<TerminalChunk>,
-) -> Result<TerminalOpenResponse, String> {
+) -> Result<OpenSpec, String> {
+    cubical_engine::plugins::require(state, vault_id, Feature::Terminal)
+        .await
+        .map_err(|e| e.to_string())?;
+
     let info = cubical_engine::commands::vault::get_vault_info(
-        state.inner(),
+        state,
         cubical_engine::api::types::GetVaultInfoRequest {
-            vault_id: vault_id.clone(),
+            vault_id: vault_id.to_string(),
         },
     )
     .await
@@ -77,7 +79,19 @@ pub async fn terminal_open(
         tracing::warn!("could not refresh the agent instructions file: {e}");
     }
 
-    let spec = OpenSpec::shell(info.path, cols, rows);
+    Ok(OpenSpec::shell(info.path, cols, rows))
+}
+
+#[tauri::command]
+pub async fn terminal_open(
+    state: tauri::State<'_, AppState>,
+    registry: tauri::State<'_, TerminalRegistry>,
+    vault_id: String,
+    cols: u16,
+    rows: u16,
+    on_output: Channel<TerminalChunk>,
+) -> Result<TerminalOpenResponse, String> {
+    let spec = prepare_open(state.inner(), &vault_id, cols, rows).await?;
     let sink = Box::new(move |chunk| on_output.send(chunk).is_ok());
     let terminal_id = registry.open(&vault_id, spec, sink)?;
     Ok(TerminalOpenResponse { terminal_id })

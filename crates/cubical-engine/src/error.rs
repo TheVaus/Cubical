@@ -52,6 +52,9 @@ pub enum CubicalError {
 
     #[error("graph layout cancelled")]
     LayoutCancelled,
+
+    #[error("the {0} plugin is switched off for this vault")]
+    FeatureDisabled(String),
 }
 
 impl CubicalError {
@@ -72,6 +75,7 @@ impl CubicalError {
             Self::Search(_) => "Search",
             Self::InvalidRequest(_) => "InvalidRequest",
             Self::LayoutCancelled => "LayoutCancelled",
+            Self::FeatureDisabled(_) => "FeatureDisabled",
         }
     }
 }
