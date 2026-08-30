@@ -7,7 +7,9 @@ import Icon from "@ds/components/graphics/Icon/Icon";
 import type { FileEntry } from "../api/ipc";
 import type { LeftSidebarMode } from "../settings/settingsState";
 import FeatureBoundary from "../core/FeatureBoundary";
-import SearchPanel from "../sidebar/SearchPanel";
+import SearchBar from "../sidebar/SearchBar";
+import SearchResults from "../sidebar/SearchResults";
+import { createSearchState } from "../sidebar/searchState";
 import FileTreePanel from "./FileTreePanel";
 import TagTreePanel from "./TagTreePanel";
 import type { FileActions } from "./fileActions";
@@ -35,6 +37,11 @@ const MODES = [
 const ExplorerPanel: Component<ExplorerPanelProps> = (props) => {
   const [reloadToken, setReloadToken] = createSignal(0);
   const [syncedSignal, setSyncedSignal] = createSignal(0);
+
+  const searchState = createSearchState({
+    vaultId: () => props.vaultId,
+    refreshSignal: () => props.refreshSignal,
+  });
 
   const reloadTags = () => {
     setSyncedSignal(props.refreshSignal);
@@ -66,88 +73,114 @@ const ExplorerPanel: Component<ExplorerPanelProps> = (props) => {
   };
 
   return (
-    <SearchPanel
-      vaultId={props.vaultId}
-      onNavigate={props.onNavigate}
-      refreshSignal={props.refreshSignal}
+    <div
+      style={{
+        flex: 1,
+        "min-height": 0,
+        "min-width": 0,
+        display: "flex",
+        "flex-direction": "column",
+        gap: "var(--space-2)",
+      }}
     >
+      <FeatureBoundary feature="Search">
+        <SearchBar state={searchState} />
+      </FeatureBoundary>
+
       <div
-        class="tree-header"
         style={{
+          position: "relative",
+          flex: 1,
+          "min-height": 0,
+          "min-width": 0,
           display: "flex",
-          "align-items": "center",
-          "justify-content": "space-between",
-          gap: "var(--space-2)",
-          padding: "var(--space-1) var(--space-2)",
+          "flex-direction": "column",
         }}
       >
-        <SegmentedControl
-          options={MODES}
-          value={props.mode}
-          variant="tabs"
-          role="tablist"
-          onChange={props.onModeChange}
-        />
-        <span style={{ display: "flex", gap: "var(--space-1)" }}>
-          <Show when={props.mode === "files"}>
+        <div
+          class="tree-header"
+          style={{
+            display: "flex",
+            "align-items": "center",
+            "justify-content": "space-between",
+            gap: "var(--space-2)",
+            padding: "var(--space-1) var(--space-2)",
+          }}
+        >
+          <SegmentedControl
+            options={MODES}
+            value={props.mode}
+            variant="tabs"
+            role="tablist"
+            onChange={props.onModeChange}
+          />
+          <span style={{ display: "flex", gap: "var(--space-1)" }}>
+            <Show when={props.mode === "files"}>
+              <IconButton
+                label="New file"
+                size="sm"
+                disabled={!props.vaultId}
+                onClick={() => void props.actions.newFile("")}
+                style={{ "font-size": "var(--text-sm)" }}
+              >
+                <Icon name="plus" />
+              </IconButton>
+              <IconButton
+                label="New folder"
+                size="sm"
+                disabled={!props.vaultId}
+                onClick={() => void props.actions.newFolder("")}
+                style={{ "font-size": "var(--text-sm)" }}
+              >
+                <Icon name="folder-plus" />
+              </IconButton>
+            </Show>
             <IconButton
-              label="New file"
+              label={refreshLabel()}
               size="sm"
-              disabled={!props.vaultId}
-              onClick={() => void props.actions.newFile("")}
+              disabled={!props.vaultId || refreshDisabled()}
+              onClick={handleRefresh}
               style={{ "font-size": "var(--text-sm)" }}
             >
-              <Icon name="plus" />
+              <Icon name="refresh-cw" />
             </IconButton>
-            <IconButton
-              label="New folder"
-              size="sm"
-              disabled={!props.vaultId}
-              onClick={() => void props.actions.newFolder("")}
-              style={{ "font-size": "var(--text-sm)" }}
-            >
-              <Icon name="folder-plus" />
-            </IconButton>
-          </Show>
-          <IconButton
-            label={refreshLabel()}
-            size="sm"
-            disabled={!props.vaultId || refreshDisabled()}
-            onClick={handleRefresh}
-            style={{ "font-size": "var(--text-sm)" }}
-          >
-            <Icon name="refresh-cw" />
-          </IconButton>
-        </span>
-      </div>
+          </span>
+        </div>
 
-      <FeatureBoundary feature="File tree">
-        <Show
-          when={props.mode === "tags"}
-          fallback={
-            <FileTreePanel
+        <FeatureBoundary feature="File tree">
+          <Show
+            when={props.mode === "tags"}
+            fallback={
+              <FileTreePanel
+                files={props.files}
+                folders={props.folders}
+                vaultId={props.vaultId}
+                selectedPath={props.selectedPath}
+                actions={props.actions}
+                onSelectFile={props.onSelectFile}
+                onRenameCommit={props.onRenameCommit}
+              />
+            }
+          >
+            <TagTreePanel
               files={props.files}
-              folders={props.folders}
               vaultId={props.vaultId}
               selectedPath={props.selectedPath}
+              reloadToken={reloadToken()}
               actions={props.actions}
               onSelectFile={props.onSelectFile}
               onRenameCommit={props.onRenameCommit}
             />
-          }
-        >
-          <TagTreePanel
-            files={props.files}
-            vaultId={props.vaultId}
-            selectedPath={props.selectedPath}
-            reloadToken={reloadToken()}
-            actions={props.actions}
-            onSelectFile={props.onSelectFile}
-            onRenameCommit={props.onRenameCommit}
-          />
+          </Show>
+        </FeatureBoundary>
+
+        <Show when={searchState.isSearching()}>
+          <FeatureBoundary feature="Search results">
+            <SearchResults state={searchState} onNavigate={props.onNavigate} />
+          </FeatureBoundary>
         </Show>
-      </FeatureBoundary>
-    </SearchPanel>
+      </div>
+    </div>
   );
 };
 

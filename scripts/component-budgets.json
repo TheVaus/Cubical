@@ -46,12 +46,6 @@
       "kind": "bespoke",
       "note": "One Lezer tree walk producing every Live Preview decoration. Splitting by mark type would mean several walks, against the measured-performance bar."
     },
-    "ui/src/sidebar/SearchPanel.tsx": {
-      "max_lines": 634,
-      "kind": "debt",
-      "issue": 86,
-      "note": "Query state, result grouping and the roving-tabindex result list."
-    },
     "ui/src/ast/normalize.ts": {
       "max_lines": 551,
       "kind": "bespoke",
