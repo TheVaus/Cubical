@@ -492,6 +492,40 @@ Config values are JSON-encoded so non-string types round-trip. A missing key
 and a stored JSON `null` are **distinct** results; a value that isn't valid
 JSON is surfaced as an invalid-request error rather than panicking.
 
+## Feature toggles gate commands, not derived state
+
+**Anchors:** Feature, open_vault_cloned_for
+
+`plugins.*_enabled` keys decide whether the engine will **serve a command**, not
+whether it will **build derived state**. Those are different questions and the
+answers deliberately differ.
+
+Derived state stays warm. Property-ref link rows, the graph model and the search
+index are built whether or not their feature is on, because
+[composability](../principles/composability.md) already says switching a feature
+off drops its derived state and rebuilds it if it comes back — so keeping it
+current costs a little work and makes the toggle instant, and skipping it would
+buy nothing a rescan does not already provide.
+
+Commands are refused. `cubical_engine::plugins::Feature` maps a feature to its
+setting key, its default and what it requires, and `open_vault_cloned_for`
+applies the check as part of the vault lookup every command already performs.
+The gate is one chokepoint rather than a check per command because the reason
+the toggle was unenforced is that there is more than one caller: the frontend
+was the only thing declining to call `terminal_open`, while the CLI socket
+never consulted the setting and a plugin host would be a third caller. A
+per-command check repeats the omission at each new entry point; a check inside
+the shared preamble cannot be forgotten.
+
+This is what [native-capability-gateway](../principles/native-capability-gateway.md)
+requires of the terminal specifically. `plugins.terminal_enabled` defaults to
+**false**, and before this the backend would spawn a PTY for a caller that
+simply asked.
+
+Defaults live in two places that must agree — `Feature::default_enabled` here
+and the registry in `ui/src/settings/corePlugins.ts` — so a test parses the
+TypeScript and asserts the Rust matches, key for key and default for default.
+
 ## Lock discipline
 
 **Anchors:** with_open_vault · open_vault_cloned

@@ -8,6 +8,7 @@ pub const DEFAULT_GRACE: Duration = Duration::from_millis(1500);
 pub const FALLBACK_SHELL: &str = "/bin/sh";
 pub const VAULT_ENV: &str = "CUBICAL_VAULT";
 
+#[derive(Debug)]
 pub struct OpenSpec {
     pub program: PathBuf,
     pub args: Vec<String>,

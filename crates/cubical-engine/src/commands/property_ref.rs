@@ -4,15 +4,16 @@ use cubical_core::vault::pending::materialize_on_read;
 use cubical_index::all_file_paths;
 
 use crate::api::types::{GetPropertyRequest, GetPropertyResponse, PropertyRefKind};
-use crate::commands::open::open_vault_cloned;
+use crate::commands::open::open_vault_cloned_for;
 use crate::error::CubicalError;
+use crate::plugins::Feature;
 use crate::state::AppState;
 
 pub async fn get_property(
     state: &AppState,
     req: GetPropertyRequest,
 ) -> Result<GetPropertyResponse, CubicalError> {
-    let vault = open_vault_cloned(state, &req.vault_id).await?;
+    let vault = open_vault_cloned_for(state, &req.vault_id, Feature::PropertyRefs).await?;
     let known = all_file_paths(vault.index()).await?;
 
     let Some(target_path) = resolve_target(&req.note_raw, &known) else {
@@ -75,6 +76,18 @@ mod tests {
             ),
         );
         (vault, state)
+    }
+
+    async fn switch(state: &AppState, vault_id: &str, key: &str, on: bool) {
+        let settings = crate::commands::open::with_open_vault(state, vault_id, |open| {
+            std::sync::Arc::clone(&open.settings)
+        })
+        .await
+        .expect("vault open");
+        settings
+            .write()
+            .await
+            .insert(key.to_string(), serde_json::json!(on));
     }
 
     async fn scan(vault: &Vault) {
@@ -207,5 +220,27 @@ mod tests {
         .await
         .expect("ok");
         assert!(matches!(resp.kind, PropertyRefKind::NoteUnresolved));
+    }
+
+    #[tokio::test]
+    async fn a_property_read_is_refused_while_property_refs_is_off() {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("Gandalf.md"), "---\nage: 2019\n---\n").unwrap();
+        let (vault, state) = state_with_vault_at(dir.path(), "v1").await;
+        scan(&vault).await;
+        switch(&state, "v1", "plugins.property_refs_enabled", false).await;
+
+        let err = get_property(
+            &state,
+            GetPropertyRequest {
+                vault_id: "v1".into(),
+                note_raw: "Gandalf".into(),
+                property: "age".into(),
+            },
+        )
+        .await
+        .expect_err("a switched-off plugin must not be served");
+
+        assert!(matches!(err, CubicalError::FeatureDisabled(id) if id == "property-refs"));
     }
 }

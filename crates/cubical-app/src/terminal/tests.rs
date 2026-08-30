@@ -10,6 +10,7 @@ use super::spawn::{
     app_bin_dir, build_command, prepend_path, shell_from, FALLBACK_SHELL, VAULT_ENV,
 };
 use super::{TerminalChunk, TerminalExit};
+use cubical_engine::state::AppState;
 
 #[cfg(unix)]
 const SETTLE: Duration = Duration::from_secs(5);
@@ -420,4 +421,62 @@ fn an_unknown_terminal_id_is_an_error_not_a_panic() {
     assert!(registry.resize("term-nope", 10, 10).is_err());
     assert!(registry.take("term-nope").is_none());
     assert!(!registry.has_foreground_child("term-nope"));
+}
+
+async fn state_with_terminal(enabled: Option<bool>) -> (tempfile::TempDir, AppState) {
+    use cubical_core::vault::settings::SettingsMap;
+    use cubical_engine::state::{OpenVault, ScanStatusBackend};
+    use tokio_util::sync::CancellationToken;
+
+    let dir = tempfile::tempdir().expect("tmpdir");
+    let vault = cubical_core::Vault::open(dir.path()).await.expect("open");
+    let mut settings = SettingsMap::new();
+    if let Some(on) = enabled {
+        settings.insert("plugins.terminal_enabled".into(), serde_json::json!(on));
+    }
+    let state = AppState::new();
+    state.vaults().write().await.insert(
+        "v1".to_string(),
+        OpenVault::new(
+            vault,
+            CancellationToken::new(),
+            ScanStatusBackend::Complete,
+            None,
+            settings,
+        ),
+    );
+    (dir, state)
+}
+
+#[tokio::test]
+async fn no_pty_is_prepared_while_the_terminal_plugin_is_off_by_default() {
+    let (_dir, state) = state_with_terminal(None).await;
+
+    let err = super::prepare_open(&state, "v1", 80, 24)
+        .await
+        .expect_err("the terminal defaults off and must not spawn a shell");
+
+    assert!(err.contains("terminal"), "the refusal must name the plugin");
+}
+
+#[tokio::test]
+async fn an_explicitly_switched_off_terminal_is_refused_too() {
+    let (_dir, state) = state_with_terminal(Some(false)).await;
+    assert!(super::prepare_open(&state, "v1", 80, 24).await.is_err());
+}
+
+#[tokio::test]
+async fn switching_the_plugin_on_prepares_a_terminal_at_the_vault_root() {
+    let (dir, state) = state_with_terminal(Some(true)).await;
+
+    let spec = super::prepare_open(&state, "v1", 80, 24)
+        .await
+        .expect("switched on");
+
+    assert_eq!(spec.cols, 80);
+    assert_eq!(spec.rows, 24);
+    assert_eq!(
+        std::fs::canonicalize(&spec.vault_root).expect("canonicalize"),
+        std::fs::canonicalize(dir.path()).expect("canonicalize"),
+    );
 }

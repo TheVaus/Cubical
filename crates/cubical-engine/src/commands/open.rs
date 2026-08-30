@@ -1,6 +1,9 @@
+use std::sync::Arc;
+
 use cubical_core::Vault;
 
 use crate::error::CubicalError;
+use crate::plugins::{ensure_active, Feature};
 use crate::state::{AppState, OpenVault};
 
 pub(crate) async fn with_open_vault<T, F>(
@@ -23,6 +26,19 @@ pub(crate) async fn open_vault_cloned(
     vault_id: &str,
 ) -> Result<Vault, CubicalError> {
     with_open_vault(state, vault_id, |open| open.vault.clone()).await
+}
+
+pub(crate) async fn open_vault_cloned_for(
+    state: &AppState,
+    vault_id: &str,
+    feature: Feature,
+) -> Result<Vault, CubicalError> {
+    let (vault, settings) = with_open_vault(state, vault_id, |open| {
+        (open.vault.clone(), Arc::clone(&open.settings))
+    })
+    .await?;
+    ensure_active(&settings, feature).await?;
+    Ok(vault)
 }
 
 #[cfg(test)]
