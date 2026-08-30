@@ -354,13 +354,15 @@ pub(crate) async fn apply_watch_event_to_db(
                 tracing::warn!(path = %path_str, error = %e, "watcher: folder upsert failed");
             }
             let (message, detail) = audit_payload_for(ev);
-            if let Err(e) = conn
-                .execute(
-                    "INSERT INTO audit_log (timestamp, level, category, message, detail)
-                     VALUES (?1, 'info', 'watcher', ?2, ?3)",
-                    params![now, message, detail],
-                )
-                .await
+            if let Err(e) = cubical_index::append_audit(
+                vault.index(),
+                cubical_index::AuditLevel::Info,
+                "watcher",
+                &message,
+                &detail,
+                now,
+            )
+            .await
             {
                 tracing::warn!(error = %e, "watcher: folder audit_log insert failed");
             }
@@ -514,13 +516,15 @@ pub(crate) async fn apply_watch_event_to_db(
     };
 
     let (message, detail) = audit_payload_for(ev);
-    if let Err(e) = conn
-        .execute(
-            "INSERT INTO audit_log (timestamp, level, category, message, detail)
-             VALUES (?1, 'info', 'watcher', ?2, ?3)",
-            params![now, message, detail],
-        )
-        .await
+    if let Err(e) = cubical_index::append_audit(
+        vault.index(),
+        cubical_index::AuditLevel::Info,
+        "watcher",
+        &message,
+        &detail,
+        now,
+    )
+    .await
     {
         tracing::warn!(error = %e, "watcher: audit_log insert failed");
     }

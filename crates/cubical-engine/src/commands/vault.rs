@@ -87,7 +87,25 @@ pub async fn open_vault(
     let cancel = CancellationToken::new();
 
     let (watch_tx, watch_rx) = mpsc::channel::<WatchEvent>(WATCHER_CHANNEL_DEPTH);
-    let watcher = start_watcher(&vault, cancel.clone(), watch_tx)?;
+    let watcher = match start_watcher(&vault, cancel.clone(), watch_tx) {
+        Ok(handle) => Some(handle),
+        Err(e) => {
+            tracing::warn!(error = %e, "watcher failed to start; vault opens without live updates");
+            if let Err(audit_err) = cubical_index::append_audit(
+                vault.index(),
+                cubical_index::AuditLevel::Warn,
+                "watcher_unavailable",
+                "watcher failed to start; external edits will not be seen until reopen",
+                &serde_json::json!({ "error": e.to_string() }).to_string(),
+                unix_now_secs(),
+            )
+            .await
+            {
+                tracing::warn!(error = %audit_err, "watcher_unavailable audit insert failed");
+            }
+            None
+        }
+    };
 
     let settings = cubical_core::vault::settings::load(vault.root()).unwrap_or_else(|e| {
         tracing::warn!("settings load failed, using defaults: {e}");
@@ -98,7 +116,7 @@ pub async fn open_vault(
         vault.clone(),
         cancel.clone(),
         ScanStatusBackend::InProgress,
-        Some(watcher),
+        watcher,
         settings,
     );
     open.lock_guard = Some(lock_guard);
@@ -664,17 +682,15 @@ pub async fn write_file_text(
                     "actual": current_hash,
                 })
                 .to_string();
-                if let Err(e) = conn
-                    .execute(
-                        "INSERT INTO audit_log (timestamp, level, category, message, detail)
-                         VALUES (?1, 'warn', 'external_edit_override', ?2, ?3)",
-                        libsql::params![
-                            now,
-                            format!("override external edit on {}", req.path),
-                            detail,
-                        ],
-                    )
-                    .await
+                if let Err(e) = cubical_index::append_audit(
+                    open.vault.index(),
+                    cubical_index::AuditLevel::Warn,
+                    "external_edit_override",
+                    &format!("override external edit on {}", req.path),
+                    &detail,
+                    now,
+                )
+                .await
                 {
                     tracing::warn!(error = %e, "write_file_text: external_edit_override audit insert failed");
                 }
@@ -703,13 +719,15 @@ pub async fn write_file_text(
             "new_content_hash": new_hash,
         })
         .to_string();
-        if let Err(e) = conn
-            .execute(
-                "INSERT INTO audit_log (timestamp, level, category, message, detail)
-                 VALUES (?1, 'info', 'autosave', ?2, ?3)",
-                libsql::params![now, format!("autosave {}", req.path), detail],
-            )
-            .await
+        if let Err(e) = cubical_index::append_audit(
+            open.vault.index(),
+            cubical_index::AuditLevel::Info,
+            "autosave",
+            &format!("autosave {}", req.path),
+            &detail,
+            now,
+        )
+        .await
         {
             tracing::warn!(error = %e, "write_file_text: autosave audit insert failed");
         }

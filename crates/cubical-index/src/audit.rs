@@ -5,6 +5,39 @@ use crate::runner::IndexConn;
 
 pub const AUDIT_LOG_MAX_ROWS: i64 = 10_000;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuditLevel {
+    Info,
+    Warn,
+}
+
+impl AuditLevel {
+    fn as_str(self) -> &'static str {
+        match self {
+            AuditLevel::Info => "info",
+            AuditLevel::Warn => "warn",
+        }
+    }
+}
+
+pub async fn append_audit(
+    conn: &IndexConn,
+    level: AuditLevel,
+    category: &str,
+    message: &str,
+    detail: &str,
+    now: i64,
+) -> Result<(), IndexError> {
+    conn.connection()
+        .execute(
+            "INSERT INTO audit_log (timestamp, level, category, message, detail)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![now, level.as_str(), category, message, detail],
+        )
+        .await?;
+    Ok(())
+}
+
 pub async fn prune_audit_log(conn: &IndexConn, max_rows: i64) -> Result<u64, IndexError> {
     prune_audit_log_conn(conn.connection(), max_rows).await
 }
@@ -108,5 +141,37 @@ mod tests {
 
         assert_eq!(prune_audit_log(&conn, 10).await.unwrap(), 0);
         assert_eq!(count(&conn).await, 0);
+    }
+}
+
+#[cfg(test)]
+mod append_tests {
+    use super::*;
+    use crate::runner::open_index;
+    use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn append_writes_the_level_as_text() {
+        let dir = tempdir().unwrap();
+        let conn = open_index(&dir.path().join("index.db")).await.unwrap();
+
+        append_audit(&conn, AuditLevel::Warn, "watcher_unavailable", "m", "{}", 7)
+            .await
+            .unwrap();
+
+        let mut rows = conn
+            .connection()
+            .query(
+                "SELECT level, category, message, detail, timestamp FROM audit_log",
+                (),
+            )
+            .await
+            .unwrap();
+        let r = rows.next().await.unwrap().unwrap();
+        assert_eq!(r.get::<String>(0).unwrap(), "warn");
+        assert_eq!(r.get::<String>(1).unwrap(), "watcher_unavailable");
+        assert_eq!(r.get::<String>(2).unwrap(), "m");
+        assert_eq!(r.get::<String>(3).unwrap(), "{}");
+        assert_eq!(r.get::<i64>(4).unwrap(), 7);
     }
 }
