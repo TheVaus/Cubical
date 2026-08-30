@@ -1,3 +1,4 @@
+use cubical_ast::note_title;
 use cubical_core::vault::links::read_source_off_executor;
 use cubical_core::vault::mentions::{find_mention_occurrences, MentionHit};
 use cubical_core::vault::pending::materialize_on_read;
@@ -22,7 +23,7 @@ pub async fn get_unlinked_mentions(
     let root = vault.root().to_path_buf();
     let conn = vault.index().connection().clone();
 
-    let title = title_from_path(&req.path);
+    let title = note_title(&req.path).to_string();
     if title.is_empty() {
         return Ok(GetUnlinkedMentionsResponse {
             mentions: Vec::new(),
@@ -193,11 +194,6 @@ fn matched_neighbor_ok(source: &str, byte_idx: usize, before: bool) -> bool {
             Some(c) => !c.is_alphanumeric() && c != '_',
         }
     }
-}
-
-fn title_from_path(path: &str) -> String {
-    let base = path.rsplit('/').next().unwrap_or(path);
-    base.strip_suffix(".md").unwrap_or(base).to_string()
 }
 
 fn build_needles(title: &str, aliases: &[String]) -> Vec<String> {

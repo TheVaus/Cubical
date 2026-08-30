@@ -1,3 +1,4 @@
+use cubical_ast::note_title;
 use cubical_index::IndexConn;
 use libsql::{params_from_iter, Value as SqlValue};
 use serde::Serialize;
@@ -31,14 +32,6 @@ pub enum QueryResult {
     Count {
         count: usize,
     },
-}
-
-fn title_of(path: &str) -> String {
-    std::path::Path::new(path)
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .map(str::to_string)
-        .unwrap_or_else(|| path.to_string())
 }
 
 fn to_sql_values(params: &[SqlParam]) -> Vec<SqlValue> {
@@ -81,7 +74,7 @@ pub async fn run(conn: &IndexConn, q: &Query) -> Result<QueryResult, QueryError>
             let mut notes = Vec::new();
             while let Some(row) = rows.next().await? {
                 let path: String = row.get(0)?;
-                let title = title_of(&path);
+                let title = note_title(&path).to_string();
                 notes.push(NoteRef { path, title });
             }
             Ok(QueryResult::List { notes })
@@ -92,7 +85,7 @@ pub async fn run(conn: &IndexConn, q: &Query) -> Result<QueryResult, QueryError>
             while let Some(row) = rows.next().await? {
                 let path: String = row.get(0)?;
                 let note = NoteRef {
-                    title: title_of(&path),
+                    title: note_title(&path).to_string(),
                     path,
                 };
                 let mut cells = Vec::with_capacity(cols.len());

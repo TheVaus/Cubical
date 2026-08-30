@@ -1,3 +1,4 @@
+use cubical_ast::{note_title, strip_markdown_extension};
 use cubical_core::unix_now_secs;
 use std::collections::HashSet;
 
@@ -23,7 +24,7 @@ use crate::api::types::{
     RenameFileRequest, RenameFileResponse, RenameFolderRequest, RenameFolderResponse,
     RenameTagRequest, RenameTagResponse, UndoRenameRequest, UndoRenameResponse,
 };
-use crate::commands::link_match::{basename_without_md, link_name_forms, strip_md_suffix};
+use crate::commands::link_match::link_name_forms;
 use crate::commands::open::{open_vault_cloned, with_open_vault};
 use crate::commands::paths;
 use crate::error::CubicalError;
@@ -67,10 +68,10 @@ pub(super) async fn mint_rename_op_id(vault: &cubical_core::Vault) -> Result<i64
 }
 
 fn derive_wikilink_new_token(target_raw: &str, from_path: &str, to_path: &str) -> String {
-    if target_raw == basename_without_md(from_path) {
-        basename_without_md(to_path).to_string()
+    if target_raw == note_title(from_path) {
+        note_title(to_path).to_string()
     } else {
-        strip_md_suffix(to_path).to_string()
+        strip_markdown_extension(to_path).to_string()
     }
 }
 

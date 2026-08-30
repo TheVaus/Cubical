@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use cubical_ast::{Anchor, Block, Document, Inline, ListItem};
+use cubical_ast::{basename, strip_markdown_extension, Anchor, Block, Document, Inline, ListItem};
 use cubical_index::{replace_links_for_file, LinkRow};
 
 use crate::vault::parse::parse_off_executor;
@@ -193,11 +193,12 @@ impl PathResolver {
         let mut exact_stem: HashMap<String, usize> = HashMap::new();
         for (i, f) in paths.iter().enumerate() {
             exact.insert(f.clone(), i);
-            if let Some(stem) = f.strip_suffix(".md") {
+            let stem = strip_markdown_extension(f);
+            if stem != f.as_str() {
                 exact_stem.insert(stem.to_string(), i);
             }
-            let base = f.rsplit('/').next().unwrap_or(f);
-            let base_no_ext = base.strip_suffix(".md").unwrap_or(base);
+            let base = basename(f);
+            let base_no_ext = strip_markdown_extension(base);
             by_basename
                 .entry(fold_name(base_no_ext))
                 .or_default()

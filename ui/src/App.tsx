@@ -131,7 +131,12 @@ import {
 import { leadingSeparators } from "./statusbar/separators";
 import { ToastHost } from "./ToastHost";
 import { showToast } from "./toastState";
-import { reprefixNestedPath, validateRenameTarget } from "./fileRename";
+import {
+  renameTarget,
+  reprefixNestedPath,
+  validateRenameTarget,
+} from "./fileRename";
+import { noteTitle } from "./vault/noteName";
 import { watchSystemTheme } from "./styles/theme";
 import Backlinks from "./sidebar/Backlinks";
 import UnlinkedMentions from "./sidebar/UnlinkedMentions";
@@ -257,11 +262,6 @@ const App: Component = () => {
   const [vaultTags, setVaultTags] = createSignal<string[]>([]);
   const [tagsLoaded, setTagsLoaded] = createSignal(false);
 
-  const fileStem = (path: string) => {
-    const base = path.split("/").pop() ?? path;
-    return base.endsWith(".md") ? base.slice(0, -3) : base;
-  };
-
   const ensureTagsLoaded = async () => {
     const id = vaultId();
     if (!id || tagsLoaded()) return;
@@ -289,7 +289,7 @@ const App: Component = () => {
   const omniItems = createMemo<OmniItem[]>(() => {
     const notes: OmniItem[] = files()
       .filter((f) => f.type_id === "markdown")
-      .map((f) => ({ kind: "note", title: fileStem(f.path), path: f.path }));
+      .map((f) => ({ kind: "note", title: noteTitle(f.path), path: f.path }));
     const tags: OmniItem[] = vaultTags().map((t) => ({ kind: "tag", tag: t }));
     const commands: OmniItem[] = OMNI_COMMANDS.map((c) => ({
       kind: "command",
@@ -304,7 +304,7 @@ const App: Component = () => {
       .sort((a, b) => (b.mtime_unix ?? 0) - (a.mtime_unix ?? 0))
       .slice(0, 10)
       .map((f) => ({
-        item: { kind: "note" as const, title: fileStem(f.path), path: f.path },
+        item: { kind: "note" as const, title: noteTitle(f.path), path: f.path },
         score: 0,
         matchedIndices: [],
       })),
@@ -602,20 +602,13 @@ const App: Component = () => {
     }
   };
 
-  // Markdown titles are shown stem-only and get .md reattached. A plain-text
-  // file carries its extension in the title, so it renames to what was typed —
-  // reattaching .md would turn notes.txt into notes.txt.md.
-  const titleValue = (path: string) =>
-    path.endsWith(".md") ? fileStem(path) : (path.split("/").pop() ?? path);
-
   const commitTitleRename = (fromPath: string, typed: string) => {
     const name = typed.trim();
     if (!name) return;
-    const slash = fromPath.lastIndexOf("/");
-    const dir = slash >= 0 ? fromPath.slice(0, slash + 1) : "";
-    const target = fromPath.endsWith(".md")
-      ? `${dir}${name}.md`
-      : `${dir}${name}`;
+    const target = renameTarget(
+      fromPath,
+      fromPath.endsWith(".md") ? `${name}.md` : name,
+    );
     if (target === fromPath) return;
     void handleRenameCommit(fromPath, target);
   };
@@ -1327,14 +1320,14 @@ const App: Component = () => {
                                 // Only note names are renameable here:
                                 // isValidNoteName rejects every dotted name.
                                 readOnly={!path.endsWith(".md")}
-                                value={titleValue(path)}
+                                value={noteTitle(path)}
                                 onKeyDown={(e) => {
                                   if (e.key === "Enter") {
                                     e.preventDefault();
                                     e.currentTarget.blur();
                                   } else if (e.key === "Escape") {
                                     e.preventDefault();
-                                    e.currentTarget.value = titleValue(path);
+                                    e.currentTarget.value = noteTitle(path);
                                     e.currentTarget.blur();
                                   }
                                 }}

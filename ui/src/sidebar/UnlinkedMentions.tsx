@@ -14,7 +14,7 @@ import {
   linkMention,
   type Mention,
 } from "../api/ipc";
-import { basenameWithoutExtension } from "./backlinksState";
+import { noteTitle } from "../vault/noteName";
 import { errorMessage } from "../errorMessage";
 import {
   mentionKey,
@@ -84,7 +84,7 @@ const UnlinkedMentions: Component<UnlinkedMentionsProps> = (props) => {
         source_path: m.source_path,
         position: m.position,
         byte_len: m.byte_len,
-        target_title: basenameWithoutExtension(openPath),
+        target_title: noteTitle(openPath),
       });
       setState(
         reduceMentionsState(untrack(state), { type: "mention:linked", key: k }),
@@ -222,7 +222,7 @@ const UnlinkedMentions: Component<UnlinkedMentionsProps> = (props) => {
                             "white-space": "nowrap",
                           }}
                         >
-                          {basenameWithoutExtension(m.source_path)}
+                          {noteTitle(m.source_path)}
                         </span>
                         <span
                           style={{
@@ -254,7 +254,7 @@ const UnlinkedMentions: Component<UnlinkedMentionsProps> = (props) => {
                             size="sm"
                             disabled={isPending()}
                             ariaLabel={`Link this mention to ${
-                              basenameWithoutExtension(props.path ?? "") ||
+                              noteTitle(props.path ?? "") ||
                               "the open note"
                             }`}
                             onClick={() => void handleLink(m)}

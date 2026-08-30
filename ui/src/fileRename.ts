@@ -1,4 +1,9 @@
-import { isValidNoteName, noteNameError } from "./vault/noteName";
+import {
+  basename,
+  isValidNoteName,
+  noteNameError,
+  parentPrefix,
+} from "./vault/noteName";
 
 export type RenameValidationError =
   | { code: "empty"; message: string }
@@ -18,7 +23,7 @@ export function validateRenameTarget(
     return { code: "same", message: "Name unchanged." };
   }
   if (!isFolder) {
-    const base = trimmed.slice(trimmed.lastIndexOf("/") + 1);
+    const base = basename(trimmed);
     if (!isValidNoteName(base)) {
       return { code: "dotted", message: noteNameError(base) };
     }
@@ -26,10 +31,8 @@ export function validateRenameTarget(
   return null;
 }
 
-export function renameTarget(fromPath: string, basename: string): string {
-  const i = fromPath.lastIndexOf("/");
-  const dir = i >= 0 ? fromPath.slice(0, i + 1) : "";
-  return dir + basename.trim();
+export function renameTarget(fromPath: string, name: string): string {
+  return parentPrefix(fromPath) + name.trim();
 }
 
 export function reprefixNestedPath(

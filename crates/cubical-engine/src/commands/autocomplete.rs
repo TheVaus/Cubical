@@ -1,5 +1,4 @@
-use std::path::Path;
-
+use cubical_ast::note_title;
 use cubical_core::vault::links::resolve_target;
 use cubical_index::{
     all_file_paths, all_tag_paths, blocks_for_file, files_for_link_query, tag_paths_for_prefix,
@@ -16,14 +15,6 @@ use crate::state::AppState;
 
 const AUTOCOMPLETE_LIMIT: u32 = 50;
 
-fn derive_title(path: &str) -> String {
-    Path::new(path)
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .map(str::to_string)
-        .unwrap_or_else(|| path.to_string())
-}
-
 pub async fn link_autocomplete(
     state: &AppState,
     req: LinkAutocompleteRequest,
@@ -33,7 +24,7 @@ pub async fn link_autocomplete(
     let candidates = paths
         .into_iter()
         .map(|path| {
-            let title = derive_title(&path);
+            let title = note_title(&path).to_string();
             LinkCandidate { path, title }
         })
         .collect();

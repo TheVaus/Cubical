@@ -11,10 +11,10 @@ import { getBacklinks, type Backlink } from "../api/ipc";
 import { errorMessage } from "../errorMessage";
 import {
   backlinkKey,
-  basenameWithoutExtension,
   reduceBacklinksState,
   type BacklinksViewState,
 } from "./backlinksState";
+import { noteTitle } from "../vault/noteName";
 import { createTargetTracker } from "./refreshTarget";
 
 export interface BacklinksProps {
@@ -183,7 +183,7 @@ const Backlinks: Component<BacklinksProps> = (props) => {
                           "white-space": "nowrap",
                         }}
                       >
-                        {basenameWithoutExtension(b.source_path)}
+                        {noteTitle(b.source_path)}
                       </span>
                       <span
                         style={{
