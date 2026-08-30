@@ -78,6 +78,41 @@ Tag grammar — the load-bearing rules:
 - **Nesting.** A single `/` followed by a non-empty segment of the same
   alphabet. A trailing `/` is trimmed (text from the slash onward).
 
+## A note's title comes from its path in exactly one place
+
+**Anchors:** note_title · basename · strip_markdown_extension · noteTitle
+
+`note_name` answers "what is this file called?" for every feature that shows a
+file by name: tag pages, link autocomplete, dataview results, unlinked
+mentions, the search index's title field, graph node labels and link
+reattachment. Three functions, one rule each — `basename` (last `/` segment),
+`strip_markdown_extension` (a trailing `.md` and nothing else) and
+`note_title` (both).
+
+**Only `.md` is stripped.** A vault holds attachments whose extension is part
+of their name, so `notes.txt` is titled `notes.txt` and `diagram.png` is
+`diagram.png`. Stripping any final extension (`Path::file_stem`) would make
+autocomplete offer `diagram` for `diagram.png` — a name that collides with a
+real `diagram.md` and that `PathResolver` cannot resolve back, because
+resolution indexes a candidate under its `.md`-stripped forms only. The two
+rules only ever disagree on a non-`.md` extension; agreeing with the resolver
+is what makes an offered title a usable link target.
+
+**Why `cubical-ast` owns it.** The rule is needed by `cubical-engine`,
+`cubical-query`, `cubical-search` and `cubical-graph`, so it has to live in a
+crate all of them may depend on. The layering leaves two candidates at layer 0,
+and `cubical-index` is the wrong one: `cubical-search` would have to take a
+libSQL dependency to reach it. `cubical-ast` is already the lingua franca for
+the link resolver, and it sits beside the wiki-link tokenizer that consumes the
+same names.
+
+Name *folding* is a different question with a different owner —
+`cubical_index::fold_name`, described in
+[`search-index.md`](search-index.md).
+
+The TypeScript mirror is `ui/src/vault/noteName.ts`, which also owns note-name
+validation; the two sides must agree, so change them in the same commit.
+
 ## Where the two normalizers disagree (and how parity is forced)
 
 Rust parses with `pulldown-cmark`; the editor parses with Lezer. They differ in

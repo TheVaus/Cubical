@@ -1,5 +1,4 @@
-use std::path::Path;
-
+use cubical_ast::note_title;
 use cubical_index::{all_tag_assignments, files_for_tag_prefix};
 
 use crate::api::types::{
@@ -9,14 +8,6 @@ use crate::api::types::{
 use crate::commands::open::open_vault_cloned;
 use crate::error::CubicalError;
 use crate::state::AppState;
-
-fn derive_title(path: &str) -> String {
-    Path::new(path)
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .map(str::to_string)
-        .unwrap_or_else(|| path.to_string())
-}
 
 pub async fn query_tag_page(
     state: &AppState,
@@ -28,7 +19,7 @@ pub async fn query_tag_page(
     let files = paths
         .into_iter()
         .map(|path| {
-            let title = derive_title(&path);
+            let title = note_title(&path).to_string();
             TagPageFile { path, title }
         })
         .collect();
@@ -99,22 +90,6 @@ mod tests {
             tag_path: path.into(),
             source,
         }
-    }
-
-    #[test]
-    fn derive_title_drops_extension() {
-        assert_eq!(derive_title("notes/Hello World.md"), "Hello World");
-        assert_eq!(derive_title("README.md"), "README");
-    }
-
-    #[test]
-    fn derive_title_handles_no_extension() {
-        assert_eq!(derive_title("plain"), "plain");
-    }
-
-    #[test]
-    fn derive_title_handles_dot_prefix() {
-        assert_eq!(derive_title("dir/.cubical"), ".cubical");
     }
 
     #[tokio::test]

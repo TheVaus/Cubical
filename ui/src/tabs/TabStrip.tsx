@@ -1,5 +1,6 @@
 import { For } from "solid-js";
 import type { Tab, TabSet } from "./tabModel";
+import { noteTitle } from "../vault/noteName";
 
 export interface TabStripProps {
   tabs: TabSet;
@@ -16,10 +17,8 @@ function label(tab: Tab): string {
       return "Terminal";
     case "graph":
       return "Graph";
-    case "file": {
-      const base = tab.view.path.slice(tab.view.path.lastIndexOf("/") + 1);
-      return base.endsWith(".md") ? base.slice(0, -3) : base;
-    }
+    case "file":
+      return noteTitle(tab.view.path);
   }
 }
 

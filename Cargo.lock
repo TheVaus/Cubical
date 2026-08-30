@@ -852,6 +852,7 @@ dependencies = [
 name = "cubical-graph"
 version = "0.1.0"
 dependencies = [
+ "cubical-ast",
  "cubical-index",
  "libsql",
  "serde",
@@ -890,6 +891,7 @@ dependencies = [
 name = "cubical-query"
 version = "0.1.0"
 dependencies = [
+ "cubical-ast",
  "cubical-index",
  "libsql",
  "serde",
