@@ -621,8 +621,27 @@ in `lib.rs` is the payoff of having collapsed its surface in the first place.
 
 ## Degrade-not-throw surfaces
 
+**Anchors:** resolve_text_file
+
 Dataview and search deliberately fold failures into a structured result rather
 than a thrown IPC error, so the editor widget always renders an answer. Only
 vault-not-open is hard. `write_file_text`'s `expected_seen_hash` is advisory:
 a mismatch still writes (preserving the user's "keep my edits" choice) but
 records an override row in `audit_log` at `warn`.
+
+**An index row is not permission to touch a file.** `resolve_text_file` asks
+the index for the type and the last known hash, and when there is no row it
+answers from disk instead: the file-type registry classifies the path and the
+bytes supply the hash. Only a path that is absent from the index *and* absent
+from disk is `FileNotFound`. The type gate is unchanged either way, so a `.png`
+is still refused as text. `read_file_text` treats a failed
+`materialize_on_read` the same way — raw source plus a log — matching the scan
+and watcher call sites of the same read.
+
+This is the [derived-state-disposable](../principles/derived-state-disposable.md)
+rule applied to the read path: a partial scan, an aborted transaction or a
+corrupt index left an intact `.md` unreadable *and unsavable*, which is the
+worst possible way for disposable state to fail. `list_files` still reads the
+tree from `files` — the file tree is a projection of the index by design, and
+replacing it with a live walk is an architecture decision, not a bug fix
+([#235](https://github.com/TheVaus/Cubical/issues/235)).
