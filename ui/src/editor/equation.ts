@@ -6,7 +6,6 @@ import {
 } from "@codemirror/view";
 import {
   Facet,
-  StateField,
   type EditorState,
   type Extension,
   type Range,
@@ -14,6 +13,7 @@ import {
 import { syntaxTree } from "@codemirror/language";
 
 import { inferType, type CellKind } from "../properties/inferType";
+import { decorationField } from "./decorationField";
 import { evaluate, type RefResolution, type ResolveRef } from "./expr/evaluate";
 import { formatResult } from "./expr/format";
 import {
@@ -147,37 +147,12 @@ function buildEquationDecorations(state: EditorState): DecorationSet {
   return Decoration.set(ranges, true);
 }
 
-export const equationField = StateField.define<DecorationSet>({
-  create: (state) => buildEquationDecorations(state),
-  update: (deco, tr) => {
-    const resolverChanged = tr.effects.some((e) =>
-      e.is(propertyResolverUpdated),
-    );
-    const treeChanged = syntaxTree(tr.startState) !== syntaxTree(tr.state);
-    const facetChanged =
-      tr.startState.facet(propertyResolverFacet) !==
-        tr.state.facet(propertyResolverFacet) ||
-      tr.startState.facet(equationsEnabledFacet) !==
-        tr.state.facet(equationsEnabledFacet);
-    const activeLineChanged =
-      tr.startState.doc.lineAt(tr.startState.selection.main.head).number !==
-      tr.state.doc.lineAt(tr.state.selection.main.head).number;
-    if (
-      !tr.docChanged &&
-      !treeChanged &&
-      !resolverChanged &&
-      !facetChanged &&
-      !activeLineChanged
-    ) {
-      return deco;
-    }
-    return buildEquationDecorations(tr.state);
-  },
-  provide: (f) => [
-    EditorView.decorations.from(f),
-    EditorView.atomicRanges.of(
-      (view) => view.state.field(f, false) ?? Decoration.none,
-    ),
+export const equationField = decorationField({
+  build: buildEquationDecorations,
+  effects: [propertyResolverUpdated],
+  watch: [
+    (s) => s.facet(propertyResolverFacet),
+    (s) => s.facet(equationsEnabledFacet),
   ],
 });
 

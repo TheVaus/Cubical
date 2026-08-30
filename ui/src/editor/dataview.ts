@@ -7,6 +7,7 @@ import {
   type DataviewResult,
 } from "../api/ipc";
 import { renderDataview } from "../dataview/dataviewRender";
+import { createKeyedResolver } from "./keyedResolver";
 import type { BlockRenderer } from "./blockRenderers";
 
 export interface DataviewRunner {
@@ -23,66 +24,24 @@ export function createDataviewRunner(
   onOpen: (path: string) => void,
   ipc: (req: DataviewQueryRequest) => Promise<DataviewResult> = defaultDataviewQuery,
 ): DataviewRunner {
-  const cache = new Map<string, DataviewResult>();
-  const inFlight = new Set<string>();
-  const subscribers = new Set<() => void>();
-  let cacheVersion = 0;
-
-  const notify = () => {
-    for (const fn of subscribers) fn();
-  };
-
-  const errorResult = (err: unknown): DataviewResult => ({
-    kind: "error",
-    message: err instanceof Error ? err.message : String(err),
+  const inner = createKeyedResolver<string, DataviewResult>({
+    cacheKey: (source) => source,
+    load: (source) => ipc({ vault_id: vaultId, source }),
+    onFailure: (err) => ({
+      kind: "error",
+      message: err instanceof Error ? err.message : String(err),
+    }),
+    invalidation: "refetch",
+    same: (a, b) => JSON.stringify(a) === JSON.stringify(b),
   });
 
-  const settle = (source: string, result: DataviewResult, notifyAlways: boolean) => {
-    const prev = cache.get(source);
-    const changed = prev === undefined || JSON.stringify(prev) !== JSON.stringify(result);
-    cache.set(source, result);
-    if (notifyAlways || changed) {
-      cacheVersion++;
-      notify();
-    }
-  };
-
-  const run = (source: string, notifyAlways: boolean) => {
-    inFlight.add(source);
-    ipc({ vault_id: vaultId, source })
-      .then((result) => settle(source, result, notifyAlways))
-      .catch((err: unknown) => settle(source, errorResult(err), notifyAlways))
-      .finally(() => {
-        inFlight.delete(source);
-      });
-  };
-
   return {
-    get(source) {
-      return cache.get(source);
-    },
-    fetch(source) {
-      if (cache.has(source) || inFlight.has(source)) return;
-      run(source, true);
-    },
-    invalidate() {
-      for (const source of [...cache.keys()]) {
-        if (inFlight.has(source)) continue;
-        run(source, false);
-      }
-    },
-    onUpdate(handler) {
-      subscribers.add(handler);
-      return () => {
-        subscribers.delete(handler);
-      };
-    },
-    version() {
-      return cacheVersion;
-    },
-    open(path) {
-      onOpen(path);
-    },
+    get: (source) => inner.get(source),
+    fetch: (source) => inner.fetch(source),
+    invalidate: () => inner.invalidate(),
+    onUpdate: (handler) => inner.onUpdate(handler),
+    version: () => inner.version(),
+    open: (path) => onOpen(path),
   };
 }
 

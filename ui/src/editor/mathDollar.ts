@@ -1,17 +1,16 @@
 import {
   Decoration,
-  EditorView,
   WidgetType,
   type DecorationSet,
 } from "@codemirror/view";
 import {
-  StateField,
   type EditorState,
   type Extension,
   type Range,
 } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
 
+import { decorationField } from "./decorationField";
 import { mathEnabledFacet, renderMath } from "./math";
 
 const FENCE = "$$";
@@ -161,25 +160,9 @@ function buildDecorations(state: EditorState): DecorationSet {
   return Decoration.set(ranges, true);
 }
 
-export const displayMathField = StateField.define<DecorationSet>({
-  create: (state) => buildDecorations(state),
-  update: (deco, tr) => {
-    const treeChanged = syntaxTree(tr.startState) !== syntaxTree(tr.state);
-    const headMoved =
-      tr.startState.selection.main.head !== tr.state.selection.main.head;
-    const enabledChanged =
-      tr.startState.facet(mathEnabledFacet) !== tr.state.facet(mathEnabledFacet);
-    if (!tr.docChanged && !treeChanged && !headMoved && !enabledChanged) {
-      return deco;
-    }
-    return buildDecorations(tr.state);
-  },
-  provide: (f) => [
-    EditorView.decorations.from(f),
-    EditorView.atomicRanges.of(
-      (view) => view.state.field(f, false) ?? Decoration.none,
-    ),
-  ],
+export const displayMathField = decorationField({
+  build: buildDecorations,
+  watch: [(s) => s.facet(mathEnabledFacet)],
 });
 
 export const displayMathExtension: Extension = [displayMathField];

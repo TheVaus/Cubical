@@ -7,7 +7,6 @@ import {
 import {
   Facet,
   StateEffect,
-  StateField,
   type EditorState,
   type Extension,
   type Range,
@@ -16,6 +15,7 @@ import { syntaxTree } from "@codemirror/language";
 
 import { scanWikilinks } from "../ast/wikilink";
 import { splitFrontmatter, parseFrontmatterYaml } from "../ast/frontmatter";
+import { decorationField } from "./decorationField";
 import type { PropertyResolver } from "./propertyResolver";
 import {
   renderPropertyRef,
@@ -136,37 +136,12 @@ export function buildPropertyDecorations(state: EditorState): DecorationSet {
   return Decoration.set(ranges, true);
 }
 
-export const propertyRefField = StateField.define<DecorationSet>({
-  create: (state) => buildPropertyDecorations(state),
-  update: (deco, tr) => {
-    const resolverChanged = tr.effects.some((e) =>
-      e.is(propertyResolverUpdated),
-    );
-    const treeChanged = syntaxTree(tr.startState) !== syntaxTree(tr.state);
-    const facetChanged =
-      tr.startState.facet(propertyResolverFacet) !==
-        tr.state.facet(propertyResolverFacet) ||
-      tr.startState.facet(propertyRefsEnabledFacet) !==
-        tr.state.facet(propertyRefsEnabledFacet);
-    const activeLineChanged =
-      tr.startState.doc.lineAt(tr.startState.selection.main.head).number !==
-      tr.state.doc.lineAt(tr.state.selection.main.head).number;
-    if (
-      !tr.docChanged &&
-      !treeChanged &&
-      !resolverChanged &&
-      !facetChanged &&
-      !activeLineChanged
-    ) {
-      return deco;
-    }
-    return buildPropertyDecorations(tr.state);
-  },
-  provide: (f) => [
-    EditorView.decorations.from(f),
-    EditorView.atomicRanges.of(
-      (view) => view.state.field(f, false) ?? Decoration.none,
-    ),
+export const propertyRefField = decorationField({
+  build: buildPropertyDecorations,
+  effects: [propertyResolverUpdated],
+  watch: [
+    (s) => s.facet(propertyResolverFacet),
+    (s) => s.facet(propertyRefsEnabledFacet),
   ],
 });
 
