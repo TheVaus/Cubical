@@ -88,7 +88,9 @@ the transport, keeping the pure handlers clean.
 
 - **Scan dispatcher** — forwards progress events and emits exactly one terminal
   event (complete or cancelled), updating the stored scan status so later
-  `get_vault_info` calls agree.
+  `get_vault_info` calls agree. Every spawn passes the **open vault's own**
+  cancellation token; a rebuild given a fresh one keeps scanning against a
+  closed vault's index because nothing can reach it to stop it.
 - **Watcher dispatcher** — persists each event to the index, writes an
   `audit_log` row, and emits the file-changed event. Errors are logged and the
   loop continues; one failed event must not take the watcher down. It carries a
@@ -462,11 +464,27 @@ JSON is surfaced as an invalid-request error rather than panicking.
 
 ## Lock discipline
 
-Handlers clone the vault handle out from under the read lock and drop the guard
-before any per-item loop that awaits — the lock must never be held across
-`await`, and sync file I/O inside such a loop goes through `spawn_blocking`.
-Otherwise a file with many backlinks interleaves blocking reads with awaits and
-can stall under concurrent watcher activity.
+**Anchors:** with_open_vault · open_vault_cloned
+
+One `RwLock` covers *every* open vault, so its scope is a backend-wide
+coupling, not a per-vault one. `tokio::sync::RwLock` is write-preferring:
+a read guard held across a slow await blocks a pending writer
+(`open_vault`, `close_vault`, the scan dispatcher's terminal status write),
+and every later reader then queues behind that writer. A dataview query holding
+the guard across `cubical_query::run` stalled `list_files`, `search` and
+`read_file_text` together — one slow feature stalling unrelated ones.
+
+So the guard is a **lookup**, never a work scope. `with_open_vault` takes a
+synchronous closure and hands back what it extracted; the guard is gone before
+the caller resumes. It is deliberately not `async`: a closure that could await
+would put the stall straight back. `open_vault_cloned` is the common case —
+everything reachable from the vault handle (index connection, search index,
+root) is clonable, so almost every handler needs nothing else. What must
+outlive the guard is cloned out with it: the settings map, the search-state
+cell, the cancellation token, the own-write gate.
+
+Sync CPU work goes through `spawn_blocking` for the same reason the guard
+does — `run_search` and every markdown parse are off-executor.
 
 A poisoned `std::sync::Mutex` guarding **plain data** is recovered with
 `into_inner()` rather than treated as fatal. `LayoutRegistry` used to
@@ -643,6 +661,8 @@ in `lib.rs` is the payoff of having collapsed its surface in the first place.
 
 ## Degrade-not-throw surfaces
 
+**Anchors:** resolve_text_file
+
 Dataview deliberately folds failures into a structured result rather than a
 thrown IPC error, so the editor widget always renders an answer: it renders
 *inside* a document, where a thrown error would take the surrounding render
@@ -652,3 +672,20 @@ second, in-band error channel would only duplicate it. Only vault-not-open is
 hard. `write_file_text`'s `expected_seen_hash` is advisory: a mismatch still
 writes (preserving the user's "keep my edits" choice) but records an override
 row in `audit_log` at `warn`.
+
+**An index row is not permission to touch a file.** `resolve_text_file` asks
+the index for the type and the last known hash, and when there is no row it
+answers from disk instead: the file-type registry classifies the path and the
+bytes supply the hash. Only a path that is absent from the index *and* absent
+from disk is `FileNotFound`. The type gate is unchanged either way, so a `.png`
+is still refused as text. `read_file_text` treats a failed
+`materialize_on_read` the same way — raw source plus a log — matching the scan
+and watcher call sites of the same read.
+
+This is the [derived-state-disposable](../principles/derived-state-disposable.md)
+rule applied to the read path: a partial scan, an aborted transaction or a
+corrupt index left an intact `.md` unreadable *and unsavable*, which is the
+worst possible way for disposable state to fail. `list_files` still reads the
+tree from `files` — the file tree is a projection of the index by design, and
+replacing it with a live walk is an architecture decision, not a bug fix
+([#235](https://github.com/TheVaus/Cubical/issues/235)).

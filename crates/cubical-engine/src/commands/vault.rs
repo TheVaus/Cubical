@@ -18,6 +18,7 @@ use crate::api::types::{
     ReloadSettingsResponse, ScanStatus, SetSettingRequest, SetSettingResponse,
     WriteFileTextRequest, WriteFileTextResponse,
 };
+use crate::commands::open::{open_vault_cloned, with_open_vault};
 use crate::commands::paths;
 use crate::error::CubicalError;
 use crate::events::{spawn_scan_dispatcher, spawn_watcher_dispatcher, EventSink, WatcherLifetime};
@@ -167,11 +168,9 @@ pub async fn cancel_vault_scan(
     state: &AppState,
     req: CancelVaultScanRequest,
 ) -> Result<(), CubicalError> {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(&req.vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
-    open.cancel.cancel();
+    with_open_vault(state, &req.vault_id, |open| open.cancel.clone())
+        .await?
+        .cancel();
     Ok(())
 }
 
@@ -179,12 +178,16 @@ pub async fn get_vault_info(
     state: &AppState,
     req: GetVaultInfoRequest,
 ) -> Result<GetVaultInfoResponse, CubicalError> {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(&req.vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
+    let (vault, scan_status, watcher_live) = with_open_vault(state, &req.vault_id, |open| {
+        (
+            open.vault.clone(),
+            open.scan_status,
+            open.watcher_live.load(Ordering::Relaxed),
+        )
+    })
+    .await?;
 
-    let conn = open.vault.index().connection();
+    let conn = vault.index().connection();
 
     let mut rows = conn
         .query("SELECT MAX(version) FROM schema_version", ())
@@ -221,13 +224,13 @@ pub async fn get_vault_info(
     };
 
     Ok(GetVaultInfoResponse {
-        path: open.vault.root().to_path_buf(),
+        path: vault.root().to_path_buf(),
         file_count,
         markdown_count,
         binary_count,
         schema_version,
-        scan_status: open.scan_status.into(),
-        watcher_live: open.watcher_live.load(Ordering::Relaxed),
+        scan_status: scan_status.into(),
+        watcher_live,
     })
 }
 
@@ -235,11 +238,8 @@ pub async fn list_files(
     state: &AppState,
     req: ListFilesRequest,
 ) -> Result<ListFilesResponse, CubicalError> {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(&req.vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
-    let conn = open.vault.index().connection();
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
+    let conn = vault.index().connection();
 
     let limit: i64 = i64::from(req.limit.unwrap_or(u32::MAX));
     let offset: i64 = i64::from(req.offset.unwrap_or(0));
@@ -275,21 +275,13 @@ pub async fn list_files(
         }
     };
 
-    let folders = cubical_index::list_folders(open.vault.index()).await?;
+    let folders = cubical_index::list_folders(vault.index()).await?;
 
     Ok(ListFilesResponse {
         files,
         total: clamp_to_u32(total),
         folders,
     })
-}
-
-async fn clone_vault(state: &AppState, vault_id: &str) -> Result<Vault, CubicalError> {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(vault_id.to_string()))?;
-    Ok(open.vault.clone())
 }
 
 fn normalize_parent_dir(
@@ -368,7 +360,7 @@ pub async fn create_file(
     state: &AppState,
     req: CreateFileRequest,
 ) -> Result<CreateFileResponse, CubicalError> {
-    let vault = clone_vault(state, &req.vault_id).await?;
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
     let (parent_rel, parent_abs) = normalize_parent_dir(&vault, &req.parent_dir)?;
 
     let rel_path = first_free_path(&parent_rel, &parent_abs, "Untitled", Some("md"))?;
@@ -383,7 +375,7 @@ pub async fn create_file_at_path(
     state: &AppState,
     req: CreateFileAtPathRequest,
 ) -> Result<CreateFileAtPathResponse, CubicalError> {
-    let vault = clone_vault(state, &req.vault_id).await?;
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
     let (rel_path, abs_path) = normalize_rel_file_path(&vault, &req.path)?;
     if abs_path.exists() {
         return Err(CubicalError::InvalidRequest(format!(
@@ -401,7 +393,7 @@ pub async fn create_folder(
     state: &AppState,
     req: CreateFolderRequest,
 ) -> Result<CreateFolderResponse, CubicalError> {
-    let vault = clone_vault(state, &req.vault_id).await?;
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
     let (parent_rel, parent_abs) = normalize_parent_dir(&vault, &req.parent_dir)?;
 
     let rel_path = first_free_path(&parent_rel, &parent_abs, "Untitled Folder", None)?;
@@ -418,7 +410,7 @@ pub async fn create_folder(
 }
 
 pub async fn delete_path(state: &AppState, req: DeletePathRequest) -> Result<(), CubicalError> {
-    let vault = clone_vault(state, &req.vault_id).await?;
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
     let (rel_path, abs_path) = normalize_rel_file_path(&vault, &req.path)?;
     if !abs_path.exists() {
         return Err(CubicalError::InvalidRequest(format!(
@@ -436,11 +428,8 @@ pub async fn get_frontmatter(
     state: &AppState,
     req: GetFrontmatterRequest,
 ) -> Result<GetFrontmatterResponse, CubicalError> {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(&req.vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
-    let conn = open.vault.index().connection();
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
+    let conn = vault.index().connection();
 
     let mut rows = conn
         .query(
@@ -489,55 +478,99 @@ pub fn editable_as_text(path: &str, type_id: &str) -> bool {
     type_id == "markdown" || EDITABLE_TEXT_EXTENSIONS.contains(&extension_of(path).as_str())
 }
 
+struct TextFile {
+    abs_path: PathBuf,
+    is_markdown: bool,
+    indexed_hash: Option<String>,
+}
+
+async fn resolve_text_file(
+    vault: &Vault,
+    path: &str,
+    command: &str,
+) -> Result<TextFile, CubicalError> {
+    let abs_path = paths::vault_file(vault, path)?.1;
+
+    let mut rows = vault
+        .index()
+        .connection()
+        .query(
+            "SELECT type_id, content_hash FROM files WHERE path = ?1",
+            libsql::params![path.to_string()],
+        )
+        .await?;
+    let indexed: Option<(String, String)> = match rows.next().await? {
+        Some(row) => Some((row.get(0)?, row.get(1)?)),
+        None => None,
+    };
+
+    let (type_id, indexed_hash) = match indexed {
+        Some((type_id, hash)) => (type_id, Some(hash)),
+        None => {
+            let probe = abs_path.clone();
+            let exists = tokio::task::spawn_blocking(move || probe.is_file())
+                .await
+                .map_err(|e| CubicalError::Io(format!("stat task join error: {e}")))?;
+            if !exists {
+                return Err(CubicalError::FileNotFound(path.to_string()));
+            }
+            (type_id_on_disk(vault, &abs_path), None)
+        }
+    };
+
+    if !editable_as_text(path, &type_id) {
+        return Err(CubicalError::InvalidRequest(format!(
+            "{command} only supports markdown and plain-text files \
+             (path '{path}' has type_id '{type_id}')",
+        )));
+    }
+
+    Ok(TextFile {
+        abs_path,
+        is_markdown: type_id == "markdown",
+        indexed_hash,
+    })
+}
+
+fn type_id_on_disk(vault: &Vault, abs_path: &std::path::Path) -> String {
+    vault
+        .registry()
+        .handler_for(abs_path)
+        .map_or("binary", cubical_core::FileTypeHandler::type_id)
+        .to_string()
+}
+
 pub async fn read_file_text(
     state: &AppState,
     req: ReadFileTextRequest,
 ) -> Result<ReadFileTextResponse, CubicalError> {
-    let (abs_path, vault, is_markdown) = {
-        let guard = state.vaults().read().await;
-        let open = guard
-            .get(&req.vault_id)
-            .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
-        let conn = open.vault.index().connection();
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
+    let file = resolve_text_file(&vault, &req.path, "read_file_text").await?;
 
-        let mut rows = conn
-            .query(
-                "SELECT type_id FROM files WHERE path = ?1",
-                libsql::params![req.path.clone()],
-            )
-            .await?;
-        let row = rows
-            .next()
-            .await?
-            .ok_or_else(|| CubicalError::FileNotFound(req.path.clone()))?;
-        let type_id: String = row.get(0)?;
-        if !editable_as_text(&req.path, &type_id) {
-            return Err(CubicalError::InvalidRequest(format!(
-                "read_file_text only supports markdown and plain-text files \
-                 (path '{}' has type_id '{}')",
-                req.path, type_id,
-            )));
-        }
-        (
-            paths::vault_file(&open.vault, &req.path)?.1,
-            open.vault.clone(),
-            type_id == "markdown",
-        )
-    };
-
+    let abs_path = file.abs_path;
     let on_disk = tokio::task::spawn_blocking(move || std::fs::read_to_string(&abs_path))
         .await
         .map_err(|e| CubicalError::Io(format!("read task join error: {e}")))?
         .map_err(|e| CubicalError::Io(e.to_string()))?;
 
     // Pending rewrites only ever target markdown wikilinks; never touch plain text.
-    if !is_markdown {
+    if !file.is_markdown {
         return Ok(ReadFileTextResponse { content: on_disk });
     }
 
-    let content =
-        cubical_core::vault::pending::materialize_on_read(vault.index(), &req.path, &on_disk)
-            .await?;
+    let materialized =
+        cubical_core::vault::pending::materialize_on_read(vault.index(), &req.path, &on_disk).await;
+    let content = match materialized {
+        Ok(content) => content,
+        Err(e) => {
+            tracing::warn!(
+                path = %req.path,
+                error = %e,
+                "read_file_text: materialize_on_read failed; serving the raw source",
+            );
+            on_disk
+        }
+    };
 
     Ok(ReadFileTextResponse { content })
 }
@@ -567,12 +600,9 @@ pub async fn read_file_bytes(
     state: &AppState,
     req: ReadFileBytesRequest,
 ) -> Result<ReadFileBytesResponse, CubicalError> {
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
     let abs_path = {
-        let guard = state.vaults().read().await;
-        let open = guard
-            .get(&req.vault_id)
-            .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
-        let conn = open.vault.index().connection();
+        let conn = vault.index().connection();
 
         let mut rows = conn
             .query(
@@ -599,7 +629,7 @@ pub async fn read_file_bytes(
                 req.path,
             )));
         }
-        paths::vault_file(&open.vault, &req.path)?.1
+        paths::vault_file(&vault, &req.path)?.1
     };
 
     let bytes = tokio::task::spawn_blocking(move || std::fs::read(&abs_path))
@@ -626,33 +656,12 @@ pub async fn write_file_text(
     state: &AppState,
     req: WriteFileTextRequest,
 ) -> Result<WriteFileTextResponse, CubicalError> {
-    let (abs_path, current_hash) = {
-        let guard = state.vaults().read().await;
-        let open = guard
-            .get(&req.vault_id)
-            .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
-        let conn = open.vault.index().connection();
-
-        let mut rows = conn
-            .query(
-                "SELECT type_id, content_hash FROM files WHERE path = ?1",
-                libsql::params![req.path.clone()],
-            )
-            .await?;
-        let row = rows
-            .next()
-            .await?
-            .ok_or_else(|| CubicalError::FileNotFound(req.path.clone()))?;
-        let type_id: String = row.get(0)?;
-        if !editable_as_text(&req.path, &type_id) {
-            return Err(CubicalError::InvalidRequest(format!(
-                "write_file_text only supports markdown and plain-text files \
-                 (path '{}' has type_id '{}')",
-                req.path, type_id,
-            )));
-        }
-        let current_hash: String = row.get(1)?;
-        (paths::vault_file(&open.vault, &req.path)?.1, current_hash)
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
+    let file = resolve_text_file(&vault, &req.path, "write_file_text").await?;
+    let abs_path = file.abs_path;
+    let current_hash = match file.indexed_hash {
+        Some(hash) => hash,
+        None => hash_on_disk(&abs_path).await?,
     };
 
     let new_hash = sha256_bytes_hex(req.content.as_bytes());
@@ -674,11 +683,7 @@ pub async fn write_file_text(
 
     let now = unix_now_secs();
     {
-        let guard = state.vaults().read().await;
-        let open = guard
-            .get(&req.vault_id)
-            .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
-        let conn = open.vault.index().connection();
+        let conn = vault.index().connection();
 
         if let Some(expected) = &req.expected_seen_hash {
             if expected != &current_hash {
@@ -689,7 +694,7 @@ pub async fn write_file_text(
                 })
                 .to_string();
                 if let Err(e) = cubical_index::append_audit(
-                    open.vault.index(),
+                    vault.index(),
                     cubical_index::AuditLevel::Warn,
                     "external_edit_override",
                     &format!("override external edit on {}", req.path),
@@ -726,7 +731,7 @@ pub async fn write_file_text(
         })
         .to_string();
         if let Err(e) = cubical_index::append_audit(
-            open.vault.index(),
+            vault.index(),
             cubical_index::AuditLevel::Info,
             "autosave",
             &format!("autosave {}", req.path),
@@ -745,23 +750,31 @@ pub async fn write_file_text(
     })
 }
 
+async fn hash_on_disk(abs_path: &std::path::Path) -> Result<String, CubicalError> {
+    let path = abs_path.to_path_buf();
+    let bytes = tokio::task::spawn_blocking(move || std::fs::read(&path))
+        .await
+        .map_err(|e| CubicalError::Io(format!("hash task join error: {e}")))?
+        .map_err(|e| CubicalError::Io(e.to_string()))?;
+    Ok(sha256_bytes_hex(&bytes))
+}
 pub async fn get_setting(
     state: &AppState,
     req: GetSettingRequest,
 ) -> Result<GetSettingResponse, CubicalError> {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(&req.vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
+    let (vault, settings) = with_open_vault(state, &req.vault_id, |open| {
+        (open.vault.clone(), Arc::clone(&open.settings))
+    })
+    .await?;
 
     if !cubical_core::vault::settings::is_workspace_key(&req.key) {
-        let map = open.settings.read().await;
+        let map = settings.read().await;
         return Ok(GetSettingResponse {
             value: map.get(&req.key).cloned(),
         });
     }
 
-    let conn = open.vault.index().connection();
+    let conn = vault.index().connection();
 
     let mut rows = conn
         .query(
@@ -789,15 +802,13 @@ pub async fn set_setting(
     state: &AppState,
     req: SetSettingRequest,
 ) -> Result<SetSettingResponse, CubicalError> {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(&req.vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
+    let (vault, settings) = with_open_vault(state, &req.vault_id, |open| {
+        (open.vault.clone(), Arc::clone(&open.settings))
+    })
+    .await?;
 
     if !cubical_core::vault::settings::is_workspace_key(&req.key) {
-        let settings = Arc::clone(&open.settings);
-        let root = open.vault.root().to_path_buf();
-        drop(guard);
+        let root = vault.root().to_path_buf();
 
         let snapshot = {
             let mut map = settings.write().await;
@@ -813,7 +824,7 @@ pub async fn set_setting(
         return Ok(SetSettingResponse {});
     }
 
-    let conn = open.vault.index().connection();
+    let conn = vault.index().connection();
 
     let encoded = serde_json::to_string(&req.value)
         .map_err(|e| CubicalError::InvalidRequest(format!("setting value not encodable: {e}")))?;
@@ -852,13 +863,13 @@ pub async fn reload_settings(
     state: &AppState,
     req: ReloadSettingsRequest,
 ) -> Result<ReloadSettingsResponse, CubicalError> {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(&req.vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
-    let fresh = cubical_core::vault::settings::load(open.vault.root())
+    let (root, settings) = with_open_vault(state, &req.vault_id, |open| {
+        (open.vault.root().to_path_buf(), Arc::clone(&open.settings))
+    })
+    .await?;
+    let fresh = cubical_core::vault::settings::load(&root)
         .map_err(|e| CubicalError::InvalidRequest(format!("reload settings: {e}")))?;
-    *open.settings.write().await = fresh.clone();
+    *settings.write().await = fresh.clone();
     Ok(ReloadSettingsResponse { settings: fresh })
 }
 
@@ -1456,6 +1467,129 @@ mod tests {
         .await
         .expect_err("should be FileNotFound");
         assert!(matches!(err, CubicalError::FileNotFound(p) if p == "missing.md"));
+    }
+
+    async fn seed_file_off_index(vault: &Vault, rel: &str, body: &str) {
+        let abs = vault.root().join(rel);
+        if let Some(parent) = abs.parent() {
+            std::fs::create_dir_all(parent).expect("mkdir");
+        }
+        std::fs::write(&abs, body).expect("write body");
+    }
+
+    #[tokio::test]
+    async fn an_intact_markdown_file_with_no_index_row_is_readable() {
+        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        let body = "# Unindexed\n\nThe bytes are fine on disk.\n";
+        seed_file_off_index(&vault, "unindexed.md", body).await;
+
+        let resp = read_file_text(
+            &state,
+            ReadFileTextRequest {
+                vault_id: "v1".into(),
+                path: "unindexed.md".into(),
+            },
+        )
+        .await
+        .expect("markdown on disk must be readable without an index row");
+        assert_eq!(resp.content, body);
+    }
+
+    #[tokio::test]
+    async fn an_intact_markdown_file_with_no_index_row_is_writable() {
+        let (dir, vault, state) = fresh_state_with_vault("v1").await;
+        seed_file_off_index(&vault, "unindexed.md", "old\n").await;
+
+        let resp = write_file_text(
+            &state,
+            WriteFileTextRequest {
+                vault_id: "v1".into(),
+                path: "unindexed.md".into(),
+                content: "new body\n".into(),
+                expected_seen_hash: None,
+            },
+        )
+        .await
+        .expect("markdown on disk must be savable without an index row");
+
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("unindexed.md")).unwrap(),
+            "new body\n",
+        );
+        assert_eq!(resp.new_content_hash, sha256_bytes_hex(b"new body\n"));
+    }
+
+    #[tokio::test]
+    async fn an_unindexed_write_compares_expected_hash_against_the_bytes_on_disk() {
+        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        seed_file_off_index(&vault, "unindexed.md", "old\n").await;
+
+        write_file_text(
+            &state,
+            WriteFileTextRequest {
+                vault_id: "v1".into(),
+                path: "unindexed.md".into(),
+                content: "new\n".into(),
+                expected_seen_hash: Some(sha256_bytes_hex(b"old\n")),
+            },
+        )
+        .await
+        .expect("matching hash writes");
+        let mut rows = vault
+            .index()
+            .connection()
+            .query(
+                "SELECT COUNT(*) FROM audit_log WHERE category = 'external_edit_override'",
+                (),
+            )
+            .await
+            .unwrap();
+        let overrides: i64 = rows.next().await.unwrap().unwrap().get(0).unwrap();
+        assert_eq!(
+            overrides, 0,
+            "a hash matching the on-disk bytes is not an external edit",
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unreadable_pending_queue_still_serves_the_markdown() {
+        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        let body = "# Still here\n";
+        seed_file_on_disk(&vault, "note.md", body, "markdown").await;
+        vault
+            .index()
+            .connection()
+            .execute("DROP TABLE pending_rewrites", ())
+            .await
+            .expect("drop the queue the way a corrupt index would");
+
+        let resp = read_file_text(
+            &state,
+            ReadFileTextRequest {
+                vault_id: "v1".into(),
+                path: "note.md".into(),
+            },
+        )
+        .await
+        .expect("a broken index must not gate the source of truth");
+        assert_eq!(resp.content, body);
+    }
+
+    #[tokio::test]
+    async fn an_unindexed_binary_is_still_refused_as_text() {
+        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        seed_file_off_index(&vault, "photo.png", "\u{0}bytes").await;
+
+        let err = read_file_text(
+            &state,
+            ReadFileTextRequest {
+                vault_id: "v1".into(),
+                path: "photo.png".into(),
+            },
+        )
+        .await
+        .expect_err("the type gate still applies without an index row");
+        assert!(matches!(err, CubicalError::InvalidRequest(_)));
     }
 
     #[tokio::test]

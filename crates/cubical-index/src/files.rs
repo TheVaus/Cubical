@@ -44,6 +44,18 @@ pub async fn upsert_file(conn: &IndexConn, file: &FileRow<'_>) -> Result<(), Ind
     Ok(())
 }
 
+pub async fn all_file_paths(conn: &IndexConn) -> Result<Vec<String>, IndexError> {
+    let mut rows = conn
+        .connection()
+        .query("SELECT path FROM files ORDER BY path", ())
+        .await?;
+    let mut out = Vec::new();
+    while let Some(row) = rows.next().await? {
+        out.push(row.get::<String>(0)?);
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -122,5 +134,26 @@ mod tests {
         assert_eq!(r.get::<i64>(1).unwrap(), 20);
         assert_eq!(r.get::<i64>(2).unwrap(), 20);
         assert_eq!(r.get::<String>(3).unwrap(), "bbb");
+    }
+
+    #[tokio::test]
+    async fn returns_every_path_in_sorted_order() {
+        let (_d, conn) = fresh().await;
+        for p in ["z.md", "a/b.md", "a.md"] {
+            upsert_file(&conn, &row(p, "markdown", "h", 0))
+                .await
+                .unwrap();
+        }
+
+        assert_eq!(
+            all_file_paths(&conn).await.unwrap(),
+            vec!["a.md", "a/b.md", "z.md"],
+        );
+    }
+
+    #[tokio::test]
+    async fn an_empty_table_yields_an_empty_list() {
+        let (_d, conn) = fresh().await;
+        assert!(all_file_paths(&conn).await.unwrap().is_empty());
     }
 }

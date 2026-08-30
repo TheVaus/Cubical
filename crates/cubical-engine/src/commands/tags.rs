@@ -6,6 +6,7 @@ use crate::api::types::{
     ListTagAssignmentsRequest, ListTagAssignmentsResponse, QueryTagPageRequest,
     QueryTagPageResponse, TagAssignmentDto, TagPageFile,
 };
+use crate::commands::open::open_vault_cloned;
 use crate::error::CubicalError;
 use crate::state::AppState;
 
@@ -21,12 +22,8 @@ pub async fn query_tag_page(
     state: &AppState,
     req: QueryTagPageRequest,
 ) -> Result<QueryTagPageResponse, CubicalError> {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(&req.vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
-
-    let paths = files_for_tag_prefix(open.vault.index(), &req.tag_path).await?;
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
+    let paths = files_for_tag_prefix(vault.index(), &req.tag_path).await?;
 
     let files = paths
         .into_iter()
@@ -43,12 +40,8 @@ pub async fn list_tag_assignments(
     state: &AppState,
     req: ListTagAssignmentsRequest,
 ) -> Result<ListTagAssignmentsResponse, CubicalError> {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(&req.vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
-
-    let assignments = all_tag_assignments(open.vault.index())
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
+    let assignments = all_tag_assignments(vault.index())
         .await?
         .into_iter()
         .map(|a| TagAssignmentDto {
