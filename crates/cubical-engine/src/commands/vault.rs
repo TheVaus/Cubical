@@ -1,5 +1,6 @@
 use cubical_core::unix_now_secs;
 use std::path::PathBuf;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use cubical_core::{atomic_write, sha256_bytes_hex, start_watcher, Vault, WatchEvent};
@@ -19,7 +20,7 @@ use crate::api::types::{
 };
 use crate::commands::paths;
 use crate::error::CubicalError;
-use crate::events::{spawn_scan_dispatcher, spawn_watcher_dispatcher, EventSink};
+use crate::events::{spawn_scan_dispatcher, spawn_watcher_dispatcher, EventSink, WatcherLifetime};
 use crate::state::{AppState, OpenVault, ScanStatusBackend};
 
 const WATCHER_CHANNEL_DEPTH: usize = 256;
@@ -87,27 +88,6 @@ pub async fn open_vault(
     let vault_id = state.new_vault_id();
     let cancel = CancellationToken::new();
 
-    let (watch_tx, watch_rx) = mpsc::channel::<WatchEvent>(WATCHER_CHANNEL_DEPTH);
-    let watcher = match start_watcher(&vault, cancel.clone(), watch_tx) {
-        Ok(handle) => Some(handle),
-        Err(e) => {
-            tracing::warn!(error = %e, "watcher failed to start; vault opens without live updates");
-            if let Err(audit_err) = cubical_index::append_audit(
-                vault.index(),
-                cubical_index::AuditLevel::Warn,
-                "watcher_unavailable",
-                "watcher failed to start; external edits will not be seen until reopen",
-                &serde_json::json!({ "error": e.to_string() }).to_string(),
-                unix_now_secs(),
-            )
-            .await
-            {
-                tracing::warn!(error = %audit_err, "watcher_unavailable audit insert failed");
-            }
-            None
-        }
-    };
-
     let settings = cubical_core::vault::settings::load(vault.root()).unwrap_or_else(|e| {
         tracing::warn!("settings load failed, using defaults: {e}");
         cubical_core::vault::settings::SettingsMap::new()
@@ -117,14 +97,37 @@ pub async fn open_vault(
         vault.clone(),
         cancel.clone(),
         ScanStatusBackend::InProgress,
-        watcher,
+        None,
         settings,
     );
     open.lock_guard = Some(lock_guard);
+
+    let (watch_tx, watch_rx) = mpsc::channel::<WatchEvent>(WATCHER_CHANNEL_DEPTH);
+    match start_watcher(&vault, open.watcher_cancel.clone(), watch_tx) {
+        Ok(handle) => {
+            open.watcher = Some(handle);
+            open.watcher_live.store(true, Ordering::Relaxed);
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "watcher failed to start; vault opens without live updates");
+            crate::events::record_watcher_warning(
+                &vault,
+                crate::events::WATCHER_UNAVAILABLE,
+                "watcher failed to start; external edits will not be seen until reopen",
+                &e.to_string(),
+            )
+            .await;
+        }
+    }
+
     let flush_own_writes = open.flush_own_writes.clone();
     let flush_in_progress = open.flush_in_progress.clone();
     let flush_timer_cancel = open.flush_timer_cancel.clone();
     let settings_handle = open.settings.clone();
+    let watcher_lifetime = WatcherLifetime {
+        cancel: open.watcher_cancel.clone(),
+        live: Arc::clone(&open.watcher_live),
+    };
     state.vaults().write().await.insert(vault_id.clone(), open);
 
     spawn_scan_dispatcher(
@@ -142,6 +145,7 @@ pub async fn open_vault(
         watch_rx,
         flush_own_writes.clone(),
         settings_handle,
+        watcher_lifetime,
     );
 
     crate::commands::rename::spawn_flush_timer(
@@ -223,6 +227,7 @@ pub async fn get_vault_info(
         binary_count,
         schema_version,
         scan_status: open.scan_status.into(),
+        watcher_live: open.watcher_live.load(Ordering::Relaxed),
     })
 }
 
@@ -882,6 +887,7 @@ pub async fn close_vault(
     .await;
 
     open.cancel.cancel();
+    open.watcher_cancel.cancel();
     drop(open);
     Ok(())
 }
@@ -2411,6 +2417,83 @@ mod tests {
             }
         }
 
+        std::env::remove_var("CUBICAL_RUNTIME_DIR");
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn cancelling_a_scan_leaves_the_watcher_running() {
+        let _env = crate::vault_lock::RUNTIME_ENV_GUARD.lock().unwrap();
+        let runtime = tempdir().unwrap();
+        std::env::set_var("CUBICAL_RUNTIME_DIR", runtime.path());
+
+        let vault_dir = tempdir().unwrap();
+        let state = AppState::new();
+        let opened = open_vault(
+            &state,
+            Arc::new(crate::events::NoopEventSink),
+            OpenVaultRequest {
+                path: vault_dir.path().to_path_buf(),
+            },
+            None,
+        )
+        .await
+        .expect("open");
+
+        cancel_vault_scan(
+            &state,
+            CancelVaultScanRequest {
+                vault_id: opened.vault_id.clone(),
+            },
+        )
+        .await
+        .expect("cancel scan");
+
+        {
+            let guard = state.vaults().read().await;
+            let open = guard.get(&opened.vault_id).expect("still open");
+            assert!(
+                open.cancel.is_cancelled(),
+                "the scan token is the one cancel_vault_scan cancels",
+            );
+            assert!(
+                !open.watcher_cancel.is_cancelled(),
+                "the watcher owns a separate lifetime and must survive a scan cancel",
+            );
+            assert!(open.watcher_live.load(Ordering::Relaxed));
+        }
+
+        std::fs::write(vault_dir.path().join("after-cancel.md"), "body\n").unwrap();
+        let mut seen = false;
+        for _ in 0..240 {
+            let info = get_vault_info(
+                &state,
+                GetVaultInfoRequest {
+                    vault_id: opened.vault_id.clone(),
+                },
+            )
+            .await
+            .expect("info");
+            if info.markdown_count > 0 {
+                seen = true;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+        assert!(
+            seen,
+            "a file created after the scan was cancelled must still reach the index",
+        );
+
+        close_vault(
+            &state,
+            &crate::events::NoopEventSink,
+            CloseVaultRequest {
+                vault_id: opened.vault_id,
+            },
+        )
+        .await
+        .expect("close");
         std::env::remove_var("CUBICAL_RUNTIME_DIR");
     }
 

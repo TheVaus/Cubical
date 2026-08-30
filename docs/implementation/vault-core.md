@@ -147,15 +147,32 @@ path leaks into the `files` table before the rename.
 ## Refreshers
 
 **Anchors:** refresh_frontmatter · refresh_links · refresh_tags · refresh_blocks
+· refresh_scanned_markdown · refresh_watched_markdown
 
 `frontmatter`, `links`, `tags`, `blocks` and the search doc all follow one
 shape: **delete-then-insert keyed on the file path**. Idempotent across
 re-scans, naturally drops keys the user removed, no diff bookkeeping.
 
 The caller must ensure the `files` row exists first so the foreign key has a
-parent. On read or parse failure the file's rows are **wiped rather than left
-stale** (treated as "no links"/"no tags"); SQL errors propagate so the caller
-decides whether to retry, and the scan and watcher paths log and continue.
+parent. A **read** failure yields an empty source, and an empty source really
+does parse to a document with no keys, so its rows are wiped. A **parse**
+failure is not the same statement: it is no evidence the links are gone. Both
+fan-out sites — `refresh_scanned_markdown` for the scan and
+`refresh_watched_markdown` for the watcher — therefore leave every derived
+table **untouched** on a failed parse and let the next successful parse heal
+the file, per
+[`best-effort-resilience`](../principles/best-effort-resilience.md).
+
+That is why both take `Option<&Document>` instead of a `Document`. `Document`
+implements `Default`, so an `unwrap_or_default()` at a call site silently
+restates "could not parse" as "the file is empty" — which is what the watcher
+did, wiping a note's rows the moment an edit put it in a transient
+unparseable state while a rescan of the same file kept them. The scan counts
+an unparseable path as still indexed for the same reason, so its end-of-scan
+`retain_paths` reconciliation does not drop the file's search doc either.
+
+SQL errors propagate so the caller decides whether to retry, and both paths
+log and continue.
 
 Parsing runs in `spawn_blocking` (CPU-bound); the DB writes stay on the async
 runtime.
