@@ -20,6 +20,9 @@ date.
   file.
 - The parent directory must already exist; the runner never creates
   directories.
+- The runner never destroys anything. What happens when the file itself is
+  unreadable is `Vault::open`'s call —
+  [`vault-core.md`](vault-core.md) → Index recovery.
 
 **Adding one:** drop `migrations/NNN_<name>.sql` (zero-padded, one greater than
 the last), append the entry wired via `include_str!` in ascending order — the
@@ -64,7 +67,24 @@ Two invariants:
 
 ## Full-text search (`cubical-search`)
 
-**Anchors:** SearchIndex
+**Anchors:** SearchIndex · rebuilt_reason · is_recoverable_by_wipe
+
+Every byte in the search directory is derived from the `.md` files, so wiping
+it costs a rescan and nothing else. `SearchIndex::open` therefore wipes and
+retries **once** rather than failing: first when `schema.json` is missing or
+not the current `SCHEMA_VERSION`, then again if building the index, writer or
+reader fails anyway — the case a stamp check cannot see, where the stamp is
+current but the segment files are not. `rebuilt_reason` carries why, so
+`Vault::open` can write the `search_rebuilt` audit row instead of healing
+silently.
+
+Two failures are excluded from the retry, because for them a wipe destroys
+rather than repairs: a writer `LockFailure` means another process holds the
+directory, and an I/O error means the filesystem is the problem (permissions, a
+full disk) and deleting files will not fix it.
+
+Known limit: corruption that only surfaces at query time still surfaces at
+query time. Open-time healing covers what open-time can observe.
 
 One Tantivy document per `.md` file with structural fields (title, headings,
 body, code, tags, frontmatter). Default-scope boosts are
