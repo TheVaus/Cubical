@@ -1803,6 +1803,44 @@ mod tests {
         }
 
         #[tokio::test]
+        async fn a_flush_announces_the_new_pending_count() {
+            let dir = tempdir().unwrap();
+            std::fs::write(dir.path().join("Daily.md"), "# Daily\n").unwrap();
+            std::fs::write(dir.path().join("Project.md"), "see [[Daily]] today\n").unwrap();
+            let live = live_vault(&dir, &["Daily.md", "Project.md"]).await;
+
+            rename_file(
+                &live.state,
+                &NoopEventSink,
+                RenameFileRequest {
+                    vault_id: VAULT_ID.into(),
+                    from_path: "Daily.md".into(),
+                    to_path: "Journal.md".into(),
+                },
+            )
+            .await
+            .expect("rename");
+
+            let sink = RecordingSink::default();
+            flush_pending_rewrites(
+                &live.state,
+                &sink,
+                FlushPendingRewritesRequest {
+                    vault_id: VAULT_ID.into(),
+                },
+            )
+            .await
+            .expect("flush");
+
+            assert_eq!(
+                sink.pending_counts(),
+                vec![0],
+                "the flush rewrote bytes the open buffers do not have, so it must announce \
+                 the drained queue — that announcement is what pulls them back in",
+            );
+        }
+
+        #[tokio::test]
         async fn adopting_an_external_rename_announces_the_queued_rewrites() {
             let dir = tempdir().unwrap();
             std::fs::write(dir.path().join("Daily.md"), "# Daily\n").unwrap();

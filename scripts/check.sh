@@ -22,6 +22,7 @@ echo "==> generated";           python3 scripts/gates/generated.py
 echo "==> ds-components";       python3 scripts/gates/ds_components.py
 echo "==> composition";        python3 scripts/gates/composition.py
 echo "==> dependency-boundary"; python3 scripts/gates/dependency_boundary.py
+echo "==> view-freshness";      python3 scripts/gates/view_freshness.py
 echo "==> techstack";           python3 scripts/gates/techstack.py
 echo "==> symbol-anchors";      python3 scripts/gates/symbol_anchors.py
 echo "==> docs";                python3 scripts/check_docs.py

@@ -6,7 +6,7 @@ One rule per file, fixed skeleton, stable id. The **Rule** line is the
 entire principle — read this table, then open only the file you need.
 A gate failure names its principle file; that file is the explanation.
 
-24 principles. 14 enforced by a gate today.
+25 principles. 15 enforced by a gate today.
 
 | Principle | Rule | Gate |
 |---|---|---|
@@ -34,3 +34,4 @@ A gate failure names its principle file; that file is the explanation.
 | [`techstack`](techstack.md) | Declare a new runtime dependency in the architecture stack section before installing it. | planned: `techstack` |
 | [`tests`](tests.md) | Run the script, not the pieces, before claiming anything passes. | `scripts/check.sh` |
 | [`typescript-style`](typescript-style.md) | Keep `tsc --noEmit` clean and never reach for `any`. | `scripts/check.sh` |
+| [`view-freshness`](view-freshness.md) | Refresh a cached view whenever the state behind it changes, no matter who changed it. | `scripts/gates/view_freshness.py` |

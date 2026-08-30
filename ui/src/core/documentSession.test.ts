@@ -574,12 +574,12 @@ describe("closing the window", () => {
   });
 });
 
-describe("reloadFromDisk", () => {
+describe("refreshFromDisk", () => {
   it("pulls the materialized content in after a rename rewrote the links", async () => {
     const h = build();
     read.mockResolvedValue({ content: "see [[Journal]]" });
 
-    await h.session.reloadFromDisk();
+    await h.session.refreshFromDisk();
 
     expect(read).toHaveBeenCalledWith({ vault_id: "v1", path: "note.md" });
     expect(h.editor.replaceContent).toHaveBeenCalledWith("see [[Journal]]");
@@ -591,7 +591,7 @@ describe("reloadFromDisk", () => {
     h.session.markDirty();
     read.mockResolvedValue({ content: "see [[Journal]]" });
 
-    await h.session.reloadFromDisk();
+    await h.session.refreshFromDisk();
 
     expect(read).not.toHaveBeenCalled();
     expect(h.editor.replaceContent).not.toHaveBeenCalled();
@@ -602,7 +602,7 @@ describe("reloadFromDisk", () => {
     h.setContent("same");
     read.mockResolvedValue({ content: "same" });
 
-    await h.session.reloadFromDisk();
+    await h.session.refreshFromDisk();
 
     expect(h.editor.replaceContent).not.toHaveBeenCalled();
     expect(h.onContentReplaced).not.toHaveBeenCalled();
@@ -612,7 +612,7 @@ describe("reloadFromDisk", () => {
     const h = build();
     read.mockRejectedValue(new Error("boom"));
 
-    await h.session.reloadFromDisk();
+    await h.session.refreshFromDisk();
 
     expect(h.reportError).toHaveBeenCalled();
   });

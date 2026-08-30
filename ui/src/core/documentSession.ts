@@ -37,7 +37,7 @@ export interface DocumentSession {
     changedPath: string,
     incomingHash: string | null | undefined,
   ) => boolean;
-  readonly reloadFromDisk: () => Promise<void>;
+  readonly refreshFromDisk: () => Promise<void>;
   readonly takeDisk: () => Promise<void>;
   readonly keepMine: () => void;
   readonly writeBeforeUnload: () => void;
@@ -116,7 +116,7 @@ export function createDocumentSession(
     }
   };
 
-  const reloadFromDisk = async (): Promise<void> => {
+  const refreshFromDisk = async (): Promise<void> => {
     if (dirty || conflictHash() !== null) return;
     const id = deps.vaultId();
     const path = deps.path();
@@ -197,7 +197,7 @@ export function createDocumentSession(
         incomingHash,
         lastWrittenHash,
       }),
-    reloadFromDisk,
+    refreshFromDisk,
     takeDisk,
     keepMine: () => {
       setConflictHash(null);

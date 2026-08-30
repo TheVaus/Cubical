@@ -93,6 +93,9 @@ import { fromTabSessionDto, toTabSessionDto } from "./tabs/session";
 import { activateWithFlush, type ActivationDeps } from "./tabs/activation";
 import { liveFileIds, touch } from "./tabs/lru";
 import { pruneContents, remapContentKeys } from "./tabs/contentCache";
+import { resetResolvers, revalidateResolvers } from "./editor/resolverRefresh";
+import type { ResolverGroup } from "./editor/resolverRefresh";
+
 import { errorMessage } from "./errorMessage";
 import {
   createWikiLinkResolver,
@@ -578,11 +581,8 @@ const App: Component = () => {
         return out;
       });
       remapContentKeys(setContents, contents, renamedId);
-      wikilinkResolver()?.invalidate();
-      embedResolver()?.invalidate();
-      propertyResolver()?.invalidate();
-      dataviewRunner()?.invalidate();
-      await refreshOpenBuffers();
+      resetResolvers(resolvers());
+      await doc.refreshFromDisk();
       void refreshFileList();
       rightSidebarRefresh.schedule();
     } catch (e) {
@@ -665,10 +665,12 @@ const App: Component = () => {
     }
   };
 
-  const refreshOpenBuffers = async () => {
-    pruneContents(setContents, contents, (id) => id === tabs().activeId);
-    await doc.reloadFromDisk();
-  };
+  const resolvers = (): ResolverGroup => ({
+    wikilink: wikilinkResolver(),
+    embed: embedResolver(),
+    property: propertyResolver(),
+    dataview: dataviewRunner(),
+  });
 
   const resetDocState = () => {
     setError(null);
@@ -869,10 +871,7 @@ const App: Component = () => {
       if (p.vault_id !== vaultId()) return;
       scheduleRefresh();
 
-      wikilinkResolver()?.markStale();
-      embedResolver()?.markStale();
-      propertyResolver()?.markStale();
-      dataviewRunner()?.invalidate();
+      revalidateResolvers(resolvers());
 
       rightSidebarRefresh.schedule();
 
@@ -890,7 +889,7 @@ const App: Component = () => {
     unlistenPendingChanged = await onVaultPendingRewritesChanged((p) => {
       if (p.vault_id !== vaultId()) return;
       setPendingRewritesCount(p.count);
-      void refreshOpenBuffers();
+      void doc.refreshFromDisk();
     });
     unlistenFlushComplete = await onVaultFlushComplete((p) => {
       if (p.vault_id !== vaultId()) return;
