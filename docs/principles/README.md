@@ -6,7 +6,7 @@ One rule per file, fixed skeleton, stable id. The **Rule** line is the
 entire principle — read this table, then open only the file you need.
 A gate failure names its principle file; that file is the explanation.
 
-24 principles. 14 enforced by a gate today.
+24 principles. 15 enforced by a gate today.
 
 | Principle | Rule | Gate |
 |---|---|---|
@@ -31,6 +31,6 @@ A gate failure names its principle file; that file is the explanation.
 | [`single-owner-facts`](single-owner-facts.md) | Link to the doc that owns a fact; never restate it. | `scripts/check_docs.py` |
 | [`subagents`](subagents.md) | Send a subagent to explore or to verify; do the building yourself. | — |
 | [`tauri-commands`](tauri-commands.md) | Every command takes a typed request struct and returns a typed response struct. | — |
-| [`techstack`](techstack.md) | Declare a new runtime dependency in the architecture stack section before installing it. | planned: `techstack` |
+| [`techstack`](techstack.md) | Declare a new runtime dependency in the architecture stack section before installing it. | `scripts/gates/techstack.py` |
 | [`tests`](tests.md) | Run the script, not the pieces, before claiming anything passes. | `scripts/check.sh` |
 | [`typescript-style`](typescript-style.md) | Keep `tsc --noEmit` clean and never reach for `any`. | `scripts/check.sh` |
