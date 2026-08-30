@@ -3,10 +3,14 @@ import {
   type GetPropertyRequest,
   type GetPropertyResponse,
 } from "../api/ipc";
+import { createKeyedResolver } from "./keyedResolver";
 
 const UNRESOLVED: GetPropertyResponse = { kind: "note_unresolved", value: null };
 
-const cacheKey = (note: string, property: string) => `${note} ${property}`;
+interface PropertyKey {
+  note: string;
+  property: string;
+}
 
 export interface PropertyResolver {
   get(note: string, property: string): GetPropertyResponse | undefined;
@@ -21,69 +25,19 @@ export function createPropertyResolver(
   vaultId: string,
   ipc: (req: GetPropertyRequest) => Promise<GetPropertyResponse> = defaultGetProperty,
 ): PropertyResolver {
-  const cache = new Map<string, GetPropertyResponse>();
-  const inFlight = new Set<string>();
-  const subscribers = new Set<() => void>();
-  let cacheVersion = 0;
+  const inner = createKeyedResolver<PropertyKey, GetPropertyResponse>({
+    cacheKey: ({ note, property }) => `${note} ${property}`,
+    load: ({ note, property }) =>
+      ipc({ vault_id: vaultId, note_raw: note, property }),
+    onFailure: () => UNRESOLVED,
+  });
 
-  const notify = () => {
-    for (const fn of subscribers) fn();
+  return {
+    get: (note, property) => inner.get({ note, property }),
+    fetch: (note, property) => inner.fetch({ note, property }),
+    resolve: (note, property) => inner.resolve({ note, property }),
+    invalidate: () => inner.invalidate(),
+    onUpdate: (handler) => inner.onUpdate(handler),
+    version: () => inner.version(),
   };
-
-  const resolver: PropertyResolver = {
-    get(note, property) {
-      return cache.get(cacheKey(note, property));
-    },
-    fetch(note, property) {
-      const k = cacheKey(note, property);
-      if (cache.has(k) || inFlight.has(k)) return;
-      inFlight.add(k);
-      ipc({ vault_id: vaultId, note_raw: note, property })
-        .then((resp) => {
-          cache.set(k, resp);
-          cacheVersion++;
-        })
-        .catch(() => {
-          cache.set(k, UNRESOLVED);
-          cacheVersion++;
-        })
-        .finally(() => {
-          inFlight.delete(k);
-          notify();
-        });
-    },
-    resolve(note, property) {
-      const k = cacheKey(note, property);
-      const hit = cache.get(k);
-      if (hit !== undefined) return Promise.resolve(hit);
-      resolver.fetch(note, property);
-      return new Promise((resolveFn) => {
-        const unsub = resolver.onUpdate(() => {
-          const entry = cache.get(k);
-          if (entry !== undefined) {
-            unsub();
-            resolveFn(entry);
-          } else if (!inFlight.has(k)) {
-            resolver.fetch(note, property);
-          }
-        });
-      });
-    },
-    invalidate() {
-      cache.clear();
-      cacheVersion++;
-      notify();
-    },
-    onUpdate(handler) {
-      subscribers.add(handler);
-      return () => {
-        subscribers.delete(handler);
-      };
-    },
-    version() {
-      return cacheVersion;
-    },
-  };
-
-  return resolver;
 }
