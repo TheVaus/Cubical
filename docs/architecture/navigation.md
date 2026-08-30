@@ -72,7 +72,7 @@ means the §15.1 semantics.
 | Integrity-panel row | `sidebar/IntegrityPanel.tsx` | same | Same |
 | Tag-page file row | `TagPage.tsx` | same | Same |
 | Tag-page Back button | `TagPage.tsx` | `handleExitTagView` | Activates the tab named by the *current history entry*, then closes the tag tab. If there is no such open tab it just closes the tag tab |
-| Search-panel result | `sidebar/SearchPanel.tsx` | `handleNavigateWikilink(path, null)` | Opens the **file**, not the hit. Results are grouped per file and the group header is the only open affordance; there is no jump-to-match |
+| Search-panel result | `sidebar/SearchResults.tsx` | `handleNavigateWikilink(path, null)` | Opens the **file**, not the hit. Results are grouped per file and the group header is the only open affordance; there is no jump-to-match |
 | Omni-Bar note result | `omnibar/OmniBar.tsx` | `handleNavigateWikilink(path, null)` | Open-or-focus, then the bar closes |
 | Omni-Bar tag result | `omnibar/OmniBar.tsx` | `handleNavigateTag` | Tag tab |
 | Omni-Bar command result | `omnibar/OmniBar.tsx` | `handleRunCommand` | Not navigation — the omni-bar command set is one entry (`omnibar/commands.ts`), separate from the keymap registry |
@@ -268,7 +268,7 @@ them visible.
    remains for those. Whether link resolution can ever *return* such a target
    was still not determined from the frontend alone.
 4. **Open question — search results do not jump to the match.** The panel groups
-   hits per file and opens the file only (`sidebar/SearchPanel.tsx`). Nothing
+   hits per file and opens the file only (`sidebar/SearchResults.tsx`). Nothing
    in the code or the specs says whether jump-to-hit was cut or simply never
    built.
 

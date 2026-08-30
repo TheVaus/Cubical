@@ -63,11 +63,11 @@
       "issue": 34,
       "note": "Occurrence row, opens the source file."
     },
-    "ui/src/sidebar/SearchPanel.tsx": {
+    "ui/src/sidebar/SearchResultGroup.tsx": {
       "button": 1,
       "kind": "debt",
       "issue": 34,
-      "note": "Result row with roving tabindex."
+      "note": "Result row with roving tabindex. Was in SearchPanel.tsx before that file split into chrome and results (#237)."
     },
     "ui/src/tabs/TabStrip.tsx": {
       "button": 1,

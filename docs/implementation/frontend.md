@@ -235,7 +235,7 @@ about any feature. Two boundaries worth preserving:
 
 ## One feature's failure is not the app's
 
-**Anchors:** FeatureBoundary · renderGuarded · createListenerGroup · BlockWidget · EmbedWidget
+**Anchors:** FeatureBoundary · renderGuarded · createListenerGroup · BlockWidget · EmbedWidget · createSearchState · SearchBar · SearchResults
 
 There is one Solid root and no code splitting, so without a boundary any
 render-time throw blanks the whole window. Every surface that renders
@@ -274,6 +274,25 @@ Two things a boundary still cannot see: a throw inside an event handler, and a
 rejected promise nobody awaits. Neither has a Solid owner. Those stay the
 caller's own `try`/`catch`, which is why the IPC callers in the shell each have
 one.
+
+**A boundary cannot protect a component's own children**, so nesting decides
+what a boundary can reach before any boundary is written. Search used to render
+the file tree as `props.children`, which made a search failure a *parent*
+failure: the tree unmounted with it and the whole left sidebar went with the
+throw. No boundary placement fixes that — wrapping the parent keeps the parent's
+siblings alive, never its children. The fix is nesting. Search is three pieces
+now: `createSearchState` holds the query, the filters and the polled index
+status; `SearchBar` draws the chrome; `SearchResults` draws the overlay. The
+explorer creates the state and renders bar, tree and results as **siblings**
+inside one positioned container, each in its own boundary, so a failure in any
+one of the three leaves the other two on screen.
+
+The state factory sits outside all three boundaries, which is deliberate and is
+the residual risk: it declares signals and registers a poll timer and nothing
+else, and every IPC call it makes is already inside a `try`/`catch` or a
+`.catch` — a category a boundary could not have caught anyway. The two pieces
+that can throw while rendering — result grouping and the roving-tabindex list —
+live inside `SearchResults`, where a boundary does reach them.
 
 ## A vault switch opens first and releases second
 
