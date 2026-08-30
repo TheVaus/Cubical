@@ -35,9 +35,10 @@ def run() -> int:
     ws = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))
     actual_rust |= set(ws.get("workspace", {}).get("dependencies", {}))
     for manifest in sorted((ROOT / "crates").glob("*/Cargo.toml")):
-        actual_rust |= set(
-            tomllib.loads(manifest.read_text(encoding="utf-8"))
-            .get("dependencies", {}))
+        crate = tomllib.loads(manifest.read_text(encoding="utf-8"))
+        actual_rust |= set(crate.get("dependencies", {}))
+        for target in crate.get("target", {}).values():
+            actual_rust |= set(target.get("dependencies", {}))
 
     actual_npm: set[str] = set()
     for pkg in cfg["npm_manifests"]:

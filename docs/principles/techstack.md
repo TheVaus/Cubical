@@ -2,7 +2,7 @@
 
 **Rule:** Declare a new runtime dependency in the architecture stack section before installing it.
 
-**Gate:** none yet — planned `techstack`.
+**Gate:** `scripts/gates/techstack.py` — it latches the declared set in `scripts/techstack-declared.json` against every workspace and per-crate manifest, target-specific dependency tables included.
 
 **Why:** Dependencies are the easiest thing to add and among the hardest to remove; each one is a supply-chain surface, a bundle-size cost and a portability claim. Making the doc change first turns `npm install` from a reflex into a decision someone reviews. The stack is deliberate — Tauri + Rust, Solid, CodeMirror 6 + Lezer, Pretext, libSQL, Tantivy, Loro — and each entry has a stated reason.
 

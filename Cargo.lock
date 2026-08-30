@@ -768,7 +768,6 @@ dependencies = [
  "portable-pty",
  "serde",
  "serde_json",
- "shell-words",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
@@ -798,7 +797,6 @@ dependencies = [
  "anyhow",
  "cubical-engine",
  "cubical-ipc",
- "serde",
  "serde_json",
  "tempfile",
  "tokio",
@@ -816,7 +814,6 @@ dependencies = [
  "notify-debouncer-full",
  "serde",
  "serde_json",
- "serde_yaml_ng",
  "sha2 0.11.0",
  "tempfile",
  "thiserror 2.0.20",
@@ -831,7 +828,6 @@ dependencies = [
 name = "cubical-engine"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "base64 0.23.1",
  "cubical-ast",
  "cubical-core",
@@ -870,7 +866,6 @@ name = "cubical-index"
 version = "0.1.0"
 dependencies = [
  "libsql",
- "serde",
  "tempfile",
  "thiserror 2.0.20",
  "tokio",
@@ -914,16 +909,11 @@ dependencies = [
  "tantivy",
  "tempfile",
  "thiserror 2.0.20",
- "tracing",
 ]
 
 [[package]]
 name = "cubical-sync"
 version = "0.1.0"
-dependencies = [
- "cubical-ast",
- "thiserror 2.0.20",
-]
 
 [[package]]
 name = "darling"
@@ -4720,7 +4710,6 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
- "futures-util",
  "pin-project-lite",
  "tokio",
 ]
