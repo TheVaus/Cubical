@@ -1,5 +1,6 @@
 import { For, Show, type Component } from "solid-js";
 
+import Button from "@ds/components/forms/Button/Button";
 import IconButton from "@ds/components/forms/IconButton/IconButton";
 import Icon from "@ds/components/graphics/Icon/Icon";
 
@@ -39,30 +40,29 @@ const SearchResultGroup: Component<SearchResultGroupProps> = (props) => (
           size={10}
         />
       </IconButton>
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="sm"
         ref={props.registerRef}
-        tabindex={props.tabStop ? 0 : -1}
+        tabIndex={props.tabStop ? 0 : -1}
         onFocus={props.onFocus}
         onClick={props.onOpen}
         title={props.group.path}
         style={{
+          display: "block",
           flex: 1,
           "min-width": 0,
           "text-align": "left",
           "font-size": "var(--text-sm)",
           color: "var(--c-fg-primary)",
-          background: "transparent",
-          border: "none",
           padding: 0,
-          cursor: "pointer",
           overflow: "hidden",
           "text-overflow": "ellipsis",
           "white-space": "nowrap",
         }}
       >
         {props.group.title}
-      </button>
+      </Button>
       <span
         style={{
           "flex-shrink": 0,

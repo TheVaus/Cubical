@@ -4,13 +4,16 @@
     "scripts/gates/ds_components.py. THIS FILE IS THE ALLOWLIST \u2014 it is the one",
     "source, and docs/architecture/ui.md 11.6 links here rather than restating it.",
     "",
-    "A budget is a ceiling, not a target. The gate fails when a file exceeds its",
-    "budget, and when a file not listed here uses a raw control at all. It does",
-    "NOT fail when a count drops: ratchet the number down as the debt clears.",
+    "budgets is EMPTY, and that is the point: ui/src reaches zero raw controls.",
+    "Every control in the app comes from design-system/. The gate therefore fails",
+    "on any raw control anywhere in ui/src, because no file has a budget.",
+    "",
+    "To add one back you must add an entry here saying why no design-system",
+    "component fits. Prefer extending a component additively \u2014 see the locked",
+    "rule in docs/architecture/ui.md 11.6 \u2014 over claiming an exception.",
     "",
     "'bespoke' means a deliberate exception \u2014 no DS component fits.",
-    "'debt' means deferred migration tracked by an issue. Debt is not an",
-    "exception; it is a number that should be going down."
+    "'debt' means deferred migration tracked by an issue."
   ],
   "controls": [
     "button",
@@ -19,55 +22,5 @@
     "dialog",
     "textarea"
   ],
-  "budgets": {
-    "ui/src/App.tsx": {
-      "button": 6,
-      "input": 1,
-      "kind": "debt",
-      "issue": 34,
-      "note": "Vault switcher, doc-title input, right-sidebar tabs. The tree-row rename inputs left with the tree, to explorer/FileRow.tsx and explorer/FolderRow.tsx."
-    },
-    "ui/src/settings/InfoButton.tsx": {
-      "button": 1,
-      "kind": "debt",
-      "issue": 34,
-      "note": "The 1.25rem set-info-btn glyph. DS IconButton carries aria-expanded but exposes no class hook, and its own .icon-btn sizing is larger \u2014 adopting it would change the control's size, so this waits on an additive DS prop rather than a workaround."
-    },
-    "ui/src/settings/panes/EditorPane.tsx": {
-      "input": 1,
-      "kind": "debt",
-      "issue": 34,
-      "note": "The live-editor-tabs number field. DS TextInput takes a type but exposes no min/step, and this input needs min=1 step=1 to bound the LRU."
-    },
-    "ui/src/Properties.tsx": {
-      "button": 2,
-      "kind": "debt",
-      "issue": 34,
-      "note": "Property row add/remove affordances."
-    },
-    "ui/src/omnibar/OmniBar.tsx": {
-      "input": 1,
-      "kind": "bespoke",
-      "issue": 35,
-      "note": "The ranked multi-kind palette. The flat DS CommandPalette would regress fuzzy rank, kind badges and recency. This is the one surface architecture/ui.md 11.6 names."
-    },
-    "ui/src/sidebar/IntegrityPanel.tsx": {
-      "button": 1,
-      "kind": "debt",
-      "issue": 34,
-      "note": "Occurrence row, opens the source file."
-    },
-    "ui/src/sidebar/SearchResultGroup.tsx": {
-      "button": 1,
-      "kind": "debt",
-      "issue": 34,
-      "note": "Result row with roving tabindex. Was in SearchPanel.tsx before that file split into chrome and results (#237)."
-    },
-    "ui/src/tabs/TabStrip.tsx": {
-      "button": 1,
-      "kind": "debt",
-      "issue": 34,
-      "note": "Tab close affordance."
-    }
-  }
+  "budgets": {}
 }

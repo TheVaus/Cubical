@@ -86,22 +86,24 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.tab__close {
+/* Deltas over the design system's .icon-btn: the close glyph shrink-wraps,
+   stays hidden until the tab is hovered or active, and tints instead of
+   taking the icon-btn hover chip. */
+.tab__close.icon-btn {
   flex: 0 0 auto;
-  border: 0;
-  background: none;
-  padding: 0;
-  line-height: 1;
-  cursor: pointer;
+  width: auto;
+  height: auto;
+  font-size: var(--text-sm);
   color: var(--c-fg-muted);
   opacity: 0;
 }
-.tab:hover .tab__close,
-.tab--active .tab__close,
-.tab__close:focus-visible {
+.tab:hover .tab__close.icon-btn,
+.tab--active .tab__close.icon-btn,
+.tab__close.icon-btn:focus-visible {
   opacity: 1;
 }
-.tab__close:hover {
+.tab__close.icon-btn:hover:not(:disabled) {
+  background: transparent;
   color: var(--c-fg-primary);
 }
 
@@ -140,14 +142,12 @@
   gap: var(--space-3);
 }
 
-.doc-title {
-  display: block;
-  width: 100%;
-  box-sizing: border-box;
-  border: 1px solid transparent;
+/* Deltas over the design system's .text-input: the note title reads as a
+   heading until you focus it, so it drops the chrome and takes the h1 ramp. */
+.doc-title.text-input {
+  height: auto;
+  border-color: transparent;
   background: transparent;
-  color: var(--c-fg-primary);
-  font-family: var(--font-body);
   font-size: var(--text-2xl);
   font-weight: 700;
   letter-spacing: -0.01em;
@@ -155,13 +155,12 @@
   padding: var(--space-1) var(--space-2);
   margin: 0 calc(-1 * var(--space-2));
   border-radius: var(--radius-md);
-  transition: background var(--transition-fast),
-    border-color var(--transition-fast);
 }
-.doc-title:hover {
+.doc-title.text-input:hover {
   background: var(--c-bg-secondary);
 }
-.doc-title:focus {
+.doc-title.text-input:focus,
+.doc-title.text-input:focus-visible {
   outline: none;
   background: var(--c-bg-secondary);
   border-color: var(--c-accent);
@@ -264,29 +263,24 @@
 }
 
 /* right sidebar: inlined segmented header + panel body */
-.rs-tabs {
-  display: flex;
-  gap: var(--space-1);
-  padding: var(--space-2) var(--space-3);
+/* Deltas over the design system's .segmented-control.pill: the sidebar strip
+   spans its panel, sits on the panel background and sets its tabs in caps. */
+.rs-tabs.segmented-control.pill {
+  background: transparent;
+  border: none;
   border-bottom: 1px solid var(--c-border-subtle);
+  border-radius: 0;
+  padding: var(--space-2) var(--space-3);
+  gap: var(--space-1);
 }
-.rs-tab {
+.rs-tabs.segmented-control.pill .segmented-option {
   flex: 1;
+  justify-content: center;
   padding: var(--space-1) var(--space-2);
-  font-family: var(--font-body);
+  border-color: var(--c-border-subtle);
   font-size: var(--text-xs);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--c-fg-secondary);
-  background: transparent;
-  border: 1px solid var(--c-border-subtle);
-  border-radius: var(--radius-sm, var(--radius-md));
-  cursor: pointer;
-}
-.rs-tab--active {
-  color: var(--c-fg-primary);
-  background: var(--c-bg-tertiary);
-  border-color: var(--c-border-subtle);
 }
 .rs-body {
   flex: 1;
@@ -329,25 +323,20 @@
   margin: var(--space-2) calc(-1 * var(--space-2)) 0;
   border-top: 1px solid var(--c-border-subtle);
 }
-.vault-btn {
+/* Deltas over the design system's .btn.ghost: fills its row and reads as a
+   label rather than a centred button. */
+.vault-btn.btn.ghost {
   flex: 1;
   min-width: 0;
-  display: flex;
-  align-items: center;
+  height: auto;
+  justify-content: flex-start;
   gap: var(--space-2);
   padding: var(--space-2);
-  background: transparent;
-  border: 1px solid transparent;
   border-radius: var(--radius-md);
   color: var(--c-fg-primary);
-  font-family: var(--font-body);
-  font-size: var(--text-sm);
   text-align: left;
-  cursor: pointer;
-  transition: background var(--transition-fast),
-    border-color var(--transition-fast);
 }
-.vault-btn:hover {
+.vault-btn.btn.ghost:hover:not(:disabled) {
   background: var(--c-bg-tertiary);
   border-color: var(--c-border-subtle);
 }
@@ -412,36 +401,25 @@
   align-items: center;
   gap: var(--space-2);
 }
-.set-row__num {
+/* Deltas over the design system's .text-input, which is full-width by
+   default: this one sits inline in a settings row at a fixed width. */
+.set-row__num.text-input {
   flex: 0 0 auto;
   width: 4rem;
-  box-sizing: border-box;
+  height: auto;
   padding: var(--space-1) var(--space-2);
-  border: 1px solid var(--c-border-subtle);
-  border-radius: var(--radius-sm, var(--radius-md));
-  background: var(--c-bg-primary);
-  color: var(--c-fg-primary);
-  font-family: var(--font-body);
-  font-size: var(--text-sm);
 }
-.set-info-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+/* Deltas over the design system's .icon-btn: a smaller glyph that tints
+   rather than filling on hover. */
+.set-info-btn.icon-btn {
   width: 1.25rem;
   height: 1.25rem;
-  padding: 0;
-  background: transparent;
-  border: none;
   border-radius: var(--radius-md);
   color: var(--c-fg-muted);
-  font-family: var(--font-body);
   font-size: var(--text-sm);
-  line-height: 1;
-  cursor: pointer;
-  transition: color var(--transition-fast);
 }
-.set-info-btn:hover {
+.set-info-btn.icon-btn:hover:not(:disabled) {
+  background: transparent;
   color: var(--c-accent);
 }
 .set-info-pop {
