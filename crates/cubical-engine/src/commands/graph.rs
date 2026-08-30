@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use cubical_graph::{
     build_model, layout_streaming, GraphEdge, GraphModel, GraphNode, LayoutParams, NodeId,
@@ -25,39 +25,37 @@ impl LayoutRegistry {
         Self::default()
     }
 
+    fn running(&self) -> MutexGuard<'_, HashMap<String, Arc<AtomicBool>>> {
+        self.running
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     pub fn begin(&self, vault_id: &str) -> Arc<AtomicBool> {
         let flag = Arc::new(AtomicBool::new(false));
-        let Ok(mut running) = self.running.lock() else {
-            return flag;
-        };
-        if let Some(previous) = running.insert(vault_id.to_string(), Arc::clone(&flag)) {
+        if let Some(previous) = self
+            .running()
+            .insert(vault_id.to_string(), Arc::clone(&flag))
+        {
             previous.store(true, Ordering::Relaxed);
         }
         flag
     }
 
     pub fn cancel(&self, vault_id: &str) {
-        let Ok(mut running) = self.running.lock() else {
-            return;
-        };
-        if let Some(flag) = running.remove(vault_id) {
+        if let Some(flag) = self.running().remove(vault_id) {
             flag.store(true, Ordering::Relaxed);
         }
     }
 
     pub fn cancel_all(&self) {
-        let Ok(mut running) = self.running.lock() else {
-            return;
-        };
-        for (_, flag) in running.drain() {
+        for (_, flag) in self.running().drain() {
             flag.store(true, Ordering::Relaxed);
         }
     }
 
     fn finish(&self, vault_id: &str, flag: &Arc<AtomicBool>) {
-        let Ok(mut running) = self.running.lock() else {
-            return;
-        };
+        let mut running = self.running();
         if running.get(vault_id).is_some_and(|f| Arc::ptr_eq(f, flag)) {
             running.remove(vault_id);
         }
@@ -65,10 +63,7 @@ impl LayoutRegistry {
 
     #[cfg(test)]
     fn is_running(&self, vault_id: &str) -> bool {
-        self.running
-            .lock()
-            .map(|r| r.contains_key(vault_id))
-            .unwrap_or(false)
+        self.running().contains_key(vault_id)
     }
 }
 

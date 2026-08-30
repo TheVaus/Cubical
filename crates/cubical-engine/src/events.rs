@@ -1,5 +1,6 @@
 use cubical_core::unix_now_secs;
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -284,6 +285,35 @@ pub(crate) struct WatchContext<'a> {
     pub tombstones: &'a Tombstones,
 }
 
+pub struct WatcherLifetime {
+    pub cancel: CancellationToken,
+    pub live: Arc<AtomicBool>,
+}
+
+pub(crate) const WATCHER_UNAVAILABLE: &str = "watcher_unavailable";
+
+pub(crate) const WATCHER_BATCH_PANIC: &str = "watcher_batch_panic";
+
+pub(crate) async fn record_watcher_warning(
+    vault: &Vault,
+    category: &str,
+    message: &str,
+    error: &str,
+) {
+    if let Err(e) = cubical_index::append_audit(
+        vault.index(),
+        cubical_index::AuditLevel::Warn,
+        category,
+        message,
+        &serde_json::json!({ "error": error }).to_string(),
+        unix_now_secs(),
+    )
+    .await
+    {
+        tracing::warn!(error = %e, category, "watcher audit insert failed");
+    }
+}
+
 pub fn spawn_watcher_dispatcher(
     sink: Arc<dyn EventSink>,
     vault_id: String,
@@ -291,6 +321,7 @@ pub fn spawn_watcher_dispatcher(
     mut events_rx: tokio::sync::mpsc::Receiver<WatchEvent>,
     flush_own_writes: FlushOwnWrites,
     settings: Arc<RwLock<SettingsMap>>,
+    lifetime: WatcherLifetime,
 ) {
     tokio::spawn(async move {
         let tombstones = new_tombstones();
@@ -299,16 +330,46 @@ pub fn spawn_watcher_dispatcher(
             while let Ok(next) = events_rx.try_recv() {
                 batch.push(next);
             }
-            let ctx = WatchContext {
-                sink: sink.as_ref(),
-                vault_id: &vault_id,
-                flush_own_writes: &flush_own_writes,
-                settings: settings.as_ref(),
-                tombstones: &tombstones,
-            };
-            handle_watch_batch(&vault, batch, &ctx).await;
+            let sink = Arc::clone(&sink);
+            let batch_vault_id = vault_id.clone();
+            let batch_vault = vault.clone();
+            let flush_own_writes = Arc::clone(&flush_own_writes);
+            let settings = Arc::clone(&settings);
+            let tombstones = Arc::clone(&tombstones);
+            let batch_task = tokio::spawn(async move {
+                let ctx = WatchContext {
+                    sink: sink.as_ref(),
+                    vault_id: &batch_vault_id,
+                    flush_own_writes: &flush_own_writes,
+                    settings: settings.as_ref(),
+                    tombstones: &tombstones,
+                };
+                handle_watch_batch(&batch_vault, batch, &ctx).await;
+            });
+            if let Err(e) = batch_task.await {
+                tracing::error!(vault_id = %vault_id, error = %e, "watcher: batch handler died; dropping that batch and staying up");
+                record_watcher_warning(
+                    &vault,
+                    WATCHER_BATCH_PANIC,
+                    "watcher batch handler died; that batch of external edits was dropped",
+                    &e.to_string(),
+                )
+                .await;
+            }
         }
-        tracing::debug!(vault_id = %vault_id, "watcher dispatcher: channel closed");
+        if lifetime.cancel.is_cancelled() {
+            tracing::debug!(vault_id = %vault_id, "watcher dispatcher: channel closed after cancellation");
+            return;
+        }
+        lifetime.live.store(false, Ordering::Relaxed);
+        tracing::error!(vault_id = %vault_id, "watcher: event stream ended while the vault is open; external edits will not be seen until reopen");
+        record_watcher_warning(
+            &vault,
+            WATCHER_UNAVAILABLE,
+            "watcher event stream ended while the vault was open; external edits will not be seen until reopen",
+            "watch event channel closed",
+        )
+        .await;
     });
 }
 
@@ -855,6 +916,110 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&detail).unwrap();
         assert_eq!(parsed["kind"], "created");
         assert_eq!(parsed["path"], "note.md");
+    }
+
+    async fn audit_categories(vault: &Vault) -> Vec<String> {
+        let conn = vault.index().connection();
+        let mut rows = conn
+            .query("SELECT category FROM audit_log", ())
+            .await
+            .expect("query");
+        let mut out = Vec::new();
+        while let Some(row) = rows.next().await.expect("row") {
+            out.push(row.get::<String>(0).expect("category"));
+        }
+        out
+    }
+
+    fn spawn_dispatcher_for(
+        vault: &Vault,
+        rx: mpsc::Receiver<WatchEvent>,
+        lifetime: WatcherLifetime,
+    ) {
+        spawn_watcher_dispatcher(
+            Arc::new(NoopEventSink),
+            "v1".into(),
+            vault.clone(),
+            rx,
+            Arc::new(Mutex::new(HashSet::new())),
+            Arc::new(RwLock::new(SettingsMap::new())),
+            lifetime,
+        );
+    }
+
+    async fn settle_for(millis: u64) {
+        tokio::time::sleep(std::time::Duration::from_millis(millis)).await;
+    }
+
+    #[tokio::test]
+    async fn dispatcher_flags_and_audits_a_watcher_that_dies_while_the_vault_is_open() {
+        let (_dir, vault) = fresh_vault_with_one_md("note.md").await;
+        let (tx, rx) = mpsc::channel::<WatchEvent>(8);
+        let live = Arc::new(AtomicBool::new(true));
+        spawn_dispatcher_for(
+            &vault,
+            rx,
+            WatcherLifetime {
+                cancel: CancellationToken::new(),
+                live: Arc::clone(&live),
+            },
+        );
+
+        drop(tx);
+        for _ in 0..200 {
+            if !live.load(Ordering::Relaxed) {
+                break;
+            }
+            settle_for(10).await;
+        }
+
+        assert!(
+            !live.load(Ordering::Relaxed),
+            "an event stream that ends without cancellation must clear the live flag",
+        );
+        for _ in 0..200 {
+            if audit_categories(&vault)
+                .await
+                .iter()
+                .any(|c| c == WATCHER_UNAVAILABLE)
+            {
+                return;
+            }
+            settle_for(10).await;
+        }
+        panic!("a dead watcher must leave a {WATCHER_UNAVAILABLE} row in audit_log");
+    }
+
+    #[tokio::test]
+    async fn dispatcher_stays_quiet_when_the_stream_ends_because_the_vault_closed() {
+        let (_dir, vault) = fresh_vault_with_one_md("note.md").await;
+        let (tx, rx) = mpsc::channel::<WatchEvent>(8);
+        let live = Arc::new(AtomicBool::new(true));
+        let cancel = CancellationToken::new();
+        spawn_dispatcher_for(
+            &vault,
+            rx,
+            WatcherLifetime {
+                cancel: cancel.clone(),
+                live: Arc::clone(&live),
+            },
+        );
+
+        cancel.cancel();
+        drop(tx);
+        settle_for(300).await;
+
+        assert!(
+            live.load(Ordering::Relaxed),
+            "a deliberate close is not a degraded watcher",
+        );
+        assert!(
+            !audit_categories(&vault)
+                .await
+                .iter()
+                .any(|c| c == WATCHER_UNAVAILABLE),
+            "a deliberate close must not be audited as a dead watcher",
+        );
     }
 
     const WATCHED_FIXTURE: &str =
@@ -1493,6 +1658,10 @@ mod tests {
             );
             let flush_own_writes = open.flush_own_writes.clone();
             let settings = open.settings.clone();
+            let lifetime = WatcherLifetime {
+                cancel: open.watcher_cancel.clone(),
+                live: Arc::clone(&open.watcher_live),
+            };
             state.vaults().write().await.insert(VAULT_ID.into(), open);
 
             let (tx, rx) = mpsc::channel::<WatchEvent>(256);
@@ -1505,6 +1674,7 @@ mod tests {
                 rx,
                 flush_own_writes,
                 settings,
+                lifetime,
             );
             tokio::time::sleep(SETTLE).await;
 

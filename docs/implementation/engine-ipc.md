@@ -96,6 +96,12 @@ the transport, keeping the pure handlers clean.
   arm can adopt an external rename — see [Adopting an external
   rename](#adopting-an-external-rename).
 
+Each batch runs in its own `tokio::spawn`ed task that the loop awaits, so
+ordering is unchanged but a panic anywhere under `handle_watch_batch` costs one
+batch instead of every future external edit. A panic that a `Result` cannot
+express is exactly the case "errors are logged and the loop continues" did not
+cover.
+
 On a delete the file's row is dropped so it leaves the tree, and the cascading
 foreign keys carry its **outbound** rows with it. **Inbound** references from
 other files have no FK and are left intact, so they correctly degrade to broken
@@ -414,9 +420,34 @@ handlers take `&AppState`.
 
 The vault map is `Arc<RwLock<…>>` rather than a bare `RwLock` specifically so
 background tasks (the scan and watcher dispatchers) can hold a **stable handle
-across `await` points**. An open vault stores its cancellation token but not
-the dispatcher's join handle — the dispatcher detaches once started, and
-cancelling is enough to bring it down responsively.
+across `await` points**. An open vault stores cancellation tokens but not the
+dispatchers' join handles — a dispatcher detaches once started, and cancelling
+is enough to bring it down responsively.
+
+### The watcher's lifetime is its own
+
+`cancel` bounds the **scan**; `watcher_cancel` bounds the watcher; the
+already-separate `flush_timer_cancel` bounds the flush timer. They were not
+always distinct: the watcher was started on `cancel`, so `cancel_vault_scan`
+tore down the bridge task and the vault silently stopped seeing external edits
+for the rest of the session — the failure
+[`convergence-over-interception`](../principles/convergence-over-interception.md)
+can least afford, reachable from a button. `close_vault` cancels every token;
+nothing else cancels the watcher's.
+
+That separation is what makes a dead watcher *detectable*. The dispatcher's
+receive loop can only end when the channel closes, so ending while
+`watcher_cancel` is uncancelled means the watcher died rather than being shut
+down. That case clears `OpenVault.watcher_live` and writes a
+`watcher_unavailable` row at `warn`, the same category the failure-to-start
+path uses, because the user-visible consequence is identical. `watcher_live`
+rides out on `get_vault_info` so a frontend can say so; the `audit_log` row is
+the forensic record either way.
+
+A restart is deliberately **not** attempted. Re-registering with the OS watch
+API leaves a gap of unknown length during which the index and disk diverge with
+nothing recording what was missed, and the honest repair for that gap is the
+rescan that reopening the vault already performs.
 
 ## Settings routing
 
@@ -436,6 +467,15 @@ before any per-item loop that awaits — the lock must never be held across
 `await`, and sync file I/O inside such a loop goes through `spawn_blocking`.
 Otherwise a file with many backlinks interleaves blocking reads with awaits and
 can stall under concurrent watcher activity.
+
+A poisoned `std::sync::Mutex` guarding **plain data** is recovered with
+`into_inner()` rather than treated as fatal. `LayoutRegistry` used to
+let-else-return on `PoisonError`, which turned one panic elsewhere into a
+`cancel()` that silently did nothing for the rest of the process — a graph
+layout the user asked to stop kept burning a core. The map holds cancellation
+flags, not an invariant a panic can break, so the only thing poisoning proved
+was that some unrelated thread died. This does not extend to a lock guarding a
+half-updated structure, where poisoning is the signal it was designed to be.
 
 ## Idempotent vault re-open
 
