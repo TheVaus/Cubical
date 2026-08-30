@@ -30,10 +30,10 @@
       "note": "The whole typed IPC surface. It is one chokepoint on purpose (implementation/frontend.md), and the Setting union is the only registry of setting keys — splitting it would give that registry two homes. Raised 1103 -> 1104 for plugins.math_enabled, then 1104 -> 1173 for the graph commands and their wire types, then 1173 -> 1191 for list_tag_assignments and the ui.left_sidebar_mode key, then 1191 -> 1192 for plugins.equations_enabled: a new setting key or command costs exactly its own lines here and has nowhere else to live."
     },
     "ui/src/Editor.tsx": {
-      "max_lines": 721,
+      "max_lines": 666,
       "kind": "debt",
       "issue": 86,
-      "note": "CodeMirror host: extension assembly, the imperative EditorApi, and the anchor-scroll queue. Ratcheted 730 -> 721 when equations landed: math, equations and property-refs are all live-preview plugin flags, so livePreviewFor takes them as one LivePreviewPlugins record and the separate propertyRefsEnabled compartment and its reconfigure effect are gone."
+      "note": "CodeMirror host: extension assembly, the imperative EditorApi, and the anchor-scroll queue. Ratcheted 730 -> 721 when equations landed: math, equations and property-refs are all live-preview plugin flags, so livePreviewFor takes them as one LivePreviewPlugins record and the separate propertyRefsEnabled compartment and its reconfigure effect are gone. Ratcheted 721 -> 666 when the four hand-rolled resolver subscribe blocks collapsed into editor/updateSubscription.ts: the slot registers its own onCleanup, so a fifth resolver cannot repeat the leak the dataview copy had."
     },
     "ui/src/Properties.tsx": {
       "max_lines": 719,
