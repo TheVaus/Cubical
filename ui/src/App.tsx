@@ -67,6 +67,7 @@ import { resolveGlobal, type Command } from "./core/commands";
 import { createNavSession } from "./core/navSession";
 import { createDebounced } from "./core/debounce";
 import { createDocumentSession } from "./core/documentSession";
+import { switchVault } from "./core/vaultOpen";
 import TabStrip from "./tabs/TabStrip";
 import {
   FileViewer,
@@ -1022,60 +1023,59 @@ const App: Component = () => {
     brokenBlockRefsRefresh.cancel();
   });
 
+  const releaseVault = () => {
+    setFiles([]);
+    setFolders([]);
+    setFilesProcessed(0);
+    setFilesTotalEstimate(0);
+    setTabsReady(false);
+    setTabs(emptyTabs);
+    setContents(
+      produce((c) => {
+        for (const k of Object.keys(c)) delete c[k];
+      }),
+    );
+    setMru([]);
+    nav.reset();
+    doc.reset();
+    setDocSummaries(
+      produce((s: Record<string, DocSummary>) => {
+        for (const k of Object.keys(s)) delete s[k];
+      }),
+    );
+    setCreateOffer(null);
+    setRightSidebarRefreshTick(0);
+    setBrokenBlockRefs([]);
+    setPendingRewritesCount(0);
+    fileActions.reset();
+    setTagRefreshTick(0);
+    settings.resetForVaultSwitch();
+  };
+
   const openVaultByPath = async (path: string) => {
     setError(null);
     setBusy(true);
     try {
-      setFiles([]);
-      setFolders([]);
-      setFilesProcessed(0);
-      setFilesTotalEstimate(0);
-      setScanStatus("in_progress");
-      setVaultPath(path);
-      setTabsReady(false);
-      setTabs(emptyTabs);
-      setContents(
-        produce((c) => {
-          for (const k of Object.keys(c)) delete c[k];
-        }),
-      );
-      setMru([]);
-      nav.reset();
-      doc.reset();
-      setDocSummaries(
-        produce((s: Record<string, DocSummary>) => {
-          for (const k of Object.keys(s)) delete s[k];
-        }),
-      );
-      setCreateOffer(null);
-      setRightSidebarRefreshTick(0);
-      setBrokenBlockRefs([]);
-      setPendingRewritesCount(0);
-      fileActions.reset();
-      setTagRefreshTick(0);
-      settings.resetForVaultSwitch();
-      setWikilinkResolver(null);
-      setEmbedResolver(null);
-      setPropertyResolver(null);
-      setAutocompleteProvider(null);
-
-      const resp = await openVault({ path });
-      setVaultId(resp.vault_id);
-      setScanStatus(resp.scan_status);
-      setWikilinkResolver(createWikiLinkResolver(resp.vault_id));
-      setEmbedResolver(createEmbedResolver(resp.vault_id));
-      setPropertyResolver(createPropertyResolver(resp.vault_id));
-      setAutocompleteProvider(createAutocompleteProvider(resp.vault_id));
-      scheduleRefresh();
-
+      const resp = await switchVault({
+        open: () => openVault({ path }),
+        release: releaseVault,
+        adopt: (opened) => {
+          setVaultPath(path);
+          setVaultId(opened.vault_id);
+          setScanStatus(opened.scan_status);
+          setWikilinkResolver(createWikiLinkResolver(opened.vault_id));
+          setEmbedResolver(createEmbedResolver(opened.vault_id));
+          setPropertyResolver(createPropertyResolver(opened.vault_id));
+          setAutocompleteProvider(createAutocompleteProvider(opened.vault_id));
+          scheduleRefresh();
+        },
+      });
       await settings.hydrate(resp.vault_id);
       await refreshFileList();
       await restoreTabs(path);
-
       void refreshRecentVaults();
     } catch (e) {
-      const message = errorMessage(e);
-      setError(message);
+      setError(errorMessage(e));
     } finally {
       setBusy(false);
     }

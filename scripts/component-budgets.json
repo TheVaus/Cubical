@@ -64,9 +64,9 @@
       "note": "Vault-health rows and their fetch effect. Raised 386 -> 388 for the refresh-is-not-a-load fix: one import and one tracker declaration. The cold/warm decision itself is shared in sidebar/refreshTarget.ts rather than inlined here, so this is the whole per-panel cost."
     },
     "ui/src/settings/settingsState.ts": {
-      "max_lines": 421,
+      "max_lines": 423,
       "kind": "bespoke",
-      "note": "The vault's persisted configuration surface: one signal, one setter and one hydrate step per setting. Length here tracks the number of settings, not tangled logic. Raised from 381 when every default moved to settings/defaults.ts \u2014 one named constant per default, so the signal initialiser and the hydrate fallback can no longer disagree, at the cost of a wrapped line each. Raised 400 -> 421 for ui.left_sidebar_mode: one signal, one setter, one hydrate step, exactly as the note describes."
+      "note": "The vault's persisted configuration surface: one signal, one setter and one hydrate step per setting. Length here tracks the number of settings, not tangled logic. Raised from 381 when every default moved to settings/defaults.ts \u2014 one named constant per default, so the signal initialiser and the hydrate fallback can no longer disagree, at the cost of a wrapped line each. Raised 400 -> 421 for ui.left_sidebar_mode: one signal, one setter, one hydrate step, exactly as the note describes. Raised 421 -> 423 because resetForVaultSwitch now clears corePlugins and statusbarConfig: one line each, and leaving them out is the bug in #223."
     },
     "ui/src/statusbar/PendingRewrites.tsx": {
       "max_lines": 350,

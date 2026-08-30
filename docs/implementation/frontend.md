@@ -233,6 +233,32 @@ about any feature. Two boundaries worth preserving:
 - **Vault session** holds the open vault's identity and scan lifecycle.
   Features read from it; it never reaches back into them.
 
+## A vault switch opens first and releases second
+
+**Anchors:** switchVault · openVaultByPath · releaseVault · resetForVaultSwitch
+
+`switchVault` fixes the order of a vault switch — open, release, adopt, hydrate
+— because the only step that can fail is the first one. Releasing first meant a
+rejected open left the shell in a state no code path repaired: the path and the
+statusbar showed the vault the user asked for, `vaultId` still pointed at the
+one before it, and every resolver — wiki-link, embed, property, autocomplete —
+had been nulled and was never rebuilt. The app looked open and resolved
+nothing. Opening first means a failure changes nothing but the error banner: the
+previous vault is still whole, because it was never torn down.
+
+Adopt is synchronous on purpose — id, path, scan status, resolvers — so no
+`await` can land between a vault becoming current and its resolvers existing.
+`switchVault` returns the opened vault so the awaitable remainder (settings,
+file list, tab session) runs against a vault that is already fully current.
+
+`resetForVaultSwitch` is part of the release step and must clear **every**
+per-vault signal, not the view-state ones only. Anything it leaves behind is the
+outgoing vault's answer given for the incoming one across the whole of hydrate,
+which is one IPC round trip per setting. Plugin toggles are the sharp case:
+leaving them meant the new vault ran the old vault's feature set. Clearing to an
+empty record is the right reset because empty already means "every default",
+which is exactly the state the app boots in.
+
 ## A core plugin's runtime is derived from its toggle
 
 **Anchors:** createDataviewWiring · createTerminalWiring · createGraphWiring · corePluginActive · corePluginEnabled
