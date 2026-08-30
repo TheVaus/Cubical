@@ -18,6 +18,7 @@ import {
   propertyRefBaseTheme,
   propertyRefsEnabledFacet,
 } from "./propertyRef";
+import { renderFailureBaseTheme } from "./widgetGuard";
 
 export const livePreviewBundle: Extension = [
   livePreviewDecorations,
@@ -39,6 +40,7 @@ export const livePreviewBundle: Extension = [
   equationField,
   equationBaseTheme,
   calcBlockBaseTheme,
+  renderFailureBaseTheme,
 ];
 
 export interface LivePreviewPlugins {

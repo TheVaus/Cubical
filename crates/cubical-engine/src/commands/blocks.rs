@@ -8,6 +8,7 @@ use crate::api::types::{
     BrokenBlockRefDto, CreateBlockRefRequest, CreateBlockRefResponse, GetBrokenBlockRefsRequest,
     GetBrokenBlockRefsResponse,
 };
+use crate::commands::open::open_vault_cloned;
 use crate::error::CubicalError;
 use crate::state::AppState;
 
@@ -15,12 +16,7 @@ pub async fn create_block_ref(
     state: &AppState,
     req: CreateBlockRefRequest,
 ) -> Result<CreateBlockRefResponse, CubicalError> {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(&req.vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
-    let vault = open.vault.clone();
-    drop(guard);
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
 
     let (target_path, abs) = crate::commands::paths::vault_file(&vault, &req.target_path)?;
     let source = tokio::fs::read_to_string(&abs)
@@ -119,11 +115,8 @@ pub async fn get_broken_block_refs(
     state: &AppState,
     req: GetBrokenBlockRefsRequest,
 ) -> Result<GetBrokenBlockRefsResponse, CubicalError> {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(&req.vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
-    let broken = broken_block_refs(open.vault.index()).await?;
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
+    let broken = broken_block_refs(vault.index()).await?;
     let refs = broken
         .into_iter()
         .map(|b| BrokenBlockRefDto {

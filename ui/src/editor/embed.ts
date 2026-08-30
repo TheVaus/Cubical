@@ -7,7 +7,6 @@ import {
 import {
   Facet,
   StateEffect,
-  StateField,
   type EditorState,
   type Extension,
   type Range,
@@ -15,8 +14,10 @@ import {
 import { syntaxTree } from "@codemirror/language";
 
 import { scanWikilinks } from "../ast/wikilink";
+import { decorationField } from "./decorationField";
 import type { EmbedResolver } from "./embedResolver";
 import { renderEmbedBody } from "./embedRender";
+import { renderGuarded } from "./widgetGuard";
 
 export const embedResolverFacet = Facet.define<
   EmbedResolver | null,
@@ -54,11 +55,13 @@ class EmbedWidget extends WidgetType {
     frame.className = "cm-md-embed-frame";
     const seedChain = this.openNotePath === null ? [] : [this.openNotePath];
     frame.appendChild(
-      renderEmbedBody({
-        resolver: this.resolver,
-        targetRaw: this.targetRaw,
-        chain: seedChain,
-      }),
+      renderGuarded(`![[${this.targetRaw}]]`, () =>
+        renderEmbedBody({
+          resolver: this.resolver,
+          targetRaw: this.targetRaw,
+          chain: seedChain,
+        }),
+      ),
     );
     return frame;
   }
@@ -116,36 +119,12 @@ function buildDecorations(state: EditorState): DecorationSet {
   return Decoration.set(ranges, true);
 }
 
-export const embedBlockField = StateField.define<DecorationSet>({
-  create: (state) => buildDecorations(state),
-  update: (deco, tr) => {
-    const resolverChanged = tr.effects.some((e) => e.is(embedResolverUpdated));
-    const treeChanged =
-      syntaxTree(tr.startState) !== syntaxTree(tr.state);
-    const facetChanged =
-      tr.startState.facet(embedResolverFacet) !==
-        tr.state.facet(embedResolverFacet) ||
-      tr.startState.facet(openNotePathFacet) !==
-        tr.state.facet(openNotePathFacet);
-    const activeLineChanged =
-      tr.startState.doc.lineAt(tr.startState.selection.main.head).number !==
-      tr.state.doc.lineAt(tr.state.selection.main.head).number;
-    if (
-      !tr.docChanged &&
-      !treeChanged &&
-      !resolverChanged &&
-      !facetChanged &&
-      !activeLineChanged
-    ) {
-      return deco;
-    }
-    return buildDecorations(tr.state);
-  },
-  provide: (f) => [
-    EditorView.decorations.from(f),
-    EditorView.atomicRanges.of(
-      (view) => view.state.field(f, false) ?? Decoration.none,
-    ),
+export const embedBlockField = decorationField({
+  build: buildDecorations,
+  effects: [embedResolverUpdated],
+  watch: [
+    (s) => s.facet(embedResolverFacet),
+    (s) => s.facet(openNotePathFacet),
   ],
 });
 

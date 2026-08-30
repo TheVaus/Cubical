@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use tokio::sync::{Mutex, RwLock};
@@ -13,9 +13,12 @@ pub struct OpenVault {
     pub cancel: CancellationToken,
     pub scan_status: ScanStatusBackend,
     pub watcher: Option<WatcherHandle>,
+    pub watcher_cancel: CancellationToken,
+    pub watcher_live: Arc<AtomicBool>,
     pub flush_own_writes: Arc<Mutex<HashSet<(String, String)>>>,
     pub flush_in_progress: Arc<Mutex<()>>,
     pub flush_timer_cancel: CancellationToken,
+    pub flush_timer_live: Arc<AtomicBool>,
     pub search_state: Arc<std::sync::Mutex<SearchStateInner>>,
     pub settings: Arc<RwLock<SettingsMap>>,
     pub lock_guard: Option<crate::vault_lock::VaultLockGuard>,
@@ -63,10 +66,13 @@ impl OpenVault {
             vault,
             cancel,
             scan_status,
+            watcher_cancel: CancellationToken::new(),
+            watcher_live: Arc::new(AtomicBool::new(watcher.is_some())),
             watcher,
             flush_own_writes: Arc::new(Mutex::new(HashSet::new())),
             flush_in_progress: Arc::new(Mutex::new(())),
             flush_timer_cancel: CancellationToken::new(),
+            flush_timer_live: Arc::new(AtomicBool::new(false)),
             search_state: Arc::new(std::sync::Mutex::new(SearchStateInner::default())),
             settings: Arc::new(RwLock::new(settings)),
             lock_guard: None,

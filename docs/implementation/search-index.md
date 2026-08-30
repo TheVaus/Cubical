@@ -32,6 +32,10 @@ Fix it forward with a new one.**
   which is otherwise derived from file paths. Fully derived and rebuildable —
   the on-disk directory is truth, re-discovered by every scan. Paths are
   vault-relative with no leading or trailing slash; the root is never stored.
+- **`files` is layer 0's table, and only `cubical-index` writes SQL against
+  it.** `all_file_paths` is the whole-vault path list every resolver needs;
+  engine-side copies of the same `SELECT` drift from it silently, because
+  nothing type-checks a string.
 - **Link rows keep an unresolved target.** A row whose target didn't resolve at
   extraction time is still written, so the backlinks UI can surface the broken
   link and a later rename can re-resolve it.

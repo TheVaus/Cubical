@@ -233,6 +233,118 @@ about any feature. Two boundaries worth preserving:
 - **Vault session** holds the open vault's identity and scan lifecycle.
   Features read from it; it never reaches back into them.
 
+## One feature's failure is not the app's
+
+**Anchors:** FeatureBoundary · renderGuarded · createListenerGroup · BlockWidget · EmbedWidget · createSearchState · SearchBar · SearchResults
+
+There is one Solid root and no code splitting, so without a boundary any
+render-time throw blanks the whole window. Every surface that renders
+independently sits in a `FeatureBoundary`, which draws a compact error and a
+retry **in that surface's place** and leaves its siblings mounted.
+
+The granularity rule is one boundary per surface that can be on screen at the
+same time as another — explorer, file tree, properties, editors, viewer, tag
+page, graph, terminal, sidebar panel, statusbar, Omni-Bar. A single boundary at
+the root satisfies the letter of "the app has a boundary" and none of its
+purpose: it still blanks everything. Mutually exclusive surfaces get separate
+boundaries too, because a tripped boundary stays tripped until it is reset —
+sharing one between the viewer and the editor would mean a bad file leaves the
+editor unreachable until the user finds the retry.
+
+**A Solid boundary does not cover CodeMirror-owned DOM.** A widget's `toDOM`
+runs inside the view's update cycle, outside the owner tree Solid propagates
+errors through, so a throw there escapes into whatever dispatched the
+transaction — usually `new EditorView`, taking the whole editor with it.
+`renderGuarded` wraps those calls and substitutes a failure line for the widget.
+It is applied at the two widgets (`BlockWidget`, `EmbedWidget`), not in each
+renderer: the block registry has one `toDOM` and many renderers, and guarding
+per renderer means every future renderer has to remember.
+
+The `onMount` registration chain is the other uncovered path, because it is
+`await`s rather than rendering. Seven listener registrations run before the
+global keymap, the theme watcher and the boot vault-open; one rejection used to
+take everything after it, silently, leaving an app that looked fine with no
+shortcuts and no auto-open. `createListenerGroup` catches per registration, so a
+failed `listen` costs exactly its own listener, and holds the unlisten functions
+so teardown is one call rather than seven nullable handles. Boot ends in a
+`finally`, so a failure there still clears `booting` and leaves the vault picker
+reachable.
+
+Two things a boundary still cannot see: a throw inside an event handler, and a
+rejected promise nobody awaits. Neither has a Solid owner. Those stay the
+caller's own `try`/`catch`, which is why the IPC callers in the shell each have
+one.
+
+**A boundary cannot protect a component's own children**, so nesting decides
+what a boundary can reach before any boundary is written. Search used to render
+the file tree as `props.children`, which made a search failure a *parent*
+failure: the tree unmounted with it and the whole left sidebar went with the
+throw. No boundary placement fixes that — wrapping the parent keeps the parent's
+siblings alive, never its children. The fix is nesting. Search is three pieces
+now: `createSearchState` holds the query, the filters and the polled index
+status; `SearchBar` draws the chrome; `SearchResults` draws the overlay. The
+explorer creates the state and renders bar, tree and results as **siblings**
+inside one positioned container, each in its own boundary, so a failure in any
+one of the three leaves the other two on screen.
+
+The state factory sits outside all three boundaries, which is deliberate and is
+the residual risk: it declares signals and registers a poll timer and nothing
+else, and every IPC call it makes is already inside a `try`/`catch` or a
+`.catch` — a category a boundary could not have caught anyway. The two pieces
+that can throw while rendering — result grouping and the roving-tabindex list —
+live inside `SearchResults`, where a boundary does reach them.
+
+## A vault switch opens first and releases second
+
+**Anchors:** switchVault · openVaultByPath · releaseVault · resetForVaultSwitch
+
+`switchVault` fixes the order of a vault switch — open, release, adopt, hydrate
+— because the only step that can fail is the first one. Releasing first meant a
+rejected open left the shell in a state no code path repaired: the path and the
+statusbar showed the vault the user asked for, `vaultId` still pointed at the
+one before it, and every resolver — wiki-link, embed, property, autocomplete —
+had been nulled and was never rebuilt. The app looked open and resolved
+nothing. Opening first means a failure changes nothing but the error banner: the
+previous vault is still whole, because it was never torn down.
+
+Adopt is synchronous on purpose — id, path, scan status, resolvers — so no
+`await` can land between a vault becoming current and its resolvers existing.
+`switchVault` returns the opened vault so the awaitable remainder (settings,
+file list, tab session) runs against a vault that is already fully current.
+
+`resetForVaultSwitch` is part of the release step and must clear **every**
+per-vault signal, not the view-state ones only. Anything it leaves behind is the
+outgoing vault's answer given for the incoming one across the whole of hydrate,
+which is one IPC round trip per setting. Plugin toggles are the sharp case:
+leaving them meant the new vault ran the old vault's feature set. Clearing to an
+empty record is the right reset because empty already means "every default",
+which is exactly the state the app boots in.
+
+## A core plugin's runtime is derived from its toggle
+
+**Anchors:** createDataviewWiring · createTerminalWiring · createGraphWiring · corePluginActive · corePluginEnabled
+
+A core plugin's live objects — a query runner, a PTY session, a tab — are
+*derived* from the toggle, never created once at vault open and then gated at
+each use site. Deriving is what makes
+[`../principles/composability.md`](../principles/composability.md)'s
+"switching a feature off drops its derived state" true in the frontend: the
+object falls out of scope with the toggle, taking its cache and its
+subscriptions with it, and coming back on builds a fresh one.
+
+Gating at the use site does not, because the gate has to be repeated. The
+dataview runner was built unconditionally and read through a
+`enabled ? runner : null` ternary in the editor props only; three other callers
+held the runner directly and invalidated it, so every external file change
+re-ran the whole cached query set for a feature the user had switched off. No
+number of gated call sites is safe — one missed site restores the leak, and the
+count only grows.
+
+A block asks `corePluginActive`, which folds in the dependency graph the
+principle names, so a block whose requirement is off reads as off.
+`corePluginEnabled` answers the raw switch position only: right for drawing the
+switch in Settings, and for a block that declares no requirements.
+
 ## Editor compartments
 
 `Editor.tsx` owns its DOM and the `EditorView`; Solid stays out of it so the

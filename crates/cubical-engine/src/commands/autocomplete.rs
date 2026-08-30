@@ -1,40 +1,30 @@
-use std::path::Path;
-
+use cubical_ast::note_title;
 use cubical_core::vault::links::resolve_target;
-use cubical_index::{all_tag_paths, blocks_for_file, files_for_link_query, tag_paths_for_prefix};
+use cubical_index::{
+    all_file_paths, all_tag_paths, blocks_for_file, files_for_link_query, tag_paths_for_prefix,
+};
 
 use crate::api::types::{
     BlockIdAutocompleteRequest, BlockIdAutocompleteResponse, LinkAutocompleteRequest,
     LinkAutocompleteResponse, LinkCandidate, ListTagsRequest, ListTagsResponse,
     TagAutocompleteRequest, TagAutocompleteResponse,
 };
+use crate::commands::open::open_vault_cloned;
 use crate::error::CubicalError;
 use crate::state::AppState;
 
 const AUTOCOMPLETE_LIMIT: u32 = 50;
 
-fn derive_title(path: &str) -> String {
-    Path::new(path)
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .map(str::to_string)
-        .unwrap_or_else(|| path.to_string())
-}
-
 pub async fn link_autocomplete(
     state: &AppState,
     req: LinkAutocompleteRequest,
 ) -> Result<LinkAutocompleteResponse, CubicalError> {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(&req.vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
-
-    let paths = files_for_link_query(open.vault.index(), &req.query, AUTOCOMPLETE_LIMIT).await?;
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
+    let paths = files_for_link_query(vault.index(), &req.query, AUTOCOMPLETE_LIMIT).await?;
     let candidates = paths
         .into_iter()
         .map(|path| {
-            let title = derive_title(&path);
+            let title = note_title(&path).to_string();
             LinkCandidate { path, title }
         })
         .collect();
@@ -45,13 +35,8 @@ pub async fn tag_autocomplete(
     state: &AppState,
     req: TagAutocompleteRequest,
 ) -> Result<TagAutocompleteResponse, CubicalError> {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(&req.vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
-
-    let candidates =
-        tag_paths_for_prefix(open.vault.index(), &req.query, AUTOCOMPLETE_LIMIT).await?;
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
+    let candidates = tag_paths_for_prefix(vault.index(), &req.query, AUTOCOMPLETE_LIMIT).await?;
     Ok(TagAutocompleteResponse { candidates })
 }
 
@@ -59,11 +44,8 @@ pub async fn list_tags(
     state: &AppState,
     req: ListTagsRequest,
 ) -> Result<ListTagsResponse, CubicalError> {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(&req.vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
-    let tags = all_tag_paths(open.vault.index()).await?;
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
+    let tags = all_tag_paths(vault.index()).await?;
     Ok(ListTagsResponse { tags })
 }
 
@@ -71,21 +53,8 @@ pub async fn block_id_autocomplete(
     state: &AppState,
     req: BlockIdAutocompleteRequest,
 ) -> Result<BlockIdAutocompleteResponse, CubicalError> {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(&req.vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
-    let vault = open.vault.clone();
-    drop(guard);
-
-    let conn = vault.index().connection();
-    let mut rows = conn
-        .query("SELECT path FROM files ORDER BY path", ())
-        .await?;
-    let mut known: Vec<String> = Vec::new();
-    while let Some(row) = rows.next().await? {
-        known.push(row.get(0)?);
-    }
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
+    let known = all_file_paths(vault.index()).await?;
 
     let target_path = match resolve_target(req.target_raw.trim(), &known) {
         Some(p) => p,

@@ -1,12 +1,13 @@
 use libsql::params;
 
+use cubical_core::unix_now_secs;
 use cubical_index::pending_count_total;
 
 use crate::api::types::{RepairDanglingLinkRequest, RepairDanglingLinkResponse};
 use crate::commands::link_match::derive_reattach_token;
 use crate::commands::rename::{
     clone_vault_with_flush_state, enqueue_coalesced, flush_pending_for_target, mint_rename_op_id,
-    path_tracked, unix_now_secs,
+    path_tracked,
 };
 use crate::error::CubicalError;
 use crate::events::{

@@ -87,3 +87,34 @@ describe("displayMathField", () => {
     expect(rendered(doc, doc.length - 2)).toHaveLength(0);
   });
 });
+
+describe("displayMathField recomputes per line, not per cursor position", () => {
+  const doc = ["a long line of prose", "", "$$", "x + y", "$$", "", "trailing", ""].join(
+    "\n",
+  );
+
+  function fieldAfterMove(from: number, to: number) {
+    const view = new EditorView({
+      state: EditorState.create({
+        doc,
+        selection: { anchor: from },
+        extensions: [markdown(), mathEnabledFacet.of(true), displayMathField],
+      }),
+    });
+    const before = view.state.field(displayMathField);
+    view.dispatch({ selection: { anchor: to } });
+    const after = view.state.field(displayMathField);
+    view.destroy();
+    return { before, after };
+  }
+
+  it("keeps the decoration set identical when the head moves within a line", () => {
+    const { before, after } = fieldAfterMove(0, 10);
+    expect(after).toBe(before);
+  });
+
+  it("still rebuilds when the head moves onto the math block", () => {
+    const { before, after } = fieldAfterMove(0, doc.indexOf("x + y"));
+    expect(after).not.toBe(before);
+  });
+});

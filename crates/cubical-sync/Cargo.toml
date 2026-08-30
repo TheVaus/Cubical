@@ -8,5 +8,3 @@ authors.workspace = true
 description = "CRDT abstraction. Trait CrdtBackend lives here; the Loro implementation lands at L7."
 
 [dependencies]
-cubical-ast = { path = "../cubical-ast" }
-thiserror = { workspace = true }

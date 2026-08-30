@@ -1,18 +1,10 @@
+use cubical_ast::{note_title, strip_markdown_extension};
 use cubical_index::names_eq_folded;
-
-pub(crate) fn strip_md_suffix(path: &str) -> &str {
-    path.strip_suffix(".md").unwrap_or(path)
-}
-
-pub(crate) fn basename_without_md(path: &str) -> &str {
-    let after_slash = path.rsplit('/').next().unwrap_or(path);
-    strip_md_suffix(after_slash)
-}
 
 pub(crate) fn link_name_forms(path: &str) -> (String, String) {
     (
-        basename_without_md(path).to_string(),
-        strip_md_suffix(path).to_string(),
+        note_title(path).to_string(),
+        strip_markdown_extension(path).to_string(),
     )
 }
 
@@ -58,11 +50,11 @@ pub(crate) fn classify_candidate(candidate_path: &str, token: &str) -> Option<Ca
 }
 
 pub(crate) fn derive_reattach_token(target_raw: &str, to_path: &str) -> String {
-    let basename = basename_without_md(to_path);
+    let basename = note_title(to_path);
     if !target_raw.contains('/') && basename != target_raw {
         basename.to_string()
     } else {
-        strip_md_suffix(to_path).to_string()
+        strip_markdown_extension(to_path).to_string()
     }
 }
 

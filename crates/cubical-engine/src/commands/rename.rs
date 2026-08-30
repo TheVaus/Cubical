@@ -1,3 +1,5 @@
+use cubical_ast::{note_title, strip_markdown_extension};
+use cubical_core::unix_now_secs;
 use std::collections::HashSet;
 
 use cubical_core::vault::pending::apply_pending;
@@ -22,7 +24,8 @@ use crate::api::types::{
     RenameFileRequest, RenameFileResponse, RenameFolderRequest, RenameFolderResponse,
     RenameTagRequest, RenameTagResponse, UndoRenameRequest, UndoRenameResponse,
 };
-use crate::commands::link_match::{basename_without_md, link_name_forms, strip_md_suffix};
+use crate::commands::link_match::link_name_forms;
+use crate::commands::open::{open_vault_cloned, with_open_vault};
 use crate::commands::paths;
 use crate::error::CubicalError;
 use crate::events::{
@@ -64,30 +67,12 @@ pub(super) async fn mint_rename_op_id(vault: &cubical_core::Vault) -> Result<i64
     Ok(next)
 }
 
-pub(super) fn unix_now_secs() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-        .map(|d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
-        .unwrap_or(0)
-}
-
 fn derive_wikilink_new_token(target_raw: &str, from_path: &str, to_path: &str) -> String {
-    if target_raw == basename_without_md(from_path) {
-        basename_without_md(to_path).to_string()
+    if target_raw == note_title(from_path) {
+        note_title(to_path).to_string()
     } else {
-        strip_md_suffix(to_path).to_string()
+        strip_markdown_extension(to_path).to_string()
     }
-}
-
-async fn clone_vault(
-    state: &AppState,
-    vault_id: &str,
-) -> Result<cubical_core::Vault, CubicalError> {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(vault_id.to_string()))?;
-    Ok(open.vault.clone())
 }
 
 pub(super) async fn clone_vault_with_flush_state(
@@ -101,15 +86,14 @@ pub(super) async fn clone_vault_with_flush_state(
     ),
     CubicalError,
 > {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(vault_id.to_string()))?;
-    Ok((
-        open.vault.clone(),
-        open.flush_own_writes.clone(),
-        open.flush_in_progress.clone(),
-    ))
+    with_open_vault(state, vault_id, |open| {
+        (
+            open.vault.clone(),
+            open.flush_own_writes.clone(),
+            open.flush_in_progress.clone(),
+        )
+    })
+    .await
 }
 
 async fn enforce_fifty_per_file_fuse(
@@ -186,11 +170,14 @@ pub(super) async fn enqueue_coalesced(
 pub const WIKILINKS_REWRITE_BROKEN_KEY: &str = "wikilinks.rewrite_broken_links_on_rename";
 
 async fn read_bool_setting(state: &AppState, vault_id: &str, key: &str, default: bool) -> bool {
-    let guard = state.vaults().read().await;
-    let Some(open) = guard.get(vault_id) else {
+    let Ok(settings) = with_open_vault(state, vault_id, |open| {
+        std::sync::Arc::clone(&open.settings)
+    })
+    .await
+    else {
         return default;
     };
-    let map = open.settings.read().await;
+    let map = settings.read().await;
     map.get(key)
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(default)
@@ -949,7 +936,7 @@ pub(crate) async fn flush_target_for_link_mention(
     vault_id: &str,
     target_file: &str,
 ) -> Result<(), CubicalError> {
-    let vault = clone_vault(state, vault_id).await?;
+    let vault = open_vault_cloned(state, vault_id).await?;
     flush_pending_for_target(&vault, target_file, None)
         .await
         .map(|_| ())
@@ -1086,7 +1073,43 @@ pub const FLUSH_INTERVAL_SECS_KEY: &str = "pending_rewrites.flush_interval_secs"
 
 const DEFAULT_FLUSH_INTERVAL_SECS: u64 = 300;
 
+pub struct FlushTimerLifetime {
+    pub cancel: tokio_util::sync::CancellationToken,
+    pub live: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+pub(crate) const FLUSH_TIMER_UNAVAILABLE: &str = "flush_timer_unavailable";
+
+pub(crate) const FLUSH_TIMER_TICK_PANIC: &str = "flush_timer_tick_panic";
+
 pub fn spawn_flush_timer(
+    app: std::sync::Arc<dyn EventSink>,
+    vault: cubical_core::Vault,
+    flush_own_writes: FlushOwnWrites,
+    flush_in_progress: std::sync::Arc<tokio::sync::Mutex<()>>,
+    vault_id: String,
+    lifetime: FlushTimerLifetime,
+) {
+    let loop_vault = vault.clone();
+    let loop_vault_id = vault_id.clone();
+    let loop_cancel = lifetime.cancel.clone();
+    tokio::spawn(async move {
+        let task = tokio::spawn(async move {
+            flush_timer_loop(
+                app,
+                loop_vault,
+                flush_own_writes,
+                flush_in_progress,
+                loop_vault_id,
+                loop_cancel,
+            )
+            .await;
+        });
+        supervise_flush_timer(task, &vault, &vault_id, &lifetime).await;
+    });
+}
+
+async fn flush_timer_loop(
     app: std::sync::Arc<dyn EventSink>,
     vault: cubical_core::Vault,
     flush_own_writes: FlushOwnWrites,
@@ -1094,30 +1117,90 @@ pub fn spawn_flush_timer(
     vault_id: String,
     cancel: tokio_util::sync::CancellationToken,
 ) {
-    tokio::spawn(async move {
-        loop {
-            let secs = read_flush_interval(&vault).await;
-            let sleep = tokio::time::sleep(std::time::Duration::from_secs(secs));
-            tokio::select! {
-                _ = cancel.cancelled() => {
-                    tracing::debug!(vault_id = %vault_id, "flush timer: cancelled");
-                    return;
-                }
-                _ = sleep => {}
+    loop {
+        let secs = read_flush_interval(&vault).await;
+        let sleep = tokio::time::sleep(std::time::Duration::from_secs(secs));
+        tokio::select! {
+            _ = cancel.cancelled() => {
+                tracing::debug!(vault_id = %vault_id, "flush timer: cancelled");
+                return;
             }
-            if let Err(e) = flush_all_for_vault(
-                &vault,
-                &flush_own_writes,
-                &flush_in_progress,
-                app.as_ref(),
-                &vault_id,
-            )
-            .await
-            {
-                tracing::warn!(vault_id = %vault_id, error = %e, "flush timer: tick failed");
-            }
+            _ = sleep => {}
+        }
+        run_isolated_flush_tick(
+            &app,
+            &vault,
+            &flush_own_writes,
+            &flush_in_progress,
+            &vault_id,
+        )
+        .await;
+    }
+}
+
+async fn run_isolated_flush_tick(
+    app: &std::sync::Arc<dyn EventSink>,
+    vault: &cubical_core::Vault,
+    flush_own_writes: &FlushOwnWrites,
+    flush_in_progress: &std::sync::Arc<tokio::sync::Mutex<()>>,
+    vault_id: &str,
+) {
+    let tick_app = std::sync::Arc::clone(app);
+    let tick_vault = vault.clone();
+    let tick_own_writes = std::sync::Arc::clone(flush_own_writes);
+    let tick_in_progress = std::sync::Arc::clone(flush_in_progress);
+    let tick_vault_id = vault_id.to_string();
+    let tick = tokio::spawn(async move {
+        if let Err(e) = flush_all_for_vault(
+            &tick_vault,
+            &tick_own_writes,
+            &tick_in_progress,
+            tick_app.as_ref(),
+            &tick_vault_id,
+        )
+        .await
+        {
+            tracing::warn!(vault_id = %tick_vault_id, error = %e, "flush timer: tick failed");
         }
     });
+    if let Err(e) = tick.await {
+        tracing::error!(vault_id = %vault_id, error = %e, "flush timer: tick died; its queued rewrites stay queued and the timer stays up");
+        crate::events::record_vault_warning(
+            vault,
+            FLUSH_TIMER_TICK_PANIC,
+            "flush timer tick died; the rewrites it was writing stay queued for the next tick",
+            &e.to_string(),
+        )
+        .await;
+    }
+}
+
+async fn supervise_flush_timer(
+    task: tokio::task::JoinHandle<()>,
+    vault: &cubical_core::Vault,
+    vault_id: &str,
+    lifetime: &FlushTimerLifetime,
+) {
+    let outcome = task.await;
+    if lifetime.cancel.is_cancelled() {
+        tracing::debug!(vault_id = %vault_id, "flush timer: stopped after cancellation");
+        return;
+    }
+    lifetime
+        .live
+        .store(false, std::sync::atomic::Ordering::Relaxed);
+    let error = match outcome {
+        Ok(()) => "flush timer loop returned without being cancelled".to_string(),
+        Err(e) => e.to_string(),
+    };
+    tracing::error!(vault_id = %vault_id, error = %error, "flush timer: died while the vault is open; queued link rewrites will not be written until reopen");
+    crate::events::record_vault_warning(
+        vault,
+        FLUSH_TIMER_UNAVAILABLE,
+        "flush timer died while the vault was open; queued link rewrites will not be written until the vault is reopened",
+        &error,
+    )
+    .await;
 }
 
 async fn read_flush_interval(vault: &cubical_core::Vault) -> u64 {
@@ -1161,7 +1244,7 @@ pub async fn get_pending_rewrites_count(
     state: &AppState,
     req: GetPendingRewritesCountRequest,
 ) -> Result<GetPendingRewritesCountResponse, CubicalError> {
-    let vault = clone_vault(state, &req.vault_id).await?;
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
     let count = pending_count_total(vault.index()).await?;
     Ok(GetPendingRewritesCountResponse { count })
 }
@@ -1170,7 +1253,7 @@ pub async fn get_pending_rewrites_breakdown(
     state: &AppState,
     req: GetPendingRewritesBreakdownRequest,
 ) -> Result<GetPendingRewritesBreakdownResponse, CubicalError> {
-    let vault = clone_vault(state, &req.vault_id).await?;
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
     let rows = pending_count_breakdown(vault.index()).await?;
     Ok(GetPendingRewritesBreakdownResponse {
         rows: rows
@@ -1184,7 +1267,7 @@ pub async fn list_recent_rename_ops(
     state: &AppState,
     req: ListRecentRenameOpsRequest,
 ) -> Result<ListRecentRenameOpsResponse, CubicalError> {
-    let vault = clone_vault(state, &req.vault_id).await?;
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
     let ops = list_ops(vault.index(), i64::from(req.limit)).await?;
     Ok(ListRecentRenameOpsResponse {
         ops: ops
@@ -1204,7 +1287,7 @@ pub async fn undo_rename(
     app: &dyn EventSink,
     req: UndoRenameRequest,
 ) -> Result<UndoRenameResponse, CubicalError> {
-    let vault = clone_vault(state, &req.vault_id).await?;
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
     let removed = delete_rename_op(vault.index(), req.rename_op_id).await?;
     let pending_count = pending_count_total(vault.index()).await?;
     emit_pending_rewrites_changed(
@@ -3282,7 +3365,10 @@ mod tests {
             gate.clone(),
             guard.clone(),
             "v1".into(),
-            cancel.clone(),
+            FlushTimerLifetime {
+                cancel: cancel.clone(),
+                live: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            },
         );
 
         let mut drained = false;
@@ -3295,5 +3381,184 @@ mod tests {
         }
         cancel.cancel();
         assert!(drained, "periodic timer must have flushed within 3s");
+    }
+
+    struct PanicOnFirstFlushSink {
+        armed: std::sync::atomic::AtomicBool,
+    }
+
+    impl EventSink for PanicOnFirstFlushSink {
+        fn emit(&self, event: crate::events::AppEvent) {
+            if matches!(event, crate::events::AppEvent::FlushComplete(_))
+                && self.armed.swap(false, std::sync::atomic::Ordering::Relaxed)
+            {
+                panic!("flush tick blew up");
+            }
+        }
+    }
+
+    async fn audit_categories(vault: &Vault) -> Vec<String> {
+        let conn = vault.index().connection();
+        let mut rows = conn
+            .query("SELECT category FROM audit_log", ())
+            .await
+            .expect("query");
+        let mut out = Vec::new();
+        while let Some(row) = rows.next().await.expect("row") {
+            out.push(row.get::<String>(0).expect("category"));
+        }
+        out
+    }
+
+    async fn set_flush_interval_secs(vault: &Vault, secs: &str) {
+        vault
+            .index()
+            .connection()
+            .execute(
+                "INSERT INTO config (key, value) VALUES (?1, ?2)",
+                params![FLUSH_INTERVAL_SECS_KEY, secs],
+            )
+            .await
+            .unwrap();
+    }
+
+    fn queue_rewrite(target: &str) -> NewPendingRewrite {
+        NewPendingRewrite {
+            target_file: target.into(),
+            rewrite_kind: RewriteKind::WikiLink,
+            old_token: "X".into(),
+            new_token: "Y".into(),
+            created_at: 0,
+            rename_op_id: 1,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_panicking_tick_costs_one_tick_and_leaves_the_timer_flushing() {
+        let (_d, vault, _state) = fresh("v1").await;
+        std::fs::write(vault.root().join("A.md"), "[[X]]\n").unwrap();
+        std::fs::write(vault.root().join("B.md"), "[[X]]\n").unwrap();
+        set_flush_interval_secs(&vault, "1").await;
+        enqueue_pending(vault.index(), &[queue_rewrite("A.md")])
+            .await
+            .unwrap();
+
+        let cancel = CancellationToken::new();
+        spawn_flush_timer(
+            std::sync::Arc::new(PanicOnFirstFlushSink {
+                armed: std::sync::atomic::AtomicBool::new(true),
+            }),
+            vault.clone(),
+            std::sync::Arc::new(tokio::sync::Mutex::new(HashSet::new())),
+            std::sync::Arc::new(tokio::sync::Mutex::new(())),
+            "v1".into(),
+            FlushTimerLifetime {
+                cancel: cancel.clone(),
+                live: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            },
+        );
+
+        let mut audited = false;
+        for _ in 0..60 {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            if audit_categories(&vault)
+                .await
+                .iter()
+                .any(|c| c == FLUSH_TIMER_TICK_PANIC)
+            {
+                audited = true;
+                break;
+            }
+        }
+        assert!(
+            audited,
+            "a tick that panics must leave a {FLUSH_TIMER_TICK_PANIC} row"
+        );
+
+        enqueue_pending(vault.index(), &[queue_rewrite("B.md")])
+            .await
+            .unwrap();
+        let mut drained = false;
+        for _ in 0..60 {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            if pending_count_total(vault.index()).await.unwrap() == 0 {
+                drained = true;
+                break;
+            }
+        }
+        cancel.cancel();
+        assert!(
+            drained,
+            "a later tick must still flush after an earlier one panicked",
+        );
+        assert_eq!(
+            std::fs::read_to_string(vault.root().join("B.md")).unwrap(),
+            "[[Y]]\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_flush_timer_that_dies_uncancelled_is_flagged_and_audited() {
+        let (_d, vault, _state) = fresh("v1").await;
+        let live = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let lifetime = FlushTimerLifetime {
+            cancel: CancellationToken::new(),
+            live: std::sync::Arc::clone(&live),
+        };
+
+        supervise_flush_timer(
+            tokio::spawn(async { panic!("the loop itself blew up") }),
+            &vault,
+            "v1",
+            &lifetime,
+        )
+        .await;
+
+        assert!(
+            !live.load(std::sync::atomic::Ordering::Relaxed),
+            "a loop that ends without cancellation must clear the live flag",
+        );
+        assert!(
+            audit_categories(&vault)
+                .await
+                .iter()
+                .any(|c| c == FLUSH_TIMER_UNAVAILABLE),
+            "a dead flush timer must leave a {FLUSH_TIMER_UNAVAILABLE} row in audit_log",
+        );
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_flush_timer_is_not_reported_as_dead() {
+        let (_d, vault, _state) = fresh("v1").await;
+        set_flush_interval_secs(&vault, "1").await;
+        let live = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let cancel = CancellationToken::new();
+
+        spawn_flush_timer(
+            std::sync::Arc::new(NoopEventSink),
+            vault.clone(),
+            std::sync::Arc::new(tokio::sync::Mutex::new(HashSet::new())),
+            std::sync::Arc::new(tokio::sync::Mutex::new(())),
+            "v1".into(),
+            FlushTimerLifetime {
+                cancel: cancel.clone(),
+                live: std::sync::Arc::clone(&live),
+            },
+        );
+
+        cancel.cancel();
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+        assert!(
+            live.load(std::sync::atomic::Ordering::Relaxed),
+            "a deliberate close is not a degraded flush timer",
+        );
+        assert!(
+            !audit_categories(&vault)
+                .await
+                .iter()
+                .any(|c| c == FLUSH_TIMER_UNAVAILABLE),
+            "a deliberate close must not be audited as a dead flush timer",
+        );
     }
 }

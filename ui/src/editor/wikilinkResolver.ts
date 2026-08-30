@@ -1,9 +1,13 @@
-import type { ResolverDebugState, ResolverEvent } from "./embedResolver";
 import {
   resolveLink as defaultResolveLink,
   type ResolveLinkRequest,
   type ResolveLinkResponse,
 } from "../api/ipc";
+import {
+  createKeyedResolver,
+  type ResolverDebugState,
+  type ResolverEvent,
+} from "./keyedResolver";
 
 export interface WikiLinkResolution {
   target_path: string | null;
@@ -21,122 +25,21 @@ export interface WikiLinkResolver {
   abort(): void;
 }
 
+const UNRESOLVED: WikiLinkResolution = { target_path: null, anchor: null };
+
 export function createWikiLinkResolver(
   vaultId: string,
   ipc: (
     req: ResolveLinkRequest,
   ) => Promise<ResolveLinkResponse> = defaultResolveLink,
 ): WikiLinkResolver {
-  const cache = new Map<string, WikiLinkResolution>();
-  const inFlight = new Map<string, { aborted: boolean }>();
-  const subscribers = new Set<() => void>();
-  const eventSubscribers = new Set<(e: ResolverEvent) => void>();
-  const lastFetchAt = new Map<string, number>();
-  const lastSettleAt = new Map<string, number>();
-  const lastError = new Map<string, string>();
-
-  const notify = () => {
-    for (const fn of subscribers) fn();
-  };
-
-  const emit = (e: ResolverEvent) => {
-    for (const fn of eventSubscribers) fn(e);
-  };
-
-  const resolver: WikiLinkResolver = {
-    get(targetRaw) {
-      return cache.get(targetRaw);
-    },
-    fetch(targetRaw) {
-      if (cache.has(targetRaw) || inFlight.has(targetRaw)) return;
-      const handle = { aborted: false };
-      inFlight.set(targetRaw, handle);
-      const startedAt = Date.now();
-      lastFetchAt.set(targetRaw, startedAt);
-      emit({ kind: "fetch-started", key: targetRaw, at: startedAt });
-      ipc({ vault_id: vaultId, target_raw: targetRaw })
-        .then((resp) => {
-          if (handle.aborted) return;
-          cache.set(targetRaw, {
-            target_path: resp.target_path,
-            anchor: resp.anchor,
-          });
-          lastError.delete(targetRaw);
-          const at = Date.now();
-          lastSettleAt.set(targetRaw, at);
-          emit({ kind: "fetch-settled", key: targetRaw, at });
-        })
-        .catch((err: unknown) => {
-          if (handle.aborted) return;
-          cache.set(targetRaw, { target_path: null, anchor: null });
-          const msg = err instanceof Error ? err.message : String(err);
-          lastError.set(targetRaw, msg);
-          const at = Date.now();
-          lastSettleAt.set(targetRaw, at);
-          emit({
-            kind: "fetch-errored",
-            key: targetRaw,
-            error: msg,
-            at,
-          });
-        })
-        .finally(() => {
-          inFlight.delete(targetRaw);
-          if (!handle.aborted) notify();
-        });
-    },
-    resolve(targetRaw) {
-      const hit = cache.get(targetRaw);
-      if (hit !== undefined) return Promise.resolve(hit);
-      resolver.fetch(targetRaw);
-      return new Promise((resolveFn) => {
-        const unsub = resolver.onUpdate(() => {
-          const got = cache.get(targetRaw);
-          if (got !== undefined) {
-            unsub();
-            resolveFn(got);
-          } else if (!inFlight.has(targetRaw)) {
-            resolver.fetch(targetRaw);
-          }
-        });
-      });
-    },
-    invalidate() {
-      cache.clear();
-      lastError.clear();
-      emit({ kind: "invalidate", at: Date.now() });
-      notify();
-    },
-    onUpdate(handler) {
-      subscribers.add(handler);
-      return () => {
-        subscribers.delete(handler);
-      };
-    },
-    debug() {
-      return {
-        cacheSize: cache.size,
-        inFlight: [...inFlight.keys()],
-        lastFetchAt: new Map(lastFetchAt),
-        lastSettleAt: new Map(lastSettleAt),
-        lastError: new Map(lastError),
-      };
-    },
-    onEvent(handler) {
-      eventSubscribers.add(handler);
-      return () => {
-        eventSubscribers.delete(handler);
-      };
-    },
-    abort() {
-      const at = Date.now();
-      for (const [key, handle] of inFlight.entries()) {
-        handle.aborted = true;
-        emit({ kind: "abort", key, at });
-      }
-      inFlight.clear();
-      notify();
-    },
-  };
-  return resolver;
+  return createKeyedResolver<string, WikiLinkResolution>({
+    cacheKey: (targetRaw) => targetRaw,
+    load: (targetRaw) =>
+      ipc({ vault_id: vaultId, target_raw: targetRaw }).then((resp) => ({
+        target_path: resp.target_path,
+        anchor: resp.anchor,
+      })),
+    onFailure: () => UNRESOLVED,
+  });
 }

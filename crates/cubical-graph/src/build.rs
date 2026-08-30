@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use cubical_ast::note_title;
 use cubical_index::{fold_name, IndexConn};
 use libsql::params;
 
@@ -41,10 +42,6 @@ impl Builder {
     }
 }
 
-fn label_for_path(path: &str) -> &str {
-    path.rsplit('/').next().unwrap_or(path)
-}
-
 pub async fn build_model(conn: &IndexConn) -> Result<GraphModel, GraphError> {
     let mut b = Builder::new();
     let mut edges: Vec<GraphEdge> = Vec::new();
@@ -61,7 +58,7 @@ pub async fn build_model(conn: &IndexConn) -> Result<GraphModel, GraphError> {
         } else {
             NodeKind::Attachment
         };
-        let label = label_for_path(&path).to_string();
+        let label = note_title(&path).to_string();
         b.intern(kind, &path, &label);
     }
 

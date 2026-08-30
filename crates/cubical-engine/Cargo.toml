@@ -32,7 +32,6 @@ serde_json = { workspace = true }
 sha2 = { workspace = true }
 
 # Cross-process vault ownership lock — OS advisory file lock + runtime-dir resolution.
-fs4 = "1.1"
 dirs = "6"
 
 # OS trash/recycle bin — see delete_path in commands/vault.rs.
@@ -43,7 +42,6 @@ base64 = "0.23"
 
 # Error handling
 thiserror = { workspace = true }
-anyhow = { workspace = true }
 
 # Logging
 tracing = { workspace = true }

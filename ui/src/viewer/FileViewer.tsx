@@ -4,6 +4,7 @@ import Callout from "@ds/components/feedback/Callout/Callout";
 
 import { readFileBytes } from "../api/ipc";
 import { errorMessage } from "../errorMessage";
+import { basename } from "../vault/noteName";
 import { base64ToText } from "./decode";
 import {
   renderDelimitedTable,
@@ -37,10 +38,6 @@ export interface Payload {
 
 const KEY_SEP = "\u0000";
 
-function fileName(path: string): string {
-  return path.slice(path.lastIndexOf("/") + 1);
-}
-
 export function renderViewerPayload(
   payload: Payload,
   path: string,
@@ -51,7 +48,7 @@ export function renderViewerPayload(
   }
   switch (payload.kind) {
     case "image":
-      return renderImage(payload.mime, payload.base64, fileName(path));
+      return renderImage(payload.mime, payload.base64, basename(path));
     case "delimited":
       return renderDelimitedTable(
         base64ToText(payload.base64),
@@ -109,7 +106,7 @@ export function FileViewer(props: FileViewerProps): JSXElement {
       <Show when={overSizeLimit()}>
         <div class="viewer__notice">
           <Callout tone="warning" title="Too large to preview">
-            {fileName(props.path)} is {formatBytes(props.sizeBytes)}, over the{" "}
+            {basename(props.path)} is {formatBytes(props.sizeBytes)}, over the{" "}
             {formatBytes(maxBytesForKind(kind()))} preview limit. The file is
             untouched on disk — open it in another app.
           </Callout>
@@ -118,7 +115,7 @@ export function FileViewer(props: FileViewerProps): JSXElement {
 
       <Show when={!overSizeLimit()}>
         <Show when={payload.loading}>
-          <div class="viewer__status">Loading {fileName(props.path)}…</div>
+          <div class="viewer__status">Loading {basename(props.path)}…</div>
         </Show>
 
         <Show when={payload.error}>

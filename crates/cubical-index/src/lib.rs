@@ -3,6 +3,7 @@
 mod audit;
 mod blocks;
 mod error;
+mod files;
 mod fold;
 mod folders;
 mod links;
@@ -11,12 +12,13 @@ mod pending;
 mod runner;
 mod tags;
 
-pub use audit::{prune_audit_log, AUDIT_LOG_MAX_ROWS};
+pub use audit::{append_audit, prune_audit_log, AuditLevel, AUDIT_LOG_MAX_ROWS};
 pub use blocks::{
     block_exists, blocks_for_file, broken_block_refs, replace_block_refs_for_file,
     replace_blocks_for_file, BlockRefRow, BlockRow, BrokenBlockRef,
 };
 pub use error::IndexError;
+pub use files::{all_file_paths, upsert_file, FileRow};
 pub use fold::{fold_name, names_eq_folded};
 pub use folders::{delete_folder, list_folders, sweep_stale_folders, upsert_folder};
 pub use links::{

@@ -1,3 +1,5 @@
+import { basename } from "../vault/noteName";
+
 export type ViewerKind = "text" | "delimited" | "image" | "unsupported";
 
 export const MAX_TEXT_VIEWER_BYTES = 2 * 1024 * 1024;
@@ -19,7 +21,7 @@ const KIND_BY_EXTENSION: Record<string, ViewerKind> = {
 };
 
 export function extensionOf(path: string): string {
-  const name = path.slice(path.lastIndexOf("/") + 1);
+  const name = basename(path);
   const dot = name.lastIndexOf(".");
   if (dot <= 0) return "";
   return name.slice(dot + 1).toLowerCase();

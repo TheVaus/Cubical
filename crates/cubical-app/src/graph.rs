@@ -17,13 +17,19 @@ pub async fn graph_snapshot(
 
 #[tauri::command]
 pub async fn graph_layout(
+    state: tauri::State<'_, AppState>,
     registry: tauri::State<'_, LayoutRegistry>,
     req: GraphLayoutRequest,
     on_frame: Channel<LayoutFrame>,
 ) -> Result<LayoutComplete, CubicalError> {
-    cubical_engine::commands::graph::graph_layout(registry.inner(), req, move |frame| {
-        let _ = on_frame.send(frame);
-    })
+    cubical_engine::commands::graph::graph_layout(
+        state.inner(),
+        registry.inner(),
+        req,
+        move |frame| {
+            let _ = on_frame.send(frame);
+        },
+    )
     .await
 }
 

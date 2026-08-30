@@ -1,30 +1,20 @@
-use cubical_ast::parse;
+use cubical_core::parse_off_executor;
 use cubical_core::vault::links::{read_source_off_executor, resolve_target};
 use cubical_core::vault::pending::materialize_on_read;
+use cubical_index::all_file_paths;
 
 use crate::api::types::{GetPropertyRequest, GetPropertyResponse, PropertyRefKind};
+use crate::commands::open::open_vault_cloned_for;
 use crate::error::CubicalError;
+use crate::plugins::Feature;
 use crate::state::AppState;
 
 pub async fn get_property(
     state: &AppState,
     req: GetPropertyRequest,
 ) -> Result<GetPropertyResponse, CubicalError> {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(&req.vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
-    let vault = open.vault.clone();
-    drop(guard);
-
-    let conn = vault.index().connection();
-    let mut rows = conn
-        .query("SELECT path FROM files ORDER BY path", ())
-        .await?;
-    let mut known: Vec<String> = Vec::new();
-    while let Some(row) = rows.next().await? {
-        known.push(row.get(0)?);
-    }
+    let vault = open_vault_cloned_for(state, &req.vault_id, Feature::PropertyRefs).await?;
+    let known = all_file_paths(vault.index()).await?;
 
     let Some(target_path) = resolve_target(&req.note_raw, &known) else {
         return Ok(GetPropertyResponse {
@@ -42,7 +32,10 @@ pub async fn get_property(
     };
     let source = materialize_on_read(vault.index(), &target_path, &on_disk).await?;
 
-    let Some(fm) = parse(&source).frontmatter else {
+    let Some(fm) = parse_off_executor(&source)
+        .await
+        .and_then(|d| d.frontmatter)
+    else {
         return Ok(GetPropertyResponse {
             kind: PropertyRefKind::PropertyMissing,
             value: None,
@@ -83,6 +76,18 @@ mod tests {
             ),
         );
         (vault, state)
+    }
+
+    async fn switch(state: &AppState, vault_id: &str, key: &str, on: bool) {
+        let settings = crate::commands::open::with_open_vault(state, vault_id, |open| {
+            std::sync::Arc::clone(&open.settings)
+        })
+        .await
+        .expect("vault open");
+        settings
+            .write()
+            .await
+            .insert(key.to_string(), serde_json::json!(on));
     }
 
     async fn scan(vault: &Vault) {
@@ -215,5 +220,27 @@ mod tests {
         .await
         .expect("ok");
         assert!(matches!(resp.kind, PropertyRefKind::NoteUnresolved));
+    }
+
+    #[tokio::test]
+    async fn a_property_read_is_refused_while_property_refs_is_off() {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("Gandalf.md"), "---\nage: 2019\n---\n").unwrap();
+        let (vault, state) = state_with_vault_at(dir.path(), "v1").await;
+        scan(&vault).await;
+        switch(&state, "v1", "plugins.property_refs_enabled", false).await;
+
+        let err = get_property(
+            &state,
+            GetPropertyRequest {
+                vault_id: "v1".into(),
+                note_raw: "Gandalf".into(),
+                property: "age".into(),
+            },
+        )
+        .await
+        .expect_err("a switched-off plugin must not be served");
+
+        assert!(matches!(err, CubicalError::FeatureDisabled(id) if id == "property-refs"));
     }
 }
