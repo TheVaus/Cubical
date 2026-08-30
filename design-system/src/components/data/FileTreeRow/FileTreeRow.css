@@ -1,49 +1,79 @@
-.file-tree-row {
+.tree-row {
+  box-sizing: border-box;
   display: flex;
   align-items: center;
-  height: var(--row-height);
-  gap: var(--space-2);
-  padding-right: var(--space-3);
-  cursor: pointer;
-  color: var(--c-fg-secondary);
-  transition: background var(--duration-state) var(--ease-standard);
-}
-
-.file-tree-row:hover {
-  background: var(--c-bg-tertiary);
-}
-
-.file-tree-row.selected {
-  background: var(--c-bg-tertiary);
+  gap: var(--space-1);
+  padding-right: var(--space-2);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
   color: var(--c-fg-primary);
+  cursor: pointer;
+  user-select: none;
+}
+.tree-row:hover {
+  background: var(--c-bg-tertiary);
+}
+/* folders read as structure: full contrast + weight + the disclosure caret */
+.tree-row--folder {
+  color: var(--c-fg-primary);
+  font-weight: 600;
+}
+.tree-row--selected,
+.tree-row--selected:hover {
+  background: var(--c-bg-tertiary);
   box-shadow: inset 2px 0 0 var(--c-accent);
 }
-
-.file-tree-name {
-  font-size: var(--text-sm);
+.tree-row__twisty {
+  flex: 0 0 auto;
+  width: 1rem;
+  text-align: center;
+  color: var(--c-fg-muted);
+  font-size: 0.65rem;
+  line-height: 1;
+}
+.tree-row__icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  color: var(--c-fg-muted);
+}
+.tree-row__name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.file-tree-row.invalid .file-tree-name {
-  color: var(--c-warning);
-  text-decoration: underline dotted;
+/* A dotted note name isn't [[ ]]-linkable (dot = property-ref separator). */
+.tree-row__name--dotted {
+  color: var(--c-warning, var(--c-fg-muted));
 }
-
-.file-tree-warning {
-  margin-left: auto;
-  color: var(--c-warning);
-  font-size: var(--text-xs);
+.tree-row__dotted-badge {
+  font-size: 0.85em;
+  opacity: 0.8;
 }
-
-.file-tree-rename-input {
+.tree-row__ext {
+  color: var(--c-fg-muted);
+  opacity: 0.7;
+}
+/* No viewer and not markdown: the row stays inert, so it reads as inert. */
+.tree-row--unsupported {
+  cursor: default;
+}
+.tree-row__name--unsupported {
+  color: var(--c-fg-muted);
+}
+.tree-row__unsupported-badge {
+  font-size: 0.85em;
+  opacity: 0.6;
+}
+.tree-row__input {
   flex: 1;
-  height: 22px;
-  padding: 0 var(--space-1);
+  min-width: 0;
+  background: var(--c-bg-primary);
   border: 1px solid var(--c-accent);
   border-radius: var(--radius-sm);
-  background: var(--c-bg-primary);
   color: var(--c-fg-primary);
+  font-family: var(--font-body);
   font-size: var(--text-sm);
+  padding: 0 var(--space-2);
+  height: calc(var(--space-5) + var(--space-1));
 }

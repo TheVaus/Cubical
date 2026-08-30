@@ -16,6 +16,7 @@ import Toast from '../../components/feedback/Toast/Toast';
 import Tooltip from '../../components/feedback/Tooltip/Tooltip';
 import Tag from '../../components/data/Tag/Tag';
 import FileTreeRow from '../../components/data/FileTreeRow/FileTreeRow';
+import FolderTreeRow from '../../components/data/FileTreeRow/FolderTreeRow';
 import BacklinkRow from '../../components/data/BacklinkRow/BacklinkRow';
 import Menu from '../../components/overlay/Menu/Menu';
 import Modal from '../../components/overlay/Modal/Modal';
@@ -219,12 +220,13 @@ const Gallery = () => {
         </div>
       </section>
       <section class="gallery-section stack">
-        <div class="eyebrow">Data — FileTreeRow</div>
+        <div class="eyebrow">Data — FileTreeRow / FolderTreeRow</div>
         <div class="stack" style={{ width: '240px', border: '1px solid var(--c-border-subtle)' }}>
-          <FileTreeRow name="Projects" depth={0} kind="folder" />
-          <FileTreeRow name="Design notes.md" depth={1} kind="md" selected />
-          <FileTreeRow name="Old spec.md" depth={1} kind="broken" invalid />
-          <FileTreeRow name="moodboard.png" depth={0} kind="png" renaming onRenameCommit={() => {}} />
+          <FolderTreeRow name="Projects" depth={0} collapsed={false} />
+          <FileTreeRow name="Design notes" ext="md" depth={1} kind="md" selected focusable />
+          <FileTreeRow name="Old spec" ext="md" depth={1} kind="broken" invalid focusable />
+          <FileTreeRow name="diagram" ext="dwg" depth={1} kind="broken" unsupported focusable />
+          <FileTreeRow name="moodboard.png" depth={1} kind="png" renaming onRenameCommit={() => {}} onRenameCancel={() => {}} />
         </div>
       </section>
       <section class="gallery-section stack">

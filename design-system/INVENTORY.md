@@ -2,14 +2,14 @@
 
 # Design system component inventory
 
-Every component under `design-system/src/components` — 24 of them. **Check this list before hand-rolling a control** ([`../docs/principles/design-system.md`](../docs/principles/design-system.md)).
+Every component under `design-system/src/components` — 26 of them. **Check this list before hand-rolling a control** ([`../docs/principles/design-system.md`](../docs/principles/design-system.md)).
 
 Regenerate with `python3 scripts/gen_ds_inventory.py`; `--check` fails if the file is stale. Names, import paths and props are parsed from the source. Purposes are **hand-curated** in the generator — this repo bans comments, so there is no doc-comment to read — and a component with no entry says so instead of guessing.
 
 | Category | Components |
 |---|---|
 | `brand/` | `CubeMark` |
-| `data/` | `BacklinkRow`, `FileIcon`, `FileTreeRow`, `Tag` |
+| `data/` | `BacklinkRow`, `FileIcon`, `FileTreeRow`, `FolderTreeRow`, `RenameInput`, `Tag` |
 | `feedback/` | `Badge`, `Callout`, `Toast`, `Tooltip` |
 | `forms/` | `Button`, `DatePicker`, `IconButton`, `Link`, `SegmentedControl`, `Select`, `TextInput`, `Toggle` |
 | `graphics/` | `Icon` |
@@ -76,12 +76,55 @@ import FileTreeRow from "@ds/components/data/FileTreeRow/FileTreeRow";
 |---|---|---|
 | `name` | `string` | yes |
 | `depth` | `number` | yes |
-| `kind` | `FileKind` | yes |
+| `ext` | `string \| undefined` | no |
+| `kind` | `FileKind` | no |
+| `height` | `number` | no |
 | `selected` | `boolean` | no |
 | `invalid` | `boolean` | no |
+| `unsupported` | `boolean` | no |
+| `nameTitle` | `string \| undefined` | no |
+| `badge` | `JSX.Element` | no |
 | `renaming` | `boolean` | no |
+| `focusable` | `boolean` | no |
+| `role` | `'option' \| 'treeitem'` | no |
 | `onClick` | `() => void` | no |
+| `onContextMenu` | `(e: MouseEvent) => void` | no |
 | `onRenameCommit` | `(name: string) => void` | no |
+| `onRenameCancel` | `() => void` | no |
+
+### FolderTreeRow
+
+_not inferred — add an entry to `PURPOSES` in `scripts/gen_ds_inventory.py`_
+
+```ts
+import FolderTreeRow from "@ds/components/data/FileTreeRow/FolderTreeRow";
+```
+
+| Prop | Type | Required |
+|---|---|---|
+| `name` | `string` | yes |
+| `depth` | `number` | yes |
+| `collapsed` | `boolean` | yes |
+| `height` | `number` | no |
+| `renaming` | `boolean` | no |
+| `onToggle` | `() => void` | no |
+| `onContextMenu` | `(e: MouseEvent) => void` | no |
+| `onRenameCommit` | `(name: string) => void` | no |
+| `onRenameCancel` | `() => void` | no |
+
+### RenameInput
+
+_not inferred — add an entry to `PURPOSES` in `scripts/gen_ds_inventory.py`_
+
+```ts
+import RenameInput from "@ds/components/data/FileTreeRow/RenameInput";
+```
+
+| Prop | Type | Required |
+|---|---|---|
+| `value` | `string` | yes |
+| `onCommit` | `(name: string) => void` | yes |
+| `onCancel` | `() => void` | yes |
 
 ### Tag
 
@@ -531,5 +574,6 @@ Files under `components/` that export no component.
 
 | Module | Import |
 |---|---|
+| `data/FileTreeRow/rowGeometry.ts` | `@ds/components/data/FileTreeRow/rowGeometry` |
 | `graphics/Icon/icons.ts` | `@ds/components/graphics/Icon/icons` |
 | `graphics/svg.ts` | `@ds/components/graphics/svg` |

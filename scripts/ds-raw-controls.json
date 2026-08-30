@@ -1,18 +1,24 @@
 {
   "_": [
     "Per-file budgets for raw HTML controls in ui/src, read by",
-    "scripts/gates/ds_components.py. THIS FILE IS THE ALLOWLIST — it is the one",
+    "scripts/gates/ds_components.py. THIS FILE IS THE ALLOWLIST \u2014 it is the one",
     "source, and docs/architecture/ui.md 11.6 links here rather than restating it.",
     "",
     "A budget is a ceiling, not a target. The gate fails when a file exceeds its",
     "budget, and when a file not listed here uses a raw control at all. It does",
     "NOT fail when a count drops: ratchet the number down as the debt clears.",
     "",
-    "'bespoke' means a deliberate exception — no DS component fits.",
+    "'bespoke' means a deliberate exception \u2014 no DS component fits.",
     "'debt' means deferred migration tracked by an issue. Debt is not an",
     "exception; it is a number that should be going down."
   ],
-  "controls": ["button", "input", "select", "dialog", "textarea"],
+  "controls": [
+    "button",
+    "input",
+    "select",
+    "dialog",
+    "textarea"
+  ],
   "budgets": {
     "ui/src/App.tsx": {
       "button": 6,
@@ -21,23 +27,11 @@
       "issue": 34,
       "note": "Vault switcher, doc-title input, right-sidebar tabs. The tree-row rename inputs left with the tree, to explorer/FileRow.tsx and explorer/FolderRow.tsx."
     },
-    "ui/src/explorer/FileRow.tsx": {
-      "input": 1,
-      "kind": "debt",
-      "issue": 34,
-      "note": "The tree-row rename input, moved here from App.tsx with the tree. DS TextInput hardcodes class=\"text-input\", so the row cannot carry its own .tree-row__input, and it exposes neither autofocus nor onClick — the row needs the latter to stop the click reaching the select handler. Waits on additive DS props, like the other #34 entries."
-    },
-    "ui/src/explorer/FolderRow.tsx": {
-      "input": 1,
-      "kind": "debt",
-      "issue": 34,
-      "note": "The folder half of the same rename input as explorer/FileRow.tsx; here the onClick it needs stops the click toggling the folder."
-    },
     "ui/src/settings/InfoButton.tsx": {
       "button": 1,
       "kind": "debt",
       "issue": 34,
-      "note": "The 1.25rem set-info-btn glyph. DS IconButton carries aria-expanded but exposes no class hook, and its own .icon-btn sizing is larger — adopting it would change the control's size, so this waits on an additive DS prop rather than a workaround."
+      "note": "The 1.25rem set-info-btn glyph. DS IconButton carries aria-expanded but exposes no class hook, and its own .icon-btn sizing is larger \u2014 adopting it would change the control's size, so this waits on an additive DS prop rather than a workaround."
     },
     "ui/src/settings/panes/EditorPane.tsx": {
       "input": 1,
