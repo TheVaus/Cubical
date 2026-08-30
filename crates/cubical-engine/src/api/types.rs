@@ -42,6 +42,7 @@ pub struct GetVaultInfoResponse {
     pub schema_version: u32,
     pub scan_status: ScanStatus,
     pub watcher_live: bool,
+    pub flush_timer_live: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]

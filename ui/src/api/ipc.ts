@@ -56,6 +56,7 @@ export interface GetVaultInfoResponse {
   schema_version: number;
   scan_status: ScanStatus;
   watcher_live: boolean;
+  flush_timer_live: boolean;
 }
 
 export interface ListFilesRequest {

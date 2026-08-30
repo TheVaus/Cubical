@@ -111,7 +111,7 @@ pub async fn open_vault(
         }
         Err(e) => {
             tracing::warn!(error = %e, "watcher failed to start; vault opens without live updates");
-            crate::events::record_watcher_warning(
+            crate::events::record_vault_warning(
                 &vault,
                 crate::events::WATCHER_UNAVAILABLE,
                 "watcher failed to start; external edits will not be seen until reopen",
@@ -123,11 +123,15 @@ pub async fn open_vault(
 
     let flush_own_writes = open.flush_own_writes.clone();
     let flush_in_progress = open.flush_in_progress.clone();
-    let flush_timer_cancel = open.flush_timer_cancel.clone();
     let settings_handle = open.settings.clone();
     let watcher_lifetime = WatcherLifetime {
         cancel: open.watcher_cancel.clone(),
         live: Arc::clone(&open.watcher_live),
+    };
+    open.flush_timer_live.store(true, Ordering::Relaxed);
+    let flush_timer_lifetime = crate::commands::rename::FlushTimerLifetime {
+        cancel: open.flush_timer_cancel.clone(),
+        live: Arc::clone(&open.flush_timer_live),
     };
     state.vaults().write().await.insert(vault_id.clone(), open);
 
@@ -155,7 +159,7 @@ pub async fn open_vault(
         flush_own_writes,
         flush_in_progress,
         vault_id.clone(),
-        flush_timer_cancel,
+        flush_timer_lifetime,
     );
 
     Ok(OpenVaultResponse {
@@ -178,14 +182,16 @@ pub async fn get_vault_info(
     state: &AppState,
     req: GetVaultInfoRequest,
 ) -> Result<GetVaultInfoResponse, CubicalError> {
-    let (vault, scan_status, watcher_live) = with_open_vault(state, &req.vault_id, |open| {
-        (
-            open.vault.clone(),
-            open.scan_status,
-            open.watcher_live.load(Ordering::Relaxed),
-        )
-    })
-    .await?;
+    let (vault, scan_status, watcher_live, flush_timer_live) =
+        with_open_vault(state, &req.vault_id, |open| {
+            (
+                open.vault.clone(),
+                open.scan_status,
+                open.watcher_live.load(Ordering::Relaxed),
+                open.flush_timer_live.load(Ordering::Relaxed),
+            )
+        })
+        .await?;
 
     let conn = vault.index().connection();
 
@@ -231,6 +237,7 @@ pub async fn get_vault_info(
         schema_version,
         scan_status: scan_status.into(),
         watcher_live,
+        flush_timer_live,
     })
 }
 
@@ -2618,6 +2625,113 @@ mod tests {
             seen,
             "a file created after the scan was cancelled must still reach the index",
         );
+
+        close_vault(
+            &state,
+            &crate::events::NoopEventSink,
+            CloseVaultRequest {
+                vault_id: opened.vault_id,
+            },
+        )
+        .await
+        .expect("close");
+        std::env::remove_var("CUBICAL_RUNTIME_DIR");
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn cancelling_a_scan_leaves_the_flush_timer_running() {
+        let _env = crate::vault_lock::RUNTIME_ENV_GUARD.lock().unwrap();
+        let runtime = tempdir().unwrap();
+        std::env::set_var("CUBICAL_RUNTIME_DIR", runtime.path());
+
+        let vault_dir = tempdir().unwrap();
+        std::fs::write(vault_dir.path().join("A.md"), "[[X]]\n").unwrap();
+        {
+            let seeded = Vault::open(vault_dir.path()).await.expect("seed open");
+            seeded
+                .index()
+                .connection()
+                .execute(
+                    "INSERT INTO config (key, value) VALUES (?1, ?2)",
+                    libsql::params![crate::commands::rename::FLUSH_INTERVAL_SECS_KEY, "1"],
+                )
+                .await
+                .unwrap();
+        }
+
+        let state = AppState::new();
+        let opened = open_vault(
+            &state,
+            Arc::new(crate::events::NoopEventSink),
+            OpenVaultRequest {
+                path: vault_dir.path().to_path_buf(),
+            },
+            None,
+        )
+        .await
+        .expect("open");
+
+        cancel_vault_scan(
+            &state,
+            CancelVaultScanRequest {
+                vault_id: opened.vault_id.clone(),
+            },
+        )
+        .await
+        .expect("cancel scan");
+
+        let vault = {
+            let guard = state.vaults().read().await;
+            let open = guard.get(&opened.vault_id).expect("still open");
+            assert!(
+                !open.flush_timer_cancel.is_cancelled(),
+                "the flush timer owns a separate lifetime and must survive a scan cancel",
+            );
+            assert!(open.flush_timer_live.load(Ordering::Relaxed));
+            open.vault.clone()
+        };
+
+        cubical_index::enqueue_pending(
+            vault.index(),
+            &[cubical_index::NewPendingRewrite {
+                target_file: "A.md".into(),
+                rewrite_kind: cubical_index::RewriteKind::WikiLink,
+                old_token: "X".into(),
+                new_token: "Y".into(),
+                created_at: 0,
+                rename_op_id: 1,
+            }],
+        )
+        .await
+        .unwrap();
+
+        let mut drained = false;
+        for _ in 0..120 {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            if cubical_index::pending_count_total(vault.index())
+                .await
+                .unwrap()
+                == 0
+            {
+                drained = true;
+                break;
+            }
+        }
+        assert!(
+            drained,
+            "a rewrite queued after the scan was cancelled must still be flushed",
+        );
+
+        let info = get_vault_info(
+            &state,
+            GetVaultInfoRequest {
+                vault_id: opened.vault_id.clone(),
+            },
+        )
+        .await
+        .expect("info");
+        assert!(info.flush_timer_live);
 
         close_vault(
             &state,

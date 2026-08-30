@@ -294,7 +294,7 @@ pub(crate) const WATCHER_UNAVAILABLE: &str = "watcher_unavailable";
 
 pub(crate) const WATCHER_BATCH_PANIC: &str = "watcher_batch_panic";
 
-pub(crate) async fn record_watcher_warning(
+pub(crate) async fn record_vault_warning(
     vault: &Vault,
     category: &str,
     message: &str,
@@ -310,7 +310,7 @@ pub(crate) async fn record_watcher_warning(
     )
     .await
     {
-        tracing::warn!(error = %e, category, "watcher audit insert failed");
+        tracing::warn!(error = %e, category, "degraded-subsystem audit insert failed");
     }
 }
 
@@ -348,7 +348,7 @@ pub fn spawn_watcher_dispatcher(
             });
             if let Err(e) = batch_task.await {
                 tracing::error!(vault_id = %vault_id, error = %e, "watcher: batch handler died; dropping that batch and staying up");
-                record_watcher_warning(
+                record_vault_warning(
                     &vault,
                     WATCHER_BATCH_PANIC,
                     "watcher batch handler died; that batch of external edits was dropped",
@@ -363,7 +363,7 @@ pub fn spawn_watcher_dispatcher(
         }
         lifetime.live.store(false, Ordering::Relaxed);
         tracing::error!(vault_id = %vault_id, "watcher: event stream ended while the vault is open; external edits will not be seen until reopen");
-        record_watcher_warning(
+        record_vault_warning(
             &vault,
             WATCHER_UNAVAILABLE,
             "watcher event stream ended while the vault was open; external edits will not be seen until reopen",
