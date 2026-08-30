@@ -451,6 +451,36 @@ API leaves a gap of unknown length during which the index and disk diverge with
 nothing recording what was missed, and the honest repair for that gap is the
 rescan that reopening the vault already performs.
 
+### The flush timer is supervised the same way, and it matters more
+
+The periodic flush timer is the only background task guarding state that a
+rescan cannot rebuild —
+[`derived-state-disposable`](../principles/derived-state-disposable.md) names
+the pending-rewrites queue as its single exception. So a timer that stops is
+not a degraded convenience: referrer links stay unrewritten with nothing
+saying so, and `.cubical/renames.jsonl` exists precisely because that queue is
+worth a sidecar.
+
+It is therefore structured in two nested pieces rather than one detached
+`tokio::spawn`. Each tick runs in its own spawned task the loop awaits, so a
+panic under `flush_all_for_vault` costs one tick — its rewrites simply stay
+queued for the next one — and is audited as `flush_timer_tick_panic`. The loop
+itself runs in a task whose `JoinHandle` an outer supervisor awaits, so a panic
+in the parts a tick cannot isolate (reading the interval, the `select!`) is
+still observed instead of ending the task list silently.
+
+The supervisor distinguishes death from shutdown the way the watcher does: if
+`flush_timer_cancel` is cancelled the loop was stopped on purpose and nothing
+is reported; otherwise it clears `OpenVault.flush_timer_live` and writes a
+`flush_timer_unavailable` row at `warn`. A loop that returns *without*
+cancellation is treated as death too — today the loop can only exit that way if
+someone edits it, and inventing a second silent exit should cost an audit row.
+`flush_timer_live` rides out on `get_vault_info` alongside `watcher_live`.
+
+`record_vault_warning` is shared by both subsystems rather than duplicated: the
+category argument is the only thing that differs, and a second copy would let
+the two drift on level or payload shape.
+
 ## Settings routing
 
 Writes are routed by key: durable (non-`ui.*`) keys go to the portable
