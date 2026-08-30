@@ -88,7 +88,9 @@ the transport, keeping the pure handlers clean.
 
 - **Scan dispatcher** — forwards progress events and emits exactly one terminal
   event (complete or cancelled), updating the stored scan status so later
-  `get_vault_info` calls agree.
+  `get_vault_info` calls agree. Every spawn passes the **open vault's own**
+  cancellation token; a rebuild given a fresh one keeps scanning against a
+  closed vault's index because nothing can reach it to stop it.
 - **Watcher dispatcher** — persists each event to the index, writes an
   `audit_log` row, and emits the file-changed event. Errors are logged and the
   loop continues; one failed event must not take the watcher down. It carries a
@@ -431,11 +433,27 @@ JSON is surfaced as an invalid-request error rather than panicking.
 
 ## Lock discipline
 
-Handlers clone the vault handle out from under the read lock and drop the guard
-before any per-item loop that awaits — the lock must never be held across
-`await`, and sync file I/O inside such a loop goes through `spawn_blocking`.
-Otherwise a file with many backlinks interleaves blocking reads with awaits and
-can stall under concurrent watcher activity.
+**Anchors:** with_open_vault · open_vault_cloned
+
+One `RwLock` covers *every* open vault, so its scope is a backend-wide
+coupling, not a per-vault one. `tokio::sync::RwLock` is write-preferring:
+a read guard held across a slow await blocks a pending writer
+(`open_vault`, `close_vault`, the scan dispatcher's terminal status write),
+and every later reader then queues behind that writer. A dataview query holding
+the guard across `cubical_query::run` stalled `list_files`, `search` and
+`read_file_text` together — one slow feature stalling unrelated ones.
+
+So the guard is a **lookup**, never a work scope. `with_open_vault` takes a
+synchronous closure and hands back what it extracted; the guard is gone before
+the caller resumes. It is deliberately not `async`: a closure that could await
+would put the stall straight back. `open_vault_cloned` is the common case —
+everything reachable from the vault handle (index connection, search index,
+root) is clonable, so almost every handler needs nothing else. What must
+outlive the guard is cloned out with it: the settings map, the search-state
+cell, the cancellation token, the own-write gate.
+
+Sync CPU work goes through `spawn_blocking` for the same reason the guard
+does — `run_search` and every markdown parse are off-executor.
 
 ## Idempotent vault re-open
 

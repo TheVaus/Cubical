@@ -1,4 +1,4 @@
-use cubical_ast::parse;
+use cubical_core::parse_off_executor;
 use cubical_core::vault::links::{read_source_off_executor, resolve_target};
 use cubical_core::vault::pending::materialize_on_read;
 use cubical_index::all_file_paths;
@@ -31,7 +31,10 @@ pub async fn get_property(
     };
     let source = materialize_on_read(vault.index(), &target_path, &on_disk).await?;
 
-    let Some(fm) = parse(&source).frontmatter else {
+    let Some(fm) = parse_off_executor(&source)
+        .await
+        .and_then(|d| d.frontmatter)
+    else {
         return Ok(GetPropertyResponse {
             kind: PropertyRefKind::PropertyMissing,
             value: None,
