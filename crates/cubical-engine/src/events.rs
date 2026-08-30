@@ -689,17 +689,6 @@ struct FileStats {
     inode: Option<i64>,
 }
 
-#[cfg(unix)]
-fn inode_of(metadata: &std::fs::Metadata) -> Option<i64> {
-    use std::os::unix::fs::MetadataExt;
-    Some(i64::try_from(metadata.ino()).unwrap_or(i64::MAX))
-}
-
-#[cfg(not(unix))]
-fn inode_of(_metadata: &std::fs::Metadata) -> Option<i64> {
-    None
-}
-
 async fn read_file_stats(abs: &std::path::Path, vault: &Vault) -> Option<FileStats> {
     let metadata = match std::fs::metadata(abs) {
         Ok(m) => m,
@@ -715,7 +704,7 @@ async fn read_file_stats(abs: &std::path::Path, vault: &Vault) -> Option<FileSta
         .and_then(|t| t.duration_since(std::time::SystemTime::UNIX_EPOCH).ok())
         .map(|d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
         .unwrap_or(0);
-    let inode = inode_of(&metadata);
+    let inode = cubical_core::vault::inode_of(&metadata);
 
     let abs_for_hash = abs.to_path_buf();
     let registry = vault.registry_arc();
@@ -1740,6 +1729,7 @@ mod tests {
             assert_eq!(pending[0].new_token, "Journal");
         }
 
+        #[cfg(unix)]
         #[tokio::test]
         async fn a_closed_app_rename_that_also_edited_the_file_pairs_on_inode() {
             let dir = tempdir().unwrap();

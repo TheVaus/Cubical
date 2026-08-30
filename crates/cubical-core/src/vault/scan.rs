@@ -418,13 +418,13 @@ fn clamp_to_i64(v: u64) -> i64 {
 }
 
 #[cfg(unix)]
-fn inode_of(meta: &std::fs::Metadata) -> Option<i64> {
+pub fn inode_of(meta: &std::fs::Metadata) -> Option<i64> {
     use std::os::unix::fs::MetadataExt;
     Some(clamp_to_i64(meta.ino()))
 }
 
 #[cfg(not(unix))]
-fn inode_of(_meta: &std::fs::Metadata) -> Option<i64> {
+pub fn inode_of(_meta: &std::fs::Metadata) -> Option<i64> {
     None
 }
 
