@@ -1,3 +1,4 @@
+use cubical_core::unix_now_secs;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
@@ -781,13 +782,6 @@ fn file_changed_payload(
             new_content_hash: None,
         },
     }
-}
-
-fn unix_now_secs() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-        .map(|d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
-        .unwrap_or(0)
 }
 
 #[cfg(test)]

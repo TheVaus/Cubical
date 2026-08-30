@@ -9,6 +9,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use walkdir::WalkDir;
 
+use crate::time::unix_now_secs;
 use crate::vault::{
     blocks::{refresh_block_refs_for_file, refresh_blocks},
     frontmatter::refresh_frontmatter_with_doc,
@@ -334,13 +335,6 @@ pub async fn scan(
 
     tracing::info!(processed = files_processed, "scan complete");
     Ok(files_processed)
-}
-
-fn unix_now_secs() -> i64 {
-    SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .map(|d| clamp_to_i64(d.as_secs()))
-        .unwrap_or(0)
 }
 
 fn mtime_secs(meta: &std::fs::Metadata) -> i64 {

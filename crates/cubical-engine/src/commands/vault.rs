@@ -1,3 +1,4 @@
+use cubical_core::unix_now_secs;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -737,13 +738,6 @@ pub async fn write_file_text(
         new_content_hash: new_hash,
         new_mtime_unix: new_mtime,
     })
-}
-
-fn unix_now_secs() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-        .map(|d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
-        .unwrap_or(0)
 }
 
 pub async fn get_setting(

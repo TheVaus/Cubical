@@ -8,7 +8,7 @@ mod types;
 pub mod wikilink;
 
 pub use error::AstError;
-pub use frontmatter::{parse_frontmatter, split_frontmatter};
+pub use frontmatter::parse_frontmatter;
 pub use types::{Anchor, Block, Document, Frontmatter, Inline, ListItem, Span};
 pub use wikilink::{scan_wikilinks, TokenizedRun};
 

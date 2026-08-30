@@ -1,3 +1,4 @@
+use cubical_core::unix_now_secs;
 use std::collections::HashSet;
 
 use cubical_core::vault::pending::apply_pending;
@@ -62,13 +63,6 @@ pub(super) async fn mint_rename_op_id(vault: &cubical_core::Vault) -> Result<i64
     .await?;
     tx.commit().await?;
     Ok(next)
-}
-
-pub(super) fn unix_now_secs() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-        .map(|d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
-        .unwrap_or(0)
 }
 
 fn derive_wikilink_new_token(target_raw: &str, from_path: &str, to_path: &str) -> String {

@@ -2,12 +2,6 @@ use crate::types::{Frontmatter, Span};
 use serde_json::Value as JsonValue;
 use serde_yaml_ng::Value as YamlValue;
 
-#[must_use]
-pub fn split_frontmatter(source: &str) -> (Option<&str>, &str) {
-    let (yaml, body, _) = split_with_offset(source);
-    (yaml, body)
-}
-
 pub(crate) fn split_with_offset(source: &str) -> (Option<&str>, &str, usize) {
     let after_opener = if let Some(rest) = source.strip_prefix("---\n") {
         rest
@@ -199,7 +193,7 @@ mod tests {
 
     #[test]
     fn split_returns_none_for_empty_source() {
-        let (yaml, body) = split_frontmatter("");
+        let (yaml, body, _) = split_with_offset("");
         assert!(yaml.is_none());
         assert_eq!(body, "");
     }
@@ -207,7 +201,7 @@ mod tests {
     #[test]
     fn split_returns_none_for_no_frontmatter() {
         let src = "# Heading\nbody\n";
-        let (yaml, body) = split_frontmatter(src);
+        let (yaml, body, _) = split_with_offset(src);
         assert!(yaml.is_none());
         assert_eq!(body, src);
     }
@@ -215,7 +209,7 @@ mod tests {
     #[test]
     fn split_extracts_simple_frontmatter() {
         let src = "---\ntitle: Hello\n---\n\n# Body\n";
-        let (yaml, body) = split_frontmatter(src);
+        let (yaml, body, _) = split_with_offset(src);
         assert_eq!(yaml.unwrap(), "title: Hello\n");
         assert_eq!(body, "\n# Body\n");
     }
@@ -223,7 +217,7 @@ mod tests {
     #[test]
     fn split_handles_crlf_line_endings() {
         let src = "---\r\ntitle: Hello\r\n---\r\nBody\r\n";
-        let (yaml, body) = split_frontmatter(src);
+        let (yaml, body, _) = split_with_offset(src);
         assert_eq!(yaml.unwrap(), "title: Hello\r\n");
         assert_eq!(body, "Body\r\n");
     }
@@ -236,7 +230,7 @@ mod tests {
             "\n---\ntitle: x\n---\nbody\n",
         ];
         for src in cases {
-            let (yaml, body) = split_frontmatter(src);
+            let (yaml, body, _) = split_with_offset(src);
             assert!(yaml.is_none(), "src: {src:?}");
             assert_eq!(body, src);
         }
@@ -245,7 +239,7 @@ mod tests {
     #[test]
     fn split_returns_none_when_no_closing_marker() {
         let src = "---\ntitle: Hello\n# Body\n";
-        let (yaml, body) = split_frontmatter(src);
+        let (yaml, body, _) = split_with_offset(src);
         assert!(yaml.is_none(), "missing closer must not match");
         assert_eq!(body, src);
     }
@@ -253,7 +247,7 @@ mod tests {
     #[test]
     fn split_does_not_treat_dashes_inside_a_code_fence_as_closer() {
         let src = "---\ntitle: Hello\n---\n\n```\n---\n```\n";
-        let (yaml, body) = split_frontmatter(src);
+        let (yaml, body, _) = split_with_offset(src);
         assert_eq!(yaml.unwrap(), "title: Hello\n");
         assert_eq!(body, "\n```\n---\n```\n");
     }
