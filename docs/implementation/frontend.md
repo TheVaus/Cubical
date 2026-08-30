@@ -233,6 +233,31 @@ about any feature. Two boundaries worth preserving:
 - **Vault session** holds the open vault's identity and scan lifecycle.
   Features read from it; it never reaches back into them.
 
+## A core plugin's runtime is derived from its toggle
+
+**Anchors:** createDataviewWiring · createTerminalWiring · createGraphWiring · corePluginActive · corePluginEnabled
+
+A core plugin's live objects — a query runner, a PTY session, a tab — are
+*derived* from the toggle, never created once at vault open and then gated at
+each use site. Deriving is what makes
+[`../principles/composability.md`](../principles/composability.md)'s
+"switching a feature off drops its derived state" true in the frontend: the
+object falls out of scope with the toggle, taking its cache and its
+subscriptions with it, and coming back on builds a fresh one.
+
+Gating at the use site does not, because the gate has to be repeated. The
+dataview runner was built unconditionally and read through a
+`enabled ? runner : null` ternary in the editor props only; three other callers
+held the runner directly and invalidated it, so every external file change
+re-ran the whole cached query set for a feature the user had switched off. No
+number of gated call sites is safe — one missed site restores the leak, and the
+count only grows.
+
+A block asks `corePluginActive`, which folds in the dependency graph the
+principle names, so a block whose requirement is off reads as off.
+`corePluginEnabled` answers the raw switch position only: right for drawing the
+switch in Settings, and for a block that declares no requirements.
+
 ## Editor compartments
 
 `Editor.tsx` owns its DOM and the `EditorView`; Solid stays out of it so the

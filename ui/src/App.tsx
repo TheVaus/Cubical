@@ -105,7 +105,7 @@ import {
   createPropertyResolver,
   type PropertyResolver,
 } from "./editor/propertyResolver";
-import { createDataviewRunner, type DataviewRunner } from "./editor/dataview";
+import { createDataviewWiring } from "./editor/dataviewWiring";
 import {
   createAutocompleteProvider,
   type AutocompleteProvider,
@@ -209,8 +209,11 @@ const App: Component = () => {
   const [propertyResolver, setPropertyResolver] =
     createSignal<PropertyResolver | null>(null);
 
-  const [dataviewRunner, setDataviewRunner] =
-    createSignal<DataviewRunner | null>(null);
+  const dataviewRunner = createDataviewWiring({
+    vaultId,
+    corePlugins: settings.corePlugins,
+    onOpen: (p) => void handleNavigateWikilink(p, null),
+  });
 
   const [autocompleteProvider, setAutocompleteProvider] =
     createSignal<AutocompleteProvider | null>(null);
@@ -1054,7 +1057,6 @@ const App: Component = () => {
       setWikilinkResolver(null);
       setEmbedResolver(null);
       setPropertyResolver(null);
-      setDataviewRunner(null);
       setAutocompleteProvider(null);
 
       const resp = await openVault({ path });
@@ -1063,12 +1065,6 @@ const App: Component = () => {
       setWikilinkResolver(createWikiLinkResolver(resp.vault_id));
       setEmbedResolver(createEmbedResolver(resp.vault_id));
       setPropertyResolver(createPropertyResolver(resp.vault_id));
-      setDataviewRunner(
-        createDataviewRunner(
-          resp.vault_id,
-          (p) => void handleNavigateWikilink(p, null),
-        ),
-      );
       setAutocompleteProvider(createAutocompleteProvider(resp.vault_id));
       scheduleRefresh();
 
@@ -1445,11 +1441,7 @@ const App: Component = () => {
                                   )}
                                   mathEnabled={pluginOn("math")}
                                   equationsEnabled={pluginOn("equations")}
-                                  dataviewRunner={
-                                    pluginOn("dataview")
-                                      ? dataviewRunner()
-                                      : null
-                                  }
+                                  dataviewRunner={dataviewRunner()}
                                   openNotePath={pathForId(id)}
                                   autocompleteProvider={autocompleteProvider()}
                                   editorBindings={settings.effectiveBindings()}
