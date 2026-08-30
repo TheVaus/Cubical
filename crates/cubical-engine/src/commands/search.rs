@@ -1,28 +1,30 @@
 use std::path::Path;
+use std::sync::Arc;
 
 use cubical_search::{query::run_search, IndexHealth, IndexState, IndexStatus, SearchResponse};
 use tokio_util::sync::CancellationToken;
 
 use crate::api::types::{SearchRequest, SearchVaultRequest};
+use crate::commands::open::{open_vault_cloned, with_open_vault};
 use crate::error::CubicalError;
 use crate::events::{spawn_scan_dispatcher, EventSink};
 use crate::state::AppState;
 
 pub async fn search(state: &AppState, req: SearchRequest) -> Result<SearchResponse, CubicalError> {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(&req.vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
+    let (vault, search_state) = with_open_vault(state, &req.vault_id, |open| {
+        (open.vault.clone(), Arc::clone(&open.search_state))
+    })
+    .await?;
 
     let building = matches!(
-        open.search_state
+        search_state
             .lock()
             .map(|s| s.state)
             .unwrap_or(IndexState::Error),
         IndexState::Building,
     );
 
-    let mut response = run_search(open.vault.search(), &req.query)?;
+    let mut response = run_search(vault.search(), &req.query)?;
     response.still_indexing = building;
     Ok(response)
 }
@@ -31,20 +33,18 @@ pub async fn search_index_status(
     state: &AppState,
     req: SearchVaultRequest,
 ) -> Result<IndexStatus, CubicalError> {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(&req.vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
-    let status = open
-        .search_state
-        .lock()
-        .map(|s| s.to_status())
-        .unwrap_or_else(|_| IndexStatus {
-            state: IndexState::Error,
-            indexed_files: 0,
-            total_files: 0,
-            last_commit_secs: None,
-        });
+    let status = with_open_vault(state, &req.vault_id, |open| {
+        open.search_state
+            .lock()
+            .map(|s| s.to_status())
+            .unwrap_or_else(|_| IndexStatus {
+                state: IndexState::Error,
+                indexed_files: 0,
+                total_files: 0,
+                last_commit_secs: None,
+            })
+    })
+    .await?;
     Ok(status)
 }
 
@@ -53,27 +53,22 @@ pub async fn search_rebuild_index(
     app: std::sync::Arc<dyn EventSink>,
     req: SearchVaultRequest,
 ) -> Result<(), CubicalError> {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(&req.vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
+    let (vault, search_state) = with_open_vault(state, &req.vault_id, |open| {
+        (open.vault.clone(), Arc::clone(&open.search_state))
+    })
+    .await?;
 
-    if let Ok(mut cell) = open.search_state.lock() {
+    if let Ok(mut cell) = search_state.lock() {
         cell.state = IndexState::Building;
     }
 
-    open.vault.search().delete_all()?;
-    open.vault.search().commit()?;
-
-    let vault = open.vault.clone();
-    let vault_id = req.vault_id.clone();
-    let vaults_arc = state.vaults_arc();
-    drop(guard);
+    vault.search().delete_all()?;
+    vault.search().commit()?;
 
     spawn_scan_dispatcher(
         app.clone(),
-        vaults_arc,
-        vault_id,
+        state.vaults_arc(),
+        req.vault_id.clone(),
         vault,
         CancellationToken::new(),
     );
@@ -85,12 +80,9 @@ pub async fn search_get_health(
     state: &AppState,
     req: SearchVaultRequest,
 ) -> Result<IndexHealth, CubicalError> {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(&req.vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
 
-    let idx = open.vault.search();
+    let idx = vault.search();
     Ok(IndexHealth {
         schema_version: cubical_search::index::SCHEMA_VERSION,
         segments: idx.segment_count(),

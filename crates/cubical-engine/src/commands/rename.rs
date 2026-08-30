@@ -23,6 +23,7 @@ use crate::api::types::{
     RenameTagRequest, RenameTagResponse, UndoRenameRequest, UndoRenameResponse,
 };
 use crate::commands::link_match::{basename_without_md, link_name_forms, strip_md_suffix};
+use crate::commands::open::{open_vault_cloned, with_open_vault};
 use crate::commands::paths;
 use crate::error::CubicalError;
 use crate::events::{
@@ -79,17 +80,6 @@ fn derive_wikilink_new_token(target_raw: &str, from_path: &str, to_path: &str) -
     }
 }
 
-async fn clone_vault(
-    state: &AppState,
-    vault_id: &str,
-) -> Result<cubical_core::Vault, CubicalError> {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(vault_id.to_string()))?;
-    Ok(open.vault.clone())
-}
-
 pub(super) async fn clone_vault_with_flush_state(
     state: &AppState,
     vault_id: &str,
@@ -101,15 +91,14 @@ pub(super) async fn clone_vault_with_flush_state(
     ),
     CubicalError,
 > {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(vault_id.to_string()))?;
-    Ok((
-        open.vault.clone(),
-        open.flush_own_writes.clone(),
-        open.flush_in_progress.clone(),
-    ))
+    with_open_vault(state, vault_id, |open| {
+        (
+            open.vault.clone(),
+            open.flush_own_writes.clone(),
+            open.flush_in_progress.clone(),
+        )
+    })
+    .await
 }
 
 async fn enforce_fifty_per_file_fuse(
@@ -186,11 +175,14 @@ pub(super) async fn enqueue_coalesced(
 pub const WIKILINKS_REWRITE_BROKEN_KEY: &str = "wikilinks.rewrite_broken_links_on_rename";
 
 async fn read_bool_setting(state: &AppState, vault_id: &str, key: &str, default: bool) -> bool {
-    let guard = state.vaults().read().await;
-    let Some(open) = guard.get(vault_id) else {
+    let Ok(settings) = with_open_vault(state, vault_id, |open| {
+        std::sync::Arc::clone(&open.settings)
+    })
+    .await
+    else {
         return default;
     };
-    let map = open.settings.read().await;
+    let map = settings.read().await;
     map.get(key)
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(default)
@@ -949,7 +941,7 @@ pub(crate) async fn flush_target_for_link_mention(
     vault_id: &str,
     target_file: &str,
 ) -> Result<(), CubicalError> {
-    let vault = clone_vault(state, vault_id).await?;
+    let vault = open_vault_cloned(state, vault_id).await?;
     flush_pending_for_target(&vault, target_file, None)
         .await
         .map(|_| ())
@@ -1161,7 +1153,7 @@ pub async fn get_pending_rewrites_count(
     state: &AppState,
     req: GetPendingRewritesCountRequest,
 ) -> Result<GetPendingRewritesCountResponse, CubicalError> {
-    let vault = clone_vault(state, &req.vault_id).await?;
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
     let count = pending_count_total(vault.index()).await?;
     Ok(GetPendingRewritesCountResponse { count })
 }
@@ -1170,7 +1162,7 @@ pub async fn get_pending_rewrites_breakdown(
     state: &AppState,
     req: GetPendingRewritesBreakdownRequest,
 ) -> Result<GetPendingRewritesBreakdownResponse, CubicalError> {
-    let vault = clone_vault(state, &req.vault_id).await?;
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
     let rows = pending_count_breakdown(vault.index()).await?;
     Ok(GetPendingRewritesBreakdownResponse {
         rows: rows
@@ -1184,7 +1176,7 @@ pub async fn list_recent_rename_ops(
     state: &AppState,
     req: ListRecentRenameOpsRequest,
 ) -> Result<ListRecentRenameOpsResponse, CubicalError> {
-    let vault = clone_vault(state, &req.vault_id).await?;
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
     let ops = list_ops(vault.index(), i64::from(req.limit)).await?;
     Ok(ListRecentRenameOpsResponse {
         ops: ops
@@ -1204,7 +1196,7 @@ pub async fn undo_rename(
     app: &dyn EventSink,
     req: UndoRenameRequest,
 ) -> Result<UndoRenameResponse, CubicalError> {
-    let vault = clone_vault(state, &req.vault_id).await?;
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
     let removed = delete_rename_op(vault.index(), req.rename_op_id).await?;
     let pending_count = pending_count_total(vault.index()).await?;
     emit_pending_rewrites_changed(

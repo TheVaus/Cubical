@@ -125,7 +125,9 @@ async fn write_rows(
     rel_path_str: &str,
     extractions: Vec<LinkExtraction>,
 ) -> Result<u32, libsql::Error> {
-    let files = list_known_paths(vault).await?;
+    let files = cubical_index::all_file_paths(vault.index())
+        .await
+        .map_err(map_index_err)?;
     let rows: Vec<LinkRow> = extractions
         .into_iter()
         .filter_map(|e| {
@@ -155,20 +157,6 @@ async fn write_rows(
         .await
         .map_err(map_index_err)?;
     Ok(inserted)
-}
-
-async fn list_known_paths(vault: &Vault) -> Result<Vec<String>, libsql::Error> {
-    let mut rows = vault
-        .index()
-        .connection()
-        .query("SELECT path FROM files ORDER BY path", ())
-        .await?;
-    let mut out = Vec::new();
-    while let Some(row) = rows.next().await? {
-        let s: String = row.get(0)?;
-        out.push(s);
-    }
-    Ok(out)
 }
 
 pub async fn read_source_off_executor(abs_path: &Path) -> Option<String> {

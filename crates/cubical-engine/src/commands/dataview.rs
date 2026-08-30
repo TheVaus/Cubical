@@ -1,4 +1,5 @@
 use crate::api::types::{DataviewQueryRequest, DataviewResult};
+use crate::commands::open::open_vault_cloned;
 use crate::error::CubicalError;
 use crate::state::AppState;
 
@@ -6,10 +7,7 @@ pub async fn dataview_query(
     state: &AppState,
     req: DataviewQueryRequest,
 ) -> Result<DataviewResult, CubicalError> {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(&req.vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
 
     let query = match cubical_query::parse(&req.source) {
         Ok(q) => q,
@@ -19,7 +17,7 @@ pub async fn dataview_query(
             })
         }
     };
-    match cubical_query::run(open.vault.index(), &query).await {
+    match cubical_query::run(vault.index(), &query).await {
         Ok(result) => Ok(result.into()),
         Err(e) => Ok(DataviewResult::Error {
             message: e.to_string(),

@@ -16,6 +16,7 @@ use crate::api::types::{
     ReloadSettingsResponse, ScanStatus, SetSettingRequest, SetSettingResponse,
     WriteFileTextRequest, WriteFileTextResponse,
 };
+use crate::commands::open::{open_vault_cloned, with_open_vault};
 use crate::commands::paths;
 use crate::error::CubicalError;
 use crate::events::{spawn_scan_dispatcher, spawn_watcher_dispatcher, EventSink};
@@ -144,11 +145,9 @@ pub async fn cancel_vault_scan(
     state: &AppState,
     req: CancelVaultScanRequest,
 ) -> Result<(), CubicalError> {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(&req.vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
-    open.cancel.cancel();
+    with_open_vault(state, &req.vault_id, |open| open.cancel.clone())
+        .await?
+        .cancel();
     Ok(())
 }
 
@@ -156,12 +155,12 @@ pub async fn get_vault_info(
     state: &AppState,
     req: GetVaultInfoRequest,
 ) -> Result<GetVaultInfoResponse, CubicalError> {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(&req.vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
+    let (vault, scan_status) = with_open_vault(state, &req.vault_id, |open| {
+        (open.vault.clone(), open.scan_status)
+    })
+    .await?;
 
-    let conn = open.vault.index().connection();
+    let conn = vault.index().connection();
 
     let mut rows = conn
         .query("SELECT MAX(version) FROM schema_version", ())
@@ -198,12 +197,12 @@ pub async fn get_vault_info(
     };
 
     Ok(GetVaultInfoResponse {
-        path: open.vault.root().to_path_buf(),
+        path: vault.root().to_path_buf(),
         file_count,
         markdown_count,
         binary_count,
         schema_version,
-        scan_status: open.scan_status.into(),
+        scan_status: scan_status.into(),
     })
 }
 
@@ -211,11 +210,8 @@ pub async fn list_files(
     state: &AppState,
     req: ListFilesRequest,
 ) -> Result<ListFilesResponse, CubicalError> {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(&req.vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
-    let conn = open.vault.index().connection();
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
+    let conn = vault.index().connection();
 
     let limit: i64 = i64::from(req.limit.unwrap_or(u32::MAX));
     let offset: i64 = i64::from(req.offset.unwrap_or(0));
@@ -251,21 +247,13 @@ pub async fn list_files(
         }
     };
 
-    let folders = cubical_index::list_folders(open.vault.index()).await?;
+    let folders = cubical_index::list_folders(vault.index()).await?;
 
     Ok(ListFilesResponse {
         files,
         total: clamp_to_u32(total),
         folders,
     })
-}
-
-async fn clone_vault(state: &AppState, vault_id: &str) -> Result<Vault, CubicalError> {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(vault_id.to_string()))?;
-    Ok(open.vault.clone())
 }
 
 fn normalize_parent_dir(
@@ -344,7 +332,7 @@ pub async fn create_file(
     state: &AppState,
     req: CreateFileRequest,
 ) -> Result<CreateFileResponse, CubicalError> {
-    let vault = clone_vault(state, &req.vault_id).await?;
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
     let (parent_rel, parent_abs) = normalize_parent_dir(&vault, &req.parent_dir)?;
 
     let rel_path = first_free_path(&parent_rel, &parent_abs, "Untitled", Some("md"))?;
@@ -359,7 +347,7 @@ pub async fn create_file_at_path(
     state: &AppState,
     req: CreateFileAtPathRequest,
 ) -> Result<CreateFileAtPathResponse, CubicalError> {
-    let vault = clone_vault(state, &req.vault_id).await?;
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
     let (rel_path, abs_path) = normalize_rel_file_path(&vault, &req.path)?;
     if abs_path.exists() {
         return Err(CubicalError::InvalidRequest(format!(
@@ -377,7 +365,7 @@ pub async fn create_folder(
     state: &AppState,
     req: CreateFolderRequest,
 ) -> Result<CreateFolderResponse, CubicalError> {
-    let vault = clone_vault(state, &req.vault_id).await?;
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
     let (parent_rel, parent_abs) = normalize_parent_dir(&vault, &req.parent_dir)?;
 
     let rel_path = first_free_path(&parent_rel, &parent_abs, "Untitled Folder", None)?;
@@ -394,7 +382,7 @@ pub async fn create_folder(
 }
 
 pub async fn delete_path(state: &AppState, req: DeletePathRequest) -> Result<(), CubicalError> {
-    let vault = clone_vault(state, &req.vault_id).await?;
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
     let (rel_path, abs_path) = normalize_rel_file_path(&vault, &req.path)?;
     if !abs_path.exists() {
         return Err(CubicalError::InvalidRequest(format!(
@@ -412,11 +400,8 @@ pub async fn get_frontmatter(
     state: &AppState,
     req: GetFrontmatterRequest,
 ) -> Result<GetFrontmatterResponse, CubicalError> {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(&req.vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
-    let conn = open.vault.index().connection();
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
+    let conn = vault.index().connection();
 
     let mut rows = conn
         .query(
@@ -469,12 +454,9 @@ pub async fn read_file_text(
     state: &AppState,
     req: ReadFileTextRequest,
 ) -> Result<ReadFileTextResponse, CubicalError> {
-    let (abs_path, vault, is_markdown) = {
-        let guard = state.vaults().read().await;
-        let open = guard
-            .get(&req.vault_id)
-            .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
-        let conn = open.vault.index().connection();
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
+    let (abs_path, is_markdown) = {
+        let conn = vault.index().connection();
 
         let mut rows = conn
             .query(
@@ -495,8 +477,7 @@ pub async fn read_file_text(
             )));
         }
         (
-            paths::vault_file(&open.vault, &req.path)?.1,
-            open.vault.clone(),
+            paths::vault_file(&vault, &req.path)?.1,
             type_id == "markdown",
         )
     };
@@ -543,12 +524,9 @@ pub async fn read_file_bytes(
     state: &AppState,
     req: ReadFileBytesRequest,
 ) -> Result<ReadFileBytesResponse, CubicalError> {
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
     let abs_path = {
-        let guard = state.vaults().read().await;
-        let open = guard
-            .get(&req.vault_id)
-            .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
-        let conn = open.vault.index().connection();
+        let conn = vault.index().connection();
 
         let mut rows = conn
             .query(
@@ -575,7 +553,7 @@ pub async fn read_file_bytes(
                 req.path,
             )));
         }
-        paths::vault_file(&open.vault, &req.path)?.1
+        paths::vault_file(&vault, &req.path)?.1
     };
 
     let bytes = tokio::task::spawn_blocking(move || std::fs::read(&abs_path))
@@ -602,12 +580,9 @@ pub async fn write_file_text(
     state: &AppState,
     req: WriteFileTextRequest,
 ) -> Result<WriteFileTextResponse, CubicalError> {
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
     let (abs_path, current_hash) = {
-        let guard = state.vaults().read().await;
-        let open = guard
-            .get(&req.vault_id)
-            .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
-        let conn = open.vault.index().connection();
+        let conn = vault.index().connection();
 
         let mut rows = conn
             .query(
@@ -628,7 +603,7 @@ pub async fn write_file_text(
             )));
         }
         let current_hash: String = row.get(1)?;
-        (paths::vault_file(&open.vault, &req.path)?.1, current_hash)
+        (paths::vault_file(&vault, &req.path)?.1, current_hash)
     };
 
     let new_hash = sha256_bytes_hex(req.content.as_bytes());
@@ -650,11 +625,7 @@ pub async fn write_file_text(
 
     let now = unix_now_secs();
     {
-        let guard = state.vaults().read().await;
-        let open = guard
-            .get(&req.vault_id)
-            .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
-        let conn = open.vault.index().connection();
+        let conn = vault.index().connection();
 
         if let Some(expected) = &req.expected_seen_hash {
             if expected != &current_hash {
@@ -732,19 +703,19 @@ pub async fn get_setting(
     state: &AppState,
     req: GetSettingRequest,
 ) -> Result<GetSettingResponse, CubicalError> {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(&req.vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
+    let (vault, settings) = with_open_vault(state, &req.vault_id, |open| {
+        (open.vault.clone(), Arc::clone(&open.settings))
+    })
+    .await?;
 
     if !cubical_core::vault::settings::is_workspace_key(&req.key) {
-        let map = open.settings.read().await;
+        let map = settings.read().await;
         return Ok(GetSettingResponse {
             value: map.get(&req.key).cloned(),
         });
     }
 
-    let conn = open.vault.index().connection();
+    let conn = vault.index().connection();
 
     let mut rows = conn
         .query(
@@ -772,15 +743,13 @@ pub async fn set_setting(
     state: &AppState,
     req: SetSettingRequest,
 ) -> Result<SetSettingResponse, CubicalError> {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(&req.vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
+    let (vault, settings) = with_open_vault(state, &req.vault_id, |open| {
+        (open.vault.clone(), Arc::clone(&open.settings))
+    })
+    .await?;
 
     if !cubical_core::vault::settings::is_workspace_key(&req.key) {
-        let settings = Arc::clone(&open.settings);
-        let root = open.vault.root().to_path_buf();
-        drop(guard);
+        let root = vault.root().to_path_buf();
 
         let snapshot = {
             let mut map = settings.write().await;
@@ -796,7 +765,7 @@ pub async fn set_setting(
         return Ok(SetSettingResponse {});
     }
 
-    let conn = open.vault.index().connection();
+    let conn = vault.index().connection();
 
     let encoded = serde_json::to_string(&req.value)
         .map_err(|e| CubicalError::InvalidRequest(format!("setting value not encodable: {e}")))?;
@@ -835,13 +804,13 @@ pub async fn reload_settings(
     state: &AppState,
     req: ReloadSettingsRequest,
 ) -> Result<ReloadSettingsResponse, CubicalError> {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(&req.vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
-    let fresh = cubical_core::vault::settings::load(open.vault.root())
+    let (root, settings) = with_open_vault(state, &req.vault_id, |open| {
+        (open.vault.root().to_path_buf(), Arc::clone(&open.settings))
+    })
+    .await?;
+    let fresh = cubical_core::vault::settings::load(&root)
         .map_err(|e| CubicalError::InvalidRequest(format!("reload settings: {e}")))?;
-    *open.settings.write().await = fresh.clone();
+    *settings.write().await = fresh.clone();
     Ok(ReloadSettingsResponse { settings: fresh })
 }
 

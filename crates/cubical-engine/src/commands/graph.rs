@@ -117,14 +117,7 @@ pub async fn graph_snapshot(
     state: &AppState,
     req: GraphSnapshotRequest,
 ) -> Result<GraphSnapshot, CubicalError> {
-    let vault = {
-        let guard = state.vaults().read().await;
-        guard
-            .get(&req.vault_id)
-            .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?
-            .vault
-            .clone()
-    };
+    let vault = crate::commands::open::open_vault_cloned(state, &req.vault_id).await?;
 
     let model = build_model(vault.index()).await?;
     Ok(apply_filter(&model, &req.filter))

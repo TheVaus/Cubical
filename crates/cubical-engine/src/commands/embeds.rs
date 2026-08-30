@@ -1,10 +1,11 @@
 use cubical_core::vault::embeds::{extract_block, extract_section, strip_frontmatter};
 use cubical_core::vault::links::{read_source_off_executor, resolve_target};
 use cubical_core::vault::pending::materialize_on_read;
-use cubical_index::blocks_for_file;
+use cubical_index::{all_file_paths, blocks_for_file};
 
 use crate::api::types::{EmbedKind, GetEmbedRequest, GetEmbedResponse, ResolvedAnchor};
 use crate::commands::links::split_target_anchor;
+use crate::commands::open::open_vault_cloned;
 use crate::commands::vault::mime_for_extension;
 use crate::error::CubicalError;
 use crate::state::AppState;
@@ -15,21 +16,8 @@ pub async fn get_embed(
     state: &AppState,
     req: GetEmbedRequest,
 ) -> Result<GetEmbedResponse, CubicalError> {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(&req.vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
-    let vault = open.vault.clone();
-    drop(guard);
-
-    let conn = vault.index().connection();
-    let mut rows = conn
-        .query("SELECT path FROM files ORDER BY path", ())
-        .await?;
-    let mut known: Vec<String> = Vec::new();
-    while let Some(row) = rows.next().await? {
-        known.push(row.get(0)?);
-    }
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
+    let known = all_file_paths(vault.index()).await?;
 
     let (target, anchor) = split_target_anchor(&req.target_raw);
     let Some(target_path) = resolve_target(&target, &known) else {
@@ -41,7 +29,9 @@ pub async fn get_embed(
         });
     };
 
-    let mut type_rows = conn
+    let mut type_rows = vault
+        .index()
+        .connection()
         .query(
             "SELECT type_id FROM files WHERE path = ?1",
             libsql::params![target_path.clone()],
