@@ -340,6 +340,48 @@ async fn handle_watch_batch(vault: &Vault, batch: Vec<WatchEvent>, ctx: &WatchCo
     }
 }
 
+pub(crate) async fn refresh_watched_markdown(
+    vault: &Vault,
+    path: &str,
+    source: &str,
+    mtime: i64,
+    doc: Option<&cubical_ast::Document>,
+) {
+    let Some(doc) = doc else {
+        tracing::warn!(
+            path,
+            "watcher: markdown parse failed; derived tables left untouched"
+        );
+        return;
+    };
+    if let Err(e) = refresh_frontmatter_with_doc(vault, path, doc).await {
+        tracing::warn!(path, error = %e, "watcher: frontmatter refresh failed");
+    }
+    if let Err(e) = refresh_links_with_doc(vault, path, doc).await {
+        tracing::warn!(path, error = %e, "watcher: links refresh failed");
+    }
+    if let Err(e) = refresh_tags_with_doc(vault, path, doc).await {
+        tracing::warn!(path, error = %e, "watcher: tags refresh failed");
+    }
+    if let Err(e) = refresh_blocks(vault, path, source).await {
+        tracing::warn!(path, error = %e, "watcher: blocks refresh failed");
+    }
+    if let Err(e) = refresh_block_refs_for_file(vault, path).await {
+        tracing::warn!(path, error = %e, "watcher: block_refs refresh failed");
+    }
+    if let Err(e) = cubical_core::vault::search_refresh::refresh_search_index_with_doc(
+        vault,
+        path,
+        doc,
+        mtime,
+        source.len() as u64,
+    )
+    .await
+    {
+        tracing::warn!(path, error = %e, "watcher: search refresh failed");
+    }
+}
+
 pub(crate) async fn apply_watch_event_to_db(
     vault: &Vault,
     ev: &WatchEvent,
@@ -421,35 +463,8 @@ pub(crate) async fn apply_watch_event_to_db(
                     }
                 };
 
-                let doc = parse_off_executor(&source).await.unwrap_or_default();
-
-                if let Err(e) = refresh_frontmatter_with_doc(vault, &path_str, &doc).await {
-                    tracing::warn!(path = %path_str, error = %e, "watcher: frontmatter refresh failed");
-                }
-                if let Err(e) = refresh_links_with_doc(vault, &path_str, &doc).await {
-                    tracing::warn!(path = %path_str, error = %e, "watcher: links refresh failed");
-                }
-                if let Err(e) = refresh_tags_with_doc(vault, &path_str, &doc).await {
-                    tracing::warn!(path = %path_str, error = %e, "watcher: tags refresh failed");
-                }
-                if let Err(e) = refresh_blocks(vault, &path_str, &source).await {
-                    tracing::warn!(path = %path_str, error = %e, "watcher: blocks refresh failed");
-                }
-                if let Err(e) = refresh_block_refs_for_file(vault, &path_str).await {
-                    tracing::warn!(path = %path_str, error = %e, "watcher: block_refs refresh failed");
-                }
-                let search_size_bytes = source.len() as u64;
-                if let Err(e) = cubical_core::vault::search_refresh::refresh_search_index_with_doc(
-                    vault,
-                    &path_str,
-                    &doc,
-                    mtime,
-                    search_size_bytes,
-                )
-                .await
-                {
-                    tracing::warn!(path = %path_str, error = %e, "watcher: search refresh failed");
-                }
+                let doc = parse_off_executor(&source).await;
+                refresh_watched_markdown(vault, &path_str, &source, mtime, doc.as_ref()).await;
             }
 
             if hash.is_empty() {
@@ -840,6 +855,86 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&detail).unwrap();
         assert_eq!(parsed["kind"], "created");
         assert_eq!(parsed["path"], "note.md");
+    }
+
+    const WATCHED_FIXTURE: &str =
+        "---\ntitle: Keep Me\n---\n\nlinks to [[b]] and tagged #keepme\n\nblock line ^blk1\n";
+
+    async fn count(vault: &Vault, sql: &str) -> i64 {
+        let conn = vault.index().connection();
+        let mut rows = conn.query(sql, ()).await.expect("query");
+        rows.next().await.unwrap().expect("row").get(0).unwrap()
+    }
+
+    async fn watched_derived_counts(vault: &Vault) -> (i64, i64, i64, i64) {
+        (
+            count(
+                vault,
+                "SELECT COUNT(*) FROM frontmatter WHERE file_path = 'a.md'",
+            )
+            .await,
+            count(
+                vault,
+                "SELECT COUNT(*) FROM links WHERE source_path = 'a.md'",
+            )
+            .await,
+            count(vault, "SELECT COUNT(*) FROM tags WHERE file_path = 'a.md'").await,
+            count(
+                vault,
+                "SELECT COUNT(*) FROM blocks WHERE file_path = 'a.md'",
+            )
+            .await,
+        )
+    }
+
+    async fn watched_fixture() -> (tempfile::TempDir, Vault) {
+        let dir = tempdir().unwrap();
+        std::fs::write(dir.path().join("a.md"), WATCHED_FIXTURE).unwrap();
+        std::fs::write(dir.path().join("b.md"), "body\n").unwrap();
+        let vault = Vault::open(dir.path()).await.expect("vault open");
+        apply_watch_event_to_db(&vault, &WatchEvent::Created("b.md".into()), None).await;
+        apply_watch_event_to_db(&vault, &WatchEvent::Created("a.md".into()), None).await;
+        (dir, vault)
+    }
+
+    #[tokio::test]
+    async fn watcher_path_keeps_derived_rows_when_the_parse_yields_nothing() {
+        let (_dir, vault) = watched_fixture().await;
+
+        let before = watched_derived_counts(&vault).await;
+        assert!(
+            before.0 > 0 && before.1 > 0 && before.2 > 0 && before.3 > 0,
+            "fixture must seed frontmatter, links, tags and blocks; got {before:?}",
+        );
+
+        refresh_watched_markdown(&vault, "a.md", WATCHED_FIXTURE, 0, None).await;
+
+        assert_eq!(
+            watched_derived_counts(&vault).await,
+            before,
+            "a failed parse must leave the file's derived rows untouched",
+        );
+    }
+
+    #[tokio::test]
+    async fn watcher_path_wipes_derived_rows_for_a_genuinely_empty_document() {
+        let (_dir, vault) = watched_fixture().await;
+        assert_ne!(watched_derived_counts(&vault).await, (0, 0, 0, 0));
+
+        refresh_watched_markdown(
+            &vault,
+            "a.md",
+            "",
+            0,
+            Some(&cubical_ast::Document::default()),
+        )
+        .await;
+
+        assert_eq!(
+            watched_derived_counts(&vault).await,
+            (0, 0, 0, 0),
+            "an empty document really does mean the file has no frontmatter, links, tags or blocks",
+        );
     }
 
     #[cfg(unix)]

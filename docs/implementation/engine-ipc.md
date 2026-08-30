@@ -603,8 +603,12 @@ in `lib.rs` is the payoff of having collapsed its surface in the first place.
 
 ## Degrade-not-throw surfaces
 
-Dataview and search deliberately fold failures into a structured result rather
-than a thrown IPC error, so the editor widget always renders an answer. Only
-vault-not-open is hard. `write_file_text`'s `expected_seen_hash` is advisory:
-a mismatch still writes (preserving the user's "keep my edits" choice) but
-records an override row in `audit_log` at `warn`.
+Dataview deliberately folds failures into a structured result rather than a
+thrown IPC error, so the editor widget always renders an answer: it renders
+*inside* a document, where a thrown error would take the surrounding render
+down with it. Search is the deliberate counter-example — `run_search`'s error
+propagates, because the search panel owns an error slot of its own and a
+second, in-band error channel would only duplicate it. Only vault-not-open is
+hard. `write_file_text`'s `expected_seen_hash` is advisory: a mismatch still
+writes (preserving the user's "keep my edits" choice) but records an override
+row in `audit_log` at `warn`.

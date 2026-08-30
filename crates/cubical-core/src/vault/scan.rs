@@ -1,6 +1,6 @@
 use std::time::SystemTime;
 
-use cubical_ast::Anchor;
+use cubical_ast::{Anchor, Document};
 use cubical_index::{
     replace_links_for_file, sweep_stale_folders, upsert_folder, IndexError, LinkRow,
 };
@@ -31,6 +31,50 @@ const SEARCH_COMMIT_EVERY: usize = 5_000;
 pub struct ScanProgress {
     pub files_processed: u32,
     pub files_total_estimate: u32,
+}
+
+pub(crate) struct ScannedMarkdown<'a> {
+    pub vault: &'a Vault,
+    pub path: &'a str,
+    pub source: &'a str,
+    pub mtime_unix: i64,
+    pub index_search: bool,
+}
+
+pub(crate) async fn refresh_scanned_markdown(
+    md: ScannedMarkdown<'_>,
+    doc: Option<&Document>,
+) -> Vec<LinkExtraction> {
+    let Some(doc) = doc else {
+        tracing::warn!(
+            path = md.path,
+            "markdown parse failed; derived tables left untouched"
+        );
+        return Vec::new();
+    };
+    if let Err(e) = refresh_frontmatter_with_doc(md.vault, md.path, doc).await {
+        tracing::warn!(path = md.path, error = %e, "frontmatter refresh failed");
+    }
+    if let Err(e) = refresh_tags_with_doc(md.vault, md.path, doc).await {
+        tracing::warn!(path = md.path, error = %e, "tags refresh failed");
+    }
+    if let Err(e) = refresh_blocks(md.vault, md.path, md.source).await {
+        tracing::warn!(path = md.path, error = %e, "blocks refresh failed");
+    }
+    if md.index_search {
+        if let Err(e) = refresh_search_index_with_doc(
+            md.vault,
+            md.path,
+            doc,
+            md.mtime_unix,
+            md.source.len() as u64,
+        )
+        .await
+        {
+            tracing::warn!(path = md.path, error = %e, "search index refresh failed");
+        }
+    }
+    extract_links(doc)
 }
 
 pub async fn scan(
@@ -177,34 +221,25 @@ pub async fn scan(
                 }
             };
 
-            if let Some(doc) = parse_off_executor(&source).await {
-                if let Err(e) = refresh_frontmatter_with_doc(&vault, &path_str, &doc).await {
-                    tracing::warn!(path = %abs_path.display(), error = %e, "frontmatter refresh failed");
-                }
-                let extractions = extract_links(&doc);
-                if !extractions.is_empty() {
-                    pending_links.push((path_str.clone(), extractions));
-                }
-                if let Err(e) = refresh_tags_with_doc(&vault, &path_str, &doc).await {
-                    tracing::warn!(path = %abs_path.display(), error = %e, "tags refresh failed");
-                }
-                if let Err(e) = refresh_blocks(&vault, &path_str, &source).await {
-                    tracing::warn!(path = %abs_path.display(), error = %e, "blocks refresh failed");
-                }
-                if !cancel.is_cancelled() {
-                    let search_size_bytes = source.len() as u64;
-                    if let Err(e) = refresh_search_index_with_doc(
-                        &vault,
-                        &path_str,
-                        &doc,
-                        mtime_unix,
-                        search_size_bytes,
-                    )
-                    .await
-                    {
-                        tracing::warn!(path = %abs_path.display(), error = %e, "search index refresh failed");
-                    }
-                    indexed_search_paths.insert(path_str.clone());
+            let doc = parse_off_executor(&source).await;
+            let index_search = !cancel.is_cancelled();
+            let extractions = refresh_scanned_markdown(
+                ScannedMarkdown {
+                    vault: &vault,
+                    path: &path_str,
+                    source: &source,
+                    mtime_unix,
+                    index_search,
+                },
+                doc.as_ref(),
+            )
+            .await;
+            if !extractions.is_empty() {
+                pending_links.push((path_str.clone(), extractions));
+            }
+            if index_search {
+                indexed_search_paths.insert(path_str.clone());
+                if doc.is_some() {
                     search_batch_count += 1;
                     if search_batch_count >= SEARCH_COMMIT_EVERY {
                         if let Err(e) = vault.search().commit() {
@@ -213,8 +248,6 @@ pub async fn scan(
                         search_batch_count = 0;
                     }
                 }
-            } else {
-                tracing::warn!(path = %abs_path.display(), "markdown parse failed; derived tables left untouched");
             }
         }
 
@@ -1024,5 +1057,103 @@ mod tests {
         while rx.recv().await.is_some() {}
 
         assert_eq!(vault.search().doc_count().unwrap(), 2);
+    }
+    const UNPARSEABLE_FIXTURE: &str =
+        "---\ntitle: Keep Me\n---\n\nlinks to [[b]] and tagged #keepme\n\nblock line ^blk1\n";
+
+    async fn derived_row_counts(vault: &Vault) -> (i64, i64, i64) {
+        (
+            scalar_i64(
+                vault,
+                "SELECT COUNT(*) FROM frontmatter WHERE file_path = 'a.md'",
+            )
+            .await,
+            scalar_i64(vault, "SELECT COUNT(*) FROM tags WHERE file_path = 'a.md'").await,
+            scalar_i64(
+                vault,
+                "SELECT COUNT(*) FROM blocks WHERE file_path = 'a.md'",
+            )
+            .await,
+        )
+    }
+
+    async fn scanned_fixture() -> (tempfile::TempDir, Vault) {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("a.md"), UNPARSEABLE_FIXTURE).unwrap();
+        fs::write(dir.path().join("b.md"), "body\n").unwrap();
+        let vault = Vault::open(dir.path()).await.expect("open");
+        let (tx, _rx) = mpsc::channel::<ScanProgress>(64);
+        scan(vault.clone(), CancellationToken::new(), tx)
+            .await
+            .expect("scan");
+        (dir, vault)
+    }
+
+    #[tokio::test]
+    async fn scan_path_keeps_derived_rows_when_the_parse_yields_nothing() {
+        use cubical_index::links_from;
+        let (_dir, vault) = scanned_fixture().await;
+
+        let before = derived_row_counts(&vault).await;
+        assert!(
+            before.0 > 0 && before.1 > 0 && before.2 > 0,
+            "fixture must seed frontmatter, tags and blocks; got {before:?}",
+        );
+        let links_before = links_from(vault.index(), "a.md").await.expect("links");
+        assert!(!links_before.is_empty(), "fixture must seed links");
+
+        let extractions = refresh_scanned_markdown(
+            ScannedMarkdown {
+                vault: &vault,
+                path: "a.md",
+                source: UNPARSEABLE_FIXTURE,
+                mtime_unix: 0,
+                index_search: true,
+            },
+            None,
+        )
+        .await;
+
+        assert!(
+            extractions.is_empty(),
+            "a failed parse yields no link extractions",
+        );
+        assert_eq!(
+            derived_row_counts(&vault).await,
+            before,
+            "a failed parse must leave frontmatter, tags and blocks untouched",
+        );
+        assert_eq!(
+            links_from(vault.index(), "a.md")
+                .await
+                .expect("links")
+                .len(),
+            links_before.len(),
+            "a failed parse must leave links untouched",
+        );
+    }
+
+    #[tokio::test]
+    async fn scan_path_wipes_derived_rows_for_a_genuinely_empty_document() {
+        let (_dir, vault) = scanned_fixture().await;
+        assert_ne!(derived_row_counts(&vault).await, (0, 0, 0));
+
+        refresh_scanned_markdown(
+            ScannedMarkdown {
+                vault: &vault,
+                path: "a.md",
+                source: "",
+                mtime_unix: 0,
+                index_search: true,
+            },
+            Some(&Document::default()),
+        )
+        .await;
+
+        assert_eq!(
+            derived_row_counts(&vault).await,
+            (0, 0, 0),
+            "an empty document really does mean the file has no frontmatter, tags or blocks",
+        );
     }
 }
