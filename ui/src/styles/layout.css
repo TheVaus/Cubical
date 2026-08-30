@@ -182,12 +182,12 @@
 .side--left {
   left: 0;
   border-right: 1px solid var(--c-border-subtle);
-  box-shadow: 8px 0 24px -16px rgba(0, 0, 0, 0.55);
+  box-shadow: var(--shadow-panel-left);
 }
 .side--right {
   right: 0;
   border-left: 1px solid var(--c-border-subtle);
-  box-shadow: -8px 0 24px -16px rgba(0, 0, 0, 0.55);
+  box-shadow: var(--shadow-panel-right);
 }
 .side--collapsed.side--left {
   transform: translateX(-101%);

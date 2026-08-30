@@ -1,8 +1,13 @@
-# design-system — Reach for `@ds` before hand-rolling a control
+# design-system — Reach for `@ds` before hand-rolling a control or a colour
 
-**Rule:** Check the component inventory before writing a raw `<button>`, `<input>`, `<select>` or `<dialog>`.
+**Rule:** Check the component inventory before writing a raw `<button>`, `<input>`, `<select>` or `<dialog>`. Spend a token before writing a colour: `design-system/src/styles/tokens.css` mints colour, `ui/` only spends it through `var()`.
 
-**Gate:** `scripts/gates/ds_components.py` — a per-file ratchet, budgets in `scripts/ds-raw-controls.json`. Baseline: 12 raw `<button>`, 5 raw `<input>` across 6 non-test files in `ui/src`; `<select>` and `<dialog>` are already at 0.
+**Gate:** `scripts/gates/ds_components.py` for raw controls and `scripts/gates/ds_colours.py` for colour literals — two per-file ratchets, each with its budgets in a JSON file that is the single source the gate and the docs both read.
+
+- `scripts/gates/ds_components.py` — raw controls, budgets in `scripts/ds-raw-controls.json`. Baseline: 12 raw `<button>`, 5 raw `<input>` across 6 non-test files in `ui/src`; `<select>` and `<dialog>` are already at 0.
+- `scripts/gates/ds_colours.py` — colour literals, budgets in `scripts/ds-color-literals.json`. Baseline: 4 literals across 2 files, all of them runtime fallbacks for canvas and WebGPU surfaces that cannot resolve `var()`.
+
+**Wiring:** `ui/` reads the design system through the `@ds` alias, declared in `ui/vite.config.ts` and `ui/tsconfig.json` and pointed at `design-system/src`. There is no build, publish or copy step between the two — editing a design-system component changes the app directly. The stylesheet layer follows the same rule: `ui/src/styles/tokens.css` and `ui/src/styles/base.css` each `@import` their design-system counterpart and then carry only app deltas, so a token or reset added in the design system reaches the app without being restated.
 
 **Why:** `design-system/` is the single source of truth for tokens and components; `ui/` borrows from it. Hand-rolling duplicates behaviour that already exists and drifts from the tokens. The failure is not hypothetical — the design system ships a `CommandPalette` that nothing imports, beside a hand-rolled `ui/src/omnibar/OmniBar.tsx` that imports only `Icon`. Nobody knew the primitive was there, which is why the inventory exists.
 
@@ -12,4 +17,4 @@ The distinction matters and the docs used to blur it. `../architecture/ui.md` §
 
 Extending a component additively (defaulting to prior behaviour) is always preferred to forking it app-side.
 
-**Detail:** [`../architecture/ui.md`](../architecture/ui.md) §11.6 for the locked rules; `scripts/ds-raw-controls.json` for the per-file budgets.
+**Detail:** [`../architecture/ui.md`](../architecture/ui.md) §11.6 for the locked rules; `scripts/ds-raw-controls.json` and `scripts/ds-color-literals.json` for the per-file budgets.

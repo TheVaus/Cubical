@@ -86,18 +86,7 @@ const SearchBar: Component<SearchBarProps> = (props) => {
           active={props.state.filtersActive() || showFilters()}
           onClick={() => setShowFilters((v) => !v)}
         >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 16 16"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.5"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M1.5 2.5h13l-5 6v4.5l-3 1.5V8.5z" />
-          </svg>
+          <Icon name="filter" size={14} />
         </IconButton>
       </div>
 
@@ -127,7 +116,7 @@ const SearchBar: Component<SearchBarProps> = (props) => {
             background: "var(--c-bg-primary)",
             border: "1px solid var(--c-border-subtle)",
             "border-radius": "var(--radius-md)",
-            "box-shadow": "var(--shadow-md, 0 6px 24px rgba(0,0,0,0.2))",
+            "box-shadow": "var(--shadow-md)",
           }}
         >
           <FilterGroup label="Sort">

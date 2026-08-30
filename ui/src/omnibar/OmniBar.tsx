@@ -93,7 +93,7 @@ const OmniBar: Component<OmniBarProps> = (props) => {
           "align-items": "flex-start",
           "justify-content": "center",
           "padding-top": "12vh",
-          background: "rgba(0,0,0,0.32)",
+          background: "var(--scrim)",
           "z-index": 30,
         }}
       >
@@ -111,7 +111,7 @@ const OmniBar: Component<OmniBarProps> = (props) => {
             background: "var(--c-bg-primary)",
             border: "1px solid var(--c-border-subtle)",
             "border-radius": "var(--radius-md)",
-            "box-shadow": "0 12px 48px rgba(0,0,0,0.3)",
+            "box-shadow": "var(--shadow-lg)",
             overflow: "hidden",
           }}
         >

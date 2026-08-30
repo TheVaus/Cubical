@@ -1,0 +1,28 @@
+{
+  "_": [
+    "Per-file budgets for raw colour literals in ui/src, read by",
+    "scripts/gates/ds_colours.py. design-system/src/styles/tokens.css is the",
+    "single source of colour; ui/ spends tokens, it does not mint them.",
+    "",
+    "A budget is a ceiling, not a target. The gate fails when a file exceeds",
+    "its budget, and when a file not listed here carries a literal at all. It",
+    "does NOT fail when a count drops: ratchet the number down as debt clears.",
+    "",
+    "'bespoke' means a deliberate exception \u2014 canvas and WebGPU read tokens at",
+    "runtime through getComputedStyle and cannot use var(), so they carry a",
+    "last-resort literal for the case where the stylesheet failed to load.",
+    "Those literals must match the token's light-theme value."
+  ],
+  "budgets": {
+    "ui/src/editor/minimap/Minimap.tsx": {
+      "count": 3,
+      "kind": "bespoke",
+      "note": "The minimap paints to a 2D canvas, which cannot resolve var(). readColors() reads --c-fg-primary, --c-bg-primary and --editor-selection-bg through getComputedStyle; each literal is the last-resort value if the stylesheet failed to load and must track the token's light-theme value."
+    },
+    "ui/src/graph/gpu/palette.ts": {
+      "count": 1,
+      "kind": "bespoke",
+      "note": "FALLBACK feeds readPalette() when a token resolves empty; WebGPU takes packed rgba, not var(). Matches --c-fg-muted (light)."
+    }
+  }
+}
