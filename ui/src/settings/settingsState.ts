@@ -257,6 +257,8 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
     setRightSidebarPanel("backlinks");
     setLeftSidebarMode("files");
     setShortcutOverrides({});
+    setCorePlugins({});
+    setStatusbarConfig({});
   };
 
   const hydrate = async (vaultId: string) => {

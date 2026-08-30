@@ -6,6 +6,7 @@ import Icon from "@ds/components/graphics/Icon/Icon";
 
 import type { FileEntry } from "../api/ipc";
 import type { LeftSidebarMode } from "../settings/settingsState";
+import FeatureBoundary from "../core/FeatureBoundary";
 import SearchPanel from "../sidebar/SearchPanel";
 import FileTreePanel from "./FileTreePanel";
 import TagTreePanel from "./TagTreePanel";
@@ -120,30 +121,32 @@ const ExplorerPanel: Component<ExplorerPanelProps> = (props) => {
         </span>
       </div>
 
-      <Show
-        when={props.mode === "tags"}
-        fallback={
-          <FileTreePanel
+      <FeatureBoundary feature="File tree">
+        <Show
+          when={props.mode === "tags"}
+          fallback={
+            <FileTreePanel
+              files={props.files}
+              folders={props.folders}
+              vaultId={props.vaultId}
+              selectedPath={props.selectedPath}
+              actions={props.actions}
+              onSelectFile={props.onSelectFile}
+              onRenameCommit={props.onRenameCommit}
+            />
+          }
+        >
+          <TagTreePanel
             files={props.files}
-            folders={props.folders}
             vaultId={props.vaultId}
             selectedPath={props.selectedPath}
+            reloadToken={reloadToken()}
             actions={props.actions}
             onSelectFile={props.onSelectFile}
             onRenameCommit={props.onRenameCommit}
           />
-        }
-      >
-        <TagTreePanel
-          files={props.files}
-          vaultId={props.vaultId}
-          selectedPath={props.selectedPath}
-          reloadToken={reloadToken()}
-          actions={props.actions}
-          onSelectFile={props.onSelectFile}
-          onRenameCommit={props.onRenameCommit}
-        />
-      </Show>
+        </Show>
+      </FeatureBoundary>
     </SearchPanel>
   );
 };

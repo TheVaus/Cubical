@@ -166,4 +166,25 @@ describe("blockRenderersField", () => {
     expect(second).not.toBe(first);
     expect(second.revisions).toEqual([1]);
   });
+
+  it("keeps the rest of the document rendering when a renderer throws", () => {
+    const boom = textRenderer("boom", ["boom"], {
+      render: () => {
+        throw new Error("renderer exploded");
+      },
+    });
+    const doc = "```boom\nx\n```\n\n```alpha\nbody\n```\n\ntrailing\n";
+    const view = new EditorView({
+      state: stateWith(doc, [boom, alpha], doc.length - 2),
+    });
+    const failed = [...view.dom.querySelectorAll(".cm-render-failed")];
+    const survived = [...view.dom.querySelectorAll("[data-renderer]")];
+    view.destroy();
+
+    expect(failed).toHaveLength(1);
+    expect(failed[0]?.textContent).toContain("renderer exploded");
+    expect(survived.map((n) => (n as HTMLElement).dataset.renderer)).toEqual([
+      "a",
+    ]);
+  });
 });
