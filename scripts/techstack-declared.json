@@ -26,7 +26,6 @@
     "cubical-query",
     "cubical-search",
     "dirs",
-    "fs4",
     "futures-util",
     "libsql",
     "nix",
