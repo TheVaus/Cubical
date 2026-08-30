@@ -17,6 +17,7 @@ import { syntaxTree } from "@codemirror/language";
 import { scanWikilinks } from "../ast/wikilink";
 import type { EmbedResolver } from "./embedResolver";
 import { renderEmbedBody } from "./embedRender";
+import { renderGuarded } from "./widgetGuard";
 
 export const embedResolverFacet = Facet.define<
   EmbedResolver | null,
@@ -54,11 +55,13 @@ class EmbedWidget extends WidgetType {
     frame.className = "cm-md-embed-frame";
     const seedChain = this.openNotePath === null ? [] : [this.openNotePath];
     frame.appendChild(
-      renderEmbedBody({
-        resolver: this.resolver,
-        targetRaw: this.targetRaw,
-        chain: seedChain,
-      }),
+      renderGuarded(`![[${this.targetRaw}]]`, () =>
+        renderEmbedBody({
+          resolver: this.resolver,
+          targetRaw: this.targetRaw,
+          chain: seedChain,
+        }),
+      ),
     );
     return frame;
   }

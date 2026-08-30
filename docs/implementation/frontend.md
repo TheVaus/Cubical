@@ -233,6 +233,48 @@ about any feature. Two boundaries worth preserving:
 - **Vault session** holds the open vault's identity and scan lifecycle.
   Features read from it; it never reaches back into them.
 
+## One feature's failure is not the app's
+
+**Anchors:** FeatureBoundary · renderGuarded · createListenerGroup · BlockWidget · EmbedWidget
+
+There is one Solid root and no code splitting, so without a boundary any
+render-time throw blanks the whole window. Every surface that renders
+independently sits in a `FeatureBoundary`, which draws a compact error and a
+retry **in that surface's place** and leaves its siblings mounted.
+
+The granularity rule is one boundary per surface that can be on screen at the
+same time as another — explorer, file tree, properties, editors, viewer, tag
+page, graph, terminal, sidebar panel, statusbar, Omni-Bar. A single boundary at
+the root satisfies the letter of "the app has a boundary" and none of its
+purpose: it still blanks everything. Mutually exclusive surfaces get separate
+boundaries too, because a tripped boundary stays tripped until it is reset —
+sharing one between the viewer and the editor would mean a bad file leaves the
+editor unreachable until the user finds the retry.
+
+**A Solid boundary does not cover CodeMirror-owned DOM.** A widget's `toDOM`
+runs inside the view's update cycle, outside the owner tree Solid propagates
+errors through, so a throw there escapes into whatever dispatched the
+transaction — usually `new EditorView`, taking the whole editor with it.
+`renderGuarded` wraps those calls and substitutes a failure line for the widget.
+It is applied at the two widgets (`BlockWidget`, `EmbedWidget`), not in each
+renderer: the block registry has one `toDOM` and many renderers, and guarding
+per renderer means every future renderer has to remember.
+
+The `onMount` registration chain is the other uncovered path, because it is
+`await`s rather than rendering. Seven listener registrations run before the
+global keymap, the theme watcher and the boot vault-open; one rejection used to
+take everything after it, silently, leaving an app that looked fine with no
+shortcuts and no auto-open. `createListenerGroup` catches per registration, so a
+failed `listen` costs exactly its own listener, and holds the unlisten functions
+so teardown is one call rather than seven nullable handles. Boot ends in a
+`finally`, so a failure there still clears `booting` and leaves the vault picker
+reachable.
+
+Two things a boundary still cannot see: a throw inside an event handler, and a
+rejected promise nobody awaits. Neither has a Solid owner. Those stay the
+caller's own `try`/`catch`, which is why the IPC callers in the shell each have
+one.
+
 ## A vault switch opens first and releases second
 
 **Anchors:** switchVault · openVaultByPath · releaseVault · resetForVaultSwitch

@@ -14,11 +14,11 @@ import {
 } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import type { UnlistenFn } from "@tauri-apps/api/event";
 
 import Button from "@ds/components/forms/Button/Button";
 import IconButton from "@ds/components/forms/IconButton/IconButton";
 import Icon from "@ds/components/graphics/Icon/Icon";
+import ConfirmDialog from "@ds/components/overlay/ConfirmDialog/ConfirmDialog";
 
 import Editor, { type EditorApi } from "./Editor";
 import {
@@ -68,6 +68,8 @@ import { createNavSession } from "./core/navSession";
 import { createDebounced } from "./core/debounce";
 import { createDocumentSession } from "./core/documentSession";
 import { switchVault } from "./core/vaultOpen";
+import { createListenerGroup } from "./core/listenerGroup";
+import FeatureBoundary from "./core/FeatureBoundary";
 import TabStrip from "./tabs/TabStrip";
 import {
   FileViewer,
@@ -430,13 +432,7 @@ const App: Component = () => {
   });
   const flushAutosave = () => doc.flush();
 
-  let unlistenProgress: UnlistenFn | undefined;
-  let unlistenComplete: UnlistenFn | undefined;
-  let unlistenCancelled: UnlistenFn | undefined;
-  let unlistenFileChanged: UnlistenFn | undefined;
-  let unlistenPendingChanged: UnlistenFn | undefined;
-  let unlistenFlushComplete: UnlistenFn | undefined;
-  let unlistenSettingChanged: UnlistenFn | undefined;
+  const vaultListeners = createListenerGroup();
 
   let pendingRefresh = false;
   let lastRefreshAt = 0;
@@ -857,67 +853,81 @@ const App: Component = () => {
   };
 
   onMount(async () => {
-    unlistenProgress = await onVaultScanProgress((p) => {
-      if (p.vault_id !== vaultId()) return;
-      setFilesProcessed(p.files_processed);
-      setFilesTotalEstimate(p.files_total_estimate);
-      scheduleRefresh();
-    });
-    unlistenComplete = await onVaultScanComplete((p) => {
-      if (p.vault_id !== vaultId()) return;
-      setFilesProcessed(p.file_count);
-      setFilesTotalEstimate(p.file_count);
-      setScanStatus("complete");
-      void refreshFileList();
-      void refreshBrokenBlockRefs();
-    });
-    unlistenCancelled = await onVaultScanCancelled((p) => {
-      if (p.vault_id !== vaultId()) return;
-      setScanStatus("cancelled");
-    });
-    unlistenFileChanged = await onVaultFileChanged((p) => {
-      if (p.vault_id !== vaultId()) return;
-      scheduleRefresh();
+    await vaultListeners.attach("vault:scan-progress", () =>
+      onVaultScanProgress((p) => {
+        if (p.vault_id !== vaultId()) return;
+        setFilesProcessed(p.files_processed);
+        setFilesTotalEstimate(p.files_total_estimate);
+        scheduleRefresh();
+      }),
+    );
+    await vaultListeners.attach("vault:scan-complete", () =>
+      onVaultScanComplete((p) => {
+        if (p.vault_id !== vaultId()) return;
+        setFilesProcessed(p.file_count);
+        setFilesTotalEstimate(p.file_count);
+        setScanStatus("complete");
+        void refreshFileList();
+        void refreshBrokenBlockRefs();
+      }),
+    );
+    await vaultListeners.attach("vault:scan-cancelled", () =>
+      onVaultScanCancelled((p) => {
+        if (p.vault_id !== vaultId()) return;
+        setScanStatus("cancelled");
+      }),
+    );
+    await vaultListeners.attach("vault:file-changed", () =>
+      onVaultFileChanged((p) => {
+        if (p.vault_id !== vaultId()) return;
+        scheduleRefresh();
 
-      const ownWrite = doc.isOwnWriteEchoOf(p.path, p.new_content_hash);
-      if (!ownWrite) {
-        wikilinkResolver()?.invalidate();
-        embedResolver()?.invalidate();
-        propertyResolver()?.invalidate();
-        dataviewRunner()?.invalidate();
-      }
+        const ownWrite = doc.isOwnWriteEchoOf(p.path, p.new_content_hash);
+        if (!ownWrite) {
+          wikilinkResolver()?.invalidate();
+          embedResolver()?.invalidate();
+          propertyResolver()?.invalidate();
+          dataviewRunner()?.invalidate();
+        }
 
-      rightSidebarRefresh.schedule();
+        rightSidebarRefresh.schedule();
 
-      searchRefresh.schedule();
+        searchRefresh.schedule();
 
-      brokenBlockRefsRefresh.schedule();
+        brokenBlockRefsRefresh.schedule();
 
-      if (view().kind === "tag") {
-        setTagRefreshTick((n) => n + 1);
-      }
+        if (view().kind === "tag") {
+          setTagRefreshTick((n) => n + 1);
+        }
 
-      doc.applyExternalChange(p.path, p.new_content_hash);
-    });
+        doc.applyExternalChange(p.path, p.new_content_hash);
+      }),
+    );
 
-    unlistenPendingChanged = await onVaultPendingRewritesChanged((p) => {
-      if (p.vault_id !== vaultId()) return;
-      setPendingRewritesCount(p.count);
-    });
-    unlistenFlushComplete = await onVaultFlushComplete((p) => {
-      if (p.vault_id !== vaultId()) return;
-      if (p.files_rewritten === 0 && p.refs_updated === 0) return;
-      const refs = p.refs_updated;
-      const files = p.files_rewritten;
-      showToast(
-        `Applied ${refs} reference update${refs === 1 ? "" : "s"} across ` +
-          `${files} file${files === 1 ? "" : "s"}.`,
-      );
-    });
-    unlistenSettingChanged = await onVaultSettingChanged((p) => {
-      if (p.vault_id !== vaultId()) return;
-      void settings.hydrate(p.vault_id);
-    });
+    await vaultListeners.attach("vault:pending-rewrites-changed", () =>
+      onVaultPendingRewritesChanged((p) => {
+        if (p.vault_id !== vaultId()) return;
+        setPendingRewritesCount(p.count);
+      }),
+    );
+    await vaultListeners.attach("vault:flush-complete", () =>
+      onVaultFlushComplete((p) => {
+        if (p.vault_id !== vaultId()) return;
+        if (p.files_rewritten === 0 && p.refs_updated === 0) return;
+        const refs = p.refs_updated;
+        const files = p.files_rewritten;
+        showToast(
+          `Applied ${refs} reference update${refs === 1 ? "" : "s"} across ` +
+            `${files} file${files === 1 ? "" : "s"}.`,
+        );
+      }),
+    );
+    await vaultListeners.attach("vault:setting-changed", () =>
+      onVaultSettingChanged((p) => {
+        if (p.vault_id !== vaultId()) return;
+        void settings.hydrate(p.vault_id);
+      }),
+    );
 
     const onBeforeUnload = () => doc.writeBeforeUnload();
     window.addEventListener("beforeunload", onBeforeUnload);
@@ -1001,22 +1011,17 @@ const App: Component = () => {
     });
     onCleanup(unwatchTheme);
 
-    await refreshRecentVaults();
-    const top = recentVaults()[0];
-    if (top && top.exists) {
-      await openVaultByPath(top.path);
+    try {
+      await refreshRecentVaults();
+      const top = recentVaults()[0];
+      if (top && top.exists) await openVaultByPath(top.path);
+    } finally {
+      setBooting(false);
     }
-    setBooting(false);
   });
 
   onCleanup(() => {
-    unlistenProgress?.();
-    unlistenComplete?.();
-    unlistenCancelled?.();
-    unlistenFileChanged?.();
-    unlistenPendingChanged?.();
-    unlistenFlushComplete?.();
-    unlistenSettingChanged?.();
+    vaultListeners.detach();
     doc.cancelScheduledWrite();
     rightSidebarRefresh.cancel();
     searchRefresh.cancel();
@@ -1208,22 +1213,24 @@ const App: Component = () => {
             classList={{ "side--collapsed": leftCollapsed() }}
           >
             <div class="side__body">
-              <ExplorerPanel
-                files={files()}
-                folders={folders()}
-                vaultId={vaultId()}
-                selectedPath={selectedPath()}
-                mode={settings.leftSidebarMode()}
-                refreshSignal={searchRefreshTick()}
-                actions={fileActions}
-                onModeChange={settings.setLeftSidebarModeValue}
-                onRefresh={() => void refreshFileList()}
-                onNavigate={(path) => void handleNavigateWikilink(path, null)}
-                onSelectFile={(entry) => void handleSelectFile(entry)}
-                onRenameCommit={(from, target, isFolder) =>
-                  void handleRenameCommit(from, target, isFolder)
-                }
-              />
+              <FeatureBoundary feature="File explorer">
+                <ExplorerPanel
+                  files={files()}
+                  folders={folders()}
+                  vaultId={vaultId()}
+                  selectedPath={selectedPath()}
+                  mode={settings.leftSidebarMode()}
+                  refreshSignal={searchRefreshTick()}
+                  actions={fileActions}
+                  onModeChange={settings.setLeftSidebarModeValue}
+                  onRefresh={() => void refreshFileList()}
+                  onNavigate={(path) => void handleNavigateWikilink(path, null)}
+                  onSelectFile={(entry) => void handleSelectFile(entry)}
+                  onRenameCommit={(from, target, isFolder) =>
+                    void handleRenameCommit(from, target, isFolder)
+                  }
+                />
+              </FeatureBoundary>
               <div class="side__footer">
                 <div class="vault-switcher-anchor">
                   <button
@@ -1275,17 +1282,19 @@ const App: Component = () => {
                   <Show
                     when={view().kind === "file"}
                     fallback={
-                      <TagPage
-                        vaultId={vaultId()}
-                        tagPath={
-                          (view() as { kind: "tag"; tagPath: string }).tagPath
-                        }
-                        refreshSignal={tagRefreshTick()}
-                        onSelectFile={(path) =>
-                          void handleNavigateWikilink(path, null)
-                        }
-                        onBack={handleExitTagView}
-                      />
+                      <FeatureBoundary feature="Tag page">
+                        <TagPage
+                          vaultId={vaultId()}
+                          tagPath={
+                            (view() as { kind: "tag"; tagPath: string }).tagPath
+                          }
+                          refreshSignal={tagRefreshTick()}
+                          onSelectFile={(path) =>
+                            void handleNavigateWikilink(path, null)
+                          }
+                          onBack={handleExitTagView}
+                        />
+                      </FeatureBoundary>
                     }
                   >
                     <Show
@@ -1400,98 +1409,108 @@ const App: Component = () => {
                             </div>
                           </Show>
                           <Show when={!settings.effectiveRaw()}>
-                            <Properties
-                              frontmatter={propertiesFrontmatter()}
-                              path={selectedPath() ?? ""}
-                              getSource={() => editorApi()?.getContent() ?? ""}
-                              applyEdit={(from, to, text) =>
-                                editorApi()?.replaceRange(from, to, text)
-                              }
-                              onOpenRaw={() => settings.setRawOverride(true)}
-                              onNavigateTag={(tagPath) =>
-                                void handleNavigateTag(tagPath)
-                              }
-                              typedEnabled={settings.typedProps()}
-                              dateDefault={settings.dateDefault()}
-                              currencyDefault={settings.currencyDefault()}
-                              tagsKeyAsTags={settings.tagsKeyAsTags()}
-                            />
+                            <FeatureBoundary feature="Properties">
+                              <Properties
+                                frontmatter={propertiesFrontmatter()}
+                                path={selectedPath() ?? ""}
+                                getSource={() => editorApi()?.getContent() ?? ""}
+                                applyEdit={(from, to, text) =>
+                                  editorApi()?.replaceRange(from, to, text)
+                                }
+                                onOpenRaw={() => settings.setRawOverride(true)}
+                                onNavigateTag={(tagPath) =>
+                                  void handleNavigateTag(tagPath)
+                                }
+                                typedEnabled={settings.typedProps()}
+                                dateDefault={settings.dateDefault()}
+                                currencyDefault={settings.currencyDefault()}
+                                tagsKeyAsTags={settings.tagsKeyAsTags()}
+                              />
+                            </FeatureBoundary>
                           </Show>
-                          <For each={live()}>
-                            {(id) => (
-                              <div
-                                style={{
-                                  display:
-                                    id === tabs().activeId
-                                      ? "contents"
-                                      : "none",
-                                }}
-                              >
-                                <Editor
-                                  value={contents[id] ?? ""}
-                                  resolvedTheme={settings.resolvedTheme()}
-                                  rawSource={settings.effectiveRaw()}
-                                  minimapEnabled={settings.minimapEnabled()}
-                                  colorizeSource={settings.colorizeSource()}
-                                  wikilinkResolver={wikilinkResolver()}
-                                  embedResolver={embedResolver()}
-                                  propertyResolver={propertyResolver()}
-                                  propertyRefsEnabled={pluginOn(
-                                    "property-refs",
-                                  )}
-                                  mathEnabled={pluginOn("math")}
-                                  equationsEnabled={pluginOn("equations")}
-                                  dataviewRunner={dataviewRunner()}
-                                  openNotePath={pathForId(id)}
-                                  autocompleteProvider={autocompleteProvider()}
-                                  editorBindings={settings.effectiveBindings()}
-                                  onNavigateWikilink={(path, anchor) =>
-                                    void handleNavigateWikilink(path, anchor)
-                                  }
-                                  onOfferCreateWikilink={(path) =>
-                                    handleOfferCreateWikilink(path)
-                                  }
-                                  onAnchorNotFound={notifyAnchorNotFound}
-                                  onNavigateTag={(tagPath) =>
-                                    void handleNavigateTag(tagPath)
-                                  }
-                                  onToggleRawSource={toggleRawSource}
-                                  onAstChange={(doc) =>
-                                    handleAstChange(id, doc)
-                                  }
-                                  onContentChange={handleContentChange}
-                                  onBlur={() => void flushAutosave()}
-                                  onCopyBlockRef={(off) =>
-                                    void handleCopyBlockRef(off)
-                                  }
-                                  ref={(api) => editorApis.set(id, api)}
-                                />
-                              </div>
-                            )}
-                          </For>
+                          <FeatureBoundary feature="Editor">
+                            <For each={live()}>
+                              {(id) => (
+                                <div
+                                  style={{
+                                    display:
+                                      id === tabs().activeId
+                                        ? "contents"
+                                        : "none",
+                                  }}
+                                >
+                                  <Editor
+                                    value={contents[id] ?? ""}
+                                    resolvedTheme={settings.resolvedTheme()}
+                                    rawSource={settings.effectiveRaw()}
+                                    minimapEnabled={settings.minimapEnabled()}
+                                    colorizeSource={settings.colorizeSource()}
+                                    wikilinkResolver={wikilinkResolver()}
+                                    embedResolver={embedResolver()}
+                                    propertyResolver={propertyResolver()}
+                                    propertyRefsEnabled={pluginOn(
+                                      "property-refs",
+                                    )}
+                                    mathEnabled={pluginOn("math")}
+                                    equationsEnabled={pluginOn("equations")}
+                                    dataviewRunner={dataviewRunner()}
+                                    openNotePath={pathForId(id)}
+                                    autocompleteProvider={autocompleteProvider()}
+                                    editorBindings={settings.effectiveBindings()}
+                                    onNavigateWikilink={(path, anchor) =>
+                                      void handleNavigateWikilink(path, anchor)
+                                    }
+                                    onOfferCreateWikilink={(path) =>
+                                      handleOfferCreateWikilink(path)
+                                    }
+                                    onAnchorNotFound={notifyAnchorNotFound}
+                                    onNavigateTag={(tagPath) =>
+                                      void handleNavigateTag(tagPath)
+                                    }
+                                    onToggleRawSource={toggleRawSource}
+                                    onAstChange={(doc) =>
+                                      handleAstChange(id, doc)
+                                    }
+                                    onContentChange={handleContentChange}
+                                    onBlur={() => void flushAutosave()}
+                                    onCopyBlockRef={(off) =>
+                                      void handleCopyBlockRef(off)
+                                    }
+                                    ref={(api) => editorApis.set(id, api)}
+                                  />
+                                </div>
+                              )}
+                            </For>
+                          </FeatureBoundary>
                         </Show>
                       }
                     >
                       {(path) => (
-                        <FileViewer
-                          vaultId={vaultId()!}
-                          path={path}
-                          sizeBytes={viewerEntry()?.size_bytes ?? 0}
-                          mtimeUnix={viewerEntry()?.mtime_unix ?? 0}
-                          rawSource={settings.effectiveRaw()}
-                        />
+                        <FeatureBoundary feature="File viewer">
+                          <FileViewer
+                            vaultId={vaultId()!}
+                            path={path}
+                            sizeBytes={viewerEntry()?.size_bytes ?? 0}
+                            mtimeUnix={viewerEntry()?.mtime_unix ?? 0}
+                            rawSource={settings.effectiveRaw()}
+                          />
+                        </FeatureBoundary>
                       )}
                     </Show>
                   </Show>
                 </Show>
-                <GraphTabPane vaultId={vaultId} tabs={tabs} theme={settings.resolvedTheme} onOpenFile={(p) => void handleNavigateWikilink(p, null)} />
-                <TerminalTabPanes
-                  tabs={tabs}
-                  vaultId={vaultId}
-                  resolvedTheme={settings.resolvedTheme}
-                  onOpened={terminalTab.register}
-                  onClosed={terminalTab.forget}
-                />
+                <FeatureBoundary feature="Graph">
+                  <GraphTabPane vaultId={vaultId} tabs={tabs} theme={settings.resolvedTheme} onOpenFile={(p) => void handleNavigateWikilink(p, null)} />
+                </FeatureBoundary>
+                <FeatureBoundary feature="Terminal">
+                  <TerminalTabPanes
+                    tabs={tabs}
+                    vaultId={vaultId}
+                    resolvedTheme={settings.resolvedTheme}
+                    onOpened={terminalTab.register}
+                    onClosed={terminalTab.forget}
+                  />
+                </FeatureBoundary>
               </div>
             </div>
           </main>
@@ -1550,55 +1569,59 @@ const App: Component = () => {
                 </button>
               </div>
               <div class="rs-body">
-                <Switch>
-                  <Match when={settings.rightSidebarPanel() === "backlinks"}>
-                    <Backlinks
-                      vaultId={vaultId()}
-                      path={selectedPath()}
-                      refreshSignal={rightSidebarRefreshTick()}
-                      onRowClick={(path) =>
-                        void handleNavigateWikilink(path, null)
-                      }
-                    />
-                  </Match>
-                  <Match
-                    when={settings.rightSidebarPanel() === "unlinked_mentions"}
-                  >
-                    <UnlinkedMentions
-                      vaultId={vaultId()}
-                      path={selectedPath()}
-                      refreshSignal={rightSidebarRefreshTick()}
-                      onRowClick={(path) =>
-                        void handleNavigateWikilink(path, null)
-                      }
-                    />
-                  </Match>
-                  <Match when={settings.rightSidebarPanel() === "integrity"}>
-                    <IntegrityPanel
-                      vaultId={vaultId()}
-                      refreshSignal={rightSidebarRefreshTick()}
-                      onRowClick={(path) =>
-                        void handleNavigateWikilink(path, null)
-                      }
-                      onRepaired={() => rightSidebarRefresh.schedule()}
-                    />
-                  </Match>
-                </Switch>
+                <FeatureBoundary feature="Sidebar panel">
+                  <Switch>
+                    <Match when={settings.rightSidebarPanel() === "backlinks"}>
+                      <Backlinks
+                        vaultId={vaultId()}
+                        path={selectedPath()}
+                        refreshSignal={rightSidebarRefreshTick()}
+                        onRowClick={(path) =>
+                          void handleNavigateWikilink(path, null)
+                        }
+                      />
+                    </Match>
+                    <Match
+                      when={settings.rightSidebarPanel() === "unlinked_mentions"}
+                    >
+                      <UnlinkedMentions
+                        vaultId={vaultId()}
+                        path={selectedPath()}
+                        refreshSignal={rightSidebarRefreshTick()}
+                        onRowClick={(path) =>
+                          void handleNavigateWikilink(path, null)
+                        }
+                      />
+                    </Match>
+                    <Match when={settings.rightSidebarPanel() === "integrity"}>
+                      <IntegrityPanel
+                        vaultId={vaultId()}
+                        refreshSignal={rightSidebarRefreshTick()}
+                        onRowClick={(path) =>
+                          void handleNavigateWikilink(path, null)
+                        }
+                        onRepaired={() => rightSidebarRefresh.schedule()}
+                      />
+                    </Match>
+                  </Switch>
+                </FeatureBoundary>
               </div>
             </div>
           </aside>
         </div>
       </Show>
 
-      <OmniBar
-        open={omniOpen()}
-        items={omniItems()}
-        recentNotes={recentNotes()}
-        onClose={() => setOmniOpen(false)}
-        onOpenNote={(path) => void handleNavigateWikilink(path, null)}
-        onOpenTag={(tag) => void handleNavigateTag(tag)}
-        onRunCommand={handleRunCommand}
-      />
+      <FeatureBoundary feature="Omni-Bar">
+        <OmniBar
+          open={omniOpen()}
+          items={omniItems()}
+          recentNotes={recentNotes()}
+          onClose={() => setOmniOpen(false)}
+          onOpenNote={(path) => void handleNavigateWikilink(path, null)}
+          onOpenTag={(tag) => void handleNavigateTag(tag)}
+          onRunCommand={handleRunCommand}
+        />
+      </FeatureBoundary>
 
       <SettingsModal
         open={settingsOpen()}
@@ -1609,172 +1632,121 @@ const App: Component = () => {
         onOpenAnotherVault={() => void handleOpen()}
       />
 
-      <Show when={createOffer() !== null}>
-        <div
-          role="dialog"
-          aria-modal="true"
-          style={{
-            position: "fixed",
-            inset: 0,
-            display: "flex",
-            "align-items": "center",
-            "justify-content": "center",
-            background: "rgba(0, 0, 0, 0.32)",
-            "z-index": 10,
-          }}
-          onClick={dismissCreateOffer}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
+      <ConfirmDialog
+        open={createOffer() !== null}
+        title="Create note?"
+        confirmLabel="Create note"
+        tone="primary"
+        onCancel={dismissCreateOffer}
+        onConfirm={() => void acceptCreateOffer()}
+      >
+        <p>
+          <code
             style={{
-              background: "var(--c-bg-primary)",
-              border: "1px solid var(--c-border-subtle)",
-              "border-radius": "var(--radius-md)",
-              padding: "var(--space-4)",
-              "min-width": "20rem",
-              "max-width": "32rem",
-              display: "flex",
-              "flex-direction": "column",
-              gap: "var(--space-3)",
-              "box-shadow": "0 6px 24px rgba(0, 0, 0, 0.2)",
+              "font-family": "var(--font-mono)",
+              "font-size": "var(--text-xs)",
             }}
           >
-            <p
-              style={{
-                margin: 0,
-                "font-size": "var(--text-sm)",
-                color: "var(--c-fg-primary)",
-              }}
-            >
-              Create note{" "}
-              <code
-                style={{
-                  "font-family": "var(--font-mono)",
-                  "font-size": "var(--text-xs)",
-                }}
-              >
-                {createOffer()!.path}
-              </code>
-              ?
-            </p>
-            <div
-              style={{
-                display: "flex",
-                gap: "var(--space-2)",
-                "justify-content": "flex-end",
-              }}
-            >
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={dismissCreateOffer}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => void acceptCreateOffer()}
-              >
-                Create note
-              </Button>
-            </div>
-          </div>
-        </div>
-      </Show>
+            {createOffer()?.path}
+          </code>{" "}
+          does not exist yet.
+        </p>
+      </ConfirmDialog>
 
       <Show when={vaultId() && settings.statusbarEnabled()}>
-        <footer class="statusbar">
-          {(() => {
-            const vaultVis = () => settings.segVisible(VAULT_PATH_SEGMENT);
-            const scanVis = () => scanStatus() === "in_progress";
-            const brokenVis = () => !!formatBrokenBlockRefs(brokenBlockRefs());
-            const pendingVis = () =>
-              !!formatPendingRewrites(pendingRewritesCount());
-            const sep = () =>
-              leadingSeparators([
-                vaultVis(),
-                scanVis(),
-                brokenVis(),
-                pendingVis(),
-              ]);
-            return (
-              <span class="statusbar__group statusbar__group--proj">
-                <Show when={vaultVis()}>
-                  <span class="statusbar__dir" title={vaultPath() ?? ""}>
-                    {vaultPath() ?? vaultId()}
-                  </span>
-                </Show>
-                <Show when={scanVis()}>
-                  <Show when={sep()[1]}>
-                    <span class="statusbar__sep">·</span>
-                  </Show>
-                  <span>
-                    Scanning… {filesProcessed()} / {filesTotalEstimate()}
-                  </span>
-                </Show>
-                <Show when={formatBrokenBlockRefs(brokenBlockRefs())}>
-                  {(display) => (
-                    <>
-                      <Show when={sep()[2]}>
-                        <span class="statusbar__sep">·</span>
-                      </Show>
-                      <span
-                        title={display().title}
-                        style={{ color: "var(--c-warning, var(--c-accent))" }}
-                      >
-                        {display().label}
-                      </span>
-                    </>
-                  )}
-                </Show>
-                <Show when={sep()[3]}>
-                  <span class="statusbar__sep">·</span>
-                </Show>
-                <PendingRewrites
-                  vaultId={vaultId()}
-                  count={pendingRewritesCount()}
-                  onError={(m: string) => showToast(m)}
-                />
-              </span>
-            );
-          })()}
-
-          <Show when={view().kind === "file" && !!selectedPath()}>
+        <FeatureBoundary feature="Status bar">
+          <footer class="statusbar">
             {(() => {
-              const wordVis = () => settings.segVisible(WORD_COUNT_SEGMENT);
-              const blockVis = () => settings.segVisible(BLOCK_COUNT_SEGMENT);
-              const sep = () => leadingSeparators([wordVis(), blockVis()]);
+              const vaultVis = () => settings.segVisible(VAULT_PATH_SEGMENT);
+              const scanVis = () => scanStatus() === "in_progress";
+              const brokenVis = () => !!formatBrokenBlockRefs(brokenBlockRefs());
+              const pendingVis = () =>
+                !!formatPendingRewrites(pendingRewritesCount());
+              const sep = () =>
+                leadingSeparators([
+                  vaultVis(),
+                  scanVis(),
+                  brokenVis(),
+                  pendingVis(),
+                ]);
               return (
-                <span class="statusbar__group statusbar__mid">
-                  <Show when={wordVis()}>
-                    <b>{wordCount()}</b> words
+                <span class="statusbar__group statusbar__group--proj">
+                  <Show when={vaultVis()}>
+                    <span class="statusbar__dir" title={vaultPath() ?? ""}>
+                      {vaultPath() ?? vaultId()}
+                    </span>
                   </Show>
-                  <Show when={blockVis()}>
+                  <Show when={scanVis()}>
                     <Show when={sep()[1]}>
                       <span class="statusbar__sep">·</span>
                     </Show>
-                    <b>{blockCount()}</b> blocks
+                    <span>
+                      Scanning… {filesProcessed()} / {filesTotalEstimate()}
+                    </span>
                   </Show>
+                  <Show when={formatBrokenBlockRefs(brokenBlockRefs())}>
+                    {(display) => (
+                      <>
+                        <Show when={sep()[2]}>
+                          <span class="statusbar__sep">·</span>
+                        </Show>
+                        <span
+                          title={display().title}
+                          style={{ color: "var(--c-warning, var(--c-accent))" }}
+                        >
+                          {display().label}
+                        </span>
+                      </>
+                    )}
+                  </Show>
+                  <Show when={sep()[3]}>
+                    <span class="statusbar__sep">·</span>
+                  </Show>
+                  <PendingRewrites
+                    vaultId={vaultId()}
+                    count={pendingRewritesCount()}
+                    onError={(m: string) => showToast(m)}
+                  />
                 </span>
               );
             })()}
-          </Show>
 
-          <span class="statusbar__group statusbar__group--file">
-            <Show
-              when={
-                view().kind === "file" &&
-                selectedPath() &&
-                settings.segVisible(FILE_PATH_SEGMENT)
-              }
-            >
-              <span class="statusbar__dir" title={selectedPath() ?? ""}>
-                {selectedPath()}
-              </span>
+            <Show when={view().kind === "file" && !!selectedPath()}>
+              {(() => {
+                const wordVis = () => settings.segVisible(WORD_COUNT_SEGMENT);
+                const blockVis = () => settings.segVisible(BLOCK_COUNT_SEGMENT);
+                const sep = () => leadingSeparators([wordVis(), blockVis()]);
+                return (
+                  <span class="statusbar__group statusbar__mid">
+                    <Show when={wordVis()}>
+                      <b>{wordCount()}</b> words
+                    </Show>
+                    <Show when={blockVis()}>
+                      <Show when={sep()[1]}>
+                        <span class="statusbar__sep">·</span>
+                      </Show>
+                      <b>{blockCount()}</b> blocks
+                    </Show>
+                  </span>
+                );
+              })()}
             </Show>
-          </span>
-        </footer>
+
+            <span class="statusbar__group statusbar__group--file">
+              <Show
+                when={
+                  view().kind === "file" &&
+                  selectedPath() &&
+                  settings.segVisible(FILE_PATH_SEGMENT)
+                }
+              >
+                <span class="statusbar__dir" title={selectedPath() ?? ""}>
+                  {selectedPath()}
+                </span>
+              </Show>
+            </span>
+          </footer>
+        </FeatureBoundary>
       </Show>
 
       <FileContextMenu actions={fileActions} />
