@@ -146,35 +146,19 @@ pub async fn scan(
         let inode = inode_of(&metadata);
 
         let path_str = crate::vault::relpath::to_vault_relative(&rel_path);
-        let upsert = "
-            INSERT INTO files (
-                path, type_id, size_bytes, mtime_unix, content_hash,
-                inode, last_seen, created_at, updated_at
-            )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7)
-            ON CONFLICT(path) DO UPDATE SET
-                type_id      = excluded.type_id,
-                size_bytes   = excluded.size_bytes,
-                mtime_unix   = excluded.mtime_unix,
-                content_hash = excluded.content_hash,
-                inode        = excluded.inode,
-                last_seen    = excluded.last_seen,
-                updated_at   = excluded.last_seen
-        ";
-        if let Err(e) = conn
-            .execute(
-                upsert,
-                params![
-                    path_str.clone(),
-                    type_id,
-                    size_bytes,
-                    mtime_unix,
-                    content_hash,
-                    inode,
-                    now_secs,
-                ],
-            )
-            .await
+        if let Err(e) = cubical_index::upsert_file(
+            vault.index(),
+            &cubical_index::FileRow {
+                path: &path_str,
+                type_id,
+                size_bytes,
+                mtime_unix,
+                content_hash: &content_hash,
+                inode,
+                seen_at: now_secs,
+            },
+        )
+        .await
         {
             tracing::warn!(path = %abs_path.display(), error = %e, "files upsert failed; skipping");
             continue;
