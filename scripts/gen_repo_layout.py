@@ -7,7 +7,7 @@ Run from anywhere: python3 scripts/gen_repo_layout.py
 Determinism: the output is a pure function of the workspace manifests and the
 git index. Nothing is read from a filesystem scan, no timestamps, no absolute
 paths, every collection is sorted. Two runs are byte-identical, and a fresh
-clone (no target/, node_modules/, graphify-out/, ui/dist/) produces the same
+clone (no target/, node_modules/, ui/dist/) produces the same
 bytes as a fully built tree. The local filesystem is walked for ONE purpose —
 warning on stderr about a top-level directory this generator does not know
 about — and that warning never reaches the output file.
@@ -59,9 +59,8 @@ DIR_PURPOSES = {
     "crates": "The Rust workspace — one directory per crate (see the crate table above).",
     "design-system": "`@ds` — SolidJS component library + canonical design tokens; `ui/` borrows from here.",
     "docs": "The documentation tree; start at `docs/README.md`.",
-    "graphify-out": "graphify knowledge graph (`graph.json`, `manifest.json`, `GRAPH_REPORT.md`, obsidian vault). Queried via `scripts/graph.sh`; absent on a fresh clone, so fall back to ripgrep.",
     "node_modules": "npm dependency tree (root-level; `ui/` and `design-system/` have their own).",
-    "scripts": "`check.sh` (the gate set), `check_docs.py`, `graph.sh`, and these generators.",
+    "scripts": "`check.sh` (the gate set), `check_docs.py`, and these generators.",
     "target": "Cargo build output for the whole workspace.",
     "ui": "Solid + TypeScript + Vite frontend.",
 }
@@ -69,7 +68,7 @@ DIR_PURPOSES = {
 # Top-level directories that are gitignored, hence absent from the git index and
 # absent on a fresh clone. Listed rather than detected so the output does not
 # depend on whether the local tree happens to be built.
-GENERATED_DIRS = [".superpowers", ".vite", "graphify-out", "node_modules", "target"]
+GENERATED_DIRS = [".superpowers", ".vite", "node_modules", "target"]
 
 # Nested directories worth calling out; `generated` mirrors GENERATED_DIRS.
 # Every row whose second field is False is verified against the git index by

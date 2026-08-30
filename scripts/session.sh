@@ -4,8 +4,8 @@
 #   scripts/session.sh start [area]
 #   scripts/session.sh end
 #
-# Block on correctness, warn on bookkeeping. A red gate or a stale graph blocks;
-# unticked issues warn. Blocking has to stay rare enough to mean something.
+# Block on correctness, warn on bookkeeping. A red gate blocks; unticked issues
+# warn. Blocking has to stay rare enough to mean something.
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
@@ -13,21 +13,6 @@ BLOCKED=0
 note()  { printf '  %s\n' "$*"; }
 warn()  { printf '  warn: %s\n' "$*"; }
 block() { printf '  BLOCK: %s\n' "$*"; BLOCKED=1; }
-
-graph_state() {
-  local g="graphify-out/graph.json" gm ht
-  if [ ! -f "$g" ]; then
-    note "knowledge graph: absent (generated, gitignored). Use ripgrep — not shell grep -r, which walks ui/dist/."
-    return
-  fi
-  if stat -f %m "$g" >/dev/null 2>&1; then gm=$(stat -f %m "$g"); else gm=$(stat -c %Y "$g"); fi
-  ht=$(git log -1 --format=%ct)
-  if [ "$gm" -lt "$ht" ]; then
-    warn "knowledge graph is stale — scripts/graph.sh will refuse. Rebuild (costs money) or use ripgrep."
-  else
-    note "knowledge graph: fresh. Run scripts/graph.sh query \"<question>\" before fanning out reads."
-  fi
-}
 
 cmd_start() {
   local area="${1:-}"
@@ -38,8 +23,6 @@ cmd_start() {
     warn "you are on main — branch before changing anything (docs/principles/branches.md)."
   fi
   [ -n "$(git status --porcelain)" ] && warn "working tree is dirty at session start."
-
-  graph_state
 
   if command -v gh >/dev/null 2>&1; then
     if [ -n "$area" ]; then

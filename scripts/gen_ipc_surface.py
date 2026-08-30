@@ -12,9 +12,8 @@ same holds for the `tauri::generate_handler!` cross-check, which reports both
 directions of mismatch.
 
 Determinism: reads only tracked Rust sources at fixed paths, sorts everything,
-emits no timestamps and no absolute paths. Nothing under target/, ui/dist/,
-node_modules/ or graphify-out/ is touched, so a fresh clone generates the same
-bytes.
+emits no timestamps and no absolute paths. Nothing under target/, ui/dist/
+or node_modules/ is touched, so a fresh clone generates the same bytes.
 """
 import argparse
 import os

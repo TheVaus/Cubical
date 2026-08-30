@@ -34,8 +34,7 @@ Prohibitions, because these are what priors override:
 - Don't record file lists, build logs or test counts anywhere.
 - Don't rewrite this primer mid-session. Don't trust `.superpowers/**` — it is
   agent scratch that nobody reviews.
-- Run `scripts/graph.sh` before fanning out reads; it refuses when stale.
-  Never shell `grep -r` — `ui/dist/` is a build artifact in the tree.
+- Never shell `grep -r` — `ui/dist/` is a build artifact in the tree. Use `rg`.
 - Delegate search to an `explorer`; run a `verifier` before merge. A subagent
   reports; the session owning the tree commits.
 - Branch off `main` first — [`branches`](docs/principles/branches.md). Don't hold
@@ -62,7 +61,7 @@ Prohibitions, because these are what priors override:
 
 ```bash
 scripts/check.sh          # the gate. Run the script, not the pieces.
-scripts/session.sh start  # graph freshness, open ideas, branch
+scripts/session.sh start  # open ideas, branch, dirty tree
 scripts/session.sh end    # gate, drift, untouched issues
 ```
 

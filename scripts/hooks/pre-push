@@ -55,16 +55,6 @@ if ! python3 scripts/check_docs.py >/dev/null 2>&1; then
   fail=1
 fi
 
-# ---- graph staleness: a warning, not a block ----
-# It costs money to fix and cannot break anything being pushed.
-GRAPH="graphify-out/graph.json"
-if [ -f "$GRAPH" ]; then
-  if stat -f %m "$GRAPH" >/dev/null 2>&1; then gm=$(stat -f %m "$GRAPH"); else gm=$(stat -c %Y "$GRAPH"); fi
-  if [ "$gm" -lt "$(git log -1 --format=%ct)" ]; then
-    echo "pre-push: warn — the knowledge graph is older than HEAD; scripts/graph.sh will refuse."
-  fi
-fi
-
 if [ "$fail" -ne 0 ]; then
   echo
   echo "Blocked on correctness. Bookkeeping warnings above do not block."
