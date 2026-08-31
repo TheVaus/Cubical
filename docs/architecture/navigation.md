@@ -7,16 +7,12 @@
 ## 15. Navigation
 
 This file answers one question: *when the user causes a document to appear, what
-happens to the tab set and to history?* It does not restate the `TabSet`
-invariants (keep-alive editors, flush-on-activate, persistence, LRU exclusion) —
-those are owned by [`../implementation/frontend.md`](../implementation/frontend.md)
-→ Tabs.
+happens to the tab set and to history?*
 
-Code is cited by **symbol name**, never `path:line` — the rule and the rot that
-motivated it are owned by
-[`../principles/implementation-anchors.md`](../principles/implementation-anchors.md).
-A path is given, without a line, only where it helps locate a symbol. Each
-subsection carries an `**Anchors:**` line, checked against the tracked source by
+Code is cited by **symbol name**, never `path:line`
+([`../principles/implementation-anchors.md`](../principles/implementation-anchors.md));
+a path appears, without a line, only to locate a symbol. Each subsection's
+`**Anchors:**` line is checked against tracked source by
 `scripts/gates/symbol_anchors.py`.
 
 ### 15.1 One tab per view — there is no replace mode
@@ -44,13 +40,12 @@ allocator, no "which tab holds this path" map — and makes rename a pure key
 remap. The cost is paid in history (§15.4), which cannot be per-tab as a result.
 
 **Modifier keys are deliberately not a navigation channel.** Every editor click
-interceptor bails on any modifier and on any non-primary button
-(`maybeInterceptWikiLinkMousedown`; identical shape in
-`maybeInterceptTagMousedown` and `maybeInterceptDataviewMousedown`), handing the
-event back to CodeMirror so Mod-click and Shift-click keep their normal
-text-selection meaning inside a text editor. An "open in new tab" gesture
-therefore cannot be a modifier click without taking selection semantics away
-from the editor — that trade has not been made.
+interceptor bails on any modifier and any non-primary button
+(`maybeInterceptWikiLinkMousedown`; same shape in `maybeInterceptTagMousedown`
+and `maybeInterceptDataviewMousedown`), handing the event back to CodeMirror so
+Mod-click and Shift-click keep their text-selection meaning. An "open in new
+tab" gesture therefore cannot be a modifier click without taking selection
+semantics from the editor — a trade not made.
 
 ### 15.2 Entry points
 
@@ -89,10 +84,9 @@ means the §15.1 semantics.
 | External delete | the tab-set effect | `dropMissingTabs` | Falls back to the first surviving tab, gated on scan-complete so a partial file list cannot evict a live tab |
 
 **There is no reveal-in-tree.** The tree marks the active file's row selected
-but never scrolls it into view, and the list is virtualized — so
-after navigating from a backlink or the omni-bar, the active file's row usually
-is not rendered at all. Deliberate or not, it is untested and unstated anywhere
-else.
+but never scrolls it into view, and the list is virtualized — so after
+navigating from a backlink or the omni-bar, that row usually is not rendered at
+all. Deliberate or not, it is untested and unstated anywhere else.
 
 ### 15.3 Dispatch mechanics
 
@@ -106,13 +100,12 @@ markdown nor viewer-backed → bail if it is already the active tab →
 `flushAutosave` → `resetDocState` → `openTab` → push history → **return here for
 a viewer file** → seed both hashes → `loadActiveTabContent`.
 
-A viewer file takes the same tab, the same history and the same rename remapping
-as a note; it simply stops before the editor machinery. See §15.5.
+A viewer file takes the same tab, history and rename remapping as a note; it
+stops before the editor machinery. See §15.5.
 
-The "already active" bail in `handleSelectFile` is load-bearing in three places:
-re-clicking the open note never re-reads from disk, never pushes a duplicate
-history entry, and lets anchor navigation to the *current* note take a different
-branch (below).
+The "already active" bail is load-bearing three times over: re-clicking the open
+note never re-reads from disk, never pushes a duplicate history entry, and lets
+anchor navigation to the *current* note take a different branch (below).
 
 **`activateTabById(id, { fromHistory }?)`** is the only path
 that focuses an *already-open* tab by id. It delegates the ordering to
@@ -123,44 +116,40 @@ landing tab is a file tab.
 a thin wrapper over `handleSelectFile`, and is what every link-shaped entry point
 actually calls. It adds two things:
 
-- It **synthesizes a `FileEntry`** when `files()` has no row for the path,
-  so navigation does not have to wait for a file-list
-  refresh after a create or rename.
-- It **splits anchor handling by whether the note is already open**.
-  Same note: navigate first (a no-op), then scroll
-  synchronously via `scrollToHeading` / `scrollToBlock`, toasting when the
-  anchor is missing. Different note: queue the scroll via `requestAnchorScroll`
-  *before* switching, because the target editor replaces its buffer through a
-  deferred effect and a synchronous scroll would race the load. That queueing is
-  currently aimed at the wrong editor — see §15.6.
+- It **synthesizes a `FileEntry`** when `files()` has no row for the path, so
+  navigation need not wait for a file-list refresh after a create or rename.
+- It **splits anchor handling by whether the note is already open**. Same note:
+  navigate first (a no-op), then scroll synchronously via `scrollToHeading` /
+  `scrollToBlock`, toasting when the anchor is missing. Different note: queue
+  the scroll via `requestAnchorScroll` *before* switching, because the target
+  editor replaces its buffer through a deferred effect and a synchronous scroll
+  would race the load. That queueing is aimed at the wrong editor — see §15.6.
 
 **Divergences from the funnel.** `handleNavigateTag` and
 the terminal's `open` closure in `createTerminalWiring` both call
-`setTabs(openTab(…))` directly after a flush, bypassing both dispatchers. They
-are safe on the data-loss axis — the tab they switch to has no editor buffer, and
-the flush still happens first — but they skip `resetDocState`, so the outgoing
-file's `error`, `rawOverride`, `seenHash` and `lastWrittenHash` survive until a
-file tab is activated again. `handleSelectFile` likewise reproduces the
-activation order inline rather than calling `activateWithFlush`. This is a
-partial exception to the "exactly one tested place" rule stated in
-[`../implementation/frontend.md`](../implementation/frontend.md) → Tabs; the
-ordering is duplicated, not violated, and any new tab-switching path should go
-through `tabs/activation.ts` rather than adding a fourth copy.
+`setTabs(openTab(…))` directly after a flush, bypassing both dispatchers. They are safe on the data-loss axis — the tab they switch to has no editor
+buffer, and the flush still happens first — but they skip `resetDocState`, so
+the outgoing file's `error`, `rawOverride`, `seenHash` and `lastWrittenHash`
+survive until a file tab is activated again. `handleSelectFile` likewise
+reproduces the activation order inline. This is a partial exception to the
+"exactly one tested place" rule in
+[`../implementation/frontend.md`](../implementation/frontend.md) → Tabs: the
+ordering is duplicated, not violated. Any new tab-switching path goes through
+`tabs/activation.ts` rather than adding a fourth copy.
 
 ### 15.4 History
 
 **Anchors:** NavState · navPush · navBack · navForward · navCurrent · createNavSession · handleSelectFile · activateTabById · navigateToHistoryPath · handleExitTagView
 
-History is **one global `NavState`**, a pure
-list-with-a-cursor over *file paths* (`navHistory.ts`). It is global rather than
-per-tab because dedupe-by-identity makes a tab *be* a document — a per-tab stack
-could only ever hold the one path that created it. That rationale is owned by
+History is **one global `NavState`**, a pure list-with-a-cursor over *file
+paths* (`navHistory.ts`). Global rather than per-tab because dedupe-by-identity
+makes a tab *be* a document — rationale owned by
 [`../implementation/frontend.md`](../implementation/frontend.md) → Tabs.
 
-The signal over that value, and the only writes to it, live in
-`createNavSession` (`core/navSession.ts`). The shell holds the session and calls
-its methods; it cannot set the stack directly, which is what keeps the
-vault-switch reset from being forgotten again.
+The signal over it, and the only writes to it, live in `createNavSession`
+(`core/navSession.ts`). The shell calls its methods and cannot set the stack
+directly, which is what keeps the vault-switch reset from being forgotten
+again.
 
 - **Pushes:** `handleSelectFile` unless `fromHistory`, and
   `activateTabById` when the switch lands on a file tab —
@@ -177,11 +166,11 @@ vault-switch reset from being forgotten again.
 - **Not persisted.** A restored session starts with empty history.
 
 **History and the active tab can legitimately disagree.** Since tag and terminal
-tabs never push, pressing Back from a tag tab does not return to the last file —
-it goes to the entry *before* it. `handleExitTagView` is
-the workaround: it reads `navCurrent()` directly to find the file tab to restore,
-activates it with `fromHistory: true`, and only then closes the tag tab. Any
-future non-file tab kind inherits the same asymmetry.
+tabs never push, Back from a tag tab does not return to the last file — it goes
+to the entry *before* it. `handleExitTagView` is the workaround: it reads
+`navCurrent()` to find the file tab to restore, activates it with
+`fromHistory: true`, then closes the tag tab. Any future non-file tab kind
+inherits the asymmetry.
 
 ### 15.5 Non-document tabs
 
@@ -192,27 +181,24 @@ not documents.
 
 **Tag pages** — `{ kind: "tag", tagPath }`. Singleton per tag path by id
 derivation, persisted across restarts (`isPersistableTab` allow-lists `file` and
-`tag`), and rendered in place of the editor by the `view().kind === "file"`
-fallback in the editor layer. They hold no buffer, so they are inert for autosave.
-They are absent from nav history (§15.4).
+`tag`), rendered in place of the editor by the `view().kind === "file"` fallback.
+They hold no buffer, so they are inert for autosave, and absent from nav
+history (§15.4).
 
 **Terminals** — `{ kind: "terminal", key }`. The one **non-singleton** kind:
-`open` increments a counter, so `Mod-Shift-T` always yields another tab. They are
-excluded from session persistence and from the keep-alive LRU by allow-list, so a
-terminal can never evict a warm editor — rules owned by
+`open` increments a counter, so `Mod-Shift-T` always yields another tab. Excluded from session persistence and from the keep-alive LRU by allow-list, so
+a terminal can never evict a warm editor — rules owned by
 [`../implementation/frontend.md`](../implementation/frontend.md) → Tabs. They
 render in a separate `<For>` outside the editor tree while
-`<Show when={!isTerminalView(view())}>` hides the entire
-editor/tag region, which is why a terminal tab has no interaction with the
-document write path at all.
+`<Show when={!isTerminalView(view())}>` hides the whole editor/tag region, which
+is why a terminal tab never touches the document write path.
 
 Two terminal-specific effects on the tab set:
 
-- **Close is gated on the PTY.** `closeTabById` asks
-  `confirmClose` (`terminal/wiring.ts`) whether a child process is
-  running, and only `forceCloseTabById` skips the prompt.
-  Every non-terminal close path goes through the gate too; it short-circuits when
-  the tab has no registered session.
+- **Close is gated on the PTY.** `closeTabById` asks `confirmClose`
+  (`terminal/wiring.ts`) whether a child process is running; only
+  `forceCloseTabById` skips the prompt. Every non-terminal close path goes
+  through the gate too, short-circuiting when the tab has no session.
 - **Disabling the plugin closes the tabs.** Turning off `plugins.terminal_enabled`
   force-closes every terminal tab and reaps the sessions
   (`createTerminalWiring`) — the default-off gateway rule from
@@ -249,15 +235,13 @@ them visible.
 
 1. **Cross-note anchor scroll is queued on the wrong editor.**
    `handleNavigateWikilink` calls `editorApi()?.requestAnchorScroll(anchor)`
-   *before* switching tabs, but `editorApi()` resolves
-   against the currently active tab and `pendingAnchor` is
-   per-`Editor`-instance, drained on that instance's own
-   value change. With one shared editor this was
-   correct; with keep-alive per-tab editors the anchor lands on the *outgoing*
-   editor. Expected symptoms: `[[note#Heading]]` to a different note opens the
-   note but does not scroll, and the stale request can fire later against the
-   source tab, emitting a spurious "not found" toast. No test covers the
-   cross-note case.
+   *before* switching tabs, but `editorApi()` resolves against the currently
+   active tab and `pendingAnchor` is per-`Editor`-instance, drained on that
+   instance's own value change. Correct with one shared editor; with keep-alive
+   per-tab editors the anchor lands on the *outgoing* one. Expected symptoms:
+   `[[note#Heading]]` to another note opens it without scrolling, and the stale
+   request can fire later against the source tab, emitting a spurious "not
+   found" toast. No test covers the cross-note case.
 2. **Tag and terminal activation skip `resetDocState`** (§15.3). Not known to
    cause a user-visible fault, because the stale fields are only read while a
    file tab is active, but it is an invariant hole rather than a decision.

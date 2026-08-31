@@ -28,7 +28,7 @@ Live Preview is implemented as Lezer-driven decorations on the CodeMirror state.
 
 **Fenced blocks are rendered from a registry, not from per-language code.** A block type — `query`, `csv`, `math` — is a registered renderer keyed by its info string, and adding one must not mean adding another decoration field. This is the seam the plugin block API ([#61](https://github.com/TheVaus/Cubical/issues/61)) is expected to land on, so it is deliberately data-shaped ahead of that ABI; it carries no sandbox and grants nothing, and a third-party renderer cannot use it until the ABI exists.
 
-Syntax that is **not** a fenced block cannot go through the registry, because the registry is keyed on the fence info string. `$$…$$` display math is the worked example: it is a scanner of its own over the document text, reusing the same renderer and frame. Anything wanting non-fence syntax pays that cost, which is the reason to prefer a fence.
+Syntax that is **not** a fenced block cannot go through the registry, which is keyed on the info string. `$$…$$` display math is the worked example: a scanner of its own over the document text, reusing the same renderer and frame. Anything wanting non-fence syntax pays that cost — the reason to prefer a fence.
 
 Display math occupies **whole lines**, so a mid-line `$$…$$` stays literal text. That is a consequence of the block-replace shape, not an oversight: rendering mid-line would need an inline widget, which is a recorded failure — see [`../implementation/frontend.md`](../implementation/frontend.md), "Block widgets and the cursor". Inline `$…$` math is unbuilt for the same reason.
 
@@ -52,24 +52,24 @@ The canonical CSS-variable token surface lives in `design-system/src/styles/toke
 
 **One vault per window, multiple windows allowed.** A single Tauri process holds `HashMap<VaultId, Vault>` in Rust state. Each window's frontend tracks one `vault_id` and uses it in all IPC commands. Users with multiple vaults open multiple windows.
 
-Cross-vault search, cross-vault tabs, and cross-vault command-palette are explicitly out of scope — most users don't ask for them, and the implementation cost is significant. The IPC contract leaves the door open if user demand emerges later.
+Cross-vault search, tabs and command-palette are explicitly out of scope: little asked for, expensive to build. The IPC contract leaves the door open.
 
 ### 11.6 Component library
 
-The app's UI primitives are **not** hand-rolled in `ui/` — they come from the shared design system at [`design-system/`](../../design-system/), consumed through the `@ds` alias (wired in `ui/vite.config.ts` + `tsconfig`, with `dedupe: ["solid-js"]` keeping a single Solid instance across the boundary). `design-system/` is the single source of truth for **tokens and components**: editing a component or token there changes it everywhere in the app. The design system also stands alone as its own SolidJS package with a Gallery/Workspace playground — see [`design-system/README.md`](../../design-system/README.md). Because the app consumes it as **source**, `design-system/package.json` is a playground manifest, not a shipped one: nothing it declares reaches a Cubical build unless `ui/package.json` declares it too. So the editor packages the playground's Workspace screen needs are `devDependencies` there — build-time tooling under [`techstack`](../principles/techstack.md) — and `ui/` declares its own copies of the ones the app imports.
+The app's UI primitives are **not** hand-rolled in `ui/` — they come from the shared design system at [`design-system/`](../../design-system/), consumed through the `@ds` alias (wired in `ui/vite.config.ts` + `tsconfig`, with `dedupe: ["solid-js"]` keeping one Solid instance across the boundary). `design-system/` is the single source of truth for **tokens and components**: editing one there changes it everywhere. It also stands alone as its own SolidJS package with a Gallery/Workspace playground — see [`design-system/README.md`](../../design-system/README.md). Because the app consumes it as **source**, `design-system/package.json` is a playground manifest, not a shipped one: nothing it declares reaches a Cubical build unless `ui/package.json` declares it too. The playground's own editor packages are therefore `devDependencies` there — build-time tooling under [`techstack`](../principles/techstack.md) — and `ui/` declares its own copies of what the app imports.
 
-**Icons** come from the design system's `Icon` component (`components/graphics/Icon`), backed by a registry of SVG artwork **vendored inline from Lucide** (ISC-licensed). No runtime icon dependency ships — consistent with self-containment; `lucide-static` is a build-time source only. Icons render outline-only on a 24-unit grid at 16px by default via `currentColor`, decorative by default (the accessible name comes from the wrapping control). Conventions + how to add one: [`design-system/README.md`](../../design-system/README.md) → Iconography.
+**Icons** come from the design system's `Icon` component (`components/graphics/Icon`), backed by SVG artwork **vendored inline from Lucide** (ISC). No runtime icon dependency ships — `lucide-static` is a build-time source only. Icons render outline-only on a 24-unit grid at 16px via `currentColor`, decorative by default (the accessible name comes from the wrapping control). Conventions and how to add one: [`design-system/README.md`](../../design-system/README.md) → Iconography.
 
 Two locked rules govern how it grows:
 
 - **Extend additively.** When a component lacks a prop the app needs, add it to the design system and default it to the component's prior behavior — never fork the component or work around the gap app-side.
 - **Components are self-contained.** A design-system component may not depend on the playground's global stylesheets (its `base.css` control reset or `layout.css` utilities); it sets its own control reset and layout in its own CSS. The app imports neither global.
 
-**This section is prose, not the allowlist.** The machine-readable per-file budgets for raw controls live in `scripts/ds-raw-controls.json`, which `scripts/gates/ds_components.py` reads — one source, two readers. That separation exists because this section described *one* bespoke surface while 17 raw controls existed across 6 files; the prose was right about the exception and silent about the debt.
+**This section is prose, not the allowlist.** The machine-readable per-file budgets for raw controls live in `scripts/ds-raw-controls.json`, which `scripts/gates/ds_components.py` reads — one source, two readers. That separation exists because this section once described a single bespoke surface while many raw controls existed across several files: the prose was right about the exception and silent about the debt.
 
-Some surfaces stayed **deliberately bespoke** where no design-system component fit at migration time — but that set has since shrunk. Issue #35 authored the net-new primitives that unblocked most of them: `Select` (the native `<select>`s), `DatePicker` (the native date pickers), `Popover` (the VaultSwitcher / Pending Rewrites / set-info positioned dropdowns), `Link` (the "Open as raw" text links), and a richer pill `Tag` (ChipList's multi-control chips) — all merged 2026-07-19 — plus `TwoPaneModal` (the nav+body Settings modal), merged 2026-07-20. One surface remains bespoke, awaiting the last net-new primitive still parked in #35: the ranked multi-kind **OmniBar** palette (needs a richer `CommandPalette` — the flat `{id,label,onRun}` DS one would regress its fuzzy rank, kind badges, and recency). The migration record and the full bespoke rationale live in the campaign handoff [`../archive/work/handoffs/2026-07-17-ds-migration-progress.md`](../archive/work/handoffs/2026-07-17-ds-migration-progress.md); the net-new-primitive backlog (6 done, 1 remaining) is GitHub issue #35, and the deferred migratable inline tail is #34.
+A surface stays **deliberately bespoke** only while no design-system component fits, and the standing remedy is to author the missing primitive rather than to keep the fork: which primitives are outstanding is [#35](https://github.com/TheVaus/Cubical/issues/35), and the migratable inline tail is [#34](https://github.com/TheVaus/Cubical/issues/34). Which surfaces are bespoke *today* is a query against those issues, not a list here — a list would be stale the week after it was written, and was. The migration's own record is frozen in [`../archive/work/handoffs/2026-07-17-ds-migration-progress.md`](../archive/work/handoffs/2026-07-17-ds-migration-progress.md).
 
-A second surface is bespoke by construction rather than by backlog: the **graph hover label** (`ui/src/graph/GraphView.tsx`). `Tooltip` and `Popover` both anchor to a child element, and a node drawn at canvas coordinates is not one — there is no element to anchor to. It is a plain positioned `div`, uses only DS tokens, and would become migratable only if the DS gained a primitive that anchors to a point rather than to a child.
+One surface is bespoke by construction rather than by backlog: the **graph hover label** (`ui/src/graph/GraphView.tsx`). `Tooltip` and `Popover` anchor to a child element, and a node drawn at canvas coordinates is not one. It is a plain positioned `div` on DS tokens, and becomes migratable only if the DS gains a primitive that anchors to a point.
 
 ### 11.7 App composition
 
@@ -87,11 +87,11 @@ Enforced by `scripts/gates/composition.py`. **This section is prose, not the all
 
 ## 12. Settings
 
-The **shipped** Settings modal is tab-based. The authoritative list of tabs is
-`SETTINGS_TABS` in `ui/src/settings/tabs.ts`, and the authoritative list of setting *keys*
-is the `Setting` union in `ui/src/api/ipc.ts` — the frontend's typed view of a
-deliberately generic backend config table. Neither is restated here: a doc that
-mirrored either would rot every time a toggle shipped, and did.
+The **shipped** Settings modal is tab-based. The authoritative tab list is
+`SETTINGS_TABS` (`ui/src/settings/tabs.ts`); the authoritative setting *keys* are
+the `Setting` union (`ui/src/api/ipc.ts`), the frontend's typed view of a
+deliberately generic backend config table. Neither is restated here: a doc
+mirroring either would rot every time a toggle shipped, and did.
 
 Locked product decisions about settings, which are what this section owns:
 
