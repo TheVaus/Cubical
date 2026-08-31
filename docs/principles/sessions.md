@@ -30,9 +30,21 @@ Labels carry the rest:
 | `flake` | Intermittently failing test |
 | `blocked` | Paired with a `Blocked by #N` line; remove when the blocker closes |
 | `perf` · `parked` | Measured debt; shipped-but-disabled |
-| `area:*` | editor · index · search · ui · plugins · sync · cli · docs |
+| `area:*` | editor · index · search · ui · plugins · sync · cli · docs · viewers · dist |
+| `needs-triage` · `needs-info` | Triage started but unfinished; blocked on an answer only you can give |
+| `ready-for-agent` · `ready-for-human` | Ripe: a brief is attached, and the second says what stops an agent taking it |
+| `wontfix` | Closed with the reason recorded — in [`../architecture/constraints.md`](../architecture/constraints.md) when it was rejected rather than already built |
+| `wayfinder:map` · `wayfinder:*` | A map issue and its decision tickets, for an effort too foggy to plan in one session |
 
 Use GitHub's own features rather than prose imitations of them: **native sub-issues** for decomposition, an explicit `Blocked by #N` plus the `blocked` label for dependencies, milestones for scheduling. A checklist item that is really its own piece of work is a sub-issue.
+
+**Two skills drive this tracker, and neither of them grooms it.** `/triage`
+ripens a named issue until it is takeable cold; `/wayfinder` charts an effort too
+big for one session as a map of decision tickets. Both read this file for the
+vocabulary above rather than carrying their own, which is why the state labels
+live in this table and not in the skills. The absence of a state label is the
+untriaged state and is not a defect: nothing sweeps, closes or relabels an issue
+for age, and that holds for a skill exactly as it holds for a session.
 
 **Dependency alerts are never mirrored into issues** — they are already alerts. Open an issue only when *clearing* one is its own piece of work (an API migration, an index rebuild), and describe that work rather than the alert. Alert IDs are not issue numbers and must not be written as `#N`.
 

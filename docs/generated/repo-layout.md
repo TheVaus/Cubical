@@ -67,7 +67,7 @@ Derived from the git index plus a listed set of gitignored directories — delib
 
 | Directory | Status | Purpose |
 |---|---|---|
-| `.agents/skills/` | tracked | Skill definitions (`grill-me`, `grilling`), pinned by `skills-lock.json`. |
+| `.agents/skills/` | tracked | Skill definitions, vendored and pinned by `skills-lock.json`; each carries its own `Local edits` section describing how it diverges from upstream. |
 | `.claude/agents/` | tracked | Subagent definitions (`explorer`, `implementer`, `verifier`) the session contract dispatches to. |
 | `.claude/skills/` | tracked | Symlinks into `.agents/skills/` so Claude Code picks them up. |
 | `.claude/worktrees/` | generated / untracked | Scratch git worktrees. Contains full repo checkouts — exclude it from any recursive search. |
