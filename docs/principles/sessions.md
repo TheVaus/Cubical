@@ -56,7 +56,7 @@ Two scoping limits, both deliberate. A session that changed nothing — a questi
 
 **This one is a floor, which is why it gets a gate and not a paragraph.** Work left only in the working tree is unrecoverable: the next session inherits a dirty tree it cannot attribute, and the operator has no surface to review on. The failure is silent.
 
-**A floor is not a schedule.** Ending with a single commit satisfies the gate and still violates [`commits.md`](commits.md), which owns cadence: each logical change is committed as it lands, and the end check is a backstop for whatever was left over. A gate counting only the end state cannot tell a well-structured branch from a dump; that judgement stays with the agent.
+**A floor is not a schedule.** The end check reads the end state, so a branch carrying one commit spanning six concerns passes it and is still wrong. Cadence is owned by [`commits.md`](commits.md).
 
 **Push and open the PR on your own judgement, without being asked.** The standing authority in [`commits.md`](commits.md) covers `git push -u origin <branch>` and `gh pr create` too. A feature branch is not a publication — it is off `main`, CI gates it, nothing downstream consumes it — so holding it back buys no safety and costs the review surface, while an unpushed branch is one machine away from being lost work. Open it as a draft as soon as there is something to look at, saying in the body what is missing; mark it ready once `scripts/check.sh` has run to completion green and every box in the template is one you can honestly tick.
 

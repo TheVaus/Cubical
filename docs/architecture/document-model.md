@@ -67,9 +67,9 @@ Block reference rewrites on rename go through the [Pending Rewrites Cache](#57-p
 
 Embeds are recursive but bounded: a configurable maximum depth (default 4) prevents pathological infinite-embed cycles. Beyond the depth, the embed is rendered as a styled link instead of inlined content.
 
-**A non-markdown target is served as bytes, never as text.** `get_embed` checks `type_id` before reading and returns `EmbedKind::File` carrying base64 plus a mime type, so `![[photo.png]]` renders the image and `![[data.csv]]` renders a table. The frontend routes that payload through the *same* `renderViewerPayload` the file's own tab uses, so an embed matches its tab by construction rather than by convention. Non-markdown embeds are terminal — they hold no wiki-links, so they never recurse and never join the depth chain. Files above the embed byte cap return `File` with no content and render a warning.
+**A non-markdown target is served as bytes, never as text.** `get_embed` checks `type_id` before reading and returns `EmbedKind::File` carrying base64 plus a mime type, so `![[photo.png]]` renders the image and `![[data.csv]]` a table. The frontend routes that payload through the *same* `renderViewerPayload` the file's own tab uses, so an embed matches its tab by construction rather than by convention. Non-markdown embeds are terminal — no wiki-links, so no recursion and no depth chain. Files above the embed byte cap return `File` with no content and render a warning.
 
-This replaces reading every resolved target through `read_source_off_executor`, which decodes with `from_utf8_lossy` and therefore turned a PNG into replacement characters injected as note text.
+This replaces reading every resolved target through `read_source_off_executor`, whose `from_utf8_lossy` decode turned a PNG into replacement characters injected as note text.
 
 ### 5.5 Canonical AST
 
@@ -93,17 +93,17 @@ pub enum Node {
 }
 ```
 
-The exact shape is finalized during Layer 1. The point is: this AST is the lingua franca. Lezer trees from the editor are normalized into it. Indexers consume it. The exporter consumes it. Plugins (Layer 6) receive it across the WASI boundary.
+The exact shape is finalized during Layer 1. This AST is the lingua franca: Lezer trees are normalized into it, indexers and the exporter consume it, and plugins (Layer 6) receive it across the WASI boundary.
 
-The AST is intentionally slim — it represents only the markdown subset Cubical itself produces and renders. Cross-app importers (Obsidian, Logseq, Notion) are out of v1 scope, so the AST carries no math, mermaid, callout, footnote, or other extension **nodes**. This bounds the AST, not the rendering surface: **AST-bearing syntax pays the two-parser cost; a decoration over an existing node does not.** Whether one of those forms can be *rendered* is answered by the decoration paragraphs below, not by this one.
+It is intentionally slim — only the markdown subset Cubical itself produces and renders. Cross-app importers (Obsidian, Logseq, Notion) are out of v1 scope, so the AST carries no math, mermaid, callout, footnote or other extension **nodes**. This bounds the AST, not the rendering surface: **AST-bearing syntax pays the two-parser cost; a decoration over an existing node does not.** Whether such a form can be *rendered* is answered by the decoration paragraphs below.
 
-**Editor decorations are a sanctioned exception (promoted from L2).** The editor's Live Preview decoration layer does *not* consume the canonical AST — it reads the editor's Lezer syntax tree (`syntaxTree(state)`) directly. Live Preview hides and reveals individual marker tokens (`#`, `*`, backticks, list dashes, link brackets) at byte precision, and the canonical AST deliberately abstracts those positions away. This is a parallel consumer, not a replacement: the in-process `onAstChange` path still normalizes Lezer into `cubical_ast::Document`, so the L1 parity contract is unaffected. The rule: anything that **indexes, exports, or crosses the plugin (Layer 6) boundary** consumes the canonical AST; only the editor's own rendering may read Lezer directly.
+**Editor decorations are a sanctioned exception (promoted from L2).** Live Preview reads the editor's Lezer syntax tree (`syntaxTree(state)`) directly, not the canonical AST, because it hides and reveals marker tokens (`#`, `*`, backticks, list dashes, link brackets) at byte precision and the canonical AST abstracts those positions away. A parallel consumer, not a replacement: the in-process `onAstChange` path still normalizes Lezer into `cubical_ast::Document`, so the L1 parity contract is unaffected. The rule: anything that **indexes, exports, or crosses the plugin (Layer 6) boundary** consumes the canonical AST; only the editor's own rendering may read Lezer.
 
 **Two-parser extension is the contract for AST-bearing syntax (promoted from L3).** Wiki-links, embeds, inline tags, and block-id occurrences live in the canonical AST (`Inline::WikiLink`, `Inline::Tag`, `Anchor::{Heading,Block}`) and so must be recognised by **both** the Rust `cubical-ast` parser (pulldown-cmark + hand-rolled inline tokenizers — `scan_wikilinks`, `scan_tags`) **and** the Lezer editor grammar (`@lezer/markdown` + `MarkdownConfig` inline rules registered `before: "Link"`). Both sides emit the same node names with the same grammar; the L1 cross-language parity contract (`crates/cubical-ast/tests/fixtures/parity.json`, exercised by the Rust `parity_fixtures` integration test + TS `parity.test.ts`) is *extended* to every new AST-bearing form, not weakened. Where Lezer's defaults conflict with the canonical grammar (e.g. its shortcut-Link parser claims `[[X]]` as an empty-`dest` Link, its Image parser claims `![[X]]` as an empty-`dest` Image), the TS normalizer re-flattens those nodes back to text before running `scan_wikilinks`/`scan_tags` so the canonical output stays in lockstep. This is the load-bearing L3 call — every later AST-bearing syntax extension follows the same pattern.
 
 **A fenced-code info string is not an AST-bearing extension.** ` ```csv `, ` ```tsv ` and ` ```query ` add no grammar: `FencedCode`/`CodeInfo` are already emitted by both parsers, and `CodeBlock { lang }` already carries the info string. Rendering one as a table or a result set is a *decoration on an existing node* — a `StateField` replacing the block with a widget, revealing source when the cursor enters it — so it costs no `parity.json` fixture and no grammar change. `editor/dataview.ts`, `editor/csvBlock.ts` and `editor/math.ts` are the three instances, each registered as a `BlockRenderer` through `editor/blockRenderers.ts`. Reach for the two-parser contract above only when introducing genuinely new *syntax*; a new fenced language is a renderer, not a grammar.
 
-Plain `^block-id` occurrences are the explicit exception: they are content, not an AST node (the canonical AST carries `block_id: Option<String>` on `Heading`/`Paragraph` only after a reference mints one; loose `^id` in source is a textual anchor, not a structural node). The editor's `^id` decoration therefore scans the doc text directly (mirroring the `findFrontmatter` precedent), bypassing both parsers — outside the AST contract by design.
+Plain `^block-id` occurrences are the explicit exception: content, not an AST node. The canonical AST carries `block_id: Option<String>` on `Heading`/`Paragraph` only once a reference mints one; a loose `^id` in source is a textual anchor. The editor's `^id` decoration therefore scans doc text directly (mirroring the `findFrontmatter` precedent), bypassing both parsers — outside the AST contract by design.
 
 ### 5.6 Tags
 
@@ -142,7 +142,7 @@ CREATE INDEX idx_tags_path ON tags(tag_path);
 
 Renames (file rename, tag rename, block-id rename) are *deferred-write*. The user-visible event — the rename — is instant. The disk impact — rewriting referrer files — is coalesced.
 
-**Why deferred:** a rename of a heavily-linked file or tag would otherwise trigger dozens to hundreds of file writes synchronously, causing UI lag, file-watcher cascades, and cloud-sync churn. Coalescing eliminates all four.
+**Why deferred:** renaming a heavily-linked file or tag would otherwise trigger hundreds of synchronous writes, causing UI lag, file-watcher cascades and cloud-sync churn. Coalescing eliminates all three.
 
 **Schema (L3):**
 
@@ -168,7 +168,7 @@ CREATE INDEX idx_pending_op     ON pending_rewrites(rename_op_id);
 - On `pending_rewrites` count for a single target file exceeding 50 (pathological-case fuse).
 - On user-invoked "Save all pending changes."
 
-**External-write conflict.** If `notify` reports `target_file` was modified externally while pending rewrites exist, on flush the rewrite is re-applied textually: find the old token in the new content; if present, replace; if not (user removed it manually), the rewrite silently drops.
+**External-write conflict.** If `notify` reports `target_file` changed externally while pending rewrites exist, the flush re-applies textually: find the old token in the new content, replace if present, drop silently if the user removed it.
 
 **Plugin file reads must go through Cubical's capability**, not raw WASI fs, so plugins see materialized content. WASI fs is denied by default in the permission model anyway.
 
