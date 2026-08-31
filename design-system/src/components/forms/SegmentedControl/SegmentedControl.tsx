@@ -13,6 +13,8 @@ export interface SegmentedControlProps {
   value: string;
   variant?: 'tabs' | 'pill';
   role?: 'tablist' | 'radiogroup';
+  ariaLabel?: string;
+  class?: string;
   onChange: (value: string) => void;
 }
 
@@ -20,9 +22,10 @@ const SegmentedControl = (props: SegmentedControlProps) => {
   const isRadioGroup = () => (props.role ?? 'tablist') === 'radiogroup';
   return (
     <div
-      class="segmented-control"
+      class={`segmented-control${props.class ? ` ${props.class}` : ''}`}
       classList={{ pill: (props.variant ?? 'tabs') === 'pill' }}
       role={isRadioGroup() ? 'radiogroup' : 'tablist'}
+      aria-label={props.ariaLabel}
     >
       <For each={props.options}>
         {(option) => (

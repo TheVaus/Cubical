@@ -1,4 +1,7 @@
 import { For } from "solid-js";
+
+import IconButton from "@ds/components/forms/IconButton/IconButton";
+
 import type { Tab, TabSet } from "./tabModel";
 import { noteTitle } from "../vault/noteName";
 
@@ -47,17 +50,16 @@ export default function TabStrip(props: TabStripProps) {
             }}
           >
             <span class="tab__label">{label(tab)}</span>
-            <button
-              type="button"
+            <IconButton
               class="tab__close"
-              aria-label="Close tab"
+              label="Close tab"
               onClick={(e) => {
                 e.stopPropagation();
                 props.onClose(tab.id);
               }}
             >
               ×
-            </button>
+            </IconButton>
           </div>
         )}
       </For>

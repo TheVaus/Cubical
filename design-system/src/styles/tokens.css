@@ -44,6 +44,8 @@
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.16);
   --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.2);
   --scrim: rgba(0, 0, 0, 0.5);
+  --shadow-panel-left: 8px 0 24px -16px rgba(0, 0, 0, 0.55);
+  --shadow-panel-right: -8px 0 24px -16px rgba(0, 0, 0, 0.55);
 
   /* File-tree row */
   --row-height: 32px;

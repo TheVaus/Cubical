@@ -1,4 +1,4 @@
-import { createSignal, For, Show } from 'solid-js';
+import { createMemo, createSignal, For, Show } from 'solid-js';
 import './Gallery.css';
 import CubeMark from '../../components/brand/CubeMark/CubeMark';
 import Icon, { type IconName } from '../../components/graphics/Icon/Icon';
@@ -16,18 +16,28 @@ import Toast from '../../components/feedback/Toast/Toast';
 import Tooltip from '../../components/feedback/Tooltip/Tooltip';
 import Tag from '../../components/data/Tag/Tag';
 import FileTreeRow from '../../components/data/FileTreeRow/FileTreeRow';
+import FolderTreeRow from '../../components/data/FileTreeRow/FolderTreeRow';
 import BacklinkRow from '../../components/data/BacklinkRow/BacklinkRow';
 import Menu from '../../components/overlay/Menu/Menu';
 import Modal from '../../components/overlay/Modal/Modal';
 import Popover from '../../components/overlay/Popover/Popover';
 import TwoPaneModal from '../../components/overlay/TwoPaneModal/TwoPaneModal';
-import CommandPalette from '../../components/overlay/CommandPalette/CommandPalette';
+import CommandPalette, {
+  type CommandPaletteItem,
+} from '../../components/overlay/CommandPalette/CommandPalette';
 
 const ALL_ICONS: IconName[] = [
   'plus', 'folder-plus', 'info', 'chevron-right', 'chevron-down',
   'close', 'edit', 'settings', 'warning', 'sun', 'moon', 'link',
   'file-text', 'bar-chart', 'palette', 'puzzle', 'library', 'keyboard',
   'hash', 'command',
+];
+
+const RANKED_SOURCE: { label: string; detail: string; icon: IconName }[] = [
+  { label: 'Release notes', detail: 'notes/release-notes.md', icon: 'file-text' },
+  { label: 'Reading list', detail: 'notes/reading-list.md', icon: 'file-text' },
+  { label: 'research', detail: 'tag', icon: 'hash' },
+  { label: 'Toggle status bar', detail: 'command', icon: 'command' },
 ];
 
 const Gallery = () => {
@@ -41,6 +51,23 @@ const Gallery = () => {
   const [modalOpen, setModalOpen] = createSignal(false);
   const [confirmOpen, setConfirmOpen] = createSignal(false);
   const [paletteOpen, setPaletteOpen] = createSignal(false);
+  const [rankedOpen, setRankedOpen] = createSignal(false);
+  const [rankedQuery, setRankedQuery] = createSignal('');
+  const [rankedIndex, setRankedIndex] = createSignal(0);
+  const rankedItems = createMemo<CommandPaletteItem[]>(() => {
+    const q = rankedQuery().trim().toLowerCase();
+    return RANKED_SOURCE.filter((s) => s.label.toLowerCase().includes(q)).map((s, i) => {
+      const at = q === '' ? -1 : s.label.toLowerCase().indexOf(q);
+      return {
+        id: `ranked-${i}`,
+        label: s.label,
+        detail: s.detail,
+        icon: s.icon,
+        matchedIndices: at < 0 ? [] : Array.from({ length: q.length }, (_, k) => at + k),
+        onRun: () => {},
+      };
+    });
+  });
   const [popoverOpen, setPopoverOpen] = createSignal(false);
   const [twoPaneOpen, setTwoPaneOpen] = createSignal(false);
   const [twoPaneTab, setTwoPaneTab] = createSignal('appearance');
@@ -219,12 +246,13 @@ const Gallery = () => {
         </div>
       </section>
       <section class="gallery-section stack">
-        <div class="eyebrow">Data — FileTreeRow</div>
+        <div class="eyebrow">Data — FileTreeRow / FolderTreeRow</div>
         <div class="stack" style={{ width: '240px', border: '1px solid var(--c-border-subtle)' }}>
-          <FileTreeRow name="Projects" depth={0} kind="folder" />
-          <FileTreeRow name="Design notes.md" depth={1} kind="md" selected />
-          <FileTreeRow name="Old spec.md" depth={1} kind="broken" invalid />
-          <FileTreeRow name="moodboard.png" depth={0} kind="png" renaming onRenameCommit={() => {}} />
+          <FolderTreeRow name="Projects" depth={0} collapsed={false} />
+          <FileTreeRow name="Design notes" ext="md" depth={1} kind="md" selected focusable role="treeitem" />
+          <FileTreeRow name="Old spec" ext="md" depth={1} kind="broken" invalid focusable role="treeitem" />
+          <FileTreeRow name="diagram" ext="dwg" depth={1} kind="broken" unsupported focusable role="treeitem" />
+          <FileTreeRow name="moodboard.png" depth={1} kind="png" renaming role="treeitem" onRenameCommit={() => {}} onRenameCancel={() => {}} />
         </div>
       </section>
       <section class="gallery-section stack">
@@ -321,6 +349,30 @@ const Gallery = () => {
             { id: 'a', label: 'Open Vault…', onRun: () => {} },
             { id: 'b', label: 'Toggle theme', onRun: () => {} },
           ]}
+        />
+      </section>
+      <section class="gallery-section stack">
+        <div class="eyebrow">Overlay — CommandPalette (ranked)</div>
+        <Button variant="secondary" onClick={() => setRankedOpen(true)}>
+          Open ranked palette
+        </Button>
+        <CommandPalette
+          open={rankedOpen()}
+          onClose={() => setRankedOpen(false)}
+          items={rankedItems()}
+          query={rankedQuery()}
+          onQueryInput={(v) => {
+            setRankedQuery(v);
+            setRankedIndex(0);
+          }}
+          selectedIndex={Math.min(rankedIndex(), Math.max(rankedItems().length - 1, 0))}
+          onSelectedIndexChange={setRankedIndex}
+          placeholder="Jump to a note or tag…"
+          emptyLabel="No notes or tags match"
+          ariaLabel="Quick switcher"
+          inputAriaLabel="Search notes and tags"
+          listAriaLabel="Results"
+          autoFocus
         />
       </section>
       <section class="gallery-section stack">
