@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use cubical_index::{open_index, IndexConn, IndexError};
+use cubical_index::{IndexConn, IndexError};
 
 use crate::file_type::FileTypeRegistry;
 
@@ -9,6 +9,7 @@ mod atomic;
 pub mod blocks;
 pub mod embeds;
 mod frontmatter;
+pub mod index_recovery;
 pub mod links;
 pub mod mentions;
 mod parse;
@@ -106,11 +107,14 @@ impl Vault {
         }
 
         let db_path = cubical_dir.join("index.db");
-        let index = open_index(&db_path).await?;
+        let index = index_recovery::open_index_recovering(&root, &db_path).await?;
 
         let search_dir = cubical_dir.join("search");
         let search = cubical_search::SearchIndex::open(&search_dir)
             .map_err(|e| VaultError::Search(e.to_string()))?;
+        if let Some(reason) = search.rebuilt_reason() {
+            index_recovery::record_search_rebuild(&index, &search_dir, reason).await;
+        }
 
         tracing::info!(path = %root.display(), "vault opened");
 
@@ -177,6 +181,62 @@ mod tests {
         let _ = Vault::open(dir.path()).await.expect("open #1");
         let _ = Vault::open(dir.path()).await.expect("open #2");
         assert!(dir.path().join(".cubical/index.db").is_file());
+    }
+
+    #[tokio::test]
+    async fn open_rebuilds_a_corrupt_index_and_the_vault_is_usable() {
+        let dir = tempdir().unwrap();
+        {
+            let _ = Vault::open(dir.path()).await.expect("first open");
+        }
+        let db = dir.path().join(".cubical/index.db");
+        std::fs::write(&db, vec![0x7fu8; 4096]).unwrap();
+
+        let vault = Vault::open(dir.path())
+            .await
+            .expect("corrupt index recovers");
+
+        cubical_index::upsert_file(
+            vault.index(),
+            &cubical_index::FileRow {
+                path: "a.md",
+                type_id: "markdown",
+                size_bytes: 1,
+                mtime_unix: 0,
+                content_hash: "h",
+                inode: None,
+                seen_at: 0,
+            },
+        )
+        .await
+        .expect("the rebuilt index accepts writes");
+        assert_eq!(
+            cubical_index::all_file_paths(vault.index()).await.unwrap(),
+            vec!["a.md".to_string()]
+        );
+        assert!(index_recovery::quarantine_path(&db).exists());
+    }
+
+    #[tokio::test]
+    async fn open_refuses_a_corrupt_index_when_the_journal_is_unreadable() {
+        let dir = tempdir().unwrap();
+        {
+            let _ = Vault::open(dir.path()).await.expect("first open");
+        }
+        let db = dir.path().join(".cubical/index.db");
+        std::fs::write(&db, vec![0x7fu8; 4096]).unwrap();
+        std::fs::write(
+            rename_journal::journal_path(dir.path()),
+            "{\"op_id\": 1, truncated\n",
+        )
+        .unwrap();
+
+        let err = Vault::open(dir.path())
+            .await
+            .expect_err("a damaged journal must keep the failure terminal");
+        assert!(matches!(err, VaultError::Index(_)), "got {err:?}");
+        assert!(!index_recovery::quarantine_path(&db).exists());
+        assert_eq!(std::fs::read(&db).unwrap(), vec![0x7fu8; 4096]);
     }
 
     #[tokio::test]

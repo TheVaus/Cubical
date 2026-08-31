@@ -12,6 +12,7 @@ vi.mock("../styles/theme", () => ({
 
 import { getSetting, setSetting } from "../api/ipc";
 import { createSettingsState } from "./settingsState";
+import { VAULT_PATH_SEGMENT } from "../statusbar/segments";
 
 const stored = getSetting as unknown as ReturnType<typeof vi.fn>;
 const written = setSetting as unknown as ReturnType<typeof vi.fn>;
@@ -154,5 +155,22 @@ describe("resetForVaultSwitch", () => {
     expect(s.leftSidebarMode()).toBe("files");
     expect(s.shortcutOverrides()).toEqual({});
     expect(written).not.toHaveBeenCalled();
+  });
+
+  it("drops the outgoing vault's plugin and statusbar toggles", () => {
+    const s = build();
+    s.setCorePlugin("dataview", "plugins.dataview_enabled", false);
+    s.setStatusbarSetting(VAULT_PATH_SEGMENT.settingKey, false);
+    s.toggleStatusbar();
+    expect(s.corePlugins()).toEqual({ dataview: false });
+    expect(s.segVisible(VAULT_PATH_SEGMENT)).toBe(false);
+    expect(s.statusbarEnabled()).toBe(false);
+
+    s.resetForVaultSwitch();
+
+    expect(s.corePlugins()).toEqual({});
+    expect(s.statusbarConfig()).toEqual({});
+    expect(s.segVisible(VAULT_PATH_SEGMENT)).toBe(true);
+    expect(s.statusbarEnabled()).toBe(true);
   });
 });

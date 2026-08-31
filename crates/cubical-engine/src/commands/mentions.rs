@@ -1,3 +1,4 @@
+use cubical_ast::note_title;
 use cubical_core::vault::links::read_source_off_executor;
 use cubical_core::vault::mentions::{find_mention_occurrences, MentionHit};
 use cubical_core::vault::pending::materialize_on_read;
@@ -7,6 +8,7 @@ use crate::api::types::{
     GetUnlinkedMentionsRequest, GetUnlinkedMentionsResponse, LinkMentionRequest,
     LinkMentionResponse, Mention,
 };
+use crate::commands::open::open_vault_cloned;
 use crate::commands::snippet::build_snippet;
 use crate::error::CubicalError;
 use crate::state::AppState;
@@ -17,17 +19,11 @@ pub async fn get_unlinked_mentions(
     state: &AppState,
     req: GetUnlinkedMentionsRequest,
 ) -> Result<GetUnlinkedMentionsResponse, CubicalError> {
-    let vault = {
-        let guard = state.vaults().read().await;
-        let open = guard
-            .get(&req.vault_id)
-            .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
-        open.vault.clone()
-    };
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
     let root = vault.root().to_path_buf();
     let conn = vault.index().connection().clone();
 
-    let title = title_from_path(&req.path);
+    let title = note_title(&req.path).to_string();
     if title.is_empty() {
         return Ok(GetUnlinkedMentionsResponse {
             mentions: Vec::new(),
@@ -83,13 +79,8 @@ pub async fn link_mention(
     state: &AppState,
     req: LinkMentionRequest,
 ) -> Result<LinkMentionResponse, CubicalError> {
-    let (vault, conn) = {
-        let guard = state.vaults().read().await;
-        let open = guard
-            .get(&req.vault_id)
-            .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
-        (open.vault.clone(), open.vault.index().connection().clone())
-    };
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
+    let conn = vault.index().connection().clone();
     let (source_path, abs) = crate::commands::paths::vault_file(&vault, &req.source_path)?;
 
     let pending_count = {
@@ -173,11 +164,6 @@ pub async fn link_mention(
         .map_err(|e| CubicalError::Io(format!("write task join error: {e}")))??;
 
     {
-        let guard = state.vaults().read().await;
-        let open = guard
-            .get(&req.vault_id)
-            .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
-        let conn = open.vault.index().connection();
         if let Err(e) = conn
             .execute(
                 "UPDATE files SET content_hash = ?1, size_bytes = ?2 WHERE path = ?3",
@@ -208,11 +194,6 @@ fn matched_neighbor_ok(source: &str, byte_idx: usize, before: bool) -> bool {
             Some(c) => !c.is_alphanumeric() && c != '_',
         }
     }
-}
-
-fn title_from_path(path: &str) -> String {
-    let base = path.rsplit('/').next().unwrap_or(path);
-    base.strip_suffix(".md").unwrap_or(base).to_string()
 }
 
 fn build_needles(title: &str, aliases: &[String]) -> Vec<String> {

@@ -16,7 +16,10 @@ to tests: the code stays correct, the wiring quietly stops covering a case.
      serves pre-edit values for the rest of the session. That is exactly how
      [[note.prop]] went stale. Membership is what the refresh functions iterate,
      so the gate checks that the set of cache-bearing resolvers equals the set
-     the group knows about.
+     the group knows about. A resolver declares its cache either by spelling
+     markStale() out in its own interface or by aliasing the shared resolver;
+     the shared factory itself is the implementation every resolver borrows,
+     not a cache anyone holds, so it is not a member of anything.
 """
 import re
 import sys
@@ -28,6 +31,8 @@ from _common import ROOT, Gate, main_guard, rel, tracked  # noqa: E402
 APP = ROOT / "ui" / "src" / "App.tsx"
 IPC = ROOT / "ui" / "src" / "api" / "ipc.ts"
 GROUP = ROOT / "ui" / "src" / "editor" / "resolverRefresh.ts"
+SHARED = ROOT / "ui" / "src" / "editor" / "keyedResolver.ts"
+SHARED_TYPE = "KeyedResolver"
 
 RENAME_IPCS = ("renameFile", "renameFolder")
 CHOKEPOINT = "handleRenameCommit"
@@ -35,6 +40,8 @@ CHOKEPOINT = "handleRenameCommit"
 # An interface is cache-bearing if it can be told its cache went stale.
 STALE_METHOD = re.compile(r"^\s*markStale\(\): void;", re.M)
 INTERFACE = re.compile(r"^export interface (\w+) \{(.*?)^\}", re.M | re.S)
+# A resolver can also borrow the shared cache wholesale instead of restating it.
+ALIAS = re.compile(rf"^export type (\w+) = {SHARED_TYPE}<", re.M)
 GROUP_MEMBER = re.compile(r"^\s*\w+: (\w+) \| null;", re.M)
 
 
@@ -81,11 +88,14 @@ def run() -> int:
     # ---- 2. Every cache-bearing resolver is in the refresh group ----
     cache_bearing: dict[str, str] = {}
     for path in tracked("ui/src/editor/", suffixes=(".ts",)):
-        if path.name.endswith(".test.ts"):
+        if path.name.endswith(".test.ts") or path == SHARED:
             continue
-        for name, body in INTERFACE.findall(path.read_text(encoding="utf-8")):
+        text = path.read_text(encoding="utf-8")
+        for name, body in INTERFACE.findall(text):
             if STALE_METHOD.search(body):
                 cache_bearing[name] = rel(path)
+        for name in ALIAS.findall(text):
+            cache_bearing[name] = rel(path)
 
     group_src = GROUP.read_text(encoding="utf-8")
     group_body = INTERFACE.search(group_src)

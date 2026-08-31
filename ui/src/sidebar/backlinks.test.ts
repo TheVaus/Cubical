@@ -4,7 +4,6 @@ import { createComputed, createRoot, createSignal, untrack } from "solid-js";
 import type { Backlink } from "../api/ipc";
 import {
   backlinkKey,
-  basenameWithoutExtension,
   type BacklinksViewState,
   reduceBacklinksState,
 } from "./backlinksState";
@@ -24,24 +23,6 @@ describe("backlinkKey", () => {
     const a: Backlink = { ...sample, position: 10 };
     const b: Backlink = { ...sample, position: 20 };
     expect(backlinkKey(a)).not.toBe(backlinkKey(b));
-  });
-});
-
-describe("basenameWithoutExtension", () => {
-  it("strips directory and .md extension", () => {
-    expect(basenameWithoutExtension("notes/sub/Foo.md")).toBe("Foo");
-  });
-
-  it("returns bare name unchanged when no path or extension", () => {
-    expect(basenameWithoutExtension("Foo")).toBe("Foo");
-  });
-
-  it("preserves dots inside the basename", () => {
-    expect(basenameWithoutExtension("v1.2.notes.md")).toBe("v1.2.notes");
-  });
-
-  it("handles a trailing slash gracefully", () => {
-    expect(basenameWithoutExtension("notes/")).toBe("");
   });
 });
 

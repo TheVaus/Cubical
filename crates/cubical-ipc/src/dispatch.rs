@@ -387,4 +387,44 @@ mod tests {
 
         std::env::remove_var("CUBICAL_RUNTIME_DIR");
     }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn the_socket_is_refused_a_command_whose_plugin_the_vault_switched_off() {
+        let _env = crate::RUNTIME_ENV_GUARD.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("CUBICAL_RUNTIME_DIR", dir.path().join("rt5"));
+        std::fs::write(dir.path().join("N.md"), "#project\n").unwrap();
+        let (state, vault_id) = open_temp(dir.path()).await;
+
+        let query = cubical_engine::api::types::DataviewQueryRequest {
+            vault_id: vault_id.clone(),
+            source: "LIST FROM #project".into(),
+        };
+        cubical_engine::commands::dataview::dataview_query(&state, query.clone())
+            .await
+            .expect("served while the plugin is on by default");
+
+        dispatch(
+            &vault_id,
+            Command::Set {
+                key: "plugins.dataview_enabled".into(),
+                value: serde_json::json!(false),
+            },
+            &state,
+            &NoopEventSink,
+        )
+        .await
+        .expect("the socket may switch a plugin off");
+
+        let err = cubical_engine::commands::dataview::dataview_query(&state, query)
+            .await
+            .expect_err("the gate sits below the transport, so the socket is refused too");
+        assert!(
+            matches!(err, CubicalError::FeatureDisabled(id) if id == "dataview"),
+            "the socket must get the same typed refusal the window gets",
+        );
+
+        std::env::remove_var("CUBICAL_RUNTIME_DIR");
+    }
 }

@@ -1,7 +1,7 @@
 import { createEffect, on, untrack } from "solid-js";
 
 import type { Command } from "../core/commands";
-import { corePluginEnabled } from "../settings/corePlugins";
+import { corePluginActive } from "../settings/corePlugins";
 import { canOpenTab, openTab, type TabSet } from "../tabs/tabModel";
 import {
   GRAPH_COMMAND_ID,
@@ -26,7 +26,7 @@ export interface GraphWiring {
 }
 
 export function createGraphWiring(deps: GraphWiringDeps): GraphWiring {
-  const enabled = () => corePluginEnabled(deps.corePlugins(), GRAPH_PLUGIN);
+  const enabled = () => corePluginActive(deps.corePlugins(), GRAPH_PLUGIN);
 
   createEffect(
     on(enabled, (on) => {

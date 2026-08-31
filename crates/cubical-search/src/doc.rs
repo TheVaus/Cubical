@@ -1,4 +1,4 @@
-use cubical_ast::{parse, Block, Document, Inline};
+use cubical_ast::{basename, note_title, parse, Block, Document, Inline};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct IndexDoc {
@@ -47,8 +47,7 @@ fn derive_title(path: &str, doc: &Document) -> String {
             return t.to_string();
         }
     }
-    let stem = path.rsplit('/').next().unwrap_or(path);
-    stem.strip_suffix(".md").unwrap_or(stem).to_string()
+    note_title(path).to_string()
 }
 
 fn collect_tags(doc: &Document, body_tags: &[String]) -> Vec<String> {
@@ -94,10 +93,6 @@ struct Walker {
 }
 
 const IMAGE_EXTS: &[&str] = &[".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"];
-
-fn target_last_component(target: &str) -> &str {
-    target.rsplit('/').next().unwrap_or(target)
-}
 
 fn is_image_target(target: &str) -> bool {
     let lower = target.to_ascii_lowercase();
@@ -221,7 +216,7 @@ impl Walker {
                 }
                 let text = match display {
                     Some(d) => d.as_str(),
-                    None => target_last_component(target),
+                    None => basename(target),
                 };
                 if !text.is_empty() {
                     self.body.push_str(text);
@@ -258,7 +253,7 @@ impl Walker {
                     }
                     let text = match display {
                         Some(d) => d.as_str(),
-                        None => target_last_component(target),
+                        None => basename(target),
                     };
                     out.push_str(text);
                 }

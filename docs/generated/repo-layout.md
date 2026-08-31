@@ -58,9 +58,8 @@ Derived from the git index plus a listed set of gitignored directories — delib
 | `crates/` | tracked | The Rust workspace — one directory per crate (see the crate table above). |
 | `design-system/` | tracked | `@ds` — SolidJS component library + canonical design tokens; `ui/` borrows from here. |
 | `docs/` | tracked | The documentation tree; start at `docs/README.md`. |
-| `graphify-out/` | generated / untracked | graphify knowledge graph (`graph.json`, `manifest.json`, `GRAPH_REPORT.md`, obsidian vault). Queried via `scripts/graph.sh`; absent on a fresh clone, so fall back to ripgrep. |
 | `node_modules/` | generated / untracked | npm dependency tree (root-level; `ui/` and `design-system/` have their own). |
-| `scripts/` | tracked | `check.sh` (the gate set), `check_docs.py`, `graph.sh`, and these generators. |
+| `scripts/` | tracked | `check.sh` (the gate set), `check_docs.py`, and these generators. |
 | `target/` | generated / untracked | Cargo build output for the whole workspace. |
 | `ui/` | tracked | Solid + TypeScript + Vite frontend. |
 
@@ -90,7 +89,6 @@ Derived from the git index plus a listed set of gitignored directories — delib
 
 - `.gitattributes`
 - `.gitignore`
-- `.graphifyignore`
 - `CLAUDE.md`
 - `Cargo.lock`
 - `Cargo.toml`

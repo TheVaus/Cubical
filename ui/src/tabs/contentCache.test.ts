@@ -60,7 +60,7 @@ describe("remapContentKeys", () => {
   it("keeps the existing entry when the destination is already open", () => {
     createRoot((dispose) => {
       const [contents, setContents] = createStore<Record<string, string>>({
-        a: "from",
+        a: "moved",
         b: "already there",
       });
       remapContentKeys(setContents, contents, (id) => (id === "a" ? "b" : id));

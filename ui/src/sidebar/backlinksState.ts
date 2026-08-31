@@ -5,13 +5,6 @@ export function backlinkKey(b: Backlink): string {
   return `${b.source_path}@${b.position}`;
 }
 
-export function basenameWithoutExtension(path: string): string {
-  const slash = path.lastIndexOf("/");
-  const base = slash >= 0 ? path.slice(slash + 1) : path;
-  if (base.endsWith(".md")) return base.slice(0, -3);
-  return base;
-}
-
 export type BacklinksViewState =
   | { kind: "idle" }
   | { kind: "loading" }

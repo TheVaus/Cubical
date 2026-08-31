@@ -69,32 +69,22 @@ export function missingRequirements(
   state: Record<string, boolean>,
   plugin: CorePlugin,
 ): CorePlugin[] {
-  return (plugin.requires ?? [])
-    .filter((id) => !corePluginOn(state, id))
-    .flatMap((id) => CORE_PLUGINS.filter((p) => p.id === id));
-}
-
-export function corePluginAvailable(
-  state: Record<string, boolean>,
-  plugin: CorePlugin,
-): boolean {
-  return missingRequirements(state, plugin).length === 0;
-}
-
-export function corePluginOn(
-  state: Record<string, boolean>,
-  id: string,
-): boolean {
-  const plugin = CORE_PLUGINS.find((p) => p.id === id);
-  return plugin ? corePluginEnabled(state, plugin) : false;
+  return (plugin.requires ?? []).flatMap((id) =>
+    CORE_PLUGINS.filter((p) => p.id === id && !corePluginEnabled(state, p)),
+  );
 }
 
 export function corePluginActive(
   state: Record<string, boolean>,
-  id: string,
+  target: CorePlugin | string,
 ): boolean {
-  const plugin = CORE_PLUGINS.find((p) => p.id === id);
-  return plugin
-    ? corePluginEnabled(state, plugin) && corePluginAvailable(state, plugin)
-    : false;
+  const plugin =
+    typeof target === "string"
+      ? CORE_PLUGINS.find((p) => p.id === target)
+      : target;
+  if (!plugin) return false;
+  return (
+    corePluginEnabled(state, plugin) &&
+    missingRequirements(state, plugin).length === 0
+  );
 }

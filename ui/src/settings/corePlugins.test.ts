@@ -1,10 +1,9 @@
 import { describe, expect, test } from "vitest";
 import {
   CORE_PLUGINS,
-  corePluginAvailable,
+  corePluginActive,
   corePluginEnabled,
   missingRequirements,
-  corePluginOn,
 } from "./corePlugins";
 
 const dataview = CORE_PLUGINS.find((p) => p.id === "dataview")!;
@@ -19,18 +18,30 @@ describe("corePluginEnabled", () => {
   });
 });
 
-describe("corePluginOn", () => {
+describe("corePluginActive", () => {
   test("looks a plugin up by id and applies the stored value", () => {
-    expect(corePluginOn({ dataview: false }, "dataview")).toBe(false);
+    expect(corePluginActive({ dataview: false }, "dataview")).toBe(false);
   });
 
   test("falls back to the plugin's default when unset", () => {
-    expect(corePluginOn({}, "math")).toBe(true);
-    expect(corePluginOn({}, "terminal")).toBe(false);
+    expect(corePluginActive({}, "math")).toBe(true);
+    expect(corePluginActive({}, "terminal")).toBe(false);
   });
 
   test("is false for an unknown id rather than throwing", () => {
-    expect(corePluginOn({}, "no-such-plugin")).toBe(false);
+    expect(corePluginActive({}, "no-such-plugin")).toBe(false);
+  });
+
+  test("accepts a plugin object and an id interchangeably", () => {
+    expect(corePluginActive({ dataview: false }, dataview)).toBe(
+      corePluginActive({ dataview: false }, "dataview"),
+    );
+  });
+
+  test("is false for a plugin switched on whose requirement is off", () => {
+    const equations = CORE_PLUGINS.find((p) => p.id === "equations")!;
+    expect(corePluginEnabled({ "property-refs": false }, equations)).toBe(true);
+    expect(corePluginActive({ "property-refs": false }, equations)).toBe(false);
   });
 });
 
@@ -91,16 +102,14 @@ describe("equations", () => {
     expect(equations.requires).toEqual(["property-refs"]);
   });
 
-  test("is unavailable when a plugin it requires is off", () => {
-    expect(corePluginAvailable({ "property-refs": false }, equations)).toBe(
-      false,
-    );
-    expect(corePluginAvailable({}, equations)).toBe(true);
+  test("is inactive when a plugin it requires is off", () => {
+    expect(corePluginActive({ "property-refs": false }, equations)).toBe(false);
+    expect(corePluginActive({}, equations)).toBe(true);
   });
 
   test("does not depend on the math plugin", () => {
     expect(equations.requires ?? []).not.toContain("math");
-    expect(corePluginOn({ math: false }, "equations")).toBe(true);
+    expect(corePluginActive({ math: false }, "equations")).toBe(true);
   });
 });
 

@@ -9,7 +9,6 @@ description = "libSQL schema, migrations, and queries. Owns the on-disk index da
 
 [dependencies]
 tokio = { workspace = true }
-serde = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 libsql = { workspace = true }

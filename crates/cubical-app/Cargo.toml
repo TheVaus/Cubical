@@ -32,7 +32,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 # Tokenizes a console line the way a shell would (quoting, escapes) before clap parses it.
-shell-words = "1"
 
 # Embedded terminal: PTY pair + child spawn, and the byte-safe wire encoding for
 # PTY output (raw bytes, since a multi-byte character can split across chunks).

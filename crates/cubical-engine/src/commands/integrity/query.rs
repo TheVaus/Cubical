@@ -7,6 +7,7 @@ use crate::api::types::{
     RepairCandidate,
 };
 use crate::commands::link_match::{classify_candidate, CandidateRank};
+use crate::commands::open::open_vault_cloned;
 use crate::error::CubicalError;
 use crate::state::AppState;
 
@@ -26,11 +27,8 @@ pub async fn list_dangling_links(
     state: &AppState,
     req: ListDanglingLinksRequest,
 ) -> Result<ListDanglingLinksResponse, CubicalError> {
-    let guard = state.vaults().read().await;
-    let open = guard
-        .get(&req.vault_id)
-        .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
-    let conn = open.vault.index().connection();
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
+    let conn = vault.index().connection();
 
     let accumulated = accumulate_groups(conn).await?;
     if accumulated.is_empty() {
@@ -40,7 +38,7 @@ pub async fn list_dangling_links(
         });
     }
 
-    let files = tracked_paths(conn).await?;
+    let files = cubical_index::all_file_paths(vault.index()).await?;
     let titles = frontmatter_titles(conn).await?;
 
     let mut groups: Vec<DanglingLinkGroup> = accumulated
@@ -112,17 +110,6 @@ async fn accumulate_groups(
                 .occurrences
                 .push(DanglingLinkOccurrence { source_path, count }),
         }
-    }
-    Ok(out)
-}
-
-async fn tracked_paths(conn: &libsql::Connection) -> Result<Vec<String>, CubicalError> {
-    let mut rows = conn
-        .query("SELECT path FROM files ORDER BY path", ())
-        .await?;
-    let mut out = Vec::new();
-    while let Some(row) = rows.next().await? {
-        out.push(row.get(0)?);
     }
     Ok(out)
 }

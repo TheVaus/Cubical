@@ -65,6 +65,7 @@ import {
 } from "./editor/dataviewMousedown";
 import { livePreviewFor } from "./editor/livePreview";
 import { colorSourceHighlight } from "./editor/colorSource";
+import { createUpdateSubscriber } from "./editor/updateSubscription";
 import { verticalDocLineMotion } from "./editor/embedNav";
 import { autoCloseExtension } from "./editor/autoClose";
 import { autocompleteExtensionFor } from "./editor/autocomplete";
@@ -178,65 +179,12 @@ const Editor: Component<EditorProps> = (props) => {
     }, AST_DEBOUNCE_MS);
   };
 
-  let unsubResolver: (() => void) | undefined;
-
-  const subscribeResolver = (
-    resolver: WikiLinkResolver | null | undefined,
-    targetView: EditorView | undefined,
-  ) => {
-    unsubResolver?.();
-    unsubResolver = undefined;
-    if (resolver && targetView) {
-      unsubResolver = resolver.onUpdate(() => {
-        targetView.dispatch({ effects: wikilinkResolverUpdated.of(null) });
-      });
-    }
-  };
-
-  let unsubEmbedResolver: (() => void) | undefined;
-
-  const subscribeEmbedResolver = (
-    resolver: EmbedResolver | null | undefined,
-    targetView: EditorView | undefined,
-  ) => {
-    unsubEmbedResolver?.();
-    unsubEmbedResolver = undefined;
-    if (resolver && targetView) {
-      unsubEmbedResolver = resolver.onUpdate(() => {
-        targetView.dispatch({ effects: embedResolverUpdated.of(null) });
-      });
-    }
-  };
-
-  let unsubPropertyResolver: (() => void) | undefined;
-
-  const subscribePropertyResolver = (
-    resolver: PropertyResolver | null | undefined,
-    targetView: EditorView | undefined,
-  ) => {
-    unsubPropertyResolver?.();
-    unsubPropertyResolver = undefined;
-    if (resolver && targetView) {
-      unsubPropertyResolver = resolver.onUpdate(() => {
-        targetView.dispatch({ effects: propertyResolverUpdated.of(null) });
-      });
-    }
-  };
-
-  let unsubDataviewRunner: (() => void) | undefined;
-
-  const subscribeDataviewRunner = (
-    runner: DataviewRunner | null | undefined,
-    targetView: EditorView | undefined,
-  ) => {
-    unsubDataviewRunner?.();
-    unsubDataviewRunner = undefined;
-    if (runner && targetView) {
-      unsubDataviewRunner = runner.onUpdate(() => {
-        targetView.dispatch({ effects: dataviewRunnerUpdated.of(null) });
-      });
-    }
-  };
+  const subscribeResolver = createUpdateSubscriber(wikilinkResolverUpdated);
+  const subscribeEmbedResolver = createUpdateSubscriber(embedResolverUpdated);
+  const subscribePropertyResolver = createUpdateSubscriber(
+    propertyResolverUpdated,
+  );
+  const subscribeDataviewRunner = createUpdateSubscriber(dataviewRunnerUpdated);
 
   const handleClickAtPos = (clickView: EditorView, pos: number): boolean => {
     const tree = syntaxTree(clickView.state);
@@ -690,9 +638,6 @@ const Editor: Component<EditorProps> = (props) => {
     if (import.meta.env.DEV) {
       delete window.__cubical;
     }
-    unsubResolver?.();
-    unsubEmbedResolver?.();
-    unsubPropertyResolver?.();
     if (astPending !== undefined) clearTimeout(astPending);
     view?.destroy();
     view = undefined;

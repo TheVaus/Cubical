@@ -14,6 +14,8 @@ import {
 } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
 
+import { renderGuarded } from "./widgetGuard";
+
 export interface BlockRenderContext {
   language: string;
   state: EditorState;
@@ -78,10 +80,12 @@ class BlockWidget extends WidgetType {
     const frame = document.createElement("div");
     frame.className = this.renderer.frameClass;
     frame.appendChild(
-      this.renderer.render(this.source, {
-        language: this.language,
-        state: view.state,
-      }),
+      renderGuarded(`\`\`\`${this.language}`, () =>
+        this.renderer.render(this.source, {
+          language: this.language,
+          state: view.state,
+        }),
+      ),
     );
     return frame;
   }

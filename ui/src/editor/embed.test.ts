@@ -99,6 +99,24 @@ describe("embedExtension", () => {
     view.destroy();
   });
 
+  it("keeps the editor alive when an embed body fails to render", () => {
+    const r = stubResolver({
+      Broken: {
+        kind: "file",
+        target_path: "Broken.csv",
+        content: "!! not base64 !!",
+        mime: "text/csv",
+      },
+    });
+    const view = makeView("![[Broken]]\n\ntrailing\n", r);
+    expect(widgetCount(view)).toBe(1);
+    expect(
+      view.contentDOM.querySelectorAll(".cm-render-failed"),
+    ).toHaveLength(1);
+    expect(view.contentDOM.textContent).toContain("trailing");
+    view.destroy();
+  });
+
   it("emits a card for an ![[…]] token alone on its line", () => {
     const r = stubResolver({
       Daily: { kind: "note", target_path: "Daily.md", content: "hi" },

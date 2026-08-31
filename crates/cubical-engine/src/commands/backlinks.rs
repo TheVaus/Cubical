@@ -2,6 +2,7 @@ use cubical_core::vault::pending::materialize_on_read;
 use cubical_index::backlinks_for;
 
 use crate::api::types::{Backlink, GetBacklinksRequest, GetBacklinksResponse};
+use crate::commands::open::open_vault_cloned;
 use crate::commands::snippet::build_snippet;
 use crate::error::CubicalError;
 use crate::state::AppState;
@@ -10,14 +11,7 @@ pub async fn get_backlinks(
     state: &AppState,
     req: GetBacklinksRequest,
 ) -> Result<GetBacklinksResponse, CubicalError> {
-    let vault = {
-        let guard = state.vaults().read().await;
-        guard
-            .get(&req.vault_id)
-            .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?
-            .vault
-            .clone()
-    };
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
 
     let rows = backlinks_for(vault.index(), &req.path).await?;
 

@@ -9,7 +9,7 @@ import {
   type AgentInstructionsStatus,
 } from "../api/ipc";
 import type { Command } from "../core/commands";
-import { corePluginEnabled } from "../settings/corePlugins";
+import { corePluginActive } from "../settings/corePlugins";
 import { canOpenTab, openTab, type TabSet } from "../tabs/tabModel";
 import { createConsentGate } from "./consent";
 import {
@@ -58,7 +58,7 @@ export function createTerminalWiring(deps: TerminalWiringDeps): TerminalWiring {
   } | null>(null);
   let nextKey = 0;
 
-  const enabled = () => corePluginEnabled(deps.corePlugins(), TERMINAL_PLUGIN);
+  const enabled = () => corePluginActive(deps.corePlugins(), TERMINAL_PLUGIN);
 
   createEffect(
     on(enabled, (on) => {

@@ -12,13 +12,10 @@ Your only obligation is to be accurate.
 
 ## Order of operations
 
-1. **`scripts/graph.sh query "<question>"` first.** It answers "how does X work
-   / what calls Y / where does Z live" from a prebuilt knowledge graph instead
-   of opening files. It **refuses when the graph is older than HEAD** — that
-   refusal is correct, not an obstacle. A stale graph reports deleted code as
-   live, confidently and without warning.
-2. If it refuses or is absent, fall back to **ripgrep**.
-3. **Never use shell `grep -r`.** `ui/dist/` is a build artifact left in the
+1. **Search with `rg`.** Read the files it points at rather than trusting the
+   match line — a hit in a test, a doc or a dead branch reads the same as a hit
+   in live code.
+2. **Never use shell `grep -r`.** `ui/dist/` is a build artifact left in the
    tree; `grep -r` walks it and returns minified bundles. `rg` honours
    `.gitignore`.
 

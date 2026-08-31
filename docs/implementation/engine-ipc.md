@@ -88,13 +88,21 @@ the transport, keeping the pure handlers clean.
 
 - **Scan dispatcher** — forwards progress events and emits exactly one terminal
   event (complete or cancelled), updating the stored scan status so later
-  `get_vault_info` calls agree.
+  `get_vault_info` calls agree. Every spawn passes the **open vault's own**
+  cancellation token; a rebuild given a fresh one keeps scanning against a
+  closed vault's index because nothing can reach it to stop it.
 - **Watcher dispatcher** — persists each event to the index, writes an
   `audit_log` row, and emits the file-changed event. Errors are logged and the
   loop continues; one failed event must not take the watcher down. It carries a
   per-vault context (sink, vault id, own-write gate, settings) so the `Renamed`
   arm can adopt an external rename — see [Adopting an external
   rename](#adopting-an-external-rename).
+
+Each batch runs in its own `tokio::spawn`ed task that the loop awaits, so
+ordering is unchanged but a panic anywhere under `handle_watch_batch` costs one
+batch instead of every future external edit. A panic that a `Result` cannot
+express is exactly the case "errors are logged and the loop continues" did not
+cover.
 
 On a delete the file's row is dropped so it leaves the tree, and the cascading
 foreign keys carry its **outbound** rows with it. **Inbound** references from
@@ -414,9 +422,64 @@ handlers take `&AppState`.
 
 The vault map is `Arc<RwLock<…>>` rather than a bare `RwLock` specifically so
 background tasks (the scan and watcher dispatchers) can hold a **stable handle
-across `await` points**. An open vault stores its cancellation token but not
-the dispatcher's join handle — the dispatcher detaches once started, and
-cancelling is enough to bring it down responsively.
+across `await` points**. An open vault stores cancellation tokens but not the
+dispatchers' join handles — a dispatcher detaches once started, and cancelling
+is enough to bring it down responsively.
+
+### The watcher's lifetime is its own
+
+`cancel` bounds the **scan**; `watcher_cancel` bounds the watcher; the
+already-separate `flush_timer_cancel` bounds the flush timer. They were not
+always distinct: the watcher was started on `cancel`, so `cancel_vault_scan`
+tore down the bridge task and the vault silently stopped seeing external edits
+for the rest of the session — the failure
+[`convergence-over-interception`](../principles/convergence-over-interception.md)
+can least afford, reachable from a button. `close_vault` cancels every token;
+nothing else cancels the watcher's.
+
+That separation is what makes a dead watcher *detectable*. The dispatcher's
+receive loop can only end when the channel closes, so ending while
+`watcher_cancel` is uncancelled means the watcher died rather than being shut
+down. That case clears `OpenVault.watcher_live` and writes a
+`watcher_unavailable` row at `warn`, the same category the failure-to-start
+path uses, because the user-visible consequence is identical. `watcher_live`
+rides out on `get_vault_info` so a frontend can say so; the `audit_log` row is
+the forensic record either way.
+
+A restart is deliberately **not** attempted. Re-registering with the OS watch
+API leaves a gap of unknown length during which the index and disk diverge with
+nothing recording what was missed, and the honest repair for that gap is the
+rescan that reopening the vault already performs.
+
+### The flush timer is supervised the same way, and it matters more
+
+The periodic flush timer is the only background task guarding state that a
+rescan cannot rebuild —
+[`derived-state-disposable`](../principles/derived-state-disposable.md) names
+the pending-rewrites queue as its single exception. So a timer that stops is
+not a degraded convenience: referrer links stay unrewritten with nothing
+saying so, and `.cubical/renames.jsonl` exists precisely because that queue is
+worth a sidecar.
+
+It is therefore structured in two nested pieces rather than one detached
+`tokio::spawn`. Each tick runs in its own spawned task the loop awaits, so a
+panic under `flush_all_for_vault` costs one tick — its rewrites simply stay
+queued for the next one — and is audited as `flush_timer_tick_panic`. The loop
+itself runs in a task whose `JoinHandle` an outer supervisor awaits, so a panic
+in the parts a tick cannot isolate (reading the interval, the `select!`) is
+still observed instead of ending the task list silently.
+
+The supervisor distinguishes death from shutdown the way the watcher does: if
+`flush_timer_cancel` is cancelled the loop was stopped on purpose and nothing
+is reported; otherwise it clears `OpenVault.flush_timer_live` and writes a
+`flush_timer_unavailable` row at `warn`. A loop that returns *without*
+cancellation is treated as death too — today the loop can only exit that way if
+someone edits it, and inventing a second silent exit should cost an audit row.
+`flush_timer_live` rides out on `get_vault_info` alongside `watcher_live`.
+
+`record_vault_warning` is shared by both subsystems rather than duplicated: the
+category argument is the only thing that differs, and a second copy would let
+the two drift on level or payload shape.
 
 ## Settings routing
 
@@ -429,13 +492,72 @@ Config values are JSON-encoded so non-string types round-trip. A missing key
 and a stored JSON `null` are **distinct** results; a value that isn't valid
 JSON is surfaced as an invalid-request error rather than panicking.
 
+## Feature toggles gate commands, not derived state
+
+**Anchors:** Feature, open_vault_cloned_for
+
+`plugins.*_enabled` keys decide whether the engine will **serve a command**, not
+whether it will **build derived state**. Those are different questions and the
+answers deliberately differ.
+
+Derived state stays warm. Property-ref link rows, the graph model and the search
+index are built whether or not their feature is on, because
+[composability](../principles/composability.md) already says switching a feature
+off drops its derived state and rebuilds it if it comes back — so keeping it
+current costs a little work and makes the toggle instant, and skipping it would
+buy nothing a rescan does not already provide.
+
+Commands are refused. `cubical_engine::plugins::Feature` maps a feature to its
+setting key, its default and what it requires, and `open_vault_cloned_for`
+applies the check as part of the vault lookup every command already performs.
+The gate is one chokepoint rather than a check per command because the reason
+the toggle was unenforced is that there is more than one caller: the frontend
+was the only thing declining to call `terminal_open`, while the CLI socket
+never consulted the setting and a plugin host would be a third caller. A
+per-command check repeats the omission at each new entry point; a check inside
+the shared preamble cannot be forgotten.
+
+This is what [native-capability-gateway](../principles/native-capability-gateway.md)
+requires of the terminal specifically. `plugins.terminal_enabled` defaults to
+**false**, and before this the backend would spawn a PTY for a caller that
+simply asked.
+
+Defaults live in two places that must agree — `Feature::default_enabled` here
+and the registry in `ui/src/settings/corePlugins.ts` — so a test parses the
+TypeScript and asserts the Rust matches, key for key and default for default.
+
 ## Lock discipline
 
-Handlers clone the vault handle out from under the read lock and drop the guard
-before any per-item loop that awaits — the lock must never be held across
-`await`, and sync file I/O inside such a loop goes through `spawn_blocking`.
-Otherwise a file with many backlinks interleaves blocking reads with awaits and
-can stall under concurrent watcher activity.
+**Anchors:** with_open_vault · open_vault_cloned
+
+One `RwLock` covers *every* open vault, so its scope is a backend-wide
+coupling, not a per-vault one. `tokio::sync::RwLock` is write-preferring:
+a read guard held across a slow await blocks a pending writer
+(`open_vault`, `close_vault`, the scan dispatcher's terminal status write),
+and every later reader then queues behind that writer. A dataview query holding
+the guard across `cubical_query::run` stalled `list_files`, `search` and
+`read_file_text` together — one slow feature stalling unrelated ones.
+
+So the guard is a **lookup**, never a work scope. `with_open_vault` takes a
+synchronous closure and hands back what it extracted; the guard is gone before
+the caller resumes. It is deliberately not `async`: a closure that could await
+would put the stall straight back. `open_vault_cloned` is the common case —
+everything reachable from the vault handle (index connection, search index,
+root) is clonable, so almost every handler needs nothing else. What must
+outlive the guard is cloned out with it: the settings map, the search-state
+cell, the cancellation token, the own-write gate.
+
+Sync CPU work goes through `spawn_blocking` for the same reason the guard
+does — `run_search` and every markdown parse are off-executor.
+
+A poisoned `std::sync::Mutex` guarding **plain data** is recovered with
+`into_inner()` rather than treated as fatal. `LayoutRegistry` used to
+let-else-return on `PoisonError`, which turned one panic elsewhere into a
+`cancel()` that silently did nothing for the rest of the process — a graph
+layout the user asked to stop kept burning a core. The map holds cancellation
+flags, not an invariant a panic can break, so the only thing poisoning proved
+was that some unrelated thread died. This does not extend to a lock guarding a
+half-updated structure, where poisoning is the signal it was designed to be.
 
 ## Idempotent vault re-open
 
@@ -603,8 +725,31 @@ in `lib.rs` is the payoff of having collapsed its surface in the first place.
 
 ## Degrade-not-throw surfaces
 
-Dataview and search deliberately fold failures into a structured result rather
-than a thrown IPC error, so the editor widget always renders an answer. Only
-vault-not-open is hard. `write_file_text`'s `expected_seen_hash` is advisory:
-a mismatch still writes (preserving the user's "keep my edits" choice) but
-records an override row in `audit_log` at `warn`.
+**Anchors:** resolve_text_file
+
+Dataview deliberately folds failures into a structured result rather than a
+thrown IPC error, so the editor widget always renders an answer: it renders
+*inside* a document, where a thrown error would take the surrounding render
+down with it. Search is the deliberate counter-example — `run_search`'s error
+propagates, because the search panel owns an error slot of its own and a
+second, in-band error channel would only duplicate it. Only vault-not-open is
+hard. `write_file_text`'s `expected_seen_hash` is advisory: a mismatch still
+writes (preserving the user's "keep my edits" choice) but records an override
+row in `audit_log` at `warn`.
+
+**An index row is not permission to touch a file.** `resolve_text_file` asks
+the index for the type and the last known hash, and when there is no row it
+answers from disk instead: the file-type registry classifies the path and the
+bytes supply the hash. Only a path that is absent from the index *and* absent
+from disk is `FileNotFound`. The type gate is unchanged either way, so a `.png`
+is still refused as text. `read_file_text` treats a failed
+`materialize_on_read` the same way — raw source plus a log — matching the scan
+and watcher call sites of the same read.
+
+This is the [derived-state-disposable](../principles/derived-state-disposable.md)
+rule applied to the read path: a partial scan, an aborted transaction or a
+corrupt index left an intact `.md` unreadable *and unsavable*, which is the
+worst possible way for disposable state to fail. `list_files` still reads the
+tree from `files` — the file tree is a projection of the index by design, and
+replacing it with a live walk is an architecture decision, not a bug fix
+([#235](https://github.com/TheVaus/Cubical/issues/235)).

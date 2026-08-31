@@ -6,6 +6,7 @@ import Icon from "@ds/components/graphics/Icon/Icon";
 
 import {
   CORE_PLUGINS,
+  corePluginEnabled,
   missingRequirements,
   type PluginDocId,
 } from "../corePlugins";
@@ -57,7 +58,7 @@ const PluginsPane = (props: { settings: SettingsState }) => {
                     )}
                   </Show>
                   <OnOffControl
-                    value={props.settings.corePlugins()[p.id] ?? p.defaultEnabled}
+                    value={corePluginEnabled(props.settings.corePlugins(), p)}
                     onChange={(v) =>
                       props.settings.setCorePlugin(p.id, p.settingKey, v)
                     }

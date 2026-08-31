@@ -25,7 +25,6 @@
       "Bash(rg:*)",
       "Bash(scripts/check.sh:*)",
       "Bash(scripts/session.sh:*)",
-      "Bash(scripts/graph.sh:*)",
       "Bash(python3 scripts/check_docs.py:*)",
       "Bash(python3 scripts/gen_repo_layout.py:*)",
       "Bash(python3 scripts/gen_ipc_surface.py:*)",

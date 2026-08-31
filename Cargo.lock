@@ -768,7 +768,6 @@ dependencies = [
  "portable-pty",
  "serde",
  "serde_json",
- "shell-words",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
@@ -798,7 +797,6 @@ dependencies = [
  "anyhow",
  "cubical-engine",
  "cubical-ipc",
- "serde",
  "serde_json",
  "tempfile",
  "tokio",
@@ -816,7 +814,6 @@ dependencies = [
  "notify-debouncer-full",
  "serde",
  "serde_json",
- "serde_yaml_ng",
  "sha2 0.11.0",
  "tempfile",
  "thiserror 2.0.20",
@@ -831,7 +828,6 @@ dependencies = [
 name = "cubical-engine"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "base64 0.23.1",
  "cubical-ast",
  "cubical-core",
@@ -840,7 +836,6 @@ dependencies = [
  "cubical-query",
  "cubical-search",
  "dirs",
- "fs4 1.1.0",
  "libsql",
  "serde",
  "serde_json",
@@ -857,6 +852,7 @@ dependencies = [
 name = "cubical-graph"
 version = "0.1.0"
 dependencies = [
+ "cubical-ast",
  "cubical-index",
  "libsql",
  "serde",
@@ -870,7 +866,6 @@ name = "cubical-index"
 version = "0.1.0"
 dependencies = [
  "libsql",
- "serde",
  "tempfile",
  "thiserror 2.0.20",
  "tokio",
@@ -896,6 +891,7 @@ dependencies = [
 name = "cubical-query"
 version = "0.1.0"
 dependencies = [
+ "cubical-ast",
  "cubical-index",
  "libsql",
  "serde",
@@ -914,16 +910,11 @@ dependencies = [
  "tantivy",
  "tempfile",
  "thiserror 2.0.20",
- "tracing",
 ]
 
 [[package]]
 name = "cubical-sync"
 version = "0.1.0"
-dependencies = [
- "cubical-ast",
- "thiserror 2.0.20",
-]
 
 [[package]]
 name = "darling"
@@ -1355,16 +1346,6 @@ checksum = "8640e34b88f7652208ce9e88b1a37a2ae95227d84abec377ccd3c5cfeb141ed4"
 dependencies = [
  "rustix 1.1.4",
  "windows-sys 0.59.0",
-]
-
-[[package]]
-name = "fs4"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e72ed92b67c146290f88e9c89d60ca163ea417a446f61ffd7b72df3e7f1dfd5"
-dependencies = [
- "rustix 1.1.4",
- "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4098,7 +4079,7 @@ dependencies = [
  "downcast-rs 2.0.2",
  "fastdivide",
  "fnv",
- "fs4 0.13.1",
+ "fs4",
  "htmlescape",
  "itertools",
  "levenshtein_automata",
@@ -4720,7 +4701,6 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
- "futures-util",
  "pin-project-lite",
  "tokio",
 ]
