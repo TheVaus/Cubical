@@ -187,6 +187,7 @@ pub fn spawn_scan_dispatcher(
 ) {
     tokio::spawn(async move {
         let started = Instant::now();
+        let scan_started_secs = unix_now_secs();
         let (tx, mut rx) = mpsc::channel::<ScanProgress>(64);
         let scan_handle = tokio::spawn(scan(vault.clone(), cancel.clone(), tx));
 
@@ -211,14 +212,15 @@ pub fn spawn_scan_dispatcher(
         let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
 
         let (new_status, new_search_state) = match scan_outcome {
-            Ok(Ok(file_count)) => {
+            Ok(Ok(outcome)) => {
+                journal_renames_found_by_scan(&vault, &outcome, scan_started_secs).await;
                 crate::commands::rename::replay_rename_journal(&vault, sink.as_ref(), &vault_id)
                     .await;
                 emit_scan_complete(
                     sink.as_ref(),
                     VaultScanComplete {
                         vault_id: vault_id.clone(),
-                        file_count,
+                        file_count: outcome.file_count,
                         duration_ms: elapsed_ms,
                     },
                 );
@@ -371,6 +373,36 @@ pub fn spawn_watcher_dispatcher(
         )
         .await;
     });
+}
+
+async fn journal_renames_found_by_scan(
+    vault: &Vault,
+    outcome: &cubical_core::ScanOutcome,
+    scan_started_secs: i64,
+) {
+    let pairs = crate::rename_pairing::pair_vanished_after_scan(
+        vault,
+        &outcome.vanished,
+        scan_started_secs,
+    )
+    .await;
+    for (from, to) in pairs {
+        let entry = cubical_core::vault::rename_journal::RenameJournalEntry {
+            op_id: 0,
+            kind: "file".to_string(),
+            from: from.clone(),
+            to: to.clone(),
+            at: unix_now_secs(),
+        };
+        match cubical_core::vault::rename_journal::append_entry(vault.root(), &entry) {
+            Ok(()) => tracing::info!(
+                %from,
+                %to,
+                "scan: paired a rename made while the vault was not open",
+            ),
+            Err(e) => tracing::warn!(%from, %to, error = %e, "scan: rename journal append failed"),
+        }
+    }
 }
 
 async fn handle_watch_batch(vault: &Vault, batch: Vec<WatchEvent>, ctx: &WatchContext<'_>) {
@@ -723,17 +755,6 @@ struct FileStats {
     inode: Option<i64>,
 }
 
-#[cfg(unix)]
-fn inode_of(metadata: &std::fs::Metadata) -> Option<i64> {
-    use std::os::unix::fs::MetadataExt;
-    Some(i64::try_from(metadata.ino()).unwrap_or(i64::MAX))
-}
-
-#[cfg(not(unix))]
-fn inode_of(_metadata: &std::fs::Metadata) -> Option<i64> {
-    None
-}
-
 async fn read_file_stats(abs: &std::path::Path, vault: &Vault) -> Option<FileStats> {
     let metadata = match std::fs::metadata(abs) {
         Ok(m) => m,
@@ -749,7 +770,7 @@ async fn read_file_stats(abs: &std::path::Path, vault: &Vault) -> Option<FileSta
         .and_then(|t| t.duration_since(std::time::SystemTime::UNIX_EPOCH).ok())
         .map(|d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
         .unwrap_or(0);
-    let inode = inode_of(&metadata);
+    let inode = cubical_core::vault::inode_of(&metadata);
 
     let abs_for_hash = abs.to_path_buf();
     let registry = vault.registry_arc();
@@ -1645,7 +1666,52 @@ mod tests {
             _watcher: WatcherHandle,
         }
 
+        #[derive(Default)]
+        struct RecordingSink {
+            events: std::sync::Mutex<Vec<AppEvent>>,
+        }
+
+        impl RecordingSink {
+            fn pending_counts(&self) -> Vec<i64> {
+                self.events
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter_map(|e| match e {
+                        AppEvent::PendingRewritesChanged(p) => Some(p.count),
+                        _ => None,
+                    })
+                    .collect()
+            }
+
+            fn changed_paths(&self) -> Vec<String> {
+                self.events
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter_map(|e| match e {
+                        AppEvent::FileChanged(p) => Some(p.path.clone()),
+                        _ => None,
+                    })
+                    .collect()
+            }
+        }
+
+        impl EventSink for RecordingSink {
+            fn emit(&self, event: AppEvent) {
+                self.events.lock().unwrap().push(event);
+            }
+        }
+
         async fn live_vault(dir: &TempDir, seed: &[&str]) -> LiveVault {
+            live_vault_with_sink(dir, seed, Arc::new(NoopEventSink)).await
+        }
+
+        async fn live_vault_with_sink(
+            dir: &TempDir,
+            seed: &[&str],
+            sink: Arc<dyn EventSink>,
+        ) -> LiveVault {
             let vault = Vault::open(dir.path()).await.expect("vault open");
             for rel in seed {
                 apply_watch_events_batch(&vault, &[WatchEvent::Created(rel.to_string())], None)
@@ -1672,7 +1738,7 @@ mod tests {
             let watcher =
                 start_watcher(&vault, CancellationToken::new(), tx).expect("start watcher");
             spawn_watcher_dispatcher(
-                Arc::new(NoopEventSink),
+                sink,
                 VAULT_ID.into(),
                 vault.clone(),
                 rx,
@@ -1820,6 +1886,262 @@ mod tests {
                 std::fs::read_to_string(dir.path().join("Project.md")).unwrap(),
                 "see [[Journal]] today\n",
                 "the referrer is rewritten exactly once",
+            );
+        }
+
+        async fn wait_for_changed_path(sink: &RecordingSink, path: &str) -> bool {
+            for _ in 0..POLL_LIMIT {
+                if sink.changed_paths().iter().any(|p| p == path) {
+                    return true;
+                }
+                tokio::time::sleep(POLL_STEP).await;
+            }
+            false
+        }
+
+        async fn reopen_after_closed_app_rename(
+            dir: &TempDir,
+            seed: &[(&str, &str)],
+            renames: &[(&str, &str)],
+            drop_inodes: bool,
+        ) -> Vault {
+            for (rel, body) in seed {
+                let abs = dir.path().join(rel);
+                std::fs::create_dir_all(abs.parent().unwrap()).unwrap();
+                std::fs::write(abs, body).unwrap();
+            }
+            {
+                let vault = Vault::open(dir.path()).await.expect("open");
+                let (tx, _rx) = mpsc::channel(64);
+                cubical_core::vault::scan(vault.clone(), CancellationToken::new(), tx)
+                    .await
+                    .expect("scan");
+                let sql = if drop_inodes {
+                    "UPDATE files SET last_seen = last_seen - 60, inode = NULL"
+                } else {
+                    "UPDATE files SET last_seen = last_seen - 60"
+                };
+                vault.index().connection().execute(sql, ()).await.unwrap();
+            }
+            for (from, to) in renames {
+                let to_abs = dir.path().join(to);
+                std::fs::create_dir_all(to_abs.parent().unwrap()).unwrap();
+                std::fs::rename(dir.path().join(from), to_abs).unwrap();
+            }
+
+            let vault = Vault::open(dir.path()).await.expect("reopen");
+            let scan_started_secs = unix_now_secs();
+            let (tx, _rx) = mpsc::channel(64);
+            let outcome = cubical_core::vault::scan(vault.clone(), CancellationToken::new(), tx)
+                .await
+                .expect("rescan");
+            journal_renames_found_by_scan(&vault, &outcome, scan_started_secs).await;
+            crate::commands::rename::replay_rename_journal(&vault, &NoopEventSink, VAULT_ID).await;
+            vault
+        }
+
+        async fn link_target(vault: &Vault, source: &str) -> Option<String> {
+            let mut rows = vault
+                .index()
+                .connection()
+                .query(
+                    "SELECT target_path FROM links WHERE source_path = ?1",
+                    params![source],
+                )
+                .await
+                .unwrap();
+            match rows.next().await.unwrap() {
+                Some(r) => r.get(0).unwrap(),
+                None => None,
+            }
+        }
+
+        #[tokio::test]
+        async fn a_rename_made_while_the_vault_was_closed_is_paired_and_rewritten() {
+            let dir = tempdir().unwrap();
+            let vault = reopen_after_closed_app_rename(
+                &dir,
+                &[("Daily.md", "# Daily\n"), ("Notes.md", "see [[Daily]]\n")],
+                &[("Daily.md", "Journal.md")],
+                true,
+            )
+            .await;
+
+            assert_eq!(
+                link_target(&vault, "Notes.md").await.as_deref(),
+                Some("Journal.md"),
+                "content hash alone pairs the move when no inode is recorded",
+            );
+
+            let pending = cubical_index::pending_for_target(vault.index(), "Notes.md")
+                .await
+                .unwrap();
+            assert_eq!(pending.len(), 1, "the text rewrite is queued");
+            assert_eq!(pending[0].old_token, "Daily");
+            assert_eq!(pending[0].new_token, "Journal");
+        }
+
+        #[cfg(unix)]
+        #[tokio::test]
+        async fn a_closed_app_rename_that_also_edited_the_file_pairs_on_inode() {
+            let dir = tempdir().unwrap();
+            for (rel, body) in [("Daily.md", "# Daily\n"), ("Notes.md", "see [[Daily]]\n")] {
+                std::fs::write(dir.path().join(rel), body).unwrap();
+            }
+            {
+                let vault = Vault::open(dir.path()).await.expect("open");
+                let (tx, _rx) = mpsc::channel(64);
+                cubical_core::vault::scan(vault.clone(), CancellationToken::new(), tx)
+                    .await
+                    .expect("scan");
+                vault
+                    .index()
+                    .connection()
+                    .execute("UPDATE files SET last_seen = last_seen - 60", ())
+                    .await
+                    .unwrap();
+            }
+            std::fs::rename(dir.path().join("Daily.md"), dir.path().join("Journal.md")).unwrap();
+            std::fs::write(dir.path().join("Journal.md"), "# Daily\n\nedited too\n").unwrap();
+
+            let vault = Vault::open(dir.path()).await.expect("reopen");
+            let scan_started_secs = unix_now_secs();
+            let (tx, _rx) = mpsc::channel(64);
+            let outcome = cubical_core::vault::scan(vault.clone(), CancellationToken::new(), tx)
+                .await
+                .expect("rescan");
+            journal_renames_found_by_scan(&vault, &outcome, scan_started_secs).await;
+            crate::commands::rename::replay_rename_journal(&vault, &NoopEventSink, VAULT_ID).await;
+
+            assert_eq!(
+                link_target(&vault, "Notes.md").await.as_deref(),
+                Some("Journal.md"),
+                "the content changed, so only the inode can pair this move",
+            );
+        }
+
+        #[tokio::test]
+        async fn two_closed_app_renames_sharing_content_are_refused() {
+            let dir = tempdir().unwrap();
+            let vault = reopen_after_closed_app_rename(
+                &dir,
+                &[
+                    ("A.md", "same\n"),
+                    ("B.md", "same\n"),
+                    ("Notes.md", "see [[A]]\n"),
+                ],
+                &[("A.md", "X.md"), ("B.md", "Y.md")],
+                true,
+            )
+            .await;
+
+            let target = link_target(&vault, "Notes.md").await;
+            assert_eq!(
+                target, None,
+                "with no inode to separate them, two files sharing content are \
+                 indistinguishable — pairing must refuse rather than guess, since a wrong \
+                 rewrite corrupts markdown (got {target:?})",
+            );
+        }
+
+        #[tokio::test]
+        async fn a_flush_announces_the_new_pending_count() {
+            let dir = tempdir().unwrap();
+            std::fs::write(dir.path().join("Daily.md"), "# Daily\n").unwrap();
+            std::fs::write(dir.path().join("Project.md"), "see [[Daily]] today\n").unwrap();
+            let live = live_vault(&dir, &["Daily.md", "Project.md"]).await;
+
+            rename_file(
+                &live.state,
+                &NoopEventSink,
+                RenameFileRequest {
+                    vault_id: VAULT_ID.into(),
+                    from_path: "Daily.md".into(),
+                    to_path: "Journal.md".into(),
+                },
+            )
+            .await
+            .expect("rename");
+
+            let sink = RecordingSink::default();
+            flush_pending_rewrites(
+                &live.state,
+                &sink,
+                FlushPendingRewritesRequest {
+                    vault_id: VAULT_ID.into(),
+                },
+            )
+            .await
+            .expect("flush");
+
+            assert_eq!(
+                sink.pending_counts(),
+                vec![0],
+                "the flush rewrote bytes the open buffers do not have, so it must announce \
+                 the drained queue — that announcement is what pulls them back in",
+            );
+        }
+
+        #[tokio::test]
+        async fn adopting_an_external_rename_announces_the_queued_rewrites() {
+            let dir = tempdir().unwrap();
+            std::fs::write(dir.path().join("Daily.md"), "# Daily\n").unwrap();
+            std::fs::write(dir.path().join("Project.md"), "see [[Daily]] today\n").unwrap();
+            let sink = Arc::new(RecordingSink::default());
+            let live = live_vault_with_sink(&dir, &["Daily.md", "Project.md"], sink.clone()).await;
+
+            std::fs::rename(dir.path().join("Daily.md"), dir.path().join("Journal.md"))
+                .expect("out-of-band move");
+
+            wait_for_journal_entry(&live.vault, "Daily.md").await;
+
+            let mut announced = false;
+            for _ in 0..POLL_LIMIT {
+                if sink.pending_counts().iter().any(|c| *c > 0) {
+                    announced = true;
+                    break;
+                }
+                tokio::time::sleep(POLL_STEP).await;
+            }
+            assert!(
+                announced,
+                "a rename adopted from outside the app queues referrer rewrites the open \
+                 buffers do not have, so it must announce them (counts: {:?})",
+                sink.pending_counts(),
+            );
+        }
+
+        #[tokio::test]
+        async fn flushing_a_rewrite_announces_the_referrer_change() {
+            let dir = tempdir().unwrap();
+            std::fs::write(dir.path().join("Daily.md"), "# Daily\n").unwrap();
+            std::fs::write(dir.path().join("Project.md"), "see [[Daily]] today\n").unwrap();
+            let sink = Arc::new(RecordingSink::default());
+            let live = live_vault_with_sink(&dir, &["Daily.md", "Project.md"], sink.clone()).await;
+
+            rename_file(
+                &live.state,
+                &NoopEventSink,
+                RenameFileRequest {
+                    vault_id: VAULT_ID.into(),
+                    from_path: "Daily.md".into(),
+                    to_path: "Journal.md".into(),
+                },
+            )
+            .await
+            .expect("rename");
+
+            flush(&live.state).await;
+            assert_eq!(
+                std::fs::read_to_string(dir.path().join("Project.md")).unwrap(),
+                "see [[Journal]] today\n",
+            );
+
+            assert!(
+                wait_for_changed_path(&sink, "Project.md").await,
+                "a flush rewrites bytes the frontend does not have, so it must \
+                 emit vault:file-changed for the referrer (saw: {:?})",
+                sink.changed_paths(),
             );
         }
 

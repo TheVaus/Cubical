@@ -149,7 +149,7 @@ pub async fn open_vault(
         vault.clone(),
         watch_rx,
         flush_own_writes.clone(),
-        settings_handle,
+        settings_handle.clone(),
         watcher_lifetime,
     );
 
@@ -158,6 +158,7 @@ pub async fn open_vault(
         vault,
         flush_own_writes,
         flush_in_progress,
+        settings_handle,
         vault_id.clone(),
         flush_timer_lifetime,
     );
@@ -2648,16 +2649,12 @@ mod tests {
         let vault_dir = tempdir().unwrap();
         std::fs::write(vault_dir.path().join("A.md"), "[[X]]\n").unwrap();
         {
-            let seeded = Vault::open(vault_dir.path()).await.expect("seed open");
-            seeded
-                .index()
-                .connection()
-                .execute(
-                    "INSERT INTO config (key, value) VALUES (?1, ?2)",
-                    libsql::params![crate::commands::rename::FLUSH_INTERVAL_SECS_KEY, "1"],
-                )
-                .await
-                .unwrap();
+            let mut seeded = cubical_core::vault::settings::SettingsMap::new();
+            seeded.insert(
+                crate::commands::rename::FLUSH_INTERVAL_SECS_KEY.into(),
+                serde_json::json!(1),
+            );
+            cubical_core::vault::settings::save(vault_dir.path(), &seeded).expect("seed settings");
         }
 
         let state = AppState::new();

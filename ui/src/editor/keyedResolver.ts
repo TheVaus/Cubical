@@ -23,6 +23,7 @@ export interface KeyedResolver<K, V> {
   fetch(key: K): void;
   resolve(key: K): Promise<V>;
   invalidate(): void;
+  markStale(): void;
   onUpdate(handler: () => void): () => void;
   version(): number;
   debug(): ResolverDebugState;
@@ -50,6 +51,7 @@ export function createKeyedResolver<K, V>(
   spec: KeyedResolverSpec<K, V>,
 ): KeyedResolver<K, V> {
   const cache = new Map<string, V>();
+  const stale = new Set<string>();
   const sources = new Map<string, K>();
   const inFlight = new Map<string, { aborted: boolean }>();
   const subscribers = new Set<() => void>();
@@ -113,12 +115,16 @@ export function createKeyedResolver<K, V>(
 
   const resolver: KeyedResolver<K, V> = {
     get(key) {
-      return cache.get(spec.cacheKey(key));
+      const k = spec.cacheKey(key);
+      if (stale.has(k)) resolver.fetch(key);
+      return cache.get(k);
     },
     fetch(key) {
       const k = spec.cacheKey(key);
-      if (cache.has(k) || inFlight.has(k)) return;
-      run(key, true);
+      const cached = cache.has(k);
+      if ((cached && !stale.has(k)) || inFlight.has(k)) return;
+      stale.delete(k);
+      run(key, !cached);
     },
     resolve(key) {
       const k = spec.cacheKey(key);
@@ -139,6 +145,7 @@ export function createKeyedResolver<K, V>(
     },
     invalidate() {
       emit({ kind: "invalidate", at: Date.now() });
+      stale.clear();
       if (refetches) {
         for (const [k, key] of [...sources]) {
           if (inFlight.has(k) || !cache.has(k)) continue;
@@ -150,6 +157,11 @@ export function createKeyedResolver<K, V>(
       sources.clear();
       lastError.clear();
       cacheVersion++;
+      notify();
+    },
+    markStale() {
+      if (cache.size === 0) return;
+      for (const k of cache.keys()) stale.add(k);
       notify();
     },
     onUpdate(handler) {

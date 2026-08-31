@@ -1087,6 +1087,7 @@ pub fn spawn_flush_timer(
     vault: cubical_core::Vault,
     flush_own_writes: FlushOwnWrites,
     flush_in_progress: std::sync::Arc<tokio::sync::Mutex<()>>,
+    settings: std::sync::Arc<tokio::sync::RwLock<cubical_core::vault::settings::SettingsMap>>,
     vault_id: String,
     lifetime: FlushTimerLifetime,
 ) {
@@ -1100,6 +1101,7 @@ pub fn spawn_flush_timer(
                 loop_vault,
                 flush_own_writes,
                 flush_in_progress,
+                settings,
                 loop_vault_id,
                 loop_cancel,
             )
@@ -1114,11 +1116,12 @@ async fn flush_timer_loop(
     vault: cubical_core::Vault,
     flush_own_writes: FlushOwnWrites,
     flush_in_progress: std::sync::Arc<tokio::sync::Mutex<()>>,
+    settings: std::sync::Arc<tokio::sync::RwLock<cubical_core::vault::settings::SettingsMap>>,
     vault_id: String,
     cancel: tokio_util::sync::CancellationToken,
 ) {
     loop {
-        let secs = read_flush_interval(&vault).await;
+        let secs = read_flush_interval(&settings).await;
         let sleep = tokio::time::sleep(std::time::Duration::from_secs(secs));
         tokio::select! {
             _ = cancel.cancelled() => {
@@ -1203,26 +1206,15 @@ async fn supervise_flush_timer(
     .await;
 }
 
-async fn read_flush_interval(vault: &cubical_core::Vault) -> u64 {
-    let conn = vault.index().connection();
-    let mut rows = match conn
-        .query(
-            "SELECT value FROM config WHERE key = ?1",
-            params![FLUSH_INTERVAL_SECS_KEY],
-        )
+async fn read_flush_interval(
+    settings: &tokio::sync::RwLock<cubical_core::vault::settings::SettingsMap>,
+) -> u64 {
+    settings
+        .read()
         .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            tracing::warn!(error = %e, "flush timer: config query failed; using default");
-            return DEFAULT_FLUSH_INTERVAL_SECS;
-        }
-    };
-    let raw: Option<String> = match rows.next().await {
-        Ok(Some(row)) => row.get(0).ok(),
-        _ => None,
-    };
-    raw.and_then(|s| serde_json::from_str::<u64>(&s).ok())
+        .get(FLUSH_INTERVAL_SECS_KEY)
+        .and_then(serde_json::Value::as_u64)
+        .filter(|secs| *secs > 0)
         .unwrap_or(DEFAULT_FLUSH_INTERVAL_SECS)
 }
 
@@ -3406,18 +3398,85 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn periodic_flush_timer_fires_on_interval_then_stops_on_cancel() {
-        let (_d, vault, _state) = fresh("v1").await;
+    async fn periodic_flush_timer_honours_the_configured_interval() {
+        let (_d, vault, state) = fresh("v1").await;
         std::fs::write(vault.root().join("A.md"), "[[X]]\n").unwrap();
-        vault
-            .index()
-            .connection()
-            .execute(
-                "INSERT INTO config (key, value) VALUES (?1, ?2)",
-                params![FLUSH_INTERVAL_SECS_KEY, "1"],
-            )
-            .await
-            .unwrap();
+
+        crate::commands::vault::set_setting(
+            &state,
+            crate::api::types::SetSettingRequest {
+                vault_id: "v1".into(),
+                key: FLUSH_INTERVAL_SECS_KEY.into(),
+                value: serde_json::json!(1),
+            },
+        )
+        .await
+        .expect("set interval");
+
+        enqueue_pending(
+            vault.index(),
+            &[NewPendingRewrite {
+                target_file: "A.md".into(),
+                rewrite_kind: RewriteKind::WikiLink,
+                old_token: "X".into(),
+                new_token: "Y".into(),
+                created_at: 0,
+                rename_op_id: 1,
+            }],
+        )
+        .await
+        .unwrap();
+
+        let settings = {
+            let guard = state.vaults().read().await;
+            guard.get("v1").unwrap().settings.clone()
+        };
+        let gate: FlushOwnWrites = std::sync::Arc::new(tokio::sync::Mutex::new(HashSet::new()));
+        let guard: std::sync::Arc<tokio::sync::Mutex<()>> =
+            std::sync::Arc::new(tokio::sync::Mutex::new(()));
+        let cancel = CancellationToken::new();
+
+        spawn_flush_timer(
+            std::sync::Arc::new(NoopEventSink),
+            vault.clone(),
+            gate.clone(),
+            guard.clone(),
+            settings,
+            "v1".into(),
+            FlushTimerLifetime {
+                cancel: cancel.clone(),
+                live: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            },
+        );
+
+        let mut drained = false;
+        for _ in 0..30 {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            if pending_count_total(vault.index()).await.unwrap() == 0 {
+                drained = true;
+                break;
+            }
+        }
+        cancel.cancel();
+        assert!(
+            drained,
+            "a flush interval set through set_setting must reach the timer",
+        );
+    }
+
+    #[tokio::test]
+    async fn periodic_flush_timer_fires_on_interval_then_stops_on_cancel() {
+        let (_d, vault, state) = fresh("v1").await;
+        std::fs::write(vault.root().join("A.md"), "[[X]]\n").unwrap();
+        let settings = {
+            let guard = state.vaults().read().await;
+            let handle = guard.get("v1").unwrap().settings.clone();
+            handle
+                .write()
+                .await
+                .insert(FLUSH_INTERVAL_SECS_KEY.into(), serde_json::json!(1));
+            handle
+        };
         enqueue_pending(
             vault.index(),
             &[NewPendingRewrite {
@@ -3442,6 +3501,7 @@ mod tests {
             vault.clone(),
             gate.clone(),
             guard.clone(),
+            settings,
             "v1".into(),
             FlushTimerLifetime {
                 cancel: cancel.clone(),
@@ -3459,6 +3519,182 @@ mod tests {
         }
         cancel.cancel();
         assert!(drained, "periodic timer must have flushed within 3s");
+    }
+
+    #[tokio::test]
+    async fn every_link_shape_is_rewritten_on_disk_by_the_flush() {
+        let (_d, vault, state) = fresh("v1").await;
+        std::fs::create_dir_all(vault.root().join("people")).unwrap();
+        std::fs::write(
+            vault.root().join("people/Gandalf The Grey.md"),
+            "---\nage: 2019\n---\nbody\n",
+        )
+        .unwrap();
+        let referrer = concat!(
+            "plain [[Gandalf The Grey]]\n",
+            "pathform [[people/Gandalf The Grey]]\n",
+            "alias [[Gandalf The Grey|G]]\n",
+            "lower [[gandalf the grey]]\n",
+            "anchor [[Gandalf The Grey#Heading]]\n",
+            "embed ![[Gandalf The Grey]]\n",
+            "prop [[Gandalf The Grey.age]]\n",
+        );
+        std::fs::write(vault.root().join("Notes.md"), referrer).unwrap();
+        let (tx, _rx) = tokio::sync::mpsc::channel(64);
+        cubical_core::vault::scan(vault.clone(), CancellationToken::new(), tx)
+            .await
+            .expect("scan");
+
+        rename_file(
+            &state,
+            &NoopEventSink,
+            RenameFileRequest {
+                vault_id: "v1".into(),
+                from_path: "people/Gandalf The Grey.md".into(),
+                to_path: "people/Mithrandir.md".into(),
+            },
+        )
+        .await
+        .expect("rename");
+
+        let gate: FlushOwnWrites = std::sync::Arc::new(tokio::sync::Mutex::new(HashSet::new()));
+        let guard = std::sync::Arc::new(tokio::sync::Mutex::new(()));
+        flush_all_for_vault(&vault, &gate, &guard, &NoopEventSink, "v1")
+            .await
+            .expect("flush");
+        let after = std::fs::read_to_string(vault.root().join("Notes.md")).unwrap();
+        assert_eq!(
+            after,
+            concat!(
+                "plain [[Mithrandir]]\n",
+                "pathform [[people/Mithrandir]]\n",
+                "alias [[Mithrandir|G]]\n",
+                "lower [[people/Mithrandir]]\n",
+                "anchor [[Mithrandir#Heading]]\n",
+                "embed ![[Mithrandir]]\n",
+                "prop [[Mithrandir.age]]\n",
+            ),
+        );
+    }
+
+    async fn closed_app_case(
+        seed: &[(&str, &str)],
+        from: &str,
+        to: &str,
+    ) -> (Option<String>, Vec<(String, Vec<String>)>) {
+        let dir = tempdir().unwrap();
+        for (rel, body) in seed {
+            let abs = dir.path().join(rel);
+            std::fs::create_dir_all(abs.parent().unwrap()).unwrap();
+            std::fs::write(abs, body).unwrap();
+        }
+        {
+            let vault = Vault::open(dir.path()).await.expect("open");
+            let (tx, _rx) = tokio::sync::mpsc::channel(64);
+            cubical_core::vault::scan(vault.clone(), CancellationToken::new(), tx)
+                .await
+                .expect("scan");
+            vault
+                .index()
+                .connection()
+                .execute("UPDATE files SET last_seen = last_seen - 60", ())
+                .await
+                .unwrap();
+        }
+        let to_abs = dir.path().join(to);
+        std::fs::create_dir_all(to_abs.parent().unwrap()).unwrap();
+        std::fs::rename(dir.path().join(from), to_abs).unwrap();
+
+        let vault = Vault::open(dir.path()).await.expect("reopen");
+        let (tx, _rx) = tokio::sync::mpsc::channel(64);
+        cubical_core::vault::scan(vault.clone(), CancellationToken::new(), tx)
+            .await
+            .expect("rescan");
+
+        let state = AppState::new();
+        state.vaults().write().await.insert(
+            "v1".to_string(),
+            OpenVault::new(
+                vault.clone(),
+                CancellationToken::new(),
+                ScanStatusBackend::Complete,
+                None,
+                cubical_core::vault::settings::SettingsMap::new(),
+            ),
+        );
+        replay_rename_journal(&vault, &NoopEventSink, "v1").await;
+
+        let mut rows = vault
+            .index()
+            .connection()
+            .query(
+                "SELECT target_path FROM links WHERE source_path = 'Notes.md'",
+                (),
+            )
+            .await
+            .unwrap();
+        let resolved: Option<String> = match rows.next().await.unwrap() {
+            Some(r) => r.get(0).unwrap(),
+            None => None,
+        };
+        drop(rows);
+
+        let dangling = crate::commands::integrity::list_dangling_links(
+            &state,
+            crate::api::types::ListDanglingLinksRequest {
+                vault_id: "v1".into(),
+                limit: None,
+            },
+        )
+        .await
+        .unwrap();
+        let groups = dangling
+            .groups
+            .into_iter()
+            .map(|g| {
+                (
+                    g.target_raw,
+                    g.candidates.into_iter().map(|c| c.path).collect::<Vec<_>>(),
+                )
+            })
+            .collect();
+        (resolved, groups)
+    }
+
+    const NOTES: (&str, &str) = ("Notes.md", "see [[Daily]]\n");
+
+    #[tokio::test]
+    async fn a_move_made_while_the_app_was_closed_still_resolves_by_name() {
+        let (resolved, _) = closed_app_case(
+            &[("Daily.md", "# Daily\n"), NOTES],
+            "Daily.md",
+            "archive/Daily.md",
+        )
+        .await;
+        assert_eq!(resolved.as_deref(), Some("archive/Daily.md"));
+    }
+
+    #[tokio::test]
+    async fn a_case_only_rename_made_while_the_app_was_closed_still_resolves() {
+        let (resolved, _) =
+            closed_app_case(&[("Daily.md", "# Daily\n"), NOTES], "Daily.md", "daily.md").await;
+        assert_eq!(resolved.as_deref(), Some("daily.md"));
+    }
+
+    #[tokio::test]
+    async fn a_closed_app_rename_is_offered_for_repair_when_the_title_survives() {
+        let (resolved, groups) = closed_app_case(
+            &[("Daily.md", "---\ntitle: Daily\n---\n"), NOTES],
+            "Daily.md",
+            "Journal.md",
+        )
+        .await;
+        assert_eq!(resolved, None, "the link is dangling");
+        assert_eq!(
+            groups,
+            vec![("Daily".to_string(), vec!["Journal.md".to_string()])],
+            "the frontmatter title carries the old name, so Integrity can offer the file",
+        );
     }
 
     struct PanicOnFirstFlushSink {
@@ -3488,16 +3724,12 @@ mod tests {
         out
     }
 
-    async fn set_flush_interval_secs(vault: &Vault, secs: &str) {
-        vault
-            .index()
-            .connection()
-            .execute(
-                "INSERT INTO config (key, value) VALUES (?1, ?2)",
-                params![FLUSH_INTERVAL_SECS_KEY, secs],
-            )
-            .await
-            .unwrap();
+    fn flush_interval_settings(
+        secs: u64,
+    ) -> std::sync::Arc<tokio::sync::RwLock<cubical_core::vault::settings::SettingsMap>> {
+        let mut map = cubical_core::vault::settings::SettingsMap::new();
+        map.insert(FLUSH_INTERVAL_SECS_KEY.into(), serde_json::json!(secs));
+        std::sync::Arc::new(tokio::sync::RwLock::new(map))
     }
 
     fn queue_rewrite(target: &str) -> NewPendingRewrite {
@@ -3516,7 +3748,6 @@ mod tests {
         let (_d, vault, _state) = fresh("v1").await;
         std::fs::write(vault.root().join("A.md"), "[[X]]\n").unwrap();
         std::fs::write(vault.root().join("B.md"), "[[X]]\n").unwrap();
-        set_flush_interval_secs(&vault, "1").await;
         enqueue_pending(vault.index(), &[queue_rewrite("A.md")])
             .await
             .unwrap();
@@ -3529,6 +3760,7 @@ mod tests {
             vault.clone(),
             std::sync::Arc::new(tokio::sync::Mutex::new(HashSet::new())),
             std::sync::Arc::new(tokio::sync::Mutex::new(())),
+            flush_interval_settings(1),
             "v1".into(),
             FlushTimerLifetime {
                 cancel: cancel.clone(),
@@ -3608,7 +3840,6 @@ mod tests {
     #[tokio::test]
     async fn a_cancelled_flush_timer_is_not_reported_as_dead() {
         let (_d, vault, _state) = fresh("v1").await;
-        set_flush_interval_secs(&vault, "1").await;
         let live = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
         let cancel = CancellationToken::new();
 
@@ -3617,6 +3848,7 @@ mod tests {
             vault.clone(),
             std::sync::Arc::new(tokio::sync::Mutex::new(HashSet::new())),
             std::sync::Arc::new(tokio::sync::Mutex::new(())),
+            flush_interval_settings(1),
             "v1".into(),
             FlushTimerLifetime {
                 cancel: cancel.clone(),

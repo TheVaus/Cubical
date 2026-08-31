@@ -19,6 +19,7 @@ export interface WikiLinkResolver {
   fetch(targetRaw: string): void;
   resolve(targetRaw: string): Promise<WikiLinkResolution>;
   invalidate(): void;
+  markStale(): void;
   onUpdate(handler: () => void): () => void;
   debug(): ResolverDebugState;
   onEvent(handler: (e: ResolverEvent) => void): () => void;

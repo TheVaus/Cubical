@@ -17,6 +17,7 @@ export interface PropertyResolver {
   fetch(note: string, property: string): void;
   resolve(note: string, property: string): Promise<GetPropertyResponse>;
   invalidate(): void;
+  markStale(): void;
   onUpdate(handler: () => void): () => void;
   version(): number;
 }
@@ -37,6 +38,7 @@ export function createPropertyResolver(
     fetch: (note, property) => inner.fetch({ note, property }),
     resolve: (note, property) => inner.resolve({ note, property }),
     invalidate: () => inner.invalidate(),
+    markStale: () => inner.markStale(),
     onUpdate: (handler) => inner.onUpdate(handler),
     version: () => inner.version(),
   };

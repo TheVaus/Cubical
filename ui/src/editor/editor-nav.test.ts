@@ -87,6 +87,7 @@ function makeResolver() {
     fetch: () => undefined,
     resolve: async () => RESOLVED_EMBED,
     invalidate: () => undefined,
+    markStale: () => undefined,
     onUpdate: () => () => undefined,
     debug: () => ({
       cacheSize: 0,

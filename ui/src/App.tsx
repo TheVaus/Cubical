@@ -95,6 +95,10 @@ import {
 import { fromTabSessionDto, toTabSessionDto } from "./tabs/session";
 import { activateWithFlush, type ActivationDeps } from "./tabs/activation";
 import { liveFileIds, touch } from "./tabs/lru";
+import { pruneContents, remapContentKeys } from "./tabs/contentCache";
+import { resetResolvers, revalidateResolvers } from "./editor/resolverRefresh";
+import type { ResolverGroup } from "./editor/resolverRefresh";
+
 import { errorMessage } from "./errorMessage";
 import {
   createWikiLinkResolver,
@@ -414,11 +418,7 @@ const App: Component = () => {
     for (const id of [...editorApis.keys()]) {
       if (!keep.has(id)) editorApis.delete(id);
     }
-    untrack(() => {
-      for (const id of Object.keys(contents)) {
-        if (!keep.has(id)) setContents(produce((c) => delete c[id]));
-      }
-    });
+    untrack(() => pruneContents(setContents, contents, (id) => keep.has(id)));
   });
 
   const doc = createDocumentSession({
@@ -580,20 +580,9 @@ const App: Component = () => {
         }
         return out;
       });
-      setContents(
-        produce((c) => {
-          for (const oldId of Object.keys(c)) {
-            const next = renamedId(oldId);
-            if (next === oldId) continue;
-            if (!(next in c)) c[next] = c[oldId]!;
-            delete c[oldId];
-          }
-        }),
-      );
-      wikilinkResolver()?.invalidate();
-      embedResolver()?.invalidate();
-      propertyResolver()?.invalidate();
-      dataviewRunner()?.invalidate();
+      remapContentKeys(setContents, contents, renamedId);
+      resetResolvers(resolvers());
+      await doc.refreshFromDisk();
       void refreshFileList();
       rightSidebarRefresh.schedule();
     } catch (e) {
@@ -668,6 +657,13 @@ const App: Component = () => {
       setSelectedContent(null);
     }
   };
+
+  const resolvers = (): ResolverGroup => ({
+    wikilink: wikilinkResolver(),
+    embed: embedResolver(),
+    property: propertyResolver(),
+    dataview: dataviewRunner(),
+  });
 
   const resetDocState = () => {
     setError(null);
@@ -875,13 +871,7 @@ const App: Component = () => {
         if (p.vault_id !== vaultId()) return;
         scheduleRefresh();
 
-        const ownWrite = doc.isOwnWriteEchoOf(p.path, p.new_content_hash);
-        if (!ownWrite) {
-          wikilinkResolver()?.invalidate();
-          embedResolver()?.invalidate();
-          propertyResolver()?.invalidate();
-          dataviewRunner()?.invalidate();
-        }
+        revalidateResolvers(resolvers());
 
         rightSidebarRefresh.schedule();
 
@@ -901,6 +891,7 @@ const App: Component = () => {
       onVaultPendingRewritesChanged((p) => {
         if (p.vault_id !== vaultId()) return;
         setPendingRewritesCount(p.count);
+        void doc.refreshFromDisk();
       }),
     );
     await vaultListeners.attach("vault:flush-complete", () =>
