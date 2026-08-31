@@ -56,6 +56,7 @@ Prohibitions, because these are what priors override:
 | What exists right now? | [`generated/`](docs/generated/) |
 | Anything else | [`docs/README.md`](docs/README.md) |
 | What's next / broken | GitHub Issues — no milestone means unscheduled |
+| Effort too foggy to plan, or an issue not yet takeable | `/wayfinder` · `/triage` |
 
 ## Commands
 

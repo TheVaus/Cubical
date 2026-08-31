@@ -75,7 +75,7 @@ GENERATED_DIRS = [".superpowers", ".vite", "node_modules", "target"]
 # check_nested() — a curated row for a directory that no longer exists is an
 # error, not a silently-emitted lie.
 NESTED = [
-    (".agents/skills", False, "Skill definitions (`grill-me`, `grilling`), pinned by `skills-lock.json`."),
+    (".agents/skills", False, "Skill definitions, vendored and pinned by `skills-lock.json`; each carries its own `Local edits` section describing how it diverges from upstream."),
     (".claude/agents", False, "Subagent definitions (`explorer`, `implementer`, `verifier`) the session contract dispatches to."),
     (".claude/skills", False, "Symlinks into `.agents/skills/` so Claude Code picks them up."),
     (".claude/worktrees", True, "Scratch git worktrees. Contains full repo checkouts — exclude it from any recursive search."),
