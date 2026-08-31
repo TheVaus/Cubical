@@ -268,7 +268,7 @@ O(rewrites × len) — fine under the per-file ceiling.
 
 ## Rename durability journal
 
-**Anchors:** RenameJournalEntry · serialize_entry · parse_all · compact · append_entry
+**Anchors:** RenameJournalEntry · serialize_entry · parse_all · compact · append_entry · read_journal · parse_read
 
 `pending_rewrites` is the one piece of index state that is **not derivable**
 from the `.md` files, while the file move itself is committed to disk
@@ -280,6 +280,56 @@ The journal closes that hole: an append-only JSONL log in `.cubical/`, one
 object per rename op — zero `.md` bytes, no UUIDs, portable. The core module is
 pure (serialize / parse / compact); file I/O and scan integration live with the
 command layer. See [`engine-ipc.md`](engine-ipc.md) for replay.
+
+**An absent journal and an unreadable one are different facts.** `read_journal`
+returns an `io::Result`: only `NotFound` collapses to "no entries", every other
+I/O failure — a directory in its place, non-UTF-8 bytes, a permission error —
+surfaces. Reporting both as an empty list would let a caller conclude "nothing
+to recover" about a journal it never managed to read, which is exactly the
+premise an index rebuild rests on. Malformed *lines* are likewise counted
+rather than dropped: `parse_read` yields the entries it could parse **and**
+`malformed_lines`, and `is_intact()` is the question a destructive caller asks.
+Replay still tolerates a torn line — skipping one entry recovers less, wiping
+past one recovers nothing.
+
+## Index recovery
+
+**Anchors:** open_index_recovering · is_unusable_database · quarantine_path · INDEX_REBUILT
+
+A corrupt `index.db` used to be terminal: `Vault::open` requires the index, so
+one unreadable file took every feature down with no way back. The index is
+disposable by
+[`derived-state-disposable`](../principles/derived-state-disposable.md), so the
+answer is to rebuild it — but only under conditions that keep the one
+non-derivable piece safe.
+
+**Order is the safety property.** The journal is read *before* the database is
+touched, and a rebuild proceeds only when `read_journal` succeeds and the read
+`is_intact()`. If the journal cannot be read, the original index error is
+returned unchanged: a vault that will not open is recoverable by hand, a vault
+whose pending rewrites were deleted is not. The journal file itself is never
+written during recovery — leaving it exactly where it was is what makes the
+entries survive; replay picks them up after the rescan repopulates `files` and
+`links`.
+
+**Only an unusable database qualifies.** `is_unusable_database` matches the two
+SQLite primary result codes that mean the bytes are not a database this build
+can read — `SQLITE_CORRUPT` (11) and `SQLITE_NOTADB` (26), masked to the
+primary code so extended codes classify the same. Everything else stays
+terminal on purpose: `SchemaTooNew` means a *newer* Cubical wrote the file and
+wiping it would destroy a forward-compatible index; `SQLITE_CANTOPEN` (14) is a
+directory in the way or a permission problem, not corruption; a failed
+migration returns its own error and the rolled-back database is still good.
+
+**Moved aside, not deleted.** The file goes to `index.db.corrupt` (and its
+`-wal` / `-shm` sidecars alongside, best-effort — SQLite usually removes them
+itself when the failed open closes). A single quarantine slot is overwritten by
+the next corruption: bounded junk in `.cubical/` beats an unbounded pile of
+timestamped carcasses, and only the most recent failure is diagnostically
+interesting. The rebuild is recorded in `audit_log` at warn level under
+`index_rebuilt`, carrying the SQLite error, the quarantine path and how many
+journal entries were held. `search_rebuilt` records the same for the search
+directory.
 
 ## Unlinked mentions
 

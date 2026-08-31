@@ -1397,7 +1397,9 @@ async fn prune_materialized_journal(vault: &cubical_core::Vault) {
 }
 
 async fn prune_materialized_journal_inner(vault: &cubical_core::Vault) -> Result<(), CubicalError> {
-    let entries = cubical_core::vault::rename_journal::read_entries(vault.root());
+    let entries = cubical_core::vault::rename_journal::read_journal(vault.root())
+        .map_err(|e| CubicalError::Io(format!("reading the rename journal: {e}")))?
+        .entries;
     if entries.is_empty() {
         return Ok(());
     }
@@ -1440,7 +1442,9 @@ async fn replay_rename_journal_inner(
     app: &dyn EventSink,
     vault_id: &str,
 ) -> Result<(), CubicalError> {
-    let entries = cubical_core::vault::rename_journal::read_entries(vault.root());
+    let entries = cubical_core::vault::rename_journal::read_journal(vault.root())
+        .map_err(|e| CubicalError::Io(format!("reading the rename journal: {e}")))?
+        .entries;
     if entries.is_empty() {
         return Ok(());
     }
@@ -1527,6 +1531,14 @@ mod tests {
             ),
         );
         (dir, vault, state)
+    }
+
+    fn read_entries(
+        root: &std::path::Path,
+    ) -> Vec<cubical_core::vault::rename_journal::RenameJournalEntry> {
+        cubical_core::vault::rename_journal::read_journal(root)
+            .expect("journal is readable")
+            .entries
     }
 
     async fn seed_file(vault: &Vault, rel: &str, type_id: &str) {
@@ -1892,7 +1904,6 @@ mod tests {
 
     #[tokio::test]
     async fn rename_file_appends_durability_journal() {
-        use cubical_core::vault::rename_journal::read_entries;
         let (_d, vault, state) = fresh("v1").await;
         seed_one_referrer_to_daily(&vault).await;
 
@@ -1917,7 +1928,7 @@ mod tests {
 
     #[tokio::test]
     async fn replay_rename_journal_reconnects_after_index_wipe() {
-        use cubical_core::vault::rename_journal::{append_entry, read_entries, RenameJournalEntry};
+        use cubical_core::vault::rename_journal::{append_entry, RenameJournalEntry};
         use cubical_index::backlinks_for;
         let (_d, vault, state) = fresh("v1").await;
         let _ = &state;
@@ -1971,8 +1982,75 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn pending_rewrites_survive_a_corrupt_index_rebuild() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        std::fs::write(root.join("Project.md"), "see [[Daily]]\n").unwrap();
+
+        {
+            let vault = Vault::open(&root).await.expect("first open");
+            let state = AppState::new();
+            state.vaults().write().await.insert(
+                "v1".into(),
+                OpenVault::new(
+                    vault.clone(),
+                    CancellationToken::new(),
+                    ScanStatusBackend::Complete,
+                    None,
+                    cubical_core::vault::settings::SettingsMap::new(),
+                ),
+            );
+            seed_one_referrer_to_daily(&vault).await;
+
+            rename_file(
+                &state,
+                &NoopEventSink,
+                RenameFileRequest {
+                    vault_id: "v1".into(),
+                    from_path: "Daily.md".into(),
+                    to_path: "Journal.md".into(),
+                },
+            )
+            .await
+            .expect("rename");
+
+            assert_eq!(pending_count_total(vault.index()).await.unwrap(), 1);
+            assert_eq!(read_entries(&root).len(), 1);
+        }
+
+        let db = root.join(".cubical").join("index.db");
+        std::fs::write(&db, vec![0x5au8; 8192]).unwrap();
+
+        let vault = Vault::open(&root).await.expect("corrupt index rebuilds");
+        assert_eq!(
+            pending_count_total(vault.index()).await.unwrap(),
+            0,
+            "the rebuilt index starts empty",
+        );
+
+        let (tx, mut rx) = tokio::sync::mpsc::channel(64);
+        let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+        cubical_core::vault::scan(vault.clone(), CancellationToken::new(), tx)
+            .await
+            .expect("rescan");
+        drain.await.unwrap();
+
+        replay_rename_journal(&vault, &NoopEventSink, "v1").await;
+
+        let p = pending_for_target(vault.index(), "Project.md")
+            .await
+            .unwrap();
+        assert_eq!(
+            p.len(),
+            1,
+            "the queued rewrite is recovered from the journal after the index was destroyed",
+        );
+        assert_eq!(p[0].old_token, "Daily");
+        assert_eq!(p[0].new_token, "Journal");
+    }
+
+    #[tokio::test]
     async fn flush_prunes_materialized_journal_entry() {
-        use cubical_core::vault::rename_journal::read_entries;
         let (_d, vault, state) = fresh("v1").await;
         seed_one_referrer_to_daily(&vault).await;
         std::fs::write(vault.root().join("Project.md"), "see [[Daily]]\n").unwrap();

@@ -1622,10 +1622,14 @@ mod tests {
         use crate::api::types::{FlushPendingRewritesRequest, RenameFileRequest};
         use crate::commands::rename::{flush_pending_rewrites, rename_file};
         use crate::state::AppState;
-        use cubical_core::vault::rename_journal::{read_entries, RenameJournalEntry};
+        use cubical_core::vault::rename_journal::{read_journal, RenameJournalEntry};
         use cubical_core::{start_watcher, WatcherHandle};
         use std::time::Duration;
         use tempfile::TempDir;
+
+        fn read_entries(root: &std::path::Path) -> Vec<RenameJournalEntry> {
+            read_journal(root).expect("journal is readable").entries
+        }
 
         const POLL_STEP: Duration = Duration::from_millis(25);
 
