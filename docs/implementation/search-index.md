@@ -51,12 +51,11 @@ Fix it forward with a new one.**
 
 ## Dataview queries (`cubical-query`)
 
-**Anchors:** json_extract
+**Anchors:** json_extract · Relation · conformance
 
-A small `LIST` / `TABLE` / `COUNT` DSL with `FROM` / `WHERE` / `SORT`, compiled
-to parameterized SQL over the index tables.
-
-Two invariants:
+A small `LIST` / `TABLE` / `COUNT` DSL with `FROM` / `WHERE` / `SORT`. One
+grammar and one AST serve two record sources: notes in the index, and
+`.csv` / `.tsv` / `.xlsx` / `.xlsm` data files decoded by `cubical-table`.
 
 - Frontmatter values are stored as JSON-encoded text, so every comparison and
   projection goes through `json_extract(value,'$')` to unwrap to a native
@@ -64,6 +63,112 @@ Two invariants:
 - **Every literal and key is a bound parameter — never interpolated.** This is
   what makes a user-authored query block unable to inject SQL. Do not "just
   format" a value into the SQL string.
+
+### One language, two executors
+
+`Relation` picks the executor: `Relation::Index` compiles the AST to
+parameterized SQL, `Relation::Table` filters a decoded table in memory.
+Notes go through SQL because they are already indexed; a data file is read
+per query because indexing arbitrary spreadsheet rows would put unbounded
+derived state in the index for no gain.
+
+The parser stays free of file formats. `FROM "…"` yields `Source::Path`, a
+path and nothing more; whether it names a folder or a data file is decided at
+resolution time by what is on disk. A matching extension only makes the engine
+*look*: a directory named `archive.csv/` resolves to a directory, so the query
+falls through to the folder search rather than failing. Only a path that
+matches an extension and exists as neither reports a missing file. The
+`#SheetName` fragment is likewise plain path text until the engine splits it.
+
+`cubical-engine` owns resolution because it is the layer that may use
+`vault::relpath` — layer 1 cannot reach up to it, and a second containment
+check living next to the executor would be a second answer to a question that
+already has an owner.
+
+### The semantics both executors must agree on
+
+Two implementations of one language drift silently, so the rules live in the
+`conformance` suite: the same logical records materialized both as index rows
+and as a table, every case asserted equal through both executors. A new clause
+is not done until it has a case there.
+
+- Comparison follows the **literal's** type. A string literal compares against
+  the value's text form, a number literal against its numeric form, a boolean
+  against its boolean form. A value with no form of that type never matches —
+  which is why `WHERE code >= 0` skips a `code` of `"x1"` instead of coercing
+  it to zero.
+- **A missing value never matches any comparison, including `!=`.** On the SQL
+  side that is the `EXISTS` wrapper; on the table side an absent column or an
+  empty cell. `WHERE status != "done"` therefore does not surface records that
+  have no `status` at all.
+- `SORT` puts missing values last in **both** directions. Among present values
+  ascending orders numbers before text; descending reverses that, text first.
+  Only the missing-last rule is direction-independent.
+- **A boolean is its own type, not one and zero.** SQLite disagrees —
+  `json_extract` unwraps a JSON boolean to the integer `1`, whose `typeof` is
+  `integer` and whose `CAST … AS TEXT` is `'1'` — so the planner normalizes
+  booleans back to `'true'`/`'false'` before comparing, ordering or projecting
+  them. Without that a boolean answers a number literal, compares as `"1"`, and
+  renders as `1` on the note side while the table side says `true`. Every SQL
+  site shares one `normalized` expression so the three cannot drift apart
+  again.
+
+### What conformance certifies, and what it cannot
+
+The suite compares *logical values carrying the same declared type* through both
+executors. Where a format's own type system genuinely differs, the executors are
+allowed to differ with it, and those cases sit outside what the suite can assert:
+
+- **A YAML string that looks numeric has no numeric form; a CSV cell does.** The
+  fixture therefore builds its cells explicitly rather than through
+  `Cell::from_text`, so a real `code=007` in a CSV answers `>= 0` where the
+  frontmatter `"007"` does not. Deliberate, not an oversight.
+- **CSV cannot say "present but empty".** A blank cell is missing, so it matches
+  nothing. YAML can: `status: ""` is a present empty string, so it matches
+  `= ""` and `!= "done"`. A blank CSV cell does neither.
+- **Ties break on different things because notes have a path and rows do not.**
+  Equal sort keys fall back to `files.path` for notes and to the file's original
+  row order for a table. A CSV whose rows are not in first-column order will tie
+  differently from the equivalent notes, and row order is the better answer for a
+  file the user arranged by hand.
+
+A file format's own type system is the one thing that legitimately shows
+through. YAML declares its types, so a frontmatter `"3"` is a string with no
+numeric form; CSV declares nothing, so a cell reading `3` carries both a text
+and a numeric form and answers to either literal. `Cell` keeps the original
+text alongside the inferred forms precisely so that inference never destroys
+what the file said — a `code` of `007` still equals the string `"007"`.
+
+### Decoding data files (`cubical-table`)
+
+**Anchors:** TableCache · supports_extension
+
+`.csv` / `.tsv` via the `csv` crate, `.xlsx` / `.xlsm` via `calamine`; first row
+is the header, remaining rows are data, and an empty file or sheet is an empty
+table rather than an error. A `#SheetName` fragment selects a sheet and a bare
+workbook path takes the first one.
+
+- **`Cell` is lossless.** `text` is always what the file said; `num` and
+  `boolean` are *additional* readings layered on top. Type detection trims,
+  `text` does not. This is what lets a `007` answer both `= "007"` and a
+  numeric comparison without the inference destroying the original.
+- Excel dates render as ISO-8601 strings with no numeric form, so they compare
+  the way frontmatter dates already do. Formula cells read their cached value;
+  nothing is evaluated.
+- **The cache's correctness comes from the `stat`, never from an event.** Every
+  load stats the file and re-decodes when mtime or size moved, and a decode is
+  only stored when the stat is *still* unchanged afterwards, so a file rewritten
+  mid-decode is returned but never retained. `invalidate` is an optimization for
+  a caller that already knows: forgetting it costs one extra `stat`, never a
+  stale read. That independence is the point — an event-invalidated cache would
+  be a second freshness protocol to keep in step with the watcher.
+
+### Results
+
+A result row's link is optional. Note rows carry a `NoteRef` and the table
+result sets `row_label` to `File`; data-file rows carry neither, and the
+renderer omits the leading column rather than inventing a path for a
+spreadsheet row.
 
 ## Full-text search (`cubical-search`)
 

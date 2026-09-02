@@ -28,6 +28,7 @@ CONFIG = ROOT / "scripts" / "dependency-boundary.json"
 LAYERS = {
     "cubical-ast": 0,
     "cubical-index": 0,
+    "cubical-table": 0,
     "cubical-graph": 1,
     "cubical-search": 1,
     "cubical-query": 1,

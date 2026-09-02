@@ -127,12 +127,16 @@ async fn titles_by_feature(state: &AppState) -> BTreeMap<&'static str, BTreeMap<
     )
     .await
     .expect("dataview");
-    let DataviewResult::List { notes } = dataview else {
+    let DataviewResult::List { items } = dataview else {
         panic!("expected a LIST result");
     };
     out.insert(
         "dataview",
-        notes.into_iter().map(|n| (n.path, n.title)).collect(),
+        items
+            .into_iter()
+            .filter_map(|i| i.note)
+            .map(|n| (n.path, n.title))
+            .collect(),
     );
 
     let snapshot = graph_snapshot(

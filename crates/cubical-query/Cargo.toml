@@ -9,6 +9,7 @@ authors.workspace = true
 [dependencies]
 cubical-ast = { path = "../cubical-ast" }
 cubical-index = { path = "../cubical-index" }
+cubical-table = { path = "../cubical-table" }
 libsql.workspace = true
 serde = { workspace = true, features = ["derive"] }
 thiserror.workspace = true

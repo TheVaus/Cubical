@@ -648,11 +648,12 @@ pub struct DataviewQueryRequest {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum DataviewResult {
     List {
-        notes: Vec<cubical_query::NoteRef>,
+        items: Vec<cubical_query::ListItem>,
     },
     Table {
         columns: Vec<String>,
         rows: Vec<cubical_query::Row>,
+        row_label: Option<String>,
     },
     Count {
         count: usize,
@@ -665,8 +666,16 @@ pub enum DataviewResult {
 impl From<cubical_query::QueryResult> for DataviewResult {
     fn from(r: cubical_query::QueryResult) -> Self {
         match r {
-            cubical_query::QueryResult::List { notes } => Self::List { notes },
-            cubical_query::QueryResult::Table { columns, rows } => Self::Table { columns, rows },
+            cubical_query::QueryResult::List { items } => Self::List { items },
+            cubical_query::QueryResult::Table {
+                columns,
+                rows,
+                row_label,
+            } => Self::Table {
+                columns,
+                rows,
+                row_label,
+            },
             cubical_query::QueryResult::Count { count } => Self::Count { count },
         }
     }

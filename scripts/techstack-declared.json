@@ -16,7 +16,9 @@
   "rust": [
     "anyhow",
     "base64",
+    "calamine",
     "clap",
+    "csv",
     "cubical-ast",
     "cubical-core",
     "cubical-engine",
@@ -25,6 +27,7 @@
     "cubical-ipc",
     "cubical-query",
     "cubical-search",
+    "cubical-table",
     "dirs",
     "futures-util",
     "libsql",

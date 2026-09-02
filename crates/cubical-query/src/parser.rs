@@ -200,8 +200,8 @@ impl Parser {
         }
         match self.bump() {
             Some(Tok::Tag(t)) => Ok(Some(Source::Tag(t))),
-            Some(Tok::Str(s)) => Ok(Some(Source::Folder(s))),
-            _ => Err(ParseError::new("expected #tag or \"folder\" after FROM")),
+            Some(Tok::Str(s)) => Ok(Some(Source::Path(s))),
+            _ => Err(ParseError::new("expected #tag or a quoted path after FROM")),
         }
     }
 
@@ -301,9 +301,21 @@ mod tests {
     }
 
     #[test]
-    fn parses_from_folder() {
+    fn parses_from_path() {
         let q = parse(r#"LIST FROM "areas/health""#).unwrap();
-        assert_eq!(q.source, Some(Source::Folder("areas/health".into())));
+        assert_eq!(q.source, Some(Source::Path("areas/health".into())));
+    }
+
+    #[test]
+    fn a_data_file_path_parses_as_a_plain_path() {
+        let q = parse(r#"LIST FROM "data/sales.csv""#).unwrap();
+        assert_eq!(q.source, Some(Source::Path("data/sales.csv".into())));
+    }
+
+    #[test]
+    fn a_sheet_fragment_stays_inside_the_path_string() {
+        let q = parse(r#"LIST FROM "data/book.xlsx#Q3""#).unwrap();
+        assert_eq!(q.source, Some(Source::Path("data/book.xlsx#Q3".into())));
     }
 
     #[test]
