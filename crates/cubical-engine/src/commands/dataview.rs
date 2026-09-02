@@ -1,8 +1,94 @@
+use std::path::Path;
+use std::sync::Arc;
+
+use cubical_core::vault::relpath::contained_join;
+use cubical_query::{Query, Relation, Source};
+use cubical_table::{Table, TableCache};
+
 use crate::api::types::{DataviewQueryRequest, DataviewResult};
 use crate::commands::open::open_vault_cloned_for;
 use crate::error::CubicalError;
 use crate::plugins::Feature;
 use crate::state::AppState;
+
+fn extension_of(path: &str) -> Option<&str> {
+    let name = path.rsplit('/').next()?;
+    let dot = name.rfind('.')?;
+    if dot == 0 {
+        return None;
+    }
+    Some(&name[dot + 1..])
+}
+
+fn names_a_data_file(path: &str) -> bool {
+    extension_of(path).is_some_and(cubical_table::supports_extension)
+}
+
+fn split_sheet(raw: &str) -> (&str, Option<&str>) {
+    match raw.rsplit_once('#') {
+        Some((path, sheet)) if !sheet.is_empty() && names_a_data_file(path) => (path, Some(sheet)),
+        _ => (raw, None),
+    }
+}
+
+fn data_file_source(query: &Query) -> Option<(&str, Option<&str>)> {
+    match &query.source {
+        Some(Source::Path(raw)) => {
+            let (path, sheet) = split_sheet(raw);
+            names_a_data_file(path).then_some((path, sheet))
+        }
+        _ => None,
+    }
+}
+
+async fn load_table(
+    cache: Arc<TableCache>,
+    abs: std::path::PathBuf,
+    sheet: Option<String>,
+) -> Result<Arc<Table>, String> {
+    let loaded = tokio::task::spawn_blocking(move || {
+        cache
+            .load(&abs, sheet.as_deref())
+            .map_err(|e| e.to_string())
+    })
+    .await;
+    match loaded {
+        Ok(result) => result,
+        Err(e) => Err(format!("reading the data file failed: {e}")),
+    }
+}
+
+async fn run_over_data_file(
+    cache: Arc<TableCache>,
+    root: &Path,
+    path: &str,
+    sheet: Option<&str>,
+    query: &Query,
+) -> DataviewResult {
+    let abs = match contained_join(root, path) {
+        Ok((_, abs)) => abs,
+        Err(e) => {
+            return DataviewResult::Error {
+                message: e.to_string(),
+            }
+        }
+    };
+    if !abs.is_file() {
+        return DataviewResult::Error {
+            message: format!("no such file in this vault: {path}"),
+        };
+    }
+    let table = match load_table(cache, abs, sheet.map(str::to_string)).await {
+        Ok(table) => table,
+        Err(message) => return DataviewResult::Error { message },
+    };
+    match cubical_query::run(Relation::Table(&table), query).await {
+        Ok(result) => result.into(),
+        Err(e) => DataviewResult::Error {
+            message: e.to_string(),
+        },
+    }
+}
 
 pub async fn dataview_query(
     state: &AppState,
@@ -18,7 +104,12 @@ pub async fn dataview_query(
             })
         }
     };
-    match cubical_query::run(vault.index(), &query).await {
+
+    if let Some((path, sheet)) = data_file_source(&query) {
+        return Ok(run_over_data_file(state.tables(), vault.root(), path, sheet, &query).await);
+    }
+
+    match cubical_query::run(Relation::Index(vault.index()), &query).await {
         Ok(result) => Ok(result.into()),
         Err(e) => Ok(DataviewResult::Error {
             message: e.to_string(),
@@ -84,6 +175,203 @@ mod tests {
         "---\nstatus: done\npriority: 1\ndue_date: \"2026-06-01\"\ntags: [project]\n---\n# Beta\n";
     const GAMMA: &str = "---\nstatus: in-progress\npriority: 2\ndue_date: \"2026-08-15\"\ntags: [project]\n---\n# Gamma\n";
 
+    const SALES_CSV: &str = "region,amount,note\nEU,120,\"has, comma\"\nUS,80,plain\nAPAC,300,\n";
+
+    async fn state_with_data_file(rel: &str, body: &str) -> (TempDir, AppState) {
+        let dir = tempdir().unwrap();
+        let target = dir.path().join(rel);
+        fs::create_dir_all(target.parent().unwrap()).unwrap();
+        fs::write(&target, body).unwrap();
+        let vault = Vault::open(dir.path()).await.expect("open");
+        let state = AppState::new();
+        state.vaults().write().await.insert(
+            "v1".to_string(),
+            OpenVault::new(
+                vault,
+                CancellationToken::new(),
+                ScanStatusBackend::Complete,
+                None,
+                cubical_core::vault::settings::SettingsMap::new(),
+            ),
+        );
+        (dir, state)
+    }
+
+    #[tokio::test]
+    async fn a_csv_table_projects_its_own_columns_with_no_file_column() {
+        let (_d, state) = state_with_data_file("data/sales.csv", SALES_CSV).await;
+        match run_query(
+            &state,
+            "v1",
+            r#"TABLE region, amount FROM "data/sales.csv" WHERE amount >= 100 SORT amount DESC"#,
+        )
+        .await
+        {
+            DataviewResult::Table {
+                columns,
+                rows,
+                row_label,
+            } => {
+                assert_eq!(row_label, None);
+                assert_eq!(columns, vec!["region".to_string(), "amount".to_string()]);
+                let regions: Vec<_> = rows.iter().map(|r| r.cells[0].as_str()).collect();
+                assert_eq!(regions, vec!["APAC", "EU"]);
+                assert!(rows.iter().all(|r| r.note.is_none()));
+            }
+            other => panic!("expected a table, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_csv_list_uses_the_first_column_and_links_nothing() {
+        let (_d, state) = state_with_data_file("data/sales.csv", SALES_CSV).await;
+        match run_query(&state, "v1", r#"LIST FROM "data/sales.csv""#).await {
+            DataviewResult::List { items } => {
+                let texts: Vec<_> = items.iter().map(|i| i.text.as_str()).collect();
+                assert_eq!(texts, vec!["EU", "US", "APAC"]);
+                assert!(items.iter().all(|i| i.note.is_none()));
+            }
+            other => panic!("expected a list, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_csv_count_counts_matching_rows() {
+        let (_d, state) = state_with_data_file("data/sales.csv", SALES_CSV).await;
+        match run_query(
+            &state,
+            "v1",
+            r#"COUNT FROM "data/sales.csv" WHERE amount >= 100"#,
+        )
+        .await
+        {
+            DataviewResult::Count { count } => assert_eq!(count, 2),
+            other => panic!("expected a count, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_quoted_field_containing_the_delimiter_stays_one_cell() {
+        let (_d, state) = state_with_data_file("data/sales.csv", SALES_CSV).await;
+        match run_query(&state, "v1", r#"TABLE note FROM "data/sales.csv""#).await {
+            DataviewResult::Table { rows, .. } => {
+                assert_eq!(rows[0].cells, vec!["has, comma".to_string()]);
+            }
+            other => panic!("expected a table, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_missing_data_file_reports_it_in_the_block() {
+        let (_d, state) = state_with_data_file("data/sales.csv", SALES_CSV).await;
+        match run_query(&state, "v1", r#"LIST FROM "data/ghost.csv""#).await {
+            DataviewResult::Error { message } => assert!(message.contains("data/ghost.csv")),
+            other => panic!("expected an error, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_path_outside_the_vault_is_refused() {
+        let (_d, state) = state_with_data_file("data/sales.csv", SALES_CSV).await;
+        match run_query(&state, "v1", r#"LIST FROM "../escape.csv""#).await {
+            DataviewResult::Error { message } => assert!(!message.is_empty()),
+            other => panic!("expected an error, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_quoted_folder_is_still_a_folder_query() {
+        let (_d, state) = scanned_state("v1", &[("alpha.md", ALPHA)]).await;
+        match run_query(&state, "v1", r#"LIST FROM "nowhere""#).await {
+            DataviewResult::List { items } => assert!(items.is_empty()),
+            other => panic!("expected a list, got {other:?}"),
+        }
+    }
+
+    async fn state_with_workbook(rel: &str) -> (TempDir, AppState) {
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../cubical-table/tests/fixtures/workbook.xlsx");
+        let dir = tempdir().unwrap();
+        let target = dir.path().join(rel);
+        fs::create_dir_all(target.parent().unwrap()).unwrap();
+        fs::copy(&fixture, &target).expect("copy the workbook fixture");
+        let vault = Vault::open(dir.path()).await.expect("open");
+        let state = AppState::new();
+        state.vaults().write().await.insert(
+            "v1".to_string(),
+            OpenVault::new(
+                vault,
+                CancellationToken::new(),
+                ScanStatusBackend::Complete,
+                None,
+                cubical_core::vault::settings::SettingsMap::new(),
+            ),
+        );
+        (dir, state)
+    }
+
+    #[tokio::test]
+    async fn a_workbook_reads_its_first_sheet_including_a_formulas_cached_value() {
+        let (_d, state) = state_with_workbook("data/book.xlsx").await;
+        match run_query(
+            &state,
+            "v1",
+            r#"TABLE name, qty FROM "data/book.xlsx" WHERE qty >= 2"#,
+        )
+        .await
+        {
+            DataviewResult::Table { rows, .. } => {
+                let names: Vec<_> = rows.iter().map(|r| r.cells[0].as_str()).collect();
+                assert_eq!(names, vec!["Alpha", "Total"]);
+                assert_eq!(rows[0].cells[1], "2");
+                assert_eq!(rows[1].cells[1], "3.5");
+            }
+            other => panic!("expected a table, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_sheet_fragment_selects_that_sheet() {
+        let (_d, state) = state_with_workbook("data/book.xlsx").await;
+        match run_query(&state, "v1", r#"LIST FROM "data/book.xlsx#Q2""#).await {
+            DataviewResult::List { items } => {
+                let texts: Vec<_> = items.iter().map(|i| i.text.as_str()).collect();
+                assert_eq!(texts, vec!["Oslo"]);
+            }
+            other => panic!("expected a list, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn an_unknown_sheet_names_the_sheets_that_exist() {
+        let (_d, state) = state_with_workbook("data/book.xlsx").await;
+        match run_query(&state, "v1", r#"LIST FROM "data/book.xlsx#Q5""#).await {
+            DataviewResult::Error { message } => {
+                assert!(message.contains("Q5"), "{message}");
+                assert!(message.contains("Q1"), "{message}");
+            }
+            other => panic!("expected an error, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_spreadsheet_date_reads_as_an_iso_string() {
+        let (_d, state) = state_with_workbook("data/book.xlsx").await;
+        match run_query(
+            &state,
+            "v1",
+            r#"TABLE due FROM "data/book.xlsx#Q1" WHERE name = "Alpha""#,
+        )
+        .await
+        {
+            DataviewResult::Table { rows, .. } => {
+                assert_eq!(rows.len(), 1);
+                assert!(rows[0].cells[0].starts_with("2024-01-15"), "{:?}", rows[0]);
+            }
+            other => panic!("expected a table, got {other:?}"),
+        }
+    }
+
     async fn switch(state: &AppState, vault_id: &str, key: &str, on: bool) {
         let settings = crate::commands::open::with_open_vault(state, vault_id, |open| {
             std::sync::Arc::clone(&open.settings)
@@ -122,9 +410,17 @@ mod tests {
         )
         .await;
         match r {
-            DataviewResult::Table { columns, rows } => {
+            DataviewResult::Table {
+                columns,
+                rows,
+                row_label,
+            } => {
+                assert_eq!(row_label.as_deref(), Some("File"));
                 assert_eq!(columns, vec!["status".to_string(), "due_date".to_string()]);
-                let paths: Vec<_> = rows.iter().map(|row| row.note.path.as_str()).collect();
+                let paths: Vec<_> = rows
+                    .iter()
+                    .filter_map(|row| row.note.as_ref().map(|n| n.path.as_str()))
+                    .collect();
                 assert_eq!(paths, vec!["alpha.md", "gamma.md"]);
                 assert_eq!(
                     rows[0].cells,
@@ -143,8 +439,11 @@ mod tests {
         )
         .await;
         match run_query(&state, "v1", "LIST WHERE priority >= 2").await {
-            DataviewResult::List { notes } => {
-                let paths: Vec<_> = notes.iter().map(|n| n.path.as_str()).collect();
+            DataviewResult::List { items } => {
+                let paths: Vec<_> = items
+                    .iter()
+                    .filter_map(|i| i.note.as_ref().map(|n| n.path.as_str()))
+                    .collect();
                 assert_eq!(paths, vec!["alpha.md", "gamma.md"]);
             }
             other => panic!("expected list, got {other:?}"),

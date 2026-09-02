@@ -87,15 +87,31 @@ pub enum ScanStatusBackend {
     Cancelled,
 }
 
-#[derive(Default)]
+pub const TABLE_CACHE_BYTES: usize = 64 * 1024 * 1024;
+
 pub struct AppState {
     vaults: Arc<RwLock<HashMap<String, OpenVault>>>,
     next_vault_seq: AtomicU64,
+    tables: Arc<cubical_table::TableCache>,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self {
+            vaults: Arc::default(),
+            next_vault_seq: AtomicU64::default(),
+            tables: Arc::new(cubical_table::TableCache::new(TABLE_CACHE_BYTES)),
+        }
+    }
 }
 
 impl AppState {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn tables(&self) -> Arc<cubical_table::TableCache> {
+        Arc::clone(&self.tables)
     }
 
     pub fn vaults(&self) -> &Arc<RwLock<HashMap<String, OpenVault>>> {
