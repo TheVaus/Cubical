@@ -118,6 +118,7 @@ export const dataviewBaseTheme = EditorView.baseTheme({
   ".cq-dataview-scroll": {
     maxWidth: "100%",
     overflowX: "auto",
+    contain: "inline-size",
   },
   ".cq-dataview-table": {
     borderCollapse: "collapse",
