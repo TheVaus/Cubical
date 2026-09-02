@@ -74,9 +74,11 @@ derived state in the index for no gain.
 
 The parser stays free of file formats. `FROM "…"` yields `Source::Path`, a
 path and nothing more; whether it names a folder or a data file is decided at
-resolution time by what is on disk, which is why a folder whose name ends in
-`.csv` is not a special case. The `#SheetName` fragment is likewise plain path
-text until the engine splits it.
+resolution time by what is on disk. A matching extension only makes the engine
+*look*: a directory named `archive.csv/` resolves to a directory, so the query
+falls through to the folder search rather than failing. Only a path that
+matches an extension and exists as neither reports a missing file. The
+`#SheetName` fragment is likewise plain path text until the engine splits it.
 
 `cubical-engine` owns resolution because it is the layer that may use
 `vault::relpath` — layer 1 cannot reach up to it, and a second containment
@@ -99,8 +101,36 @@ is not done until it has a case there.
   side that is the `EXISTS` wrapper; on the table side an absent column or an
   empty cell. `WHERE status != "done"` therefore does not surface records that
   have no `status` at all.
-- `SORT` puts missing values last in **both** directions, then orders numbers
-  before text.
+- `SORT` puts missing values last in **both** directions. Among present values
+  ascending orders numbers before text; descending reverses that, text first.
+  Only the missing-last rule is direction-independent.
+- **A boolean is its own type, not one and zero.** SQLite disagrees —
+  `json_extract` unwraps a JSON boolean to the integer `1`, whose `typeof` is
+  `integer` and whose `CAST … AS TEXT` is `'1'` — so the planner normalizes
+  booleans back to `'true'`/`'false'` before comparing, ordering or projecting
+  them. Without that a boolean answers a number literal, compares as `"1"`, and
+  renders as `1` on the note side while the table side says `true`. Every SQL
+  site shares one `normalized` expression so the three cannot drift apart
+  again.
+
+### What conformance certifies, and what it cannot
+
+The suite compares *logical values carrying the same declared type* through both
+executors. Where a format's own type system genuinely differs, the executors are
+allowed to differ with it, and those cases sit outside what the suite can assert:
+
+- **A YAML string that looks numeric has no numeric form; a CSV cell does.** The
+  fixture therefore builds its cells explicitly rather than through
+  `Cell::from_text`, so a real `code=007` in a CSV answers `>= 0` where the
+  frontmatter `"007"` does not. Deliberate, not an oversight.
+- **CSV cannot say "present but empty".** A blank cell is missing, so it matches
+  nothing. YAML can: `status: ""` is a present empty string, so it matches
+  `= ""` and `!= "done"`. A blank CSV cell does neither.
+- **Ties break on different things because notes have a path and rows do not.**
+  Equal sort keys fall back to `files.path` for notes and to the file's original
+  row order for a table. A CSV whose rows are not in first-column order will tie
+  differently from the equivalent notes, and row order is the better answer for a
+  file the user arranged by hand.
 
 A file format's own type system is the one thing that legitimately shows
 through. YAML declares its types, so a frontmatter `"3"` is a string with no

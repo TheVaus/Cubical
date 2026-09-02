@@ -44,6 +44,11 @@ pub enum Relation<'a> {
     Table(&'a cubical_table::Table),
 }
 
+#[must_use]
+pub fn run_table(table: &cubical_table::Table, q: &Query) -> QueryResult {
+    exec_table::run(table, q)
+}
+
 pub async fn run(relation: Relation<'_>, q: &Query) -> Result<QueryResult, QueryError> {
     match relation {
         Relation::Index(conn) => exec_index::run(conn, q).await,

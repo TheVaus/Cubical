@@ -19,7 +19,7 @@ struct Fixture {
 
 fn fixture() -> Fixture {
     Fixture {
-        columns: vec!["id", "status", "priority", "done", "code"],
+        columns: vec!["id", "status", "priority", "done", "code", "mixed"],
         records: vec![
             (
                 "a",
@@ -28,19 +28,38 @@ fn fixture() -> Fixture {
                     V::Num(3.0),
                     V::Bool(true),
                     V::Str("007"),
+                    V::Str("alpha"),
                 ],
             ),
             (
                 "b",
-                vec![V::Str("done"), V::Num(1.0), V::Bool(false), V::Str("x1")],
+                vec![
+                    V::Str("done"),
+                    V::Num(1.0),
+                    V::Bool(false),
+                    V::Str("x1"),
+                    V::Num(42.0),
+                ],
             ),
             (
                 "c",
-                vec![V::Str("in-progress"), V::Num(2.0), V::Missing, V::Missing],
+                vec![
+                    V::Str("in-progress"),
+                    V::Num(2.0),
+                    V::Missing,
+                    V::Missing,
+                    V::Str("zulu"),
+                ],
             ),
             (
                 "d",
-                vec![V::Missing, V::Missing, V::Missing, V::Str("zeta")],
+                vec![
+                    V::Missing,
+                    V::Missing,
+                    V::Missing,
+                    V::Str("zeta"),
+                    V::Missing,
+                ],
             ),
         ],
     }
@@ -240,6 +259,96 @@ async fn boolean_equality_agrees() {
 async fn a_boolean_literal_never_matches_a_non_boolean_value() {
     let r = agree("LIST WHERE status = false").await;
     assert!(list_of(&r).is_empty());
+}
+
+#[tokio::test]
+async fn a_number_literal_never_matches_a_boolean() {
+    let r = agree("LIST WHERE done >= 0").await;
+    assert!(list_of(&r).is_empty());
+}
+
+#[tokio::test]
+async fn a_boolean_compares_as_a_boolean_not_as_one_and_zero() {
+    let r = agree(r#"LIST WHERE done = "true""#).await;
+    assert_eq!(list_of(&r), &vec!["a"]);
+}
+
+#[tokio::test]
+async fn a_projected_boolean_reads_as_true_or_false() {
+    match agree("TABLE done").await {
+        Normalized::Table(_, rows) => {
+            let cells: Vec<_> = rows.iter().map(|r| r[0].as_str()).collect();
+            assert_eq!(cells, vec!["true", "false", "", ""]);
+        }
+        other => panic!("expected a table, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn sorting_a_boolean_column_agrees() {
+    let r = agree("LIST SORT done ASC").await;
+    assert_eq!(list_of(&r), &vec!["b", "a", "c", "d"]);
+}
+
+#[tokio::test]
+async fn every_operator_agrees_on_a_numeric_column() {
+    for source in [
+        "LIST WHERE priority = 2",
+        "LIST WHERE priority != 2",
+        "LIST WHERE priority < 2",
+        "LIST WHERE priority <= 2",
+        "LIST WHERE priority > 2",
+        "LIST WHERE priority >= 2",
+    ] {
+        agree(source).await;
+    }
+}
+
+#[tokio::test]
+async fn every_operator_agrees_on_a_text_column() {
+    for source in [
+        r#"LIST WHERE status = "done""#,
+        r#"LIST WHERE status != "done""#,
+        r#"LIST WHERE status < "done""#,
+        r#"LIST WHERE status <= "done""#,
+        r#"LIST WHERE status > "done""#,
+        r#"LIST WHERE status >= "done""#,
+    ] {
+        agree(source).await;
+    }
+}
+
+#[tokio::test]
+async fn a_mixed_type_column_sorts_numbers_before_text_in_both() {
+    let r = agree("LIST SORT mixed ASC").await;
+    assert_eq!(list_of(&r), &vec!["b", "a", "c", "d"]);
+}
+
+#[tokio::test]
+async fn a_mixed_type_column_sorts_the_same_descending() {
+    let r = agree("LIST SORT mixed DESC").await;
+    assert_eq!(list_of(&r), &vec!["c", "a", "b", "d"]);
+}
+
+#[tokio::test]
+async fn count_with_a_condition_agrees() {
+    assert_eq!(
+        agree(r#"COUNT WHERE status = "in-progress""#).await,
+        Normalized::Count(2)
+    );
+}
+
+#[tokio::test]
+async fn table_with_a_condition_and_a_sort_agrees() {
+    match agree("TABLE status, priority WHERE priority >= 2 SORT priority DESC").await {
+        Normalized::Table(columns, rows) => {
+            assert_eq!(columns, vec!["status", "priority"]);
+            assert_eq!(rows.len(), 2);
+            assert_eq!(rows[0][1], "3");
+            assert_eq!(rows[1][1], "2");
+        }
+        other => panic!("expected a table, got {other:?}"),
+    }
 }
 
 #[tokio::test]

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use cubical_core::vault::relpath::contained_join;
 use cubical_query::{Query, Relation, Source};
-use cubical_table::{Table, TableCache};
+use cubical_table::TableCache;
 
 use crate::api::types::{DataviewQueryRequest, DataviewResult};
 use crate::commands::open::open_vault_cloned_for;
@@ -41,53 +41,52 @@ fn data_file_source(query: &Query) -> Option<(&str, Option<&str>)> {
     }
 }
 
-async fn load_table(
+async fn run_over_data_file(
     cache: Arc<TableCache>,
     abs: std::path::PathBuf,
     sheet: Option<String>,
-) -> Result<Arc<Table>, String> {
-    let loaded = tokio::task::spawn_blocking(move || {
+    query: Query,
+) -> DataviewResult {
+    let done = tokio::task::spawn_blocking(move || {
         cache
             .load(&abs, sheet.as_deref())
+            .map(|table| cubical_query::run_table(&table, &query))
             .map_err(|e| e.to_string())
     })
     .await;
-    match loaded {
-        Ok(result) => result,
-        Err(e) => Err(format!("reading the data file failed: {e}")),
+    match done {
+        Ok(Ok(result)) => result.into(),
+        Ok(Err(message)) => DataviewResult::Error { message },
+        Err(e) => DataviewResult::Error {
+            message: format!("reading the data file failed: {e}"),
+        },
     }
 }
 
-async fn run_over_data_file(
+async fn data_file_result(
     cache: Arc<TableCache>,
     root: &Path,
     path: &str,
     sheet: Option<&str>,
     query: &Query,
-) -> DataviewResult {
+) -> Option<DataviewResult> {
     let abs = match contained_join(root, path) {
         Ok((_, abs)) => abs,
         Err(e) => {
-            return DataviewResult::Error {
+            return Some(DataviewResult::Error {
                 message: e.to_string(),
-            }
+            })
         }
     };
+    if abs.is_dir() {
+        return None;
+    }
     if !abs.is_file() {
-        return DataviewResult::Error {
+        return Some(DataviewResult::Error {
             message: format!("no such file in this vault: {path}"),
-        };
+        });
     }
-    let table = match load_table(cache, abs, sheet.map(str::to_string)).await {
-        Ok(table) => table,
-        Err(message) => return DataviewResult::Error { message },
-    };
-    match cubical_query::run(Relation::Table(&table), query).await {
-        Ok(result) => result.into(),
-        Err(e) => DataviewResult::Error {
-            message: e.to_string(),
-        },
-    }
+    Some(run_over_data_file(cache, abs, sheet.map(str::to_string), query.clone()).await)
 }
 
 pub async fn dataview_query(
@@ -106,7 +105,11 @@ pub async fn dataview_query(
     };
 
     if let Some((path, sheet)) = data_file_source(&query) {
-        return Ok(run_over_data_file(state.tables(), vault.root(), path, sheet, &query).await);
+        if let Some(result) =
+            data_file_result(state.tables(), vault.root(), path, sheet, &query).await
+        {
+            return Ok(result);
+        }
     }
 
     match cubical_query::run(Relation::Index(vault.index()), &query).await {
@@ -267,6 +270,42 @@ mod tests {
         match run_query(&state, "v1", r#"LIST FROM "data/ghost.csv""#).await {
             DataviewResult::Error { message } => assert!(message.contains("data/ghost.csv")),
             other => panic!("expected an error, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_folder_named_like_a_data_file_is_still_a_folder_query() {
+        let dir = tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("archive.csv")).unwrap();
+        fs::write(dir.path().join("archive.csv/inside.md"), ALPHA).unwrap();
+        let vault = Vault::open(dir.path()).await.expect("open");
+        let (tx, mut rx) = mpsc::channel::<ScanProgress>(64);
+        let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+        scan(vault.clone(), CancellationToken::new(), tx)
+            .await
+            .expect("scan");
+        drain.await.unwrap();
+        let state = AppState::new();
+        state.vaults().write().await.insert(
+            "v1".to_string(),
+            OpenVault::new(
+                vault,
+                CancellationToken::new(),
+                ScanStatusBackend::Complete,
+                None,
+                cubical_core::vault::settings::SettingsMap::new(),
+            ),
+        );
+
+        match run_query(&state, "v1", r#"LIST FROM "archive.csv""#).await {
+            DataviewResult::List { items } => {
+                let paths: Vec<_> = items
+                    .iter()
+                    .filter_map(|i| i.note.as_ref().map(|n| n.path.as_str()))
+                    .collect();
+                assert_eq!(paths, vec!["archive.csv/inside.md"]);
+            }
+            other => panic!("expected a folder listing, got {other:?}"),
         }
     }
 
