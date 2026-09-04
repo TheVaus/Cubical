@@ -22,7 +22,7 @@ Frontmatter is parsed into structured columns in libSQL for fast Dataview-style 
 
 ### 5.2 Wiki-links
 
-`[[target]]`, `[[target|display]]`, `[[target#heading]]`, `[[target#^block-id]]`. Resolution is via libSQL's link index, keyed by `file_path` pre-L7 and by `file_uuid` post-L7 (schema migration handles the transition at the L7 onboarding moment). Renames do not rewrite referencing files immediately — they enqueue entries in the [Pending Rewrites Cache](#57-pending-rewrites-cache) that are flushed periodically and on close.
+`[[target]]`, `[[target|display]]`, `[[target#heading]]`, `[[target#^block-id]]`. Extraction reads the body and frontmatter string values alike, so a link written as a property value is a link like any other — it earns a backlink and a rename rewrites it. YAML makes the bracket the caller's problem: unquoted, `[[X]]` is a nested flow sequence, so only a quoted scalar carries a link. Resolution is via libSQL's link index, keyed by `file_path` pre-L7 and by `file_uuid` post-L7 (schema migration handles the transition at the L7 onboarding moment). Renames do not rewrite referencing files immediately — they enqueue entries in the [Pending Rewrites Cache](#57-pending-rewrites-cache) that are flushed periodically and on close.
 
 **Schema (L3, promoted from `docs/layer-3-spec.md` §2.1 at L3 close):**
 
@@ -42,7 +42,7 @@ CREATE INDEX idx_links_source ON links(source_path);
 CREATE INDEX idx_links_target ON links(target_path);
 ```
 
-`source_path` becomes `source_file_uuid` (and `target_path` → `target_file_uuid`) post-L7 via schema migration. `target_raw` survives unchanged — it preserves the user-written form so renames can rewrite the source byte-for-byte (basename-form referrers keep basenames, path-form referrers keep paths). `is_embed` discriminates `[[…]]` from `![[…]]` so a single index serves both wiki-links and embeds. `position` is the byte offset of the enclosing block; per-inline byte positions are post-L1 work, deferred to whichever later session needs them.
+`source_path` becomes `source_file_uuid` (and `target_path` → `target_file_uuid`) post-L7 via schema migration. `target_raw` survives unchanged — it preserves the user-written form so renames can rewrite the source byte-for-byte (basename-form referrers keep basenames, path-form referrers keep paths). `is_embed` discriminates `[[…]]` from `![[…]]` so a single index serves both wiki-links and embeds. `position` is the byte offset of the enclosing block; per-inline byte positions are post-L1 work, deferred to whichever later session needs them. Frontmatter has one span for the whole block, so links found there are numbered within it rather than located — enough to key a row, not to snippet one.
 
 **Resolution order** (locked at L3): exact vault-relative path → case-insensitive unique basename → case-insensitive unique suffix; ambiguity at the latter two yields `NULL` (the row still lands so unresolved links surface in the UI and a later rename can re-resolve). Bulk scan resolves all links through a single in-memory `PathResolver` built once per scan pass (O(N) build, O(1) common-case lookup) so the initial vault scan stays linear; the single-file watcher path delegates to the same resolver.
 
