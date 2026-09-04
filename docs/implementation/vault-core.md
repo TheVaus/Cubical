@@ -230,7 +230,16 @@ linear fallback that only runs when the first two miss.
 A dotted target (`[[Report v1.2]]`) is classified by the tokenizer as a
 property-ref and is persisted as a link **only** if it resolves to a real file
 — file-existence-wins precedence. Every other occurrence is stored even when
-broken, so the UI can surface it and a later rename can re-resolve it.
+broken, so the UI can surface it and a later rename can re-resolve it. This
+holds wherever the target was written, body or frontmatter.
+
+Frontmatter links dedupe within a file by target, anchor, display and embed
+flag; body links do not. YAML aliases are expanded by the parser, so one
+written link reachable through N aliases arrives as N identical values, and
+counting them would inflate backlinks and let the position ordinal run past
+the frontmatter block into body offsets. Deduping bounds it at the number of
+links actually written. The visible cost is that two properties naming the
+same note contribute one backlink row, not two.
 
 ## Tags
 

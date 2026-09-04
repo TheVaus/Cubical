@@ -25,8 +25,9 @@ pub fn extract_links(doc: &Document) -> Vec<LinkExtraction> {
     let mut out = Vec::new();
     if let Some(frontmatter) = doc.frontmatter.as_ref() {
         let mut ordinal = frontmatter.span.start as u64;
+        let limit = frontmatter.span.end as u64;
         for (_key, value) in &frontmatter.entries {
-            walk_frontmatter_value(value, &mut ordinal, &mut out);
+            walk_frontmatter_value(value, &mut ordinal, limit, &mut out);
         }
     }
     for block in &doc.blocks {
@@ -38,41 +39,55 @@ pub fn extract_links(doc: &Document) -> Vec<LinkExtraction> {
 fn walk_frontmatter_value(
     value: &serde_json::Value,
     ordinal: &mut u64,
+    limit: u64,
     out: &mut Vec<LinkExtraction>,
 ) {
     let text = match value {
         serde_json::Value::String(text) => text,
         serde_json::Value::Array(items) => {
             for item in items {
-                walk_frontmatter_value(item, ordinal, out);
+                walk_frontmatter_value(item, ordinal, limit, out);
             }
             return;
         }
         serde_json::Value::Object(entries) => {
             for nested in entries.values() {
-                walk_frontmatter_value(nested, ordinal, out);
+                walk_frontmatter_value(nested, ordinal, limit, out);
             }
             return;
         }
         _ => return,
     };
     for run in scan_wikilinks(text) {
-        let TokenizedRun::WikiLink {
-            target,
-            display,
-            anchor,
-            embed,
-        } = run
-        else {
-            continue;
+        let (target_raw, display, anchor, is_embed, from_property_ref) = match run {
+            TokenizedRun::WikiLink {
+                target,
+                display,
+                anchor,
+                embed,
+            } => (target, display, anchor, embed, false),
+            TokenizedRun::PropertyRef {
+                note: Some(note),
+                property,
+            } => (format!("{note}.{property}"), None, None, false, true),
+            TokenizedRun::Text(_) | TokenizedRun::PropertyRef { note: None, .. } => continue,
         };
+        if out.iter().any(|seen| {
+            seen.target_raw == target_raw
+                && seen.display == display
+                && seen.anchor == anchor
+                && seen.is_embed == is_embed
+                && seen.from_property_ref == from_property_ref
+        }) {
+            continue;
+        }
         out.push(LinkExtraction {
-            target_raw: target,
+            target_raw,
             anchor,
             display,
-            is_embed: embed,
-            from_property_ref: false,
-            position: *ordinal,
+            is_embed,
+            from_property_ref,
+            position: (*ordinal).min(limit.saturating_sub(1)),
         });
         *ordinal += 1;
     }
@@ -440,6 +455,60 @@ mod tests {
         let (fm, body): (Vec<_>, Vec<_>) = links.iter().partition(|e| e.target_raw != "Shire");
         assert!(fm.iter().all(|e| e.position < body_offset));
         assert!(body.iter().all(|e| e.position >= body_offset));
+    }
+
+    #[test]
+    fn a_yaml_alias_does_not_multiply_a_frontmatter_link() {
+        let doc = parse("---\na: &x \"[[Jack]]\"\nb: *x\nc: *x\n---\nbody\n");
+        let links = extract_links(&doc);
+        assert_eq!(
+            links.len(),
+            1,
+            "one source occurrence is one link, however many aliases point at it"
+        );
+    }
+
+    #[test]
+    fn alias_expansion_cannot_push_a_position_into_the_body() {
+        let source = concat!(
+            "---\n",
+            "a: &a \"[[J]]\"\n",
+            "b: &b [*a, *a, *a, *a, *a, *a, *a, *a]\n",
+            "c: &c [*b, *b, *b, *b, *b, *b, *b, *b]\n",
+            "d: [*c, *c, *c, *c, *c, *c, *c, *c]\n",
+            "---\n",
+            "see [[Shire]]\n",
+        );
+        let doc = parse(source);
+        let body_offset = doc.frontmatter.as_ref().expect("frontmatter").span.end as u64;
+        for link in extract_links(&doc) {
+            if link.target_raw == "Shire" {
+                continue;
+            }
+            assert!(
+                link.position < body_offset,
+                "frontmatter position {} crossed the body offset {body_offset}",
+                link.position
+            );
+        }
+    }
+
+    #[test]
+    fn a_dotted_frontmatter_target_is_offered_as_a_link_candidate() {
+        let doc = parse("---\nsource: \"[[Report v1.2]]\"\n---\nbody\n");
+        let links = extract_links(&doc);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].target_raw, "Report v1.2");
+        assert!(
+            links[0].from_property_ref,
+            "keeps_link_row decides whether it survives, as it does in the body"
+        );
+    }
+
+    #[test]
+    fn a_self_property_ref_in_frontmatter_is_not_a_link() {
+        let doc = parse("---\nmirror: \"[[.age]]\"\n---\nbody\n");
+        assert!(extract_links(&doc).is_empty());
     }
 
     #[test]
