@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use cubical_ast::{
@@ -26,8 +26,9 @@ pub fn extract_links(doc: &Document) -> Vec<LinkExtraction> {
     if let Some(frontmatter) = doc.frontmatter.as_ref() {
         let mut ordinal = frontmatter.span.start as u64;
         let limit = frontmatter.span.end as u64;
+        let mut seen = HashSet::new();
         for (_key, value) in &frontmatter.entries {
-            walk_frontmatter_value(value, &mut ordinal, limit, &mut out);
+            walk_frontmatter_value(value, &mut ordinal, limit, &mut seen, &mut out);
         }
     }
     for block in &doc.blocks {
@@ -36,23 +37,39 @@ pub fn extract_links(doc: &Document) -> Vec<LinkExtraction> {
     out
 }
 
+fn frontmatter_dedup_key(link: &LinkExtraction) -> String {
+    let anchor = match &link.anchor {
+        None => String::new(),
+        Some(Anchor::Heading { value }) => format!("h{value}"),
+        Some(Anchor::Block { value }) => format!("b{value}"),
+    };
+    format!(
+        "{}\x00{}\x00{anchor}\x00{}\x00{}",
+        u8::from(link.is_embed),
+        u8::from(link.from_property_ref),
+        link.display.as_deref().unwrap_or_default(),
+        link.target_raw,
+    )
+}
+
 fn walk_frontmatter_value(
     value: &serde_json::Value,
     ordinal: &mut u64,
     limit: u64,
+    seen: &mut HashSet<String>,
     out: &mut Vec<LinkExtraction>,
 ) {
     let text = match value {
         serde_json::Value::String(text) => text,
         serde_json::Value::Array(items) => {
             for item in items {
-                walk_frontmatter_value(item, ordinal, limit, out);
+                walk_frontmatter_value(item, ordinal, limit, seen, out);
             }
             return;
         }
         serde_json::Value::Object(entries) => {
             for nested in entries.values() {
-                walk_frontmatter_value(nested, ordinal, limit, out);
+                walk_frontmatter_value(nested, ordinal, limit, seen, out);
             }
             return;
         }
@@ -72,23 +89,18 @@ fn walk_frontmatter_value(
             } => (format!("{note}.{property}"), None, None, false, true),
             TokenizedRun::Text(_) | TokenizedRun::PropertyRef { note: None, .. } => continue,
         };
-        if out.iter().any(|seen| {
-            seen.target_raw == target_raw
-                && seen.display == display
-                && seen.anchor == anchor
-                && seen.is_embed == is_embed
-                && seen.from_property_ref == from_property_ref
-        }) {
-            continue;
-        }
-        out.push(LinkExtraction {
+        let candidate = LinkExtraction {
             target_raw,
             anchor,
             display,
             is_embed,
             from_property_ref,
             position: (*ordinal).min(limit.saturating_sub(1)),
-        });
+        };
+        if !seen.insert(frontmatter_dedup_key(&candidate)) {
+            continue;
+        }
+        out.push(candidate);
         *ordinal += 1;
     }
 }
@@ -491,6 +503,17 @@ mod tests {
                 link.position
             );
         }
+    }
+
+    #[test]
+    fn dedup_does_not_confuse_a_display_boundary_with_a_target() {
+        let doc = parse("---\na: \"[[xy]]\"\nb: \"[[y|x]]\"\n---\nbody\n");
+        let links = extract_links(&doc);
+        assert_eq!(
+            links.len(),
+            2,
+            "[[xy]] and [[y|x]] are different links and must not share a dedup key"
+        );
     }
 
     #[test]
