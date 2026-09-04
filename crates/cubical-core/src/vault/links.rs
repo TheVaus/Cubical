@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use cubical_ast::{basename, strip_markdown_extension, Anchor, Block, Document, Inline, ListItem};
+use cubical_ast::{
+    basename, scan_wikilinks, strip_markdown_extension, Anchor, Block, Document, Inline, ListItem,
+    TokenizedRun,
+};
 use cubical_index::{replace_links_for_file, LinkRow};
 
 use crate::vault::parse::parse_off_executor;
@@ -20,10 +23,54 @@ pub struct LinkExtraction {
 
 pub fn extract_links(doc: &Document) -> Vec<LinkExtraction> {
     let mut out = Vec::new();
+    if let Some(frontmatter) = doc.frontmatter.as_ref() {
+        let pos = frontmatter.span.start as u64;
+        for (_key, value) in &frontmatter.entries {
+            walk_frontmatter_value(value, pos, &mut out);
+        }
+    }
     for block in &doc.blocks {
         walk_block(block, &mut out);
     }
     out
+}
+
+fn walk_frontmatter_value(value: &serde_json::Value, pos: u64, out: &mut Vec<LinkExtraction>) {
+    let text = match value {
+        serde_json::Value::String(text) => text,
+        serde_json::Value::Array(items) => {
+            for item in items {
+                walk_frontmatter_value(item, pos, out);
+            }
+            return;
+        }
+        serde_json::Value::Object(entries) => {
+            for nested in entries.values() {
+                walk_frontmatter_value(nested, pos, out);
+            }
+            return;
+        }
+        _ => return,
+    };
+    for run in scan_wikilinks(text) {
+        let TokenizedRun::WikiLink {
+            target,
+            display,
+            anchor,
+            embed,
+        } = run
+        else {
+            continue;
+        };
+        out.push(LinkExtraction {
+            target_raw: target,
+            anchor,
+            display,
+            is_embed: embed,
+            from_property_ref: false,
+            position: pos,
+        });
+    }
 }
 
 fn walk_block(block: &Block, out: &mut Vec<LinkExtraction>) {
@@ -312,6 +359,60 @@ mod tests {
         assert!(links[0].anchor.is_none());
         assert!(!links[0].is_embed);
         assert!(!links[0].from_property_ref);
+    }
+
+    #[test]
+    fn extracts_wikilink_from_a_quoted_frontmatter_string() {
+        let doc = parse("---\nhome: \"[[Rivendell]]\"\n---\nbody\n");
+        let links = extract_links(&doc);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].target_raw, "Rivendell");
+        assert!(!links[0].is_embed);
+        assert!(!links[0].from_property_ref);
+    }
+
+    #[test]
+    fn extracts_wikilinks_from_a_frontmatter_list() {
+        let doc = parse("---\noffsprings:\n  - \"[[Jack]]\"\n  - \"[[Jill]]\"\n---\nbody\n");
+        let targets: Vec<String> = extract_links(&doc)
+            .into_iter()
+            .map(|e| e.target_raw)
+            .collect();
+        assert_eq!(targets, vec!["Jack".to_string(), "Jill".to_string()]);
+    }
+
+    #[test]
+    fn extracts_wikilink_from_a_nested_frontmatter_map() {
+        let doc = parse("---\nmeta:\n  home: \"[[Rivendell]]\"\n---\nbody\n");
+        let links = extract_links(&doc);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].target_raw, "Rivendell");
+    }
+
+    #[test]
+    fn unquoted_frontmatter_brackets_are_a_yaml_list_and_not_a_link() {
+        let doc = parse("---\nhome: [[Rivendell]]\n---\nbody\n");
+        assert!(extract_links(&doc).is_empty());
+    }
+
+    #[test]
+    fn frontmatter_and_body_links_are_both_extracted() {
+        let doc = parse("---\nhome: \"[[Rivendell]]\"\n---\nsee [[Moria]]\n");
+        let targets: Vec<String> = extract_links(&doc)
+            .into_iter()
+            .map(|e| e.target_raw)
+            .collect();
+        assert_eq!(targets, vec!["Rivendell".to_string(), "Moria".to_string()]);
+    }
+
+    #[test]
+    fn a_frontmatter_link_carries_display_and_anchor() {
+        let doc = parse("---\nhome: \"[[Rivendell#Hall|Last Homely House]]\"\n---\nbody\n");
+        let links = extract_links(&doc);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].target_raw, "Rivendell");
+        assert_eq!(links[0].display.as_deref(), Some("Last Homely House"));
+        assert!(links[0].anchor.is_some());
     }
 
     #[test]
