@@ -24,9 +24,9 @@ pub struct LinkExtraction {
 pub fn extract_links(doc: &Document) -> Vec<LinkExtraction> {
     let mut out = Vec::new();
     if let Some(frontmatter) = doc.frontmatter.as_ref() {
-        let pos = frontmatter.span.start as u64;
+        let mut ordinal = frontmatter.span.start as u64;
         for (_key, value) in &frontmatter.entries {
-            walk_frontmatter_value(value, pos, &mut out);
+            walk_frontmatter_value(value, &mut ordinal, &mut out);
         }
     }
     for block in &doc.blocks {
@@ -35,18 +35,22 @@ pub fn extract_links(doc: &Document) -> Vec<LinkExtraction> {
     out
 }
 
-fn walk_frontmatter_value(value: &serde_json::Value, pos: u64, out: &mut Vec<LinkExtraction>) {
+fn walk_frontmatter_value(
+    value: &serde_json::Value,
+    ordinal: &mut u64,
+    out: &mut Vec<LinkExtraction>,
+) {
     let text = match value {
         serde_json::Value::String(text) => text,
         serde_json::Value::Array(items) => {
             for item in items {
-                walk_frontmatter_value(item, pos, out);
+                walk_frontmatter_value(item, ordinal, out);
             }
             return;
         }
         serde_json::Value::Object(entries) => {
             for nested in entries.values() {
-                walk_frontmatter_value(nested, pos, out);
+                walk_frontmatter_value(nested, ordinal, out);
             }
             return;
         }
@@ -68,8 +72,9 @@ fn walk_frontmatter_value(value: &serde_json::Value, pos: u64, out: &mut Vec<Lin
             display,
             is_embed: embed,
             from_property_ref: false,
-            position: pos,
+            position: *ordinal,
         });
+        *ordinal += 1;
     }
 }
 
@@ -413,6 +418,28 @@ mod tests {
         assert_eq!(links[0].target_raw, "Rivendell");
         assert_eq!(links[0].display.as_deref(), Some("Last Homely House"));
         assert!(links[0].anchor.is_some());
+    }
+
+    #[test]
+    fn frontmatter_links_get_distinct_positions() {
+        let doc = parse("---\noffsprings:\n  - \"[[Jack]]\"\n  - \"[[Jill]]\"\n---\nbody\n");
+        let positions: Vec<u64> = extract_links(&doc).iter().map(|e| e.position).collect();
+        assert_eq!(positions.len(), 2);
+        assert_ne!(
+            positions[0], positions[1],
+            "backlink rows are keyed by source_path@position in the UI"
+        );
+    }
+
+    #[test]
+    fn frontmatter_link_positions_stay_inside_the_frontmatter_block() {
+        let source = "---\nhome: \"[[Rivendell]]\"\nalt: \"[[Moria]]\"\n---\nsee [[Shire]]\n";
+        let doc = parse(source);
+        let body_offset = doc.frontmatter.as_ref().expect("frontmatter").span.end as u64;
+        let links = extract_links(&doc);
+        let (fm, body): (Vec<_>, Vec<_>) = links.iter().partition(|e| e.target_raw != "Shire");
+        assert!(fm.iter().all(|e| e.position < body_offset));
+        assert!(body.iter().all(|e| e.position >= body_offset));
     }
 
     #[test]
