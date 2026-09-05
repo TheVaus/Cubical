@@ -326,6 +326,7 @@ const PropertyRow: Component<RowProps> = (props) => {
           <Show when={props.menuOpen}>
             <div
               role="menu"
+              data-overlay="menu"
               style={{
                 position: "absolute",
                 top: "100%",

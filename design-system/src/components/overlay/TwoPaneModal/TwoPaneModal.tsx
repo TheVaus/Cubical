@@ -37,7 +37,7 @@ const TwoPaneModal = (props: TwoPaneModalProps) => {
       <Portal>
         <div
           class="ds-two-pane-modal__scrim"
-          data-ds-overlay="modal"
+          data-overlay="modal"
           onClick={() => props.onClose()}
         >
           <div

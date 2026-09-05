@@ -37,7 +37,11 @@ export function enqueueToast(
   entry: ToastEntry,
 ): ToastEntry[] {
   const next = [...queue, entry];
-  return next.slice(Math.max(0, next.length - TOAST_QUEUE_LIMIT));
+  while (next.length > TOAST_QUEUE_LIMIT) {
+    const transient = next.findIndex((t) => t.autoDismissMs !== null);
+    next.splice(transient === -1 ? 0 : transient, 1);
+  }
+  return next;
 }
 
 const [entries, setEntries] = createSignal<readonly ToastEntry[]>([]);

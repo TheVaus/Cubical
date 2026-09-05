@@ -20,6 +20,13 @@ const entry = (id: number): ToastEntry => ({
   autoDismissMs: TOAST_AUTO_DISMISS_MS,
 });
 
+const errorEntry = (id: number): ToastEntry => ({
+  id,
+  message: `e${id}`,
+  tone: "error",
+  autoDismissMs: null,
+});
+
 describe("resolveAutoDismissMs", () => {
   it("gives every ordinary tone the default window", () => {
     for (const tone of ["neutral", "success", "warning"] as const) {
@@ -52,6 +59,27 @@ describe("enqueueToast", () => {
     expect(next).toHaveLength(TOAST_QUEUE_LIMIT);
     expect(next[next.length - 1]?.id).toBe(99);
     expect(next[0]?.id).toBe(2);
+  });
+
+  it("evicts a message that would have expired anyway before an unread error", () => {
+    const full = [errorEntry(1), entry(2), errorEntry(3), entry(4)].slice(
+      0,
+      TOAST_QUEUE_LIMIT,
+    );
+    const next = enqueueToast(full, entry(99));
+    expect(next.map((t) => t.id)).not.toContain(2);
+    expect(next.map((t) => t.id)).toContain(1);
+    expect(next.map((t) => t.id)).toContain(3);
+  });
+
+  it("falls back to the oldest error when every entry is an error", () => {
+    const full = Array.from({ length: TOAST_QUEUE_LIMIT }, (_, i) =>
+      errorEntry(i + 1),
+    );
+    const next = enqueueToast(full, errorEntry(99));
+    expect(next).toHaveLength(TOAST_QUEUE_LIMIT);
+    expect(next[0]?.id).toBe(2);
+    expect(next[next.length - 1]?.id).toBe(99);
   });
 });
 

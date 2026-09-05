@@ -1,4 +1,4 @@
-export const OVERLAY_SELECTOR = "[data-ds-overlay]";
+export const OVERLAY_SELECTOR = "[data-overlay]";
 
 export function hasOpenOverlay(root: ParentNode): boolean {
   return root.querySelector(OVERLAY_SELECTOR) !== null;

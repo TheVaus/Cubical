@@ -229,16 +229,22 @@ global chord fires *through* a modal: with Settings open, the New-note shortcut
 still created a note behind it, and a confirm dialog could be outrun by a
 shortcut it was asking about.
 
-The predicate is a DOM query, not a set of app signals. Every design system
-overlay tags its own outermost element with `data-ds-overlay`, so an overlay
-blocks the global keyboard by existing rather than by remembering to register.
-The alternative — the shell tracking one boolean per overlay — fails silently:
-a new overlay simply does not block, and the symptom is not a keyboard bug but
-a stray action nobody connects to the dialog they had open.
+The predicate is a DOM query: an overlay tags its own outermost element with
+`data-overlay`, and `isOverlayOpen()` looks for any of them. That keeps the
+declaration next to the overlay instead of in a shell boolean the shell has to
+remember to flip, and it costs one attribute rather than a registration.
 
-Two things deliberately stay outside the guard. The Omni-Bar is not a DS
-overlay and is not tagged, so its own toggle still closes it; and each overlay
-keeps its own Escape handler, so the guard can never strand a user inside one.
+**It is still opt-in, and an untagged overlay does not block.** The tag is
+cheaper to remember than a signal, not automatic, and the failure mode is quiet
+in the same way: the symptom is not a keyboard bug but a stray action nobody
+connects to the panel they had open. Two overlays in `ui/` are hand-rolled
+rather than DS components and carry the attribute themselves — the search
+filters panel and the Properties type menu. Both are on the DS-migration tail
+(#34); once they are a DS `Popover` and `Menu` the attribute comes with them.
+
+The Omni-Bar is deliberately untagged: it is not a blocking overlay, its input
+holds focus, and its own toggle has to keep working to close it. Every overlay
+also keeps its Escape handler, so the guard can never strand a user inside one.
 
 ## Substrate vs feature ownership
 
@@ -717,8 +723,12 @@ itself for four seconds and then read as if it had never happened, and any
 later message overwrote it outright — so the toast a user needed to act on was
 the one most likely to be buried by the next routine success.
 
-The queue is capped and drops from the front, so a burst cannot grow the stack
-without bound. The timer lives in the DS `Toast` component, which is mounted
+The queue is capped, and what it drops is chosen rather than positional: it
+evicts the oldest entry that was going to expire on its own, and only falls
+back to the oldest error when every entry is one. Dropping from the front
+regardless would have reintroduced the bug from the other direction — errors
+are the only entries that never expire, so the queue trends towards full of
+them, and each routine success would evict one unread. The timer lives in the DS `Toast` component, which is mounted
 exactly while its entry is live; the state module owns the policy and the
 component owns the clock, rather than both running a timer for the same toast.
 

@@ -34,8 +34,11 @@ export function pushSample(
   return next.slice(Math.max(0, next.length - limit));
 }
 
-export function perfEnabledFor(dev: boolean, storedFlag: string | null): boolean {
-  return dev || storedFlag === "1";
+export function perfEnabledFor(
+  dev: boolean,
+  storedFlag: () => string | null,
+): boolean {
+  return dev || storedFlag() === "1";
 }
 
 export function isOverFrameBudget(durationMs: number): boolean {
@@ -50,7 +53,7 @@ function readStoredFlag(): string | null {
   }
 }
 
-let enabled = perfEnabledFor(import.meta.env.DEV, readStoredFlag());
+let enabled = perfEnabledFor(import.meta.env.DEV, readStoredFlag);
 let samples: readonly PerfSample[] = [];
 
 export function perfEnabled(): boolean {
@@ -99,7 +102,12 @@ export function measurePerfAsync<T>(
 ): Promise<T> {
   if (!enabled) return run();
   const started = performance.now();
-  return run().finally(() => recordPerf(name, performance.now() - started));
+  try {
+    return run().finally(() => recordPerf(name, performance.now() - started));
+  } catch (e) {
+    recordPerf(name, performance.now() - started);
+    throw e;
+  }
 }
 
 export function installPerfConsole(target: Window): void {

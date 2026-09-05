@@ -18,35 +18,35 @@ describe("overlayState", () => {
   });
 
   it("reports an overlay when a tagged element is present", () => {
-    mount('<div data-ds-overlay="modal"></div>');
+    mount('<div data-overlay="modal"></div>');
     expect(isOverlayOpen()).toBe(true);
   });
 
   it("matches any overlay role, not one specific value", () => {
     for (const role of ["modal", "menu", "popover"]) {
-      mount(`<div data-ds-overlay="${role}"></div>`);
+      mount(`<div data-overlay="${role}"></div>`);
       expect(isOverlayOpen()).toBe(true);
     }
   });
 
   it("finds an overlay nested inside other markup", () => {
-    mount('<div><section><span data-ds-overlay="menu"></span></section></div>');
+    mount('<div><section><span data-overlay="menu"></span></section></div>');
     expect(isOverlayOpen()).toBe(true);
   });
 
   it("ignores markup that only looks like an overlay", () => {
-    mount('<div class="modal-scrim"></div><div data-overlay="modal"></div>');
+    mount('<div class="modal-scrim"></div><div data-modal="true"></div>');
     expect(isOverlayOpen()).toBe(false);
   });
 
   it("hasOpenOverlay scopes the search to the given root", () => {
-    mount('<div id="a"></div><div id="b" data-ds-overlay="modal"></div>');
+    mount('<div id="a"></div><div id="b" data-overlay="modal"></div>');
     const a = document.getElementById("a") as HTMLElement;
     expect(hasOpenOverlay(a)).toBe(false);
     expect(hasOpenOverlay(document)).toBe(true);
   });
 
   it("exports the selector the design system tags overlays with", () => {
-    expect(OVERLAY_SELECTOR).toBe("[data-ds-overlay]");
+    expect(OVERLAY_SELECTOR).toBe("[data-overlay]");
   });
 });

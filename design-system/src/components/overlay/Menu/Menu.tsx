@@ -16,7 +16,7 @@ export interface MenuProps {
 
 const Menu = (props: MenuProps) => {
   return (
-    <div class="menu" data-ds-overlay="menu" role="menu">
+    <div class="menu" data-overlay="menu" role="menu">
       <For each={props.items}>
         {(item) => (
           <button

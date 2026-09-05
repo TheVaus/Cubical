@@ -32,10 +32,16 @@ describe("perf policy", () => {
   });
 
   it("is on in dev and off in production unless the flag is set", () => {
-    expect(perfEnabledFor(true, null)).toBe(true);
-    expect(perfEnabledFor(false, null)).toBe(false);
-    expect(perfEnabledFor(false, "1")).toBe(true);
-    expect(perfEnabledFor(false, "0")).toBe(false);
+    expect(perfEnabledFor(true, () => null)).toBe(true);
+    expect(perfEnabledFor(false, () => null)).toBe(false);
+    expect(perfEnabledFor(false, () => "1")).toBe(true);
+    expect(perfEnabledFor(false, () => "0")).toBe(false);
+  });
+
+  it("does not read the stored flag when dev already answered", () => {
+    const read = vi.fn(() => "0");
+    expect(perfEnabledFor(true, read)).toBe(true);
+    expect(read).not.toHaveBeenCalled();
   });
 
   it("drops the oldest sample past the limit", () => {
@@ -99,6 +105,15 @@ describe("perf recording", () => {
 
   it("measurePerfAsync resolves through and records once settled", async () => {
     await expect(measurePerfAsync("io", async () => "done")).resolves.toBe("done");
+    expect(perfSamples().map((s) => s.name)).toEqual(["io"]);
+  });
+
+  it("measurePerfAsync records a synchronous throw from the caller", () => {
+    expect(() =>
+      measurePerfAsync("io", () => {
+        throw new Error("nope");
+      }),
+    ).toThrow("nope");
     expect(perfSamples().map((s) => s.name)).toEqual(["io"]);
   });
 
