@@ -709,6 +709,32 @@ CodeMirror positions are UTF-16 code units; backend commands that locate a line
 (such as minting a block id) take **UTF-8 byte offsets**. Convert at the
 boundary — this is a silent corruption source on any non-ASCII document.
 
+## The banner is for a surface, the toast is for an action
+
+**Anchors:** showErrorToast · reportError
+
+Two error surfaces exist. The rule between them: the **banner** says *this
+surface failed to load* — the vault would not open, the tab's content would not
+read — and it sits with the thing that is missing. The **toast** says *the
+thing you just did failed*, and it is the right surface for everything else.
+
+That line was not being held. `fileActions.ts` is the proof: five siblings
+running the same `createFile`/`createFolder` calls against the same IPC split
+by which affordance invoked them — the Explorer header buttons reported through
+the banner, the tree context menu through a toast, on an identical rejection.
+Nothing documented the split, because there was none to document; it was drift.
+
+The shell now injects `showErrorToast` as the `reportError` of both the file
+actions and the document session, so a per-action failure has one surface
+wherever it was triggered from. `setError` keeps only the two callers that
+match the rule.
+
+The banner also has no lifecycle: nothing clears it when the operation that set
+it later succeeds, so a transient autosave failure could outlive its own
+condition until the tab or vault changed. Routing those writers to the toast
+gives them one — a toast can be dismissed, and the queue drains on a vault
+switch.
+
 ## A toast an error can survive
 
 **Anchors:** resolveAutoDismissMs · showErrorToast · enqueueToast
