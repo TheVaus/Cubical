@@ -135,7 +135,7 @@ import {
 } from "./statusbar/segments";
 import { leadingSeparators } from "./statusbar/separators";
 import { ToastHost } from "./ToastHost";
-import { showErrorToast, showToast } from "./toastState";
+import { dismissAllToasts, showErrorToast, showToast } from "./toastState";
 import {
   renameTarget,
   reprefixNestedPath,
@@ -1031,6 +1031,7 @@ const App: Component = () => {
     setPendingRewritesCount(0);
     fileActions.reset();
     setTagRefreshTick(0);
+    dismissAllToasts();
     settings.resetForVaultSwitch();
   };
 

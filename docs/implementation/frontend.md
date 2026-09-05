@@ -732,6 +732,10 @@ them, and each routine success would evict one unread. The timer lives in the DS
 exactly while its entry is live; the state module owns the policy and the
 component owns the clock, rather than both running a timer for the same toast.
 
+A vault switch drains the queue. That is only load-bearing because errors
+persist: an error naming a file in the vault you just left would otherwise
+stay on screen in the new one indefinitely, which the old four-second slot hid.
+
 An entry may carry an action, which the toast renders as a button and which
 dismisses the toast when it runs. Nothing in `ui/` offers one yet — a delete
 that could be undone needs the engine to keep what it removed.
