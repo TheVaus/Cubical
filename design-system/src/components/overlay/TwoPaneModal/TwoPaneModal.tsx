@@ -35,7 +35,11 @@ const TwoPaneModal = (props: TwoPaneModalProps) => {
   return (
     <Show when={props.open}>
       <Portal>
-        <div class="ds-two-pane-modal__scrim" onClick={() => props.onClose()}>
+        <div
+          class="ds-two-pane-modal__scrim"
+          data-ds-overlay="modal"
+          onClick={() => props.onClose()}
+        >
           <div
             class="ds-two-pane-modal__panel"
             role="dialog"

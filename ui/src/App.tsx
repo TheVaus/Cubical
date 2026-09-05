@@ -63,7 +63,8 @@ import {
   type ResolvedAnchor,
 } from "./api/ipc";
 import { createVaultSession } from "./core/vaultSession";
-import { resolveGlobal, type Command } from "./core/commands";
+import { type Command } from "./core/commands";
+import { attachGlobalKeys } from "./core/globalKeys";
 import { createNavSession } from "./core/navSession";
 import { createDebounced } from "./core/debounce";
 import { createDocumentSession } from "./core/documentSession";
@@ -981,14 +982,7 @@ const App: Component = () => {
       [TERMINAL_COMMAND_ID]: terminalTab.command,
       [GRAPH_COMMAND_ID]: graphTab.command,
     };
-    const onGlobalKey = (e: KeyboardEvent) => {
-      const c = resolveGlobal(settings.effectiveBindings(), globalCommands, e);
-      if (!c) return;
-      e.preventDefault();
-      c.run();
-    };
-    window.addEventListener("keydown", onGlobalKey);
-    onCleanup(() => window.removeEventListener("keydown", onGlobalKey));
+    attachGlobalKeys(() => settings.effectiveBindings(), globalCommands);
 
     const unwatchTheme = watchSystemTheme(() => {
       settings.reapplySystemTheme();

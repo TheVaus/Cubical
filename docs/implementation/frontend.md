@@ -219,6 +219,27 @@ Rebinding is layered on top as a **diff, not a snapshot**:
 - `global` and `editor` are **independent key spaces** — the same chord in the
   other scope is not a conflict.
 
+## An open overlay owns the keyboard
+
+**Anchors:** attachGlobalKeys · isOverlayOpen · OVERLAY_SELECTOR
+
+`attachGlobalKeys` in `ui/src/core/globalKeys.ts` owns the window `keydown`
+listener, and it resolves nothing while an overlay is open. Without that, a
+global chord fires *through* a modal: with Settings open, the New-note shortcut
+still created a note behind it, and a confirm dialog could be outrun by a
+shortcut it was asking about.
+
+The predicate is a DOM query, not a set of app signals. Every design system
+overlay tags its own outermost element with `data-ds-overlay`, so an overlay
+blocks the global keyboard by existing rather than by remembering to register.
+The alternative — the shell tracking one boolean per overlay — fails silently:
+a new overlay simply does not block, and the symptom is not a keyboard bug but
+a stray action nobody connects to the dialog they had open.
+
+Two things deliberately stay outside the guard. The Omni-Bar is not a DS
+overlay and is not tagged, so its own toggle still closes it; and each overlay
+keeps its own Escape handler, so the guard can never strand a user inside one.
+
 ## Substrate vs feature ownership
 
 `ui/src/core/` is substrate: it owns the always-on plumbing and knows nothing
