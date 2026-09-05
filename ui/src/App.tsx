@@ -63,7 +63,8 @@ import {
   type ResolvedAnchor,
 } from "./api/ipc";
 import { createVaultSession } from "./core/vaultSession";
-import { resolveGlobal, type Command } from "./core/commands";
+import { type Command } from "./core/commands";
+import { attachGlobalKeys } from "./core/globalKeys";
 import { createNavSession } from "./core/navSession";
 import { createDebounced } from "./core/debounce";
 import { createDocumentSession } from "./core/documentSession";
@@ -134,7 +135,7 @@ import {
 } from "./statusbar/segments";
 import { leadingSeparators } from "./statusbar/separators";
 import { ToastHost } from "./ToastHost";
-import { showToast } from "./toastState";
+import { dismissAllToasts, showErrorToast, showToast } from "./toastState";
 import {
   renameTarget,
   reprefixNestedPath,
@@ -526,7 +527,7 @@ const App: Component = () => {
     const validation = validateRenameTarget(fromPath, rawTarget, isFolder);
     if (validation !== null) {
       if (validation.code !== "same") {
-        showToast(validation.message);
+        showErrorToast(validation.message);
       }
       fileActions.startRename(null);
       return;
@@ -586,8 +587,7 @@ const App: Component = () => {
       void refreshFileList();
       rightSidebarRefresh.schedule();
     } catch (e) {
-      const message = errorMessage(e);
-      showToast(message);
+      showErrorToast(errorMessage(e));
     }
   };
 
@@ -981,14 +981,7 @@ const App: Component = () => {
       [TERMINAL_COMMAND_ID]: terminalTab.command,
       [GRAPH_COMMAND_ID]: graphTab.command,
     };
-    const onGlobalKey = (e: KeyboardEvent) => {
-      const c = resolveGlobal(settings.effectiveBindings(), globalCommands, e);
-      if (!c) return;
-      e.preventDefault();
-      c.run();
-    };
-    window.addEventListener("keydown", onGlobalKey);
-    onCleanup(() => window.removeEventListener("keydown", onGlobalKey));
+    attachGlobalKeys(() => settings.effectiveBindings(), globalCommands);
 
     const unwatchTheme = watchSystemTheme(() => {
       settings.reapplySystemTheme();
@@ -1038,6 +1031,7 @@ const App: Component = () => {
     setPendingRewritesCount(0);
     fileActions.reset();
     setTagRefreshTick(0);
+    dismissAllToasts();
     settings.resetForVaultSwitch();
   };
 
@@ -1689,7 +1683,7 @@ const App: Component = () => {
                   <PendingRewrites
                     vaultId={vaultId()}
                     count={pendingRewritesCount()}
-                    onError={(m: string) => showToast(m)}
+                    onError={(m: string) => showErrorToast(m)}
                   />
                 </span>
               );

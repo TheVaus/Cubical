@@ -31,7 +31,12 @@ const Popover = (props: PopoverProps) => {
   return (
     <Show when={props.open}>
       <div class="ds-popover__backdrop" onClick={() => props.onClose()} />
-      <div class={panelClass()} role="dialog" aria-label={props.ariaLabel}>
+      <div
+        class={panelClass()}
+        data-overlay="popover"
+        role="dialog"
+        aria-label={props.ariaLabel}
+      >
         {props.children}
       </div>
     </Show>

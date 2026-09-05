@@ -27,6 +27,7 @@ const Modal = (props: ModalProps) => {
       <Portal>
         <div
           class="modal-scrim"
+          data-overlay="modal"
           classList={{ center: props.placement === 'center' }}
           onClick={() => props.onClose()}
         >

@@ -219,6 +219,33 @@ Rebinding is layered on top as a **diff, not a snapshot**:
 - `global` and `editor` are **independent key spaces** — the same chord in the
   other scope is not a conflict.
 
+## An open overlay owns the keyboard
+
+**Anchors:** attachGlobalKeys · isOverlayOpen · OVERLAY_SELECTOR
+
+`attachGlobalKeys` in `ui/src/core/globalKeys.ts` owns the window `keydown`
+listener, and it resolves nothing while an overlay is open. Without that, a
+global chord fires *through* a modal: with Settings open, the New-note shortcut
+still created a note behind it, and a confirm dialog could be outrun by a
+shortcut it was asking about.
+
+The predicate is a DOM query: an overlay tags its own outermost element with
+`data-overlay`, and `isOverlayOpen()` looks for any of them. That keeps the
+declaration next to the overlay instead of in a shell boolean the shell has to
+remember to flip, and it costs one attribute rather than a registration.
+
+**It is still opt-in, and an untagged overlay does not block.** The tag is
+cheaper to remember than a signal, not automatic, and the failure mode is quiet
+in the same way: the symptom is not a keyboard bug but a stray action nobody
+connects to the panel they had open. Two overlays in `ui/` are hand-rolled
+rather than DS components and carry the attribute themselves — the search
+filters panel and the Properties type menu. Both are on the DS-migration tail
+(#34); once they are a DS `Popover` and `Menu` the attribute comes with them.
+
+The Omni-Bar is deliberately untagged: it is not a blocking overlay, its input
+holds focus, and its own toggle has to keep working to close it. Every overlay
+also keeps its Escape handler, so the guard can never strand a user inside one.
+
 ## Substrate vs feature ownership
 
 `ui/src/core/` is substrate: it owns the always-on plumbing and knows nothing
@@ -608,6 +635,29 @@ dispatches a document change, preserving the "Solid stays out of CM editing"
 contract. Doc changes drive a debounced relayout; scrolls drive a cheap
 rAF-throttled repaint that reuses the existing layout.
 
+## The renderer can be asked what it just spent
+
+**Anchors:** measurePerf · measurePerfAsync · installPerfConsole
+
+`ui/src/core/perf.ts` keeps a capped ring of timing samples and logs anything
+that blew a frame. It is on in dev and off in a shipped build until the
+`cubical:perf` key is set in `localStorage`, so a slow build in front of a user
+can be asked what it is spending without a special binary.
+
+Two seams cover most of it. `ui/src/api/ipc.ts` is already the one chokepoint
+every command goes through, so a local `invoke` wrapper times all of them for
+the cost of four lines rather than an edit per command; and `buildFor` in the
+Live Preview plugin wraps the single Lezer walk, which is the largest
+synchronous cost the editor pays per update.
+
+Disabled, `measurePerf` calls straight through and takes no clock reading, so
+an instrumented seam costs a boolean test in a shipped build.
+
+This measures where a frame went. It does not set a bar — the measured
+performance budget and what may be asserted against it are owned by
+[`architecture/foundation.md`](../architecture/foundation.md) §1, and today that
+budget describes the engine only.
+
 ## Testing note
 
 jsdom implements no layout, so CodeMirror's vertical-motion path throws on
@@ -658,6 +708,37 @@ inside an open block does not offer to open another.
 CodeMirror positions are UTF-16 code units; backend commands that locate a line
 (such as minting a block id) take **UTF-8 byte offsets**. Convert at the
 boundary — this is a silent corruption source on any non-ASCII document.
+
+## A toast an error can survive
+
+**Anchors:** resolveAutoDismissMs · showErrorToast · enqueueToast
+
+`ui/src/toastState.ts` is a queue, not a slot, and the auto-dismiss window is a
+function of tone: an `error` toast has no window at all and stays until it is
+dismissed, everything else gets the default one, and an explicit `durationMs`
+from the caller beats both.
+
+The single slot it replaced lost information twice over. A failure announced
+itself for four seconds and then read as if it had never happened, and any
+later message overwrote it outright — so the toast a user needed to act on was
+the one most likely to be buried by the next routine success.
+
+The queue is capped, and what it drops is chosen rather than positional: it
+evicts the oldest entry that was going to expire on its own, and only falls
+back to the oldest error when every entry is one. Dropping from the front
+regardless would have reintroduced the bug from the other direction — errors
+are the only entries that never expire, so the queue trends towards full of
+them, and each routine success would evict one unread. The timer lives in the DS `Toast` component, which is mounted
+exactly while its entry is live; the state module owns the policy and the
+component owns the clock, rather than both running a timer for the same toast.
+
+A vault switch drains the queue. That is only load-bearing because errors
+persist: an error naming a file in the vault you just left would otherwise
+stay on screen in the new one indefinitely, which the old four-second slot hid.
+
+An entry may carry an action, which the toast renders as a button and which
+dismisses the toast when it runs. Nothing in `ui/` offers one yet — a delete
+that could be undone needs the engine to keep what it removed.
 
 ## Popover dismissal
 

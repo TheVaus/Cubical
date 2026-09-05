@@ -157,12 +157,18 @@ import Toast from "@ds/components/feedback/Toast/Toast";
 | `tone` | `Tone` | no |
 | `message` | `string` | yes |
 | `onDismiss` | `() => void` | yes |
-| `autoDismissMs` | `number` | no |
+| `autoDismissMs` | `number \| null` | no |
+| `action` | `ToastAction` | no |
 
 Also exports:
 
 ```ts
 export type Tone = 'neutral' | 'success' | 'warning' | 'error';
+
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
 ```
 
 ### Tooltip

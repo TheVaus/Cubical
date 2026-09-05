@@ -193,7 +193,21 @@ const Gallery = () => {
           <Button variant="secondary" onClick={() => setShowToast(true)}>Trigger toast</Button>
         </div>
         <Show when={showToast()}>
-          <Toast message="Vault indexed — 1,204 notes." tone="success" onDismiss={() => setShowToast(false)} />
+          <div class="stack">
+            <Toast message="Vault indexed — 1,204 notes." tone="success" onDismiss={() => setShowToast(false)} />
+            <Toast
+              message="Could not write note.md — permission denied."
+              tone="error"
+              autoDismissMs={null}
+              onDismiss={() => setShowToast(false)}
+            />
+            <Toast
+              message="Moved 3 notes to Trash."
+              autoDismissMs={null}
+              action={{ label: 'Undo', onClick: () => {} }}
+              onDismiss={() => setShowToast(false)}
+            />
+          </div>
         </Show>
       </section>
       <section class="gallery-section stack">

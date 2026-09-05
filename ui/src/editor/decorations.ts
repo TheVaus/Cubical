@@ -17,6 +17,7 @@ import {
 import { syntaxTree } from "@codemirror/language";
 import { type SyntaxNode, type Tree } from "@lezer/common";
 
+import { measurePerf } from "../core/perf";
 import { scanWikilinks, type TokenizedRun } from "../ast/wikilink";
 import type { WikiLinkResolution } from "./wikilinkResolver";
 
@@ -493,6 +494,10 @@ function buildDecorationSet(entries: DecoEntry[]): DecorationSet {
 }
 
 function buildFor(view: EditorView): DecorationSet {
+  return measurePerf("editor:decorations", () => buildDecorations(view));
+}
+
+function buildDecorations(view: EditorView): DecorationSet {
   const tree = syntaxTree(view.state);
   const sel = view.state.selection.main;
   const cursor: CursorState = { head: sel.head, from: sel.from, to: sel.to };
