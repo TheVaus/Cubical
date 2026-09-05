@@ -1,7 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use cubical_ast::{basename, strip_markdown_extension, Anchor, Block, Document, Inline, ListItem};
+use cubical_ast::{
+    basename, scan_wikilinks, strip_markdown_extension, Anchor, Block, Document, Inline, ListItem,
+    TokenizedRun,
+};
 use cubical_index::{replace_links_for_file, LinkRow};
 
 use crate::vault::parse::parse_off_executor;
@@ -20,10 +23,86 @@ pub struct LinkExtraction {
 
 pub fn extract_links(doc: &Document) -> Vec<LinkExtraction> {
     let mut out = Vec::new();
+    if let Some(frontmatter) = doc.frontmatter.as_ref() {
+        let mut ordinal = frontmatter.span.start as u64;
+        let limit = frontmatter.span.end as u64;
+        let mut seen = HashSet::new();
+        for (_key, value) in &frontmatter.entries {
+            walk_frontmatter_value(value, &mut ordinal, limit, &mut seen, &mut out);
+        }
+    }
     for block in &doc.blocks {
         walk_block(block, &mut out);
     }
     out
+}
+
+fn frontmatter_dedup_key(link: &LinkExtraction) -> String {
+    let anchor = match &link.anchor {
+        None => String::new(),
+        Some(Anchor::Heading { value }) => format!("h{value}"),
+        Some(Anchor::Block { value }) => format!("b{value}"),
+    };
+    format!(
+        "{}\x00{}\x00{anchor}\x00{}\x00{}",
+        u8::from(link.is_embed),
+        u8::from(link.from_property_ref),
+        link.display.as_deref().unwrap_or_default(),
+        link.target_raw,
+    )
+}
+
+fn walk_frontmatter_value(
+    value: &serde_json::Value,
+    ordinal: &mut u64,
+    limit: u64,
+    seen: &mut HashSet<String>,
+    out: &mut Vec<LinkExtraction>,
+) {
+    let text = match value {
+        serde_json::Value::String(text) => text,
+        serde_json::Value::Array(items) => {
+            for item in items {
+                walk_frontmatter_value(item, ordinal, limit, seen, out);
+            }
+            return;
+        }
+        serde_json::Value::Object(entries) => {
+            for nested in entries.values() {
+                walk_frontmatter_value(nested, ordinal, limit, seen, out);
+            }
+            return;
+        }
+        _ => return,
+    };
+    for run in scan_wikilinks(text) {
+        let (target_raw, display, anchor, is_embed, from_property_ref) = match run {
+            TokenizedRun::WikiLink {
+                target,
+                display,
+                anchor,
+                embed,
+            } => (target, display, anchor, embed, false),
+            TokenizedRun::PropertyRef {
+                note: Some(note),
+                property,
+            } => (format!("{note}.{property}"), None, None, false, true),
+            TokenizedRun::Text(_) | TokenizedRun::PropertyRef { note: None, .. } => continue,
+        };
+        let candidate = LinkExtraction {
+            target_raw,
+            anchor,
+            display,
+            is_embed,
+            from_property_ref,
+            position: (*ordinal).min(limit.saturating_sub(1)),
+        };
+        if !seen.insert(frontmatter_dedup_key(&candidate)) {
+            continue;
+        }
+        out.push(candidate);
+        *ordinal += 1;
+    }
 }
 
 fn walk_block(block: &Block, out: &mut Vec<LinkExtraction>) {
@@ -312,6 +391,147 @@ mod tests {
         assert!(links[0].anchor.is_none());
         assert!(!links[0].is_embed);
         assert!(!links[0].from_property_ref);
+    }
+
+    #[test]
+    fn extracts_wikilink_from_a_quoted_frontmatter_string() {
+        let doc = parse("---\nhome: \"[[Rivendell]]\"\n---\nbody\n");
+        let links = extract_links(&doc);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].target_raw, "Rivendell");
+        assert!(!links[0].is_embed);
+        assert!(!links[0].from_property_ref);
+    }
+
+    #[test]
+    fn extracts_wikilinks_from_a_frontmatter_list() {
+        let doc = parse("---\noffsprings:\n  - \"[[Jack]]\"\n  - \"[[Jill]]\"\n---\nbody\n");
+        let targets: Vec<String> = extract_links(&doc)
+            .into_iter()
+            .map(|e| e.target_raw)
+            .collect();
+        assert_eq!(targets, vec!["Jack".to_string(), "Jill".to_string()]);
+    }
+
+    #[test]
+    fn extracts_wikilink_from_a_nested_frontmatter_map() {
+        let doc = parse("---\nmeta:\n  home: \"[[Rivendell]]\"\n---\nbody\n");
+        let links = extract_links(&doc);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].target_raw, "Rivendell");
+    }
+
+    #[test]
+    fn unquoted_frontmatter_brackets_are_a_yaml_list_and_not_a_link() {
+        let doc = parse("---\nhome: [[Rivendell]]\n---\nbody\n");
+        assert!(extract_links(&doc).is_empty());
+    }
+
+    #[test]
+    fn frontmatter_and_body_links_are_both_extracted() {
+        let doc = parse("---\nhome: \"[[Rivendell]]\"\n---\nsee [[Moria]]\n");
+        let targets: Vec<String> = extract_links(&doc)
+            .into_iter()
+            .map(|e| e.target_raw)
+            .collect();
+        assert_eq!(targets, vec!["Rivendell".to_string(), "Moria".to_string()]);
+    }
+
+    #[test]
+    fn a_frontmatter_link_carries_display_and_anchor() {
+        let doc = parse("---\nhome: \"[[Rivendell#Hall|Last Homely House]]\"\n---\nbody\n");
+        let links = extract_links(&doc);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].target_raw, "Rivendell");
+        assert_eq!(links[0].display.as_deref(), Some("Last Homely House"));
+        assert!(links[0].anchor.is_some());
+    }
+
+    #[test]
+    fn frontmatter_links_get_distinct_positions() {
+        let doc = parse("---\noffsprings:\n  - \"[[Jack]]\"\n  - \"[[Jill]]\"\n---\nbody\n");
+        let positions: Vec<u64> = extract_links(&doc).iter().map(|e| e.position).collect();
+        assert_eq!(positions.len(), 2);
+        assert_ne!(
+            positions[0], positions[1],
+            "backlink rows are keyed by source_path@position in the UI"
+        );
+    }
+
+    #[test]
+    fn frontmatter_link_positions_stay_inside_the_frontmatter_block() {
+        let source = "---\nhome: \"[[Rivendell]]\"\nalt: \"[[Moria]]\"\n---\nsee [[Shire]]\n";
+        let doc = parse(source);
+        let body_offset = doc.frontmatter.as_ref().expect("frontmatter").span.end as u64;
+        let links = extract_links(&doc);
+        let (fm, body): (Vec<_>, Vec<_>) = links.iter().partition(|e| e.target_raw != "Shire");
+        assert!(fm.iter().all(|e| e.position < body_offset));
+        assert!(body.iter().all(|e| e.position >= body_offset));
+    }
+
+    #[test]
+    fn a_yaml_alias_does_not_multiply_a_frontmatter_link() {
+        let doc = parse("---\na: &x \"[[Jack]]\"\nb: *x\nc: *x\n---\nbody\n");
+        let links = extract_links(&doc);
+        assert_eq!(
+            links.len(),
+            1,
+            "one source occurrence is one link, however many aliases point at it"
+        );
+    }
+
+    #[test]
+    fn alias_expansion_cannot_push_a_position_into_the_body() {
+        let source = concat!(
+            "---\n",
+            "a: &a \"[[J]]\"\n",
+            "b: &b [*a, *a, *a, *a, *a, *a, *a, *a]\n",
+            "c: &c [*b, *b, *b, *b, *b, *b, *b, *b]\n",
+            "d: [*c, *c, *c, *c, *c, *c, *c, *c]\n",
+            "---\n",
+            "see [[Shire]]\n",
+        );
+        let doc = parse(source);
+        let body_offset = doc.frontmatter.as_ref().expect("frontmatter").span.end as u64;
+        for link in extract_links(&doc) {
+            if link.target_raw == "Shire" {
+                continue;
+            }
+            assert!(
+                link.position < body_offset,
+                "frontmatter position {} crossed the body offset {body_offset}",
+                link.position
+            );
+        }
+    }
+
+    #[test]
+    fn dedup_does_not_confuse_a_display_boundary_with_a_target() {
+        let doc = parse("---\na: \"[[xy]]\"\nb: \"[[y|x]]\"\n---\nbody\n");
+        let links = extract_links(&doc);
+        assert_eq!(
+            links.len(),
+            2,
+            "[[xy]] and [[y|x]] are different links and must not share a dedup key"
+        );
+    }
+
+    #[test]
+    fn a_dotted_frontmatter_target_is_offered_as_a_link_candidate() {
+        let doc = parse("---\nsource: \"[[Report v1.2]]\"\n---\nbody\n");
+        let links = extract_links(&doc);
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].target_raw, "Report v1.2");
+        assert!(
+            links[0].from_property_ref,
+            "keeps_link_row decides whether it survives, as it does in the body"
+        );
+    }
+
+    #[test]
+    fn a_self_property_ref_in_frontmatter_is_not_a_link() {
+        let doc = parse("---\nmirror: \"[[.age]]\"\n---\nbody\n");
+        assert!(extract_links(&doc).is_empty());
     }
 
     #[test]

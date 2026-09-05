@@ -1571,6 +1571,43 @@ mod tests {
     use crate::events::NoopEventSink;
 
     #[tokio::test]
+    async fn rename_rewrites_a_wikilink_written_in_frontmatter() {
+        let (_d, vault, state) = fresh("v1").await;
+        seed_file(&vault, "Bob.md", "markdown").await;
+        seed_file(&vault, "Jack.md", "markdown").await;
+
+        let bob = "---\noffsprings:\n  - \"[[Jack]]\"\n---\nbody\n";
+        std::fs::write(vault.root().join("Bob.md"), bob).unwrap();
+        std::fs::write(vault.root().join("Jack.md"), "body\n").unwrap();
+        cubical_core::vault::links::refresh_links(&vault, "Bob.md", bob)
+            .await
+            .expect("extract");
+
+        let resp = rename_file(
+            &state,
+            &NoopEventSink,
+            RenameFileRequest {
+                vault_id: "v1".into(),
+                from_path: "Jack.md".into(),
+                to_path: "Jackson.md".into(),
+            },
+        )
+        .await
+        .expect("ok");
+
+        assert_eq!(resp.pending_count, 1, "Bob refers to Jack from frontmatter");
+
+        let materialized =
+            cubical_core::vault::pending::materialize_on_read(vault.index(), "Bob.md", bob)
+                .await
+                .expect("materialize");
+        assert!(
+            materialized.contains("\"[[Jackson]]\""),
+            "quoted frontmatter link should be rewritten, got: {materialized}"
+        );
+    }
+
+    #[tokio::test]
     async fn rename_file_enqueues_one_row_per_distinct_referrer_pair() {
         let (_d, vault, state) = fresh("v1").await;
         seed_file(&vault, "Daily.md", "markdown").await;
