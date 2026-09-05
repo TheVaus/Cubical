@@ -1,7 +1,11 @@
-import { Channel, invoke } from "@tauri-apps/api/core";
+import { Channel, invoke as invokeCommand } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import type { CanonicalDocument } from "../ast/types";
+import { measurePerfAsync } from "../core/perf";
+
+const invoke = <T,>(cmd: string, args?: Record<string, unknown>): Promise<T> =>
+  measurePerfAsync(`ipc:${cmd}`, () => invokeCommand<T>(cmd, args));
 
 export type ScanStatus = "in_progress" | "complete" | "cancelled";
 

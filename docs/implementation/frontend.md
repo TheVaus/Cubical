@@ -629,6 +629,29 @@ dispatches a document change, preserving the "Solid stays out of CM editing"
 contract. Doc changes drive a debounced relayout; scrolls drive a cheap
 rAF-throttled repaint that reuses the existing layout.
 
+## The renderer can be asked what it just spent
+
+**Anchors:** measurePerf · measurePerfAsync · installPerfConsole
+
+`ui/src/core/perf.ts` keeps a capped ring of timing samples and logs anything
+that blew a frame. It is on in dev and off in a shipped build until the
+`cubical:perf` key is set in `localStorage`, so a slow build in front of a user
+can be asked what it is spending without a special binary.
+
+Two seams cover most of it. `ui/src/api/ipc.ts` is already the one chokepoint
+every command goes through, so a local `invoke` wrapper times all of them for
+the cost of four lines rather than an edit per command; and `buildFor` in the
+Live Preview plugin wraps the single Lezer walk, which is the largest
+synchronous cost the editor pays per update.
+
+Disabled, `measurePerf` calls straight through and takes no clock reading, so
+an instrumented seam costs a boolean test in a shipped build.
+
+This measures where a frame went. It does not set a bar — the measured
+performance budget and what may be asserted against it are owned by
+[`architecture/foundation.md`](../architecture/foundation.md) §1, and today that
+budget describes the engine only.
+
 ## Testing note
 
 jsdom implements no layout, so CodeMirror's vertical-motion path throws on
