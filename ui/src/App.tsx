@@ -325,7 +325,7 @@ const App: Component = () => {
     refreshFileList: () => refreshFileList(),
     openCreatedFile: (path, contentHash) =>
       handleNavigateWikilink(path, null, contentHash),
-    reportError: setError,
+    reportError: showErrorToast,
     countFilesUnderFolder: (path) =>
       countFilesUnderFolder(buildFileTree(files(), folders()), path),
   });
@@ -427,7 +427,7 @@ const App: Component = () => {
     path: selectedPath,
     editor: editorApi,
     autosaveDebounceMs: AUTOSAVE_DEBOUNCE_MS,
-    reportError: setError,
+    reportError: showErrorToast,
     onWritten: () => searchRefresh.schedule(),
     onContentReplaced: (content) => setSelectedContent(content),
   });
@@ -493,8 +493,7 @@ const App: Component = () => {
         buildBlockRefLink(path, resp.block_id),
       );
     } catch (e) {
-      const message = errorMessage(e);
-      setError(message);
+      showErrorToast(errorMessage(e));
     }
   };
 
@@ -836,8 +835,7 @@ const App: Component = () => {
       const resp = await createFileAtPath({ vault_id: id, path: offer.path });
       await handleNavigateWikilink(offer.path, null, resp.content_hash);
     } catch (e) {
-      const message = errorMessage(e);
-      setError(message);
+      showErrorToast(errorMessage(e));
     }
   };
 
