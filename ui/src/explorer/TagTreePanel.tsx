@@ -11,7 +11,7 @@ import type { FileEntry, TagAssignmentDto } from "../api/ipc";
 import { listTagAssignments, renameTag } from "../api/ipc";
 import { errorMessage } from "../errorMessage";
 import { renameTarget } from "../fileRename";
-import { showToast } from "../toastState";
+import { showErrorToast, showToast } from "../toastState";
 import { computeWindow } from "../virtualList";
 import FileRow from "./FileRow";
 import FolderRow from "./FolderRow";
@@ -68,7 +68,7 @@ const TagTreePanel: Component<TagTreePanelProps> = (props) => {
       })
       .catch((e) => {
         if (my !== token) return;
-        showToast(errorMessage(e));
+        showErrorToast(errorMessage(e));
         setLoaded(true);
       });
   });
@@ -117,7 +117,7 @@ const TagTreePanel: Component<TagTreePanelProps> = (props) => {
       );
       setSelfReload((n) => n + 1);
     } catch (e) {
-      showToast(errorMessage(e));
+      showErrorToast(errorMessage(e));
     }
   };
 

@@ -680,6 +680,29 @@ CodeMirror positions are UTF-16 code units; backend commands that locate a line
 (such as minting a block id) take **UTF-8 byte offsets**. Convert at the
 boundary — this is a silent corruption source on any non-ASCII document.
 
+## A toast an error can survive
+
+**Anchors:** resolveAutoDismissMs · showErrorToast · enqueueToast
+
+`ui/src/toastState.ts` is a queue, not a slot, and the auto-dismiss window is a
+function of tone: an `error` toast has no window at all and stays until it is
+dismissed, everything else gets the default one, and an explicit `durationMs`
+from the caller beats both.
+
+The single slot it replaced lost information twice over. A failure announced
+itself for four seconds and then read as if it had never happened, and any
+later message overwrote it outright — so the toast a user needed to act on was
+the one most likely to be buried by the next routine success.
+
+The queue is capped and drops from the front, so a burst cannot grow the stack
+without bound. The timer lives in the DS `Toast` component, which is mounted
+exactly while its entry is live; the state module owns the policy and the
+component owns the clock, rather than both running a timer for the same toast.
+
+An entry may carry an action, which the toast renders as a button and which
+dismisses the toast when it runs. Nothing in `ui/` offers one yet — a delete
+that could be undone needs the engine to keep what it removed.
+
 ## Popover dismissal
 
 The DS `Popover` renders a transparent full-viewport backdrop below the panel

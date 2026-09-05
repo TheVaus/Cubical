@@ -135,7 +135,7 @@ import {
 } from "./statusbar/segments";
 import { leadingSeparators } from "./statusbar/separators";
 import { ToastHost } from "./ToastHost";
-import { showToast } from "./toastState";
+import { showErrorToast, showToast } from "./toastState";
 import {
   renameTarget,
   reprefixNestedPath,
@@ -527,7 +527,7 @@ const App: Component = () => {
     const validation = validateRenameTarget(fromPath, rawTarget, isFolder);
     if (validation !== null) {
       if (validation.code !== "same") {
-        showToast(validation.message);
+        showErrorToast(validation.message);
       }
       fileActions.startRename(null);
       return;
@@ -587,8 +587,7 @@ const App: Component = () => {
       void refreshFileList();
       rightSidebarRefresh.schedule();
     } catch (e) {
-      const message = errorMessage(e);
-      showToast(message);
+      showErrorToast(errorMessage(e));
     }
   };
 
@@ -1683,7 +1682,7 @@ const App: Component = () => {
                   <PendingRewrites
                     vaultId={vaultId()}
                     count={pendingRewritesCount()}
-                    onError={(m: string) => showToast(m)}
+                    onError={(m: string) => showErrorToast(m)}
                   />
                 </span>
               );
