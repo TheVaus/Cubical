@@ -12,7 +12,6 @@ import {
 } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
 
-import { inferType, type CellKind } from "../properties/inferType";
 import { decorationField } from "./decorationField";
 import { evaluate, type RefResolution, type ResolveRef } from "./expr/evaluate";
 import { formatResult } from "./expr/format";
@@ -33,14 +32,8 @@ export const equationsEnabledFacet = Facet.define<boolean, boolean>({
 
 export const EQUATION_PREFIX = "=";
 
-const NUMERIC: ReadonlySet<CellKind> = new Set<CellKind>([
-  "int",
-  "float",
-  "currency",
-]);
-
 export function numericOperand(value: unknown): RefResolution {
-  if (!NUMERIC.has(inferType(value)) || typeof value !== "number") {
+  if (typeof value !== "number") {
     return { kind: "not_a_number" };
   }
   return Number.isFinite(value)
