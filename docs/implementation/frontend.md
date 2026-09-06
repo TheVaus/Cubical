@@ -709,6 +709,32 @@ CodeMirror positions are UTF-16 code units; backend commands that locate a line
 (such as minting a block id) take **UTF-8 byte offsets**. Convert at the
 boundary — this is a silent corruption source on any non-ASCII document.
 
+## The banner is for a surface, the toast is for an action
+
+**Anchors:** showErrorToast · reportError
+
+Two error surfaces exist. The rule between them: the **banner** says *this
+surface failed to load* — the vault would not open, the tab's content would not
+read — and it sits with the thing that is missing. The **toast** says *the
+thing you just did failed*, and it is the right surface for everything else.
+
+That line was not being held. `fileActions.ts` is the proof: five siblings
+running the same `createFile`/`createFolder` calls against the same IPC split
+by which affordance invoked them — the Explorer header buttons reported through
+the banner, the tree context menu through a toast, on an identical rejection.
+Nothing documented the split, because there was none to document; it was drift.
+
+The shell now injects `showErrorToast` as the `reportError` of both the file
+actions and the document session, so a per-action failure has one surface
+wherever it was triggered from. `setError` keeps only the two callers that
+match the rule.
+
+The banner also has no lifecycle: nothing clears it when the operation that set
+it later succeeds, so a transient autosave failure could outlive its own
+condition until the tab or vault changed. Routing those writers to the toast
+gives them one — a toast can be dismissed, and the queue drains on a vault
+switch.
+
 ## A toast an error can survive
 
 **Anchors:** resolveAutoDismissMs · showErrorToast · enqueueToast
@@ -737,8 +763,26 @@ persist: an error naming a file in the vault you just left would otherwise
 stay on screen in the new one indefinitely, which the old four-second slot hid.
 
 An entry may carry an action, which the toast renders as a button and which
-dismisses the toast when it runs. Nothing in `ui/` offers one yet — a delete
-that could be undone needs the engine to keep what it removed.
+dismisses the toast when it runs. The tag rename toast offers Undo, and what it
+calls matters: not `renameTag` with the arguments swapped, but `undoRename`
+with the op id the rename returned.
+
+Swapping the arguments looks equivalent and is not. `rename_tag` writes nothing
+to disk and does not update the tag index — it queues rewrites — so a reversing
+rename reads a `tags` table that still names the *old* tag and matches nothing,
+returning success having done nothing at all. Where the file has been reindexed
+in between, it matches and enqueues a *second* rewrite keyed on the new tag,
+which then also rewrites any occurrence of that tag the file already had. A
+silent no-op in one case and content loss in the other.
+
+`undoRename` deletes the queued rows by op id, so it can only ever un-queue
+what the rename queued. It reports how many rows it removed, which is how the
+result toast can say the rewrites already flushed rather than claim a success
+it did not have. A rename with no referrers mints no op id and is offered no
+Undo. The engine side of this is owned by
+[`architecture/document-model.md`](../architecture/document-model.md); the
+status bar has offered the same operation per-op for as long as pending
+rewrites have existed.
 
 ## Popover dismissal
 

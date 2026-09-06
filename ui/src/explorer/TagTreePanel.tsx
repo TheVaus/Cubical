@@ -8,7 +8,7 @@ import {
 } from "solid-js";
 
 import type { FileEntry, TagAssignmentDto } from "../api/ipc";
-import { listTagAssignments, renameTag } from "../api/ipc";
+import { listTagAssignments, renameTag, undoRename } from "../api/ipc";
 import { errorMessage } from "../errorMessage";
 import { renameTarget } from "../fileRename";
 import { showErrorToast, showToast } from "../toastState";
@@ -18,6 +18,7 @@ import FolderRow from "./FolderRow";
 import type { FileActions } from "./fileActions";
 import { FILE_LIST_OVERSCAN, FILE_ROW_HEIGHT } from "./rowMetrics";
 import { buildStableTagRows, type TagFlatRow } from "./tagTree";
+import { canUndoTagRename, undoResultMessage } from "./tagRenameUndo";
 
 export interface TagTreePanelProps {
   files: FileEntry[];
@@ -114,7 +115,28 @@ const TagTreePanel: Component<TagTreePanelProps> = (props) => {
         resp.pending_count > 0
           ? `Renamed #${tagPath} to #${next} — ${resp.pending_count} rewrite(s) pending.`
           : `Renamed #${tagPath} to #${next}.`,
+        canUndoTagRename(resp.rename_op_id)
+          ? {
+              action: {
+                label: "Undo",
+                run: () => void undoTagRename(vid, resp.rename_op_id),
+              },
+            }
+          : {},
       );
+      setSelfReload((n) => n + 1);
+    } catch (e) {
+      showErrorToast(errorMessage(e));
+    }
+  };
+
+  const undoTagRename = async (vid: string, renameOpId: number) => {
+    try {
+      const resp = await undoRename({
+        vault_id: vid,
+        rename_op_id: renameOpId,
+      });
+      showToast(undoResultMessage(resp.removed));
       setSelfReload((n) => n + 1);
     } catch (e) {
       showErrorToast(errorMessage(e));
