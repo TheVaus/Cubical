@@ -107,6 +107,7 @@ ds-raw-control-budgets    | scripts/ds-raw-controls.json               | -
 component-size-budgets    | scripts/component-budgets.json             | -
 app-shell-rule            | docs/architecture/ui.md                    | -
 tauri-boundary-exceptions | scripts/dependency-boundary.json           | -
+domain-census             | scripts/domain-boundaries.json             | -
 declared-runtime-deps     | scripts/techstack-declared.json            | -
 perf-budget-machine-class | scripts/perf-budget.json                   | -
 out-of-scope-nonfeatures  | docs/architecture/constraints.md           | -

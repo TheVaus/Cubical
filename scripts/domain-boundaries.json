@@ -1,0 +1,172 @@
+{
+  "_": [
+    "Read by scripts/gates/domain_boundary.py. The rule is",
+    "docs/principles/domain-scoped-dependencies.md.",
+    "",
+    "Three classes, and the class is the whole rule:",
+    "",
+    "  substrate — always on. Anything may depend on it. It may depend on",
+    "              nothing but other substrate. Switching it off is not a",
+    "              feature request, it is a different product.",
+    "  block     — removable. It may depend on substrate and on its own",
+    "              domain. It may NOT depend on another domain's block: that",
+    "              is what makes two features fail together.",
+    "  shell     — the composition root. It exists to know every block, so it",
+    "              is exempt. Keeping the exempt set small is the point; a",
+    "              shell that grows logic has stopped being a composition root.",
+    "",
+    "`allowed` is a GRANDFATHER LIST, not a design. Every entry is a violation",
+    "that predates the gate, kept so the gate could land green rather than",
+    "block unrelated work. Entries come off as the code is touched; nothing is",
+    "added without an issue number saying why the edge cannot be removed."
+  ],
+
+  "crates": {
+    "cubical-ast":    { "class": "substrate", "domain": "document" },
+    "cubical-index":  { "class": "substrate", "domain": "index" },
+    "cubical-core":   { "class": "substrate", "domain": "vault" },
+    "cubical-search": { "class": "block",     "domain": "search" },
+    "cubical-graph":  { "class": "block",     "domain": "graph" },
+    "cubical-query":  { "class": "block",     "domain": "dataview" },
+    "cubical-table":  { "class": "block",     "domain": "dataview" },
+    "cubical-sync":   { "class": "block",     "domain": "sync" },
+    "cubical-engine": { "class": "shell",     "domain": "engine" },
+    "cubical-ipc":    { "class": "shell",     "domain": "engine" },
+    "cubical-app":    { "class": "shell",     "domain": "app" },
+    "cubical-cli":    { "class": "shell",     "domain": "app" }
+  },
+
+  "crate_allowed": {
+    "cubical-core -> cubical-search": {
+      "issue": 274,
+      "reason": [
+        "The `Vault` handle owns `search: Arc<SearchIndex>` and `VaultError`",
+        "carries a `Search(String)` variant, so a search failure is a vault",
+        "failure and the substrate cannot be built without the block. This is",
+        "the one crate-level violation and the reason this gate exists."
+      ]
+    }
+  },
+
+  "engine_modules": {
+    "_": "crates/cubical-engine/src/commands/*. Anything not listed is shell.",
+    "open":        { "class": "substrate", "domain": "vault" },
+    "paths":       { "class": "substrate", "domain": "vault" },
+    "vault":       { "class": "substrate", "domain": "vault" },
+    "snippet":     { "class": "substrate", "domain": "vault" },
+    "link_match":  { "class": "substrate", "domain": "links" },
+    "links":       { "class": "substrate", "domain": "links" },
+    "backlinks":   { "class": "substrate", "domain": "links" },
+    "mentions":    { "class": "substrate", "domain": "links" },
+    "tags":        { "class": "substrate", "domain": "tags" },
+    "rename":      { "class": "substrate", "domain": "rename" },
+    "autocomplete": { "class": "block", "domain": "autocomplete" },
+    "blocks":      { "class": "block", "domain": "blocks" },
+    "dataview":    { "class": "block", "domain": "dataview" },
+    "embeds":      { "class": "block", "domain": "embeds" },
+    "graph":       { "class": "block", "domain": "graph" },
+    "integrity":   { "class": "block", "domain": "integrity" },
+    "property_ref": { "class": "block", "domain": "property-refs" },
+    "search":      { "class": "block", "domain": "search" }
+  },
+
+  "engine_allowed": {},
+
+  "ui_domains": {
+    "_": [
+      "A directory under ui/src is a domain; a bare file under ui/src is its",
+      "own domain named after the file. Anything unlisted defaults to block,",
+      "so a new feature directory is fenced in from its first commit."
+    ],
+    "api":        { "class": "substrate", "domain": "ipc" },
+    "ast":        { "class": "substrate", "domain": "document" },
+    "core":       { "class": "substrate", "domain": "core" },
+    "vault":      { "class": "substrate", "domain": "vault" },
+    "styles":     { "class": "substrate", "domain": "styles" },
+    "errorMessage":  { "class": "substrate", "domain": "core" },
+    "listStability": { "class": "substrate", "domain": "core" },
+    "virtualList":   { "class": "substrate", "domain": "core" },
+    "navHistory":    { "class": "substrate", "domain": "core" },
+    "ownWrite":      { "class": "substrate", "domain": "core" },
+    "overlayState":  { "class": "substrate", "domain": "core" },
+    "toastState":    { "class": "substrate", "domain": "core" },
+    "fileRename":    { "class": "substrate", "domain": "vault" },
+
+    "App":        { "class": "shell", "domain": "shell" },
+    "main":       { "class": "shell", "domain": "shell" },
+
+    "Editor":     { "class": "block", "domain": "editor" },
+    "editor":     { "class": "block", "domain": "editor" },
+    "Properties": { "class": "block", "domain": "properties" },
+    "properties": { "class": "block", "domain": "properties" },
+    "TagPage":    { "class": "block", "domain": "tags" },
+    "ToastHost":  { "class": "block", "domain": "toast" },
+    "VaultSwitcher":   { "class": "block", "domain": "vault-switcher" },
+    "RecentVaultList": { "class": "block", "domain": "vault-switcher" },
+    "dataview":   { "class": "block", "domain": "dataview" },
+    "explorer":   { "class": "block", "domain": "explorer" },
+    "graph":      { "class": "block", "domain": "graph" },
+    "omnibar":    { "class": "block", "domain": "omnibar" },
+    "settings":   { "class": "substrate", "domain": "settings" },
+    "sidebar":    { "class": "block", "domain": "sidebar" },
+    "statusbar":  { "class": "block", "domain": "statusbar" },
+    "tabs":       { "class": "substrate", "domain": "tabs" },
+    "terminal":   { "class": "block", "domain": "terminal" },
+    "viewer":     { "class": "block", "domain": "viewer" }
+  },
+
+  "ui_allowed": {
+    "editor -> viewer": {
+      "issue": 276,
+      "reason": [
+        "csvBlock.ts and embedRender.ts import the viewer's renderer directly",
+        "to draw an embedded non-Markdown file, so breaking the viewer breaks",
+        "the editor. Wants a block-renderer registry — the seam KaTeX math",
+        "already uses — not an import."
+      ]
+    },
+    "editor -> dataview": {
+      "issue": 276,
+      "reason": [
+        "dataview.ts imports the query renderer to draw a ```query fence.",
+        "Same cause and same fix as the viewer edge above."
+      ]
+    },
+    "explorer -> sidebar": {
+      "issue": 277,
+      "reason": [
+        "ExplorerPanel composes the sidebar's search bar, results and state",
+        "inside itself. Composition done by import rather than by the shell,",
+        "which already imports both."
+      ]
+    },
+    "explorer -> viewer": {
+      "issue": 277,
+      "reason": [
+        "FileRow wants a file kind for its icon. Closer to substrate than to",
+        "the viewer block; resolve with the viewerKind question in 276."
+      ]
+    },
+    "settings -> graph": {
+      "issue": 278,
+      "reason": [
+        "CORE_PLUGINS hardcodes the registry, so the always-on settings store",
+        "cannot be constructed without the graph block. Assembling the plugin",
+        "list is a composition-root job. The back-edge is `import type` and",
+        "needs nothing."
+      ]
+    },
+    "settings -> terminal": {
+      "issue": 278,
+      "reason": ["Same as settings -> graph."]
+    },
+    "settings -> properties": {
+      "issue": 279,
+      "reason": [
+        "The editor settings pane renders date-format choices the properties",
+        "block owns. Either those formatters are substrate, or settings/ is",
+        "mis-scoped and its panes/ are a block. Pick one, not both."
+      ]
+    }
+  }
+}

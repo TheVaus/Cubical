@@ -6,7 +6,7 @@ One rule per file, fixed skeleton, stable id. The **Rule** line is the
 entire principle — read this table, then open only the file you need.
 A gate failure names its principle file; that file is the explanation.
 
-25 principles. 16 enforced by a gate today.
+26 principles. 17 enforced by a gate today.
 
 | Principle | Rule | Gate |
 |---|---|---|
@@ -21,6 +21,7 @@ A gate failure names its principle file; that file is the explanation.
 | [`dependencies`](dependencies.md) | Pin third-party Actions to commit SHAs, keep the Rust toolchain pinned, and enable only the features you use. | `scripts/check.sh` |
 | [`derived-state-disposable`](derived-state-disposable.md) | Never make the vault's correctness depend on state you cannot regenerate from the `.md` files. | — |
 | [`design-system`](design-system.md) | Check the component inventory before writing a raw `<button>`, `<input>`, `<select>` or `<dialog>`. Spend a token before writing a colour: `design-system/src/styles/tokens.css` mints colour, `ui/` only spends it through `var()`. | `scripts/gates/ds_components.py` |
+| [`domain-scoped-dependencies`](domain-scoped-dependencies.md) | Every crate, engine command module and `ui/src` domain is substrate, a block, or the shell. Substrate is always on and may depend only on substrate. A block may depend on substrate and on its own domain, never on another domain's block. Only the shell may know every block. Two features that need the same behaviour write it twice rather than share a module across the boundary. | `scripts/gates/domain_boundary.py` |
 | [`generated-artifacts`](generated-artifacts.md) | Never hand-edit a file carrying a do-not-edit banner; change the generator instead. | `scripts/gates/generated.py` |
 | [`implementation-anchors`](implementation-anchors.md) | Anchor every invariant in `implementation/**` to symbols that still exist. | `scripts/gates/symbol_anchors.py` |
 | [`native-capability-gateway`](native-capability-gateway.md) | Any feature whose purpose is handing an unsandboxed capability to arbitrary external code must satisfy all three conditions before it ships. | — |
