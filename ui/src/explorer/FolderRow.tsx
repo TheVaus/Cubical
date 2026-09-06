@@ -1,8 +1,8 @@
-import { Show, type Component } from "solid-js";
+import { type Component } from "solid-js";
 
-import Icon from "@ds/components/graphics/Icon/Icon";
+import FolderTreeRow from "@ds/components/data/FileTreeRow/FolderTreeRow";
 
-import { FILE_ROW_HEIGHT, folderPadding } from "./rowMetrics";
+import { FILE_ROW_HEIGHT } from "./rowMetrics";
 
 export interface FolderRowProps {
   name: string;
@@ -16,53 +16,21 @@ export interface FolderRowProps {
 }
 
 const FolderRow: Component<FolderRowProps> = (props) => (
-  <div
-    class="tree-row tree-row--folder"
-    role="treeitem"
-    aria-expanded={!props.collapsed}
-    style={{
-      height: `${FILE_ROW_HEIGHT}px`,
-      "padding-left": folderPadding(props.depth),
-    }}
-    onClick={() => {
-      if (props.renaming) return;
-      props.onToggle();
-    }}
+  <FolderTreeRow
+    name={props.name}
+    depth={props.depth}
+    height={FILE_ROW_HEIGHT}
+    collapsed={props.collapsed}
+    renaming={props.renaming}
+    onToggle={() => props.onToggle()}
     onContextMenu={(e) => {
       e.preventDefault();
       e.stopPropagation();
       props.onContextMenu(e.clientX, e.clientY);
     }}
-  >
-    <span class="tree-row__twisty">
-      <Icon
-        name={props.collapsed ? "chevron-right" : "chevron-down"}
-        size={14}
-      />
-    </span>
-    <Show
-      when={props.renaming}
-      fallback={<span class="tree-row__name">{props.name}</span>}
-    >
-      <input
-        type="text"
-        class="tree-row__input"
-        value={props.name}
-        autofocus
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            props.onRename(e.currentTarget.value);
-          } else if (e.key === "Escape") {
-            e.preventDefault();
-            props.onCancelRename();
-          }
-        }}
-        onBlur={(e) => props.onRename(e.currentTarget.value)}
-      />
-    </Show>
-  </div>
+    onRenameCommit={(typed) => props.onRename(typed)}
+    onRenameCancel={() => props.onCancelRename()}
+  />
 );
 
 export default FolderRow;

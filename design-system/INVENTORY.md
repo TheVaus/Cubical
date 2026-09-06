@@ -2,14 +2,14 @@
 
 # Design system component inventory
 
-Every component under `design-system/src/components` — 24 of them. **Check this list before hand-rolling a control** ([`../docs/principles/design-system.md`](../docs/principles/design-system.md)).
+Every component under `design-system/src/components` — 26 of them. **Check this list before hand-rolling a control** ([`../docs/principles/design-system.md`](../docs/principles/design-system.md)).
 
 Regenerate with `python3 scripts/gen_ds_inventory.py`; `--check` fails if the file is stale. Names, import paths and props are parsed from the source. Purposes are **hand-curated** in the generator — this repo bans comments, so there is no doc-comment to read — and a component with no entry says so instead of guessing.
 
 | Category | Components |
 |---|---|
 | `brand/` | `CubeMark` |
-| `data/` | `BacklinkRow`, `FileIcon`, `FileTreeRow`, `Tag` |
+| `data/` | `BacklinkRow`, `FileIcon`, `FileTreeRow`, `FolderTreeRow`, `RenameInput`, `Tag` |
 | `feedback/` | `Badge`, `Callout`, `Toast`, `Tooltip` |
 | `forms/` | `Button`, `DatePicker`, `IconButton`, `Link`, `SegmentedControl`, `Select`, `TextInput`, `Toggle` |
 | `graphics/` | `Icon` |
@@ -76,12 +76,55 @@ import FileTreeRow from "@ds/components/data/FileTreeRow/FileTreeRow";
 |---|---|---|
 | `name` | `string` | yes |
 | `depth` | `number` | yes |
-| `kind` | `FileKind` | yes |
+| `ext` | `string \| undefined` | no |
+| `kind` | `FileKind` | no |
+| `height` | `number` | no |
 | `selected` | `boolean` | no |
 | `invalid` | `boolean` | no |
+| `unsupported` | `boolean` | no |
+| `nameTitle` | `string \| undefined` | no |
+| `badge` | `JSX.Element` | no |
 | `renaming` | `boolean` | no |
+| `focusable` | `boolean` | no |
+| `role` | `'option' \| 'treeitem'` | no |
 | `onClick` | `() => void` | no |
+| `onContextMenu` | `(e: MouseEvent) => void` | no |
 | `onRenameCommit` | `(name: string) => void` | no |
+| `onRenameCancel` | `() => void` | no |
+
+### FolderTreeRow
+
+_not inferred — add an entry to `PURPOSES` in `scripts/gen_ds_inventory.py`_
+
+```ts
+import FolderTreeRow from "@ds/components/data/FileTreeRow/FolderTreeRow";
+```
+
+| Prop | Type | Required |
+|---|---|---|
+| `name` | `string` | yes |
+| `depth` | `number` | yes |
+| `collapsed` | `boolean` | yes |
+| `height` | `number` | no |
+| `renaming` | `boolean` | no |
+| `onToggle` | `() => void` | no |
+| `onContextMenu` | `(e: MouseEvent) => void` | no |
+| `onRenameCommit` | `(name: string) => void` | no |
+| `onRenameCancel` | `() => void` | no |
+
+### RenameInput
+
+_not inferred — add an entry to `PURPOSES` in `scripts/gen_ds_inventory.py`_
+
+```ts
+import RenameInput from "@ds/components/data/FileTreeRow/RenameInput";
+```
+
+| Prop | Type | Required |
+|---|---|---|
+| `value` | `string` | yes |
+| `onCommit` | `(name: string) => void` | yes |
+| `onCancel` | `() => void` | yes |
 
 ### Tag
 
@@ -201,8 +244,14 @@ import Button from "@ds/components/forms/Button/Button";
 | `title` | `string` | no |
 | `ariaExpanded` | `boolean` | no |
 | `ariaPressed` | `boolean` | no |
+| `ariaHaspopup` | `JSX.AriaAttributes['aria-haspopup']` | no |
+| `role` | `JSX.AriaAttributes['role']` | no |
+| `tabIndex` | `number` | no |
+| `class` | `string` | no |
 | `style` | `JSX.CSSProperties` | no |
+| `ref` | `(el: HTMLButtonElement) => void` | no |
 | `onClick` | `(e: MouseEvent) => void` | no |
+| `onFocus` | `() => void` | no |
 | `children` | `JSX.Element` | yes |
 
 ### DatePicker
@@ -247,6 +296,7 @@ import IconButton from "@ds/components/forms/IconButton/IconButton";
 | `mono` | `boolean` | no |
 | `size` | `'sm' \| 'md'` | no |
 | `ariaHaspopup` | `JSX.AriaAttributes['aria-haspopup']` | no |
+| `class` | `string` | no |
 | `style` | `JSX.CSSProperties` | no |
 | `onClick` | `(e: MouseEvent) => void` | no |
 | `children` | `JSX.Element` | yes |
@@ -283,6 +333,8 @@ import SegmentedControl from "@ds/components/forms/SegmentedControl/SegmentedCon
 | `value` | `string` | yes |
 | `variant` | `'tabs' \| 'pill'` | no |
 | `role` | `'tablist' \| 'radiogroup'` | no |
+| `ariaLabel` | `string` | no |
+| `class` | `string` | no |
 | `onChange` | `(value: string) => void` | yes |
 
 Also exports:
@@ -335,17 +387,26 @@ import TextInput from "@ds/components/forms/TextInput/TextInput";
 | Prop | Type | Required |
 |---|---|---|
 | `value` | `string` | yes |
-| `onInput` | `(value: string) => void` | yes |
+| `onInput` | `(value: string) => void` | no |
 | `placeholder` | `string` | no |
 | `disabled` | `boolean` | no |
 | `type` | `string` | no |
 | `ref` | `(el: HTMLInputElement) => void` | no |
 | `ariaLabel` | `string` | no |
+| `class` | `string` | no |
 | `style` | `JSX.CSSProperties` | no |
 | `size` | `'sm' \| 'md'` | no |
+| `min` | `number` | no |
+| `max` | `number` | no |
+| `step` | `number` | no |
+| `autofocus` | `boolean` | no |
+| `readOnly` | `boolean` | no |
+| `spellcheck` | `boolean` | no |
 | `onFocus` | `() => void` | no |
 | `onBlur` | `() => void` | no |
 | `onKeyDown` | `(e: KeyboardEvent) => void` | no |
+| `onChange` | `(value: string) => void` | no |
+| `onClick` | `(e: MouseEvent) => void` | no |
 | `inputMode` | `string` | no |
 
 ### Toggle
@@ -397,7 +458,18 @@ import CommandPalette from "@ds/components/overlay/CommandPalette/CommandPalette
 |---|---|---|
 | `open` | `boolean` | yes |
 | `onClose` | `() => void` | yes |
-| `commands` | `Command[]` | yes |
+| `commands` | `Command[] \| undefined` | no |
+| `items` | `CommandPaletteItem[] \| undefined` | no |
+| `query` | `string \| undefined` | no |
+| `onQueryInput` | `((value: string) => void) \| undefined` | no |
+| `placeholder` | `string \| undefined` | no |
+| `emptyLabel` | `string \| undefined` | no |
+| `ariaLabel` | `string \| undefined` | no |
+| `inputAriaLabel` | `string \| undefined` | no |
+| `listAriaLabel` | `string \| undefined` | no |
+| `selectedIndex` | `number \| undefined` | no |
+| `onSelectedIndexChange` | `((index: number) => void) \| undefined` | no |
+| `autoFocus` | `boolean \| undefined` | no |
 
 Also exports:
 
@@ -405,6 +477,15 @@ Also exports:
 export interface Command {
   id: string;
   label: string;
+  onRun: () => void;
+}
+
+export interface CommandPaletteItem {
+  id: string;
+  label: string;
+  detail?: string | undefined;
+  icon?: IconName | undefined;
+  matchedIndices?: number[] | undefined;
   onRun: () => void;
 }
 ```
@@ -531,5 +612,6 @@ Files under `components/` that export no component.
 
 | Module | Import |
 |---|---|
+| `data/FileTreeRow/rowGeometry.ts` | `@ds/components/data/FileTreeRow/rowGeometry` |
 | `graphics/Icon/icons.ts` | `@ds/components/graphics/Icon/icons` |
 | `graphics/svg.ts` | `@ds/components/graphics/svg` |

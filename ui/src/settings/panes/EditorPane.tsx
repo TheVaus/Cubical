@@ -1,6 +1,7 @@
 import { For, Show } from "solid-js";
 
 import Select from "@ds/components/forms/Select/Select";
+import TextInput from "@ds/components/forms/TextInput/TextInput";
 
 import { DATE_FORMAT_TOKENS } from "../../properties/dateFormats";
 import { CURRENCY_CODES } from "../../properties/format";
@@ -70,15 +71,13 @@ const EditorPane = (props: { settings: SettingsState; info: InfoControl }) => (
           disk when you return to them.
         </div>
       </div>
-      <input
+      <TextInput
         class="set-row__num"
         type="number"
-        min="1"
-        step="1"
-        value={props.settings.liveTabLimit()}
-        onChange={(e) =>
-          props.settings.setLiveTabLimitValue(Number(e.currentTarget.value))
-        }
+        min={1}
+        step={1}
+        value={String(props.settings.liveTabLimit())}
+        onChange={(v) => props.settings.setLiveTabLimitValue(Number(v))}
       />
     </div>
     <div class="set-row">

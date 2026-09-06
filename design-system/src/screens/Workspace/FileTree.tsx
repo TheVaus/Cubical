@@ -26,6 +26,8 @@ const FileTreeBranch = (props: {
         kind={isFolder() ? (expanded() ? 'folder-open' : 'folder') : props.node.kind}
         selected={props.selectedId === props.node.id}
         invalid={props.node.kind === 'broken'}
+        focusable
+        role="treeitem"
         onClick={() => (isFolder() ? setExpanded((v) => !v) : props.onSelect(props.node))}
       />
       <Show when={isFolder() && expanded()}>

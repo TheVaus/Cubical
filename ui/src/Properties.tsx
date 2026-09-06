@@ -346,8 +346,9 @@ const PropertyRow: Component<RowProps> = (props) => {
               <For each={props.menu}>
                 {(family) => (
                   <>
-                    <button
-                      type="button"
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       role="menuitem"
                       onClick={() => {
                         if (family.leaves.length === 1) {
@@ -365,16 +366,10 @@ const PropertyRow: Component<RowProps> = (props) => {
                         display: "flex",
                         "justify-content": "space-between",
                         gap: "var(--space-2)",
-                        padding: "var(--space-1) var(--space-2)",
                         "font-family": "var(--font-body)",
-                        "font-size": "var(--text-xs)",
                         color: family.leaves.some((l) => leafActive(l.type))
                           ? "var(--c-accent)"
                           : "var(--c-fg-primary)",
-                        background: "transparent",
-                        border: "none",
-                        "border-radius": "var(--radius-sm)",
-                        cursor: "pointer",
                       }}
                     >
                       <span>{family.label}</span>
@@ -390,7 +385,7 @@ const PropertyRow: Component<RowProps> = (props) => {
                           />
                         </span>
                       </Show>
-                    </button>
+                    </Button>
                     <Show
                       when={
                         family.leaves.length > 1 &&
@@ -406,26 +401,22 @@ const PropertyRow: Component<RowProps> = (props) => {
                       >
                         <For each={family.leaves}>
                           {(leaf) => (
-                            <button
-                              type="button"
+                            <Button
+                              variant="ghost"
+                              size="sm"
                               role="menuitem"
                               onClick={() => props.onChangeType(leaf.type)}
                               style={{
+                                display: "block",
                                 "text-align": "left",
-                                padding: "var(--space-1) var(--space-2)",
                                 "font-family": "var(--font-body)",
-                                "font-size": "var(--text-xs)",
                                 color: leafActive(leaf.type)
                                   ? "var(--c-accent)"
                                   : "var(--c-fg-secondary)",
-                                background: "transparent",
-                                border: "none",
-                                "border-radius": "var(--radius-sm)",
-                                cursor: "pointer",
                               }}
                             >
                               {leaf.label}
-                            </button>
+                            </Button>
                           )}
                         </For>
                       </div>

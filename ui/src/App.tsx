@@ -17,6 +17,8 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
 import Button from "@ds/components/forms/Button/Button";
 import IconButton from "@ds/components/forms/IconButton/IconButton";
+import SegmentedControl from "@ds/components/forms/SegmentedControl/SegmentedControl";
+import TextInput from "@ds/components/forms/TextInput/TextInput";
 import Icon from "@ds/components/graphics/Icon/Icon";
 import ConfirmDialog from "@ds/components/overlay/ConfirmDialog/ConfirmDialog";
 
@@ -153,6 +155,12 @@ import { corePluginActive } from "./settings/corePlugins";
 import { VaultSwitcher } from "./VaultSwitcher";
 
 const AUTOSAVE_DEBOUNCE_MS = 300;
+
+const RIGHT_SIDEBAR_TABS = [
+  { label: "Backlinks", value: "backlinks" },
+  { label: "Mentions", value: "unlinked_mentions" },
+  { label: "Integrity", value: "integrity" },
+];
 
 const App: Component = () => {
   const {
@@ -1217,13 +1225,13 @@ const App: Component = () => {
               </FeatureBoundary>
               <div class="side__footer">
                 <div class="vault-switcher-anchor">
-                  <button
-                    type="button"
+                  <Button
                     class="vault-btn"
+                    variant="ghost"
                     onClick={() => setVaultSwitcherOpen((v) => !v)}
                     disabled={busy()}
-                    aria-haspopup="dialog"
-                    aria-expanded={vaultSwitcherOpen()}
+                    ariaHaspopup="dialog"
+                    ariaExpanded={vaultSwitcherOpen()}
                     title="Switch vault"
                   >
                     <span class="vault-btn__name">
@@ -1232,7 +1240,7 @@ const App: Component = () => {
                     <span class="vault-btn__caret">
                       <Icon name="chevron-down" size={14} />
                     </span>
-                  </button>
+                  </Button>
                   <Show when={vaultSwitcherOpen()}>
                     <VaultSwitcher
                       currentPath={vaultPath()}
@@ -1303,30 +1311,34 @@ const App: Component = () => {
                           }
                         >
                           <Show when={selectedPath()} keyed>
-                            {(path) => (
-                              <input
-                                class="doc-title"
-                                aria-label="File name"
-                                spellcheck={false}
-                                // Only note names are renameable here:
-                                // isValidNoteName rejects every dotted name.
-                                readOnly={!path.endsWith(".md")}
-                                value={noteTitle(path)}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") {
-                                    e.preventDefault();
-                                    e.currentTarget.blur();
-                                  } else if (e.key === "Escape") {
-                                    e.preventDefault();
-                                    e.currentTarget.value = noteTitle(path);
-                                    e.currentTarget.blur();
+                            {(path) => {
+                              let titleEl: HTMLInputElement | undefined;
+                              return (
+                                <TextInput
+                                  class="doc-title"
+                                  ariaLabel="File name"
+                                  spellcheck={false}
+                                  readOnly={!path.endsWith(".md")}
+                                  value={noteTitle(path)}
+                                  ref={(el) => (titleEl = el)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      e.preventDefault();
+                                      titleEl?.blur();
+                                    } else if (e.key === "Escape") {
+                                      e.preventDefault();
+                                      if (titleEl) {
+                                        titleEl.value = noteTitle(path);
+                                        titleEl.blur();
+                                      }
+                                    }
+                                  }}
+                                  onBlur={() =>
+                                    commitTitleRename(path, titleEl?.value ?? "")
                                   }
-                                }}
-                                onBlur={(e) =>
-                                  commitTitleRename(path, e.currentTarget.value)
-                                }
-                              />
-                            )}
+                                />
+                              );
+                            }}
                           </Show>
                           <Show when={doc.conflictHash() !== null}>
                             <div
@@ -1355,40 +1367,20 @@ const App: Component = () => {
                                   gap: "var(--space-2)",
                                 }}
                               >
-                                <button
-                                  type="button"
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
                                   onClick={reloadFromDisk}
-                                  style={{
-                                    padding: "var(--space-1) var(--space-3)",
-                                    "font-size": "var(--text-xs)",
-                                    "font-family": "var(--font-body)",
-                                    color: "var(--c-fg-primary)",
-                                    background: "var(--c-bg-tertiary)",
-                                    border: "1px solid var(--c-border-subtle)",
-                                    "border-radius":
-                                      "var(--radius-sm, var(--radius-md))",
-                                    cursor: "pointer",
-                                  }}
                                 >
                                   Reload from disk
-                                </button>
-                                <button
-                                  type="button"
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="primary"
                                   onClick={keepMyEdits}
-                                  style={{
-                                    padding: "var(--space-1) var(--space-3)",
-                                    "font-size": "var(--text-xs)",
-                                    "font-family": "var(--font-body)",
-                                    color: "var(--c-fg-inverse)",
-                                    background: "var(--c-accent)",
-                                    border: "none",
-                                    "border-radius":
-                                      "var(--radius-sm, var(--radius-md))",
-                                    cursor: "pointer",
-                                  }}
                                 >
                                   Keep my edits
-                                </button>
+                                </Button>
                               </span>
                             </div>
                           </Show>
@@ -1503,55 +1495,14 @@ const App: Component = () => {
             classList={{ "side--collapsed": settings.rightSidebarCollapsed() }}
           >
             <div class="side__body">
-              <div role="tablist" aria-label="Sidebar panels" class="rs-tabs">
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={settings.rightSidebarPanel() === "backlinks"}
-                  class="rs-tab"
-                  classList={{
-                    "rs-tab--active":
-                      settings.rightSidebarPanel() === "backlinks",
-                  }}
-                  onClick={() =>
-                    settings.setRightSidebarPanelValue("backlinks")
-                  }
-                >
-                  Backlinks
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={
-                    settings.rightSidebarPanel() === "unlinked_mentions"
-                  }
-                  class="rs-tab"
-                  classList={{
-                    "rs-tab--active":
-                      settings.rightSidebarPanel() === "unlinked_mentions",
-                  }}
-                  onClick={() =>
-                    settings.setRightSidebarPanelValue("unlinked_mentions")
-                  }
-                >
-                  Mentions
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={settings.rightSidebarPanel() === "integrity"}
-                  class="rs-tab"
-                  classList={{
-                    "rs-tab--active":
-                      settings.rightSidebarPanel() === "integrity",
-                  }}
-                  onClick={() =>
-                    settings.setRightSidebarPanelValue("integrity")
-                  }
-                >
-                  Integrity
-                </button>
-              </div>
+              <SegmentedControl
+                class="rs-tabs"
+                variant="pill"
+                ariaLabel="Sidebar panels"
+                value={settings.rightSidebarPanel()}
+                options={RIGHT_SIDEBAR_TABS}
+                onChange={(v) => settings.setRightSidebarPanelValue(v)}
+              />
               <div class="rs-body">
                 <FeatureBoundary feature="Sidebar panel">
                   <Switch>
