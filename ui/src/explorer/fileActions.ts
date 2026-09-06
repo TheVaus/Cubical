@@ -2,7 +2,7 @@ import { createSignal } from "solid-js";
 
 import { createFile, createFolder, deleteFile } from "../api/ipc";
 import { errorMessage } from "../errorMessage";
-import { showToast } from "../toastState";
+import { showErrorToast } from "../toastState";
 
 export type EntryKind = "file" | "folder";
 
@@ -89,7 +89,7 @@ export function createFileActions(deps: FileActionsDeps): FileActions {
       await deps.refreshFileList();
       setRenamingPath(resp.path);
     } catch (e) {
-      showToast(errorMessage(e));
+      showErrorToast(errorMessage(e));
     }
   };
 
@@ -100,7 +100,7 @@ export function createFileActions(deps: FileActionsDeps): FileActions {
       await createFolder({ vault_id: id, parent_dir: parentDir });
       await deps.refreshFileList();
     } catch (e) {
-      showToast(errorMessage(e));
+      showErrorToast(errorMessage(e));
     }
   };
 
@@ -113,7 +113,7 @@ export function createFileActions(deps: FileActionsDeps): FileActions {
       await deleteFile({ vault_id: id, path: target.path });
       setDeleteTarget(null);
     } catch (e) {
-      showToast(errorMessage(e));
+      showErrorToast(errorMessage(e));
     } finally {
       setDeleteInFlight(false);
     }

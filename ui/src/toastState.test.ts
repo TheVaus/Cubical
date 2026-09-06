@@ -1,58 +1,125 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  currentToast,
+  dismissAllToasts,
   dismissToast,
+  enqueueToast,
+  resolveAutoDismissMs,
+  showErrorToast,
   showToast,
+  toasts,
   TOAST_AUTO_DISMISS_MS,
+  TOAST_QUEUE_LIMIT,
+  type ToastEntry,
 } from "./toastState";
 
-describe("toastState", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-    dismissToast();
+const entry = (id: number): ToastEntry => ({
+  id,
+  message: `m${id}`,
+  tone: "neutral",
+  autoDismissMs: TOAST_AUTO_DISMISS_MS,
+});
+
+const errorEntry = (id: number): ToastEntry => ({
+  id,
+  message: `e${id}`,
+  tone: "error",
+  autoDismissMs: null,
+});
+
+describe("resolveAutoDismissMs", () => {
+  it("gives every ordinary tone the default window", () => {
+    for (const tone of ["neutral", "success", "warning"] as const) {
+      expect(resolveAutoDismissMs(tone)).toBe(TOAST_AUTO_DISMISS_MS);
+    }
   });
 
-  afterEach(() => {
-    dismissToast();
-    vi.useRealTimers();
+  it("never auto-dismisses an error", () => {
+    expect(resolveAutoDismissMs("error")).toBeNull();
   });
+
+  it("lets a caller's duration win, including for an error", () => {
+    expect(resolveAutoDismissMs("success", 12_000)).toBe(12_000);
+    expect(resolveAutoDismissMs("error", 12_000)).toBe(12_000);
+  });
+
+  it("treats an explicit zero as a duration, not as absent", () => {
+    expect(resolveAutoDismissMs("error", 0)).toBe(0);
+  });
+});
+
+describe("enqueueToast", () => {
+  it("appends to the end", () => {
+    expect(enqueueToast([entry(1)], entry(2)).map((t) => t.id)).toEqual([1, 2]);
+  });
+
+  it("drops the oldest past the limit", () => {
+    const full = Array.from({ length: TOAST_QUEUE_LIMIT }, (_, i) => entry(i + 1));
+    const next = enqueueToast(full, entry(99));
+    expect(next).toHaveLength(TOAST_QUEUE_LIMIT);
+    expect(next[next.length - 1]?.id).toBe(99);
+    expect(next[0]?.id).toBe(2);
+  });
+
+  it("evicts a message that would have expired anyway before an unread error", () => {
+    const full = [errorEntry(1), entry(2), errorEntry(3), entry(4)].slice(
+      0,
+      TOAST_QUEUE_LIMIT,
+    );
+    const next = enqueueToast(full, entry(99));
+    expect(next.map((t) => t.id)).not.toContain(2);
+    expect(next.map((t) => t.id)).toContain(1);
+    expect(next.map((t) => t.id)).toContain(3);
+  });
+
+  it("falls back to the oldest error when every entry is an error", () => {
+    const full = Array.from({ length: TOAST_QUEUE_LIMIT }, (_, i) =>
+      errorEntry(i + 1),
+    );
+    const next = enqueueToast(full, errorEntry(99));
+    expect(next).toHaveLength(TOAST_QUEUE_LIMIT);
+    expect(next[0]?.id).toBe(2);
+    expect(next[next.length - 1]?.id).toBe(99);
+  });
+});
+
+describe("toast queue", () => {
+  afterEach(() => dismissAllToasts());
 
   it("starts empty", () => {
-    expect(currentToast()).toBeNull();
+    expect(toasts()).toEqual([]);
   });
 
-  it("showToast populates the slot", () => {
-    showToast("Hello world");
-    expect(currentToast()).toBe("Hello world");
-  });
-
-  it("auto-dismisses after the full window", () => {
-    showToast("Hello world");
-    vi.advanceTimersByTime(TOAST_AUTO_DISMISS_MS - 1);
-    expect(currentToast()).toBe("Hello world");
-    vi.advanceTimersByTime(1);
-    expect(currentToast()).toBeNull();
-  });
-
-  it("dismissToast clears the slot before the timer", () => {
-    showToast("Hello world");
-    dismissToast();
-    expect(currentToast()).toBeNull();
-    vi.advanceTimersByTime(TOAST_AUTO_DISMISS_MS + 1);
-    expect(currentToast()).toBeNull();
-  });
-
-  it("re-showing replaces the message and resets the timer", () => {
+  it("stacks rather than replacing", () => {
     showToast("First");
-    vi.advanceTimersByTime(TOAST_AUTO_DISMISS_MS - 1000);
     showToast("Second");
-    expect(currentToast()).toBe("Second");
-    vi.advanceTimersByTime(1000);
-    expect(currentToast()).toBe("Second");
-    vi.advanceTimersByTime(TOAST_AUTO_DISMISS_MS - 1001);
-    expect(currentToast()).toBe("Second");
-    vi.advanceTimersByTime(1);
-    expect(currentToast()).toBeNull();
+    expect(toasts().map((t) => t.message)).toEqual(["First", "Second"]);
+  });
+
+  it("dismisses one entry by id and leaves the rest", () => {
+    const first = showToast("First");
+    showToast("Second");
+    dismissToast(first);
+    expect(toasts().map((t) => t.message)).toEqual(["Second"]);
+  });
+
+  it("marks an error as persistent so a later toast cannot bury it", () => {
+    showErrorToast("Write failed");
+    showToast("Saved");
+    const [error] = toasts();
+    expect(error?.tone).toBe("error");
+    expect(error?.autoDismissMs).toBeNull();
+  });
+
+  it("carries an action through to the entry", () => {
+    const run = vi.fn();
+    showToast("Note moved to trash", { action: { label: "Undo", run } });
+    toasts()[0]?.action?.run();
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it("hands back ids that do not repeat", () => {
+    const ids = [showToast("a"), showToast("b"), showToast("c")];
+    expect(new Set(ids).size).toBe(3);
   });
 });

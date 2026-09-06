@@ -1,25 +1,30 @@
-import { Show, type Component } from "solid-js";
+import { For, type Component } from "solid-js";
 
 import Toast from "@ds/components/feedback/Toast/Toast";
 
-import {
-  TOAST_AUTO_DISMISS_MS,
-  currentToast,
-  dismissToast,
-} from "./toastState";
+import { dismissToast, toasts } from "./toastState";
 
 export const ToastHost: Component = () => {
   return (
-    <Show when={currentToast()} keyed>
-      {(message) => (
-        <div class="toast-host">
+    <div class="toast-host">
+      <For each={toasts()}>
+        {(entry) => (
           <Toast
-            message={message}
-            onDismiss={dismissToast}
-            autoDismissMs={TOAST_AUTO_DISMISS_MS}
+            message={entry.message}
+            tone={entry.tone}
+            autoDismissMs={entry.autoDismissMs}
+            onDismiss={() => dismissToast(entry.id)}
+            {...(entry.action
+              ? {
+                  action: {
+                    label: entry.action.label,
+                    onClick: entry.action.run,
+                  },
+                }
+              : {})}
           />
-        </div>
-      )}
-    </Show>
+        )}
+      </For>
+    </div>
   );
 };

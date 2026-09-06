@@ -12,6 +12,8 @@
   animation: toast-in var(--duration-surface) var(--ease-standard);
 }
 
+.toast-message { flex: 1; min-width: 0; }
+
 .toast.success { border-left: 2px solid var(--c-success); }
 .toast.warning { border-left: 2px solid var(--c-warning); }
 .toast.error { border-left: 2px solid var(--c-error); }
@@ -23,7 +25,6 @@
   border: none;
   padding: 0;
   cursor: pointer;
-  margin-left: auto;
   color: var(--c-fg-secondary);
   line-height: 1;
 }

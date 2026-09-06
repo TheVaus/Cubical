@@ -92,6 +92,7 @@ const SearchBar: Component<SearchBarProps> = (props) => {
 
       <Show when={showFilters()}>
         <div
+          data-overlay="filters"
           onClick={() => setShowFilters(false)}
           style={{
             position: "fixed",
