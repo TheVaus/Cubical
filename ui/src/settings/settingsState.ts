@@ -4,7 +4,7 @@ import { getSetting } from "../api/ipc";
 import { persistSetting, seedSetting } from "../core/settings";
 import { resolveBindings, type KeyBinding } from "../core/commands";
 import { clampLimit } from "../tabs/lru";
-import { resolveRawState } from "../editor/rawSource";
+import { resolveRawState } from "./rawSource";
 import {
   applyTheme,
   type ResolvedTheme,
