@@ -1,6 +1,7 @@
 import { createSignal, type Accessor, type JSX } from "solid-js";
 
 import Icon from "@ds/components/graphics/Icon/Icon";
+import IconButton from "@ds/components/forms/IconButton/IconButton";
 import Popover from "@ds/components/overlay/Popover/Popover";
 
 import { toggleInfo, type InfoId } from "./settingsInfo";
@@ -28,15 +29,14 @@ export interface InfoButtonProps {
 
 const InfoButton = (props: InfoButtonProps) => (
   <>
-    <button
-      type="button"
+    <IconButton
       class="set-info-btn"
-      aria-label="About this setting"
-      aria-expanded={props.info.openId() === props.id}
+      label="About this setting"
+      ariaExpanded={props.info.openId() === props.id}
       onClick={() => props.info.flip(props.id)}
     >
       <Icon name="info" />
-    </button>
+    </IconButton>
     <Popover
       open={props.info.openId() === props.id}
       onClose={() => props.info.close()}

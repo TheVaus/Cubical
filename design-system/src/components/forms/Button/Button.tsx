@@ -12,8 +12,14 @@ export interface ButtonProps {
   title?: string;
   ariaExpanded?: boolean;
   ariaPressed?: boolean;
+  ariaHaspopup?: JSX.AriaAttributes['aria-haspopup'];
+  role?: JSX.AriaAttributes['role'];
+  tabIndex?: number;
+  class?: string;
   style?: JSX.CSSProperties;
+  ref?: (el: HTMLButtonElement) => void;
   onClick?: (e: MouseEvent) => void;
+  onFocus?: () => void;
   children: JSX.Element;
 }
 
@@ -21,7 +27,7 @@ const Button = (props: ButtonProps) => {
   return (
     <button
       type={props.type ?? 'button'}
-      class="btn"
+      class={`btn${props.class ? ` ${props.class}` : ""}`}
       classList={{
         primary: (props.variant ?? 'secondary') === 'primary',
         secondary: (props.variant ?? 'secondary') === 'secondary',
@@ -35,9 +41,14 @@ const Button = (props: ButtonProps) => {
       aria-label={props.ariaLabel}
       aria-expanded={props.ariaExpanded}
       aria-pressed={props.ariaPressed}
+      aria-haspopup={props.ariaHaspopup}
       title={props.title}
+      role={props.role}
+      tabindex={props.tabIndex}
       style={props.style}
+      ref={(el) => props.ref?.(el)}
       onClick={(e) => props.onClick?.(e)}
+      onFocus={() => props.onFocus?.()}
     >
       {props.children}
     </button>

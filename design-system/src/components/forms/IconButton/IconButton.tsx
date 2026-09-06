@@ -11,6 +11,7 @@ export interface IconButtonProps {
   mono?: boolean;
   size?: 'sm' | 'md';
   ariaHaspopup?: JSX.AriaAttributes['aria-haspopup'];
+  class?: string;
   style?: JSX.CSSProperties;
   onClick?: (e: MouseEvent) => void;
   children: JSX.Element;
@@ -20,7 +21,7 @@ const IconButton = (props: IconButtonProps) => {
   return (
     <button
       type="button"
-      class="icon-btn"
+      class={`icon-btn${props.class ? ` ${props.class}` : ''}`}
       classList={{
         active: props.active,
         mono: props.mono,
