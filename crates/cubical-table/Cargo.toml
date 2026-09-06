@@ -1,0 +1,16 @@
+[package]
+name = "cubical-table"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Tabular file decode: CSV/TSV/Excel bytes to an in-memory relation, plus a stat-validated memo cache. No Cubical dependencies."
+
+[dependencies]
+calamine.workspace = true
+csv.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -32,6 +32,13 @@ fn value_param(v: &Value) -> SqlParam {
     }
 }
 
+fn normalized(column: &str) -> String {
+    format!(
+        "CASE json_type({column},'$') WHEN 'true' THEN 'true' WHEN 'false' THEN 'false' \
+         ELSE json_extract({column},'$') END"
+    )
+}
+
 fn escape_like(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for ch in s.chars() {
@@ -53,11 +60,11 @@ pub fn plan(q: &Query) -> Plan {
         Command::Table(cols) => {
             let mut parts = vec!["files.path".to_string()];
             for col in cols {
-                parts.push(
-                    "(SELECT json_extract(value,'$') FROM frontmatter \
-                     WHERE file_path = files.path AND key = ?)"
-                        .to_string(),
-                );
+                parts.push(format!(
+                    "(SELECT {} FROM frontmatter \
+                     WHERE file_path = files.path AND key = ?)",
+                    normalized("value")
+                ));
                 params.push(SqlParam::Text(col.clone()));
             }
             format!("SELECT {}", parts.join(", "))
@@ -76,7 +83,7 @@ pub fn plan(q: &Query) -> Plan {
             params.push(SqlParam::Text(needle.clone()));
             params.push(SqlParam::Text(format!("{}/%", escape_like(&needle))));
         }
-        Some(Source::Folder(f)) => {
+        Some(Source::Path(f)) => {
             wheres.push("files.path LIKE ? ESCAPE '\\'".to_string());
             let trimmed = f.trim_end_matches('/');
             params.push(SqlParam::Text(format!("{}/%", escape_like(trimmed))));
@@ -84,10 +91,22 @@ pub fn plan(q: &Query) -> Plan {
         None => {}
     }
     for cond in &q.conds {
+        let norm = normalized("f.value");
+        let predicate = match &cond.value {
+            Value::Str(_) => format!("CAST({norm} AS TEXT) {} ?", op_sql(cond.op)),
+            Value::Num(_) => format!(
+                "typeof({norm}) IN ('integer','real') AND {norm} {} ?",
+                op_sql(cond.op)
+            ),
+            Value::Bool(_) => format!(
+                "json_type(f.value,'$') IN ('true','false') \
+                 AND json_extract(f.value,'$') {} ?",
+                op_sql(cond.op)
+            ),
+        };
         wheres.push(format!(
             "EXISTS (SELECT 1 FROM frontmatter f WHERE f.file_path = files.path \
-             AND f.key = ? AND json_extract(f.value,'$') {} ?)",
-            op_sql(cond.op),
+             AND f.key = ? AND {predicate})"
         ));
         params.push(SqlParam::Text(cond.key.clone()));
         params.push(value_param(&cond.value));
@@ -106,12 +125,13 @@ pub fn plan(q: &Query) -> Plan {
                     SortDir::Asc => "ASC",
                     SortDir::Desc => "DESC",
                 };
-                sql.push_str(
-                    " ORDER BY (SELECT json_extract(value,'$') FROM frontmatter \
+                let norm = normalized("value");
+                sql.push_str(&format!(
+                    " ORDER BY (SELECT {norm} FROM frontmatter \
                      WHERE file_path = files.path AND key = ?) IS NULL, \
-                     (SELECT json_extract(value,'$') FROM frontmatter \
-                     WHERE file_path = files.path AND key = ?) ",
-                );
+                     (SELECT {norm} FROM frontmatter \
+                     WHERE file_path = files.path AND key = ?) "
+                ));
                 sql.push_str(dir);
                 sql.push_str(", files.path");
                 params.push(SqlParam::Text(sort.key.clone()));
@@ -173,10 +193,10 @@ mod tests {
     }
 
     #[test]
-    fn plans_from_folder_trims_trailing_slash() {
+    fn plans_from_path_trims_trailing_slash() {
         let q = Query {
             command: Command::List,
-            source: Some(Source::Folder("areas/health/".into())),
+            source: Some(Source::Path("areas/health/".into())),
             conds: vec![],
             sort: None,
         };
@@ -205,7 +225,8 @@ mod tests {
             sort: None,
         };
         let p = plan(&q);
-        assert!(p.sql.contains("json_extract(f.value,'$') >= ?"));
+        assert!(p.sql.contains("typeof(CASE json_type(f.value,'$')"));
+        assert!(p.sql.contains("IN ('integer','real')"));
         assert!(p.sql.contains(" AND EXISTS"));
         assert_eq!(
             p.params,
@@ -229,7 +250,7 @@ mod tests {
         let p = plan(&q);
         assert!(p
             .sql
-            .starts_with("SELECT files.path, (SELECT json_extract(value,'$')"));
+            .starts_with("SELECT files.path, (SELECT CASE json_type(value,'$')"));
         assert_eq!(p.params, vec![SqlParam::Text("status".into())]);
     }
 

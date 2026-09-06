@@ -23,10 +23,32 @@ describe("dataviewQuery ipc wrapper", () => {
   it("passes through the list variant with note refs", async () => {
     mockInvoke.mockResolvedValueOnce({
       kind: "list",
-      notes: [{ path: "a.md", title: "a" }],
+      items: [{ text: "a", note: { path: "a.md", title: "a" } }],
     });
     const res = await dataviewQuery({ vault_id: "v1", source: "LIST" });
-    expect(res).toEqual({ kind: "list", notes: [{ path: "a.md", title: "a" }] });
+    expect(res).toEqual({
+      kind: "list",
+      items: [{ text: "a", note: { path: "a.md", title: "a" } }],
+    });
+  });
+
+  it("passes through a data-file table with no row label", async () => {
+    mockInvoke.mockResolvedValueOnce({
+      kind: "table",
+      columns: ["region"],
+      rows: [{ note: null, cells: ["EU"] }],
+      row_label: null,
+    });
+    const res = await dataviewQuery({
+      vault_id: "v1",
+      source: 'TABLE region FROM "sales.csv"',
+    });
+    expect(res).toEqual({
+      kind: "table",
+      columns: ["region"],
+      rows: [{ note: null, cells: ["EU"] }],
+      row_label: null,
+    });
   });
 
   it("passes through the error variant", async () => {

@@ -25,6 +25,7 @@ const stubEmbedResolver = {
     content: "stub",
   }),
   invalidate: () => undefined,
+  markStale: () => undefined,
   onUpdate: () => () => undefined,
   debug: () => ({
     cacheSize: 0,

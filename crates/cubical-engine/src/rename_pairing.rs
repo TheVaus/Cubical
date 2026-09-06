@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use cubical_core::Vault;
+use cubical_core::{VanishedFile, Vault};
 use libsql::params;
 use tokio::sync::Mutex;
 
@@ -480,5 +480,189 @@ mod tests {
         assert!(path_is_tracked(&vault, "gone.md").await);
         drop_row(&vault, "gone.md").await;
         assert!(!path_is_tracked(&vault, "gone.md").await);
+    }
+}
+
+pub(crate) async fn pair_vanished_after_scan(
+    vault: &Vault,
+    vanished: &[VanishedFile],
+    scan_started_secs: i64,
+) -> Vec<(String, String)> {
+    if vanished.is_empty() {
+        return Vec::new();
+    }
+    let appeared = appeared_since(vault, scan_started_secs).await;
+    if appeared.is_empty() {
+        return Vec::new();
+    }
+
+    let by_inode = index_by(&appeared, |row| row.inode.map(|i| i.to_string()));
+    let by_hash = index_by(&appeared, |row| {
+        (!row.content_hash.is_empty()).then(|| row.content_hash.clone())
+    });
+
+    let mut pairs = Vec::new();
+    for gone in vanished {
+        let by_inode_key = gone.inode.map(|i| i.to_string());
+        let to = by_inode_key
+            .and_then(|k| unique(&by_inode, &k))
+            .or_else(|| {
+                (!gone.content_hash.is_empty())
+                    .then(|| unique(&by_hash, &gone.content_hash))
+                    .flatten()
+            });
+        let Some(to) = to else {
+            continue;
+        };
+        if to == gone.path || exists_on_disk(vault, &gone.path, &to) {
+            continue;
+        }
+        pairs.push((gone.path.clone(), to));
+    }
+    pairs
+}
+
+struct AppearedFile {
+    path: String,
+    inode: Option<i64>,
+    content_hash: String,
+}
+
+async fn appeared_since(vault: &Vault, scan_started_secs: i64) -> Vec<AppearedFile> {
+    let conn = vault.index().connection();
+    let mut rows = match conn
+        .query(
+            "SELECT path, inode, content_hash FROM files WHERE created_at >= ?1",
+            params![scan_started_secs],
+        )
+        .await
+    {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::warn!(error = %e, "rename pairing: could not read newly tracked files");
+            return Vec::new();
+        }
+    };
+    let mut out = Vec::new();
+    while let Ok(Some(row)) = rows.next().await {
+        let Ok(path) = row.get::<String>(0) else {
+            continue;
+        };
+        out.push(AppearedFile {
+            path,
+            inode: row.get::<Option<i64>>(1).unwrap_or(None),
+            content_hash: row.get::<String>(2).unwrap_or_default(),
+        });
+    }
+    out
+}
+
+fn index_by(
+    rows: &[AppearedFile],
+    key: impl Fn(&AppearedFile) -> Option<String>,
+) -> BTreeMap<String, Vec<String>> {
+    let mut out: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for row in rows {
+        if let Some(k) = key(row) {
+            out.entry(k).or_default().push(row.path.clone());
+        }
+    }
+    out
+}
+
+fn unique(index: &BTreeMap<String, Vec<String>>, key: &str) -> Option<String> {
+    match index.get(key) {
+        Some(paths) if paths.len() == 1 => Some(paths[0].clone()),
+        Some(paths) => {
+            tracing::debug!(
+                key = %key,
+                candidates = paths.len(),
+                "rename pairing: several new files share this identity; not adopting",
+            );
+            None
+        }
+        None => None,
+    }
+}
+
+#[cfg(test)]
+mod scan_pairing_tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    async fn vault_with_rows(
+        rows: &[(&str, Option<i64>, &str, i64)],
+    ) -> (tempfile::TempDir, Vault) {
+        let dir = tempdir().unwrap();
+        let vault = Vault::open(dir.path()).await.expect("open");
+        for (path, inode, hash, created_at) in rows {
+            vault
+                .index()
+                .connection()
+                .execute(
+                    "INSERT INTO files (
+                         path, type_id, size_bytes, mtime_unix, content_hash,
+                         inode, last_seen, created_at, updated_at
+                     ) VALUES (?1, 'markdown', 0, 0, ?2, ?3, 0, ?4, 0)",
+                    params![*path, *hash, *inode, *created_at],
+                )
+                .await
+                .unwrap();
+        }
+        (dir, vault)
+    }
+
+    #[tokio::test]
+    async fn nothing_vanished_means_no_lookup_at_all() {
+        let (_d, vault) = vault_with_rows(&[("A.md", Some(1), "h", 100)]).await;
+        assert!(pair_vanished_after_scan(&vault, &[], 100).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_deletion_with_nothing_new_pairs_nothing() {
+        let (_d, vault) = vault_with_rows(&[("A.md", Some(1), "h", 10)]).await;
+        let gone = VanishedFile {
+            path: "Gone.md".into(),
+            inode: Some(9),
+            content_hash: "h".into(),
+        };
+        assert!(
+            pair_vanished_after_scan(&vault, &[gone], 100)
+                .await
+                .is_empty(),
+            "A.md predates this scan, so it is not a rename destination",
+        );
+    }
+
+    #[tokio::test]
+    async fn an_empty_hash_never_pairs() {
+        let (_d, vault) = vault_with_rows(&[("New.md", None, "", 100)]).await;
+        let gone = VanishedFile {
+            path: "Gone.md".into(),
+            inode: None,
+            content_hash: String::new(),
+        };
+        assert!(pair_vanished_after_scan(&vault, &[gone], 100)
+            .await
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn inode_wins_over_a_shared_content_hash() {
+        let (_d, vault) = vault_with_rows(&[
+            ("Right.md", Some(7), "shared", 100),
+            ("Wrong.md", Some(8), "shared", 100),
+        ])
+        .await;
+        let gone = VanishedFile {
+            path: "Gone.md".into(),
+            inode: Some(7),
+            content_hash: "shared".into(),
+        };
+        assert_eq!(
+            pair_vanished_after_scan(&vault, &[gone], 100).await,
+            vec![("Gone.md".to_string(), "Right.md".to_string())],
+            "the hash is ambiguous but the inode is not",
+        );
     }
 }

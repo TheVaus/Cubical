@@ -33,6 +33,47 @@ pub struct ScanProgress {
     pub files_total_estimate: u32,
 }
 
+#[derive(Debug, Clone)]
+pub struct VanishedFile {
+    pub path: String,
+    pub inode: Option<i64>,
+    pub content_hash: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ScanOutcome {
+    pub file_count: u32,
+    pub vanished: Vec<VanishedFile>,
+}
+
+async fn collect_vanished(conn: &libsql::Connection, scan_started_secs: i64) -> Vec<VanishedFile> {
+    let mut rows = match conn
+        .query(
+            "SELECT path, inode, content_hash FROM files WHERE last_seen < ?1",
+            params![scan_started_secs],
+        )
+        .await
+    {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::warn!(error = %e, "scan: could not read the rows it is about to sweep");
+            return Vec::new();
+        }
+    };
+    let mut out = Vec::new();
+    while let Ok(Some(row)) = rows.next().await {
+        let Ok(path) = row.get::<String>(0) else {
+            continue;
+        };
+        out.push(VanishedFile {
+            path,
+            inode: row.get::<Option<i64>>(1).unwrap_or(None),
+            content_hash: row.get::<String>(2).unwrap_or_default(),
+        });
+    }
+    out
+}
+
 pub(crate) struct ScannedMarkdown<'a> {
     pub vault: &'a Vault,
     pub path: &'a str,
@@ -81,7 +122,7 @@ pub async fn scan(
     vault: Vault,
     cancel: CancellationToken,
     progress: mpsc::Sender<ScanProgress>,
-) -> Result<u32, VaultError> {
+) -> Result<ScanOutcome, VaultError> {
     let root = vault.root().to_path_buf();
     let registry = vault.registry_arc();
 
@@ -288,7 +329,9 @@ pub async fn scan(
         }
     }
 
+    let mut vanished: Vec<VanishedFile> = Vec::new();
     if !cancel.is_cancelled() {
+        vanished = collect_vanished(conn, scan_started_secs).await;
         match conn
             .execute(
                 "DELETE FROM files WHERE last_seen < ?1",
@@ -367,7 +410,10 @@ pub async fn scan(
     link_tx.commit().await.map_err(IndexError::from)?;
 
     tracing::info!(processed = files_processed, "scan complete");
-    Ok(files_processed)
+    Ok(ScanOutcome {
+        file_count: files_processed,
+        vanished,
+    })
 }
 
 fn mtime_secs(meta: &std::fs::Metadata) -> i64 {
@@ -383,13 +429,13 @@ fn clamp_to_i64(v: u64) -> i64 {
 }
 
 #[cfg(unix)]
-fn inode_of(meta: &std::fs::Metadata) -> Option<i64> {
+pub fn inode_of(meta: &std::fs::Metadata) -> Option<i64> {
     use std::os::unix::fs::MetadataExt;
     Some(clamp_to_i64(meta.ino()))
 }
 
 #[cfg(not(unix))]
-fn inode_of(_meta: &std::fs::Metadata) -> Option<i64> {
+pub fn inode_of(_meta: &std::fs::Metadata) -> Option<i64> {
     None
 }
 
@@ -449,7 +495,7 @@ mod tests {
         let (tx, _rx) = mpsc::channel::<ScanProgress>(256);
         let cancel = CancellationToken::new();
         let count = scan(vault.clone(), cancel, tx).await.expect("scan");
-        assert_eq!(count as usize, n);
+        assert_eq!(count.file_count as usize, n);
         assert_eq!(
             vault.search().doc_count().unwrap(),
             n as u64,
@@ -600,7 +646,7 @@ mod tests {
         let (tx, _rx) = mpsc::channel::<ScanProgress>(64);
         let cancel = CancellationToken::new();
         let count = scan(vault.clone(), cancel, tx).await.expect("scan");
-        assert_eq!(count, 10);
+        assert_eq!(count.file_count, 10);
 
         assert_eq!(scalar_i64(&vault, "SELECT COUNT(*) FROM files").await, 10);
         assert_eq!(
@@ -681,7 +727,7 @@ mod tests {
             last = Some(p);
         }
         let count = scan_handle.await.unwrap().unwrap();
-        assert_eq!(count, 20);
+        assert_eq!(count.file_count, 20);
         assert!(events >= 1, "expected at least one progress event");
         let last = last.unwrap();
         assert_eq!(last.files_processed, 20);

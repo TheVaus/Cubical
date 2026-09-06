@@ -28,6 +28,41 @@ pub struct SearchIndex {
     writer: Mutex<IndexWriter>,
     reader: IndexReader,
     commit_count: AtomicU64,
+    rebuilt_reason: Option<String>,
+}
+
+const STALE_STAMP: &str = "schema stamp is missing or not the current version";
+
+fn is_recoverable_by_wipe(e: &SearchError) -> bool {
+    !matches!(
+        e,
+        SearchError::Tantivy(tantivy::TantivyError::LockFailure(..)) | SearchError::Io(_)
+    )
+}
+
+fn wipe_dir(dir: &Path) -> Result<(), SearchError> {
+    if !dir.exists() {
+        return Ok(());
+    }
+    for entry in std::fs::read_dir(dir)? {
+        let path = entry?.path();
+        if path.is_dir() {
+            std::fs::remove_dir_all(&path)?;
+        } else {
+            std::fs::remove_file(&path)?;
+        }
+    }
+    Ok(())
+}
+
+fn stamp_is_current(dir: &Path) -> bool {
+    match std::fs::read_to_string(dir.join(SCHEMA_JSON)) {
+        Ok(s) => match serde_json::from_str::<SchemaStamp>(&s) {
+            Ok(stamp) => stamp.version == SCHEMA_VERSION,
+            Err(_) => false,
+        },
+        Err(_) => false,
+    }
 }
 
 impl SearchIndex {
@@ -35,25 +70,23 @@ impl SearchIndex {
         let dir = dir.as_ref().to_path_buf();
         std::fs::create_dir_all(&dir)?;
 
-        let stamp_path = dir.join(SCHEMA_JSON);
-        let needs_wipe = match std::fs::read_to_string(&stamp_path) {
-            Ok(s) => match serde_json::from_str::<SchemaStamp>(&s) {
-                Ok(stamp) => stamp.version != SCHEMA_VERSION,
-                Err(_) => true,
-            },
-            Err(_) => true,
-        };
-        if needs_wipe && dir.exists() {
-            for entry in std::fs::read_dir(&dir)? {
-                let path = entry?.path();
-                if path.is_dir() {
-                    std::fs::remove_dir_all(&path)?;
-                } else {
-                    std::fs::remove_file(&path)?;
-                }
-            }
+        let mut reason = (!stamp_is_current(&dir)).then(|| STALE_STAMP.to_string());
+        if reason.is_some() {
+            wipe_dir(&dir)?;
         }
 
+        match Self::build(dir.clone(), reason.clone()) {
+            Ok(built) => Ok(built),
+            Err(e) if is_recoverable_by_wipe(&e) => {
+                reason = Some(e.to_string());
+                wipe_dir(&dir)?;
+                Self::build(dir, reason)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    fn build(dir: PathBuf, rebuilt_reason: Option<String>) -> Result<Self, SearchError> {
         let (schema, fields) = build_schema();
         let mmap =
             tantivy::directory::MmapDirectory::open(&dir).map_err(tantivy::TantivyError::from)?;
@@ -67,7 +100,7 @@ impl SearchIndex {
             .try_into()?;
 
         std::fs::write(
-            &stamp_path,
+            dir.join(SCHEMA_JSON),
             serde_json::to_string(&SchemaStamp {
                 version: SCHEMA_VERSION,
             })?,
@@ -81,11 +114,17 @@ impl SearchIndex {
             writer: Mutex::new(writer),
             reader,
             commit_count: AtomicU64::new(0),
+            rebuilt_reason,
         })
     }
 
     pub fn dir(&self) -> &Path {
         &self.dir
+    }
+
+    #[must_use]
+    pub fn rebuilt_reason(&self) -> Option<&str> {
+        self.rebuilt_reason.as_deref()
     }
 
     pub fn schema(&self) -> &Schema {
@@ -216,8 +255,38 @@ mod tests {
     #[test]
     fn open_creates_dir_and_stamp() {
         let tmp = TempDir::new().unwrap();
-        let _idx = SearchIndex::open(tmp.path()).unwrap();
+        let idx = SearchIndex::open(tmp.path()).unwrap();
         assert!(tmp.path().join("schema.json").exists());
+        assert_eq!(idx.rebuilt_reason(), Some(STALE_STAMP));
+    }
+
+    #[test]
+    fn reopening_a_healthy_index_reports_no_rebuild() {
+        let tmp = TempDir::new().unwrap();
+        {
+            let idx = SearchIndex::open(tmp.path()).unwrap();
+            idx.upsert(&doc_fixture("a.md", "hello", &[])).unwrap();
+            idx.commit().unwrap();
+        }
+        let idx = SearchIndex::open(tmp.path()).unwrap();
+        assert_eq!(idx.rebuilt_reason(), None);
+        assert_eq!(idx.doc_count().unwrap(), 1);
+    }
+
+    #[test]
+    fn a_corrupt_index_directory_is_wiped_and_reopens_empty() {
+        let tmp = TempDir::new().unwrap();
+        {
+            let idx = SearchIndex::open(tmp.path()).unwrap();
+            idx.upsert(&doc_fixture("a.md", "hello", &[])).unwrap();
+            idx.commit().unwrap();
+        }
+        std::fs::write(tmp.path().join("meta.json"), b"\x00\x01 not json").unwrap();
+
+        let idx = SearchIndex::open(tmp.path()).expect("a corrupt search dir self-heals");
+        let reason = idx.rebuilt_reason().expect("the wipe is reported");
+        assert_ne!(reason, STALE_STAMP);
+        assert_eq!(idx.doc_count().unwrap(), 0);
     }
 
     #[test]

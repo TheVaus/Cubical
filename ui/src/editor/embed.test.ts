@@ -22,6 +22,7 @@ function makeStubResolver(resp: EmbedResolution): EmbedResolver {
     fetch: () => undefined,
     resolve: async () => resp,
     invalidate: () => undefined,
+    markStale: () => undefined,
     onUpdate: () => () => undefined,
     debug: () => ({
       cacheSize: 0,
@@ -42,6 +43,7 @@ function stubResolver(entries: Record<string, EmbedResolution>): EmbedResolver {
     fetch: () => undefined,
     resolve: () => Promise.reject(new Error("not used")),
     invalidate: () => undefined,
+    markStale: () => undefined,
     onUpdate: () => () => undefined,
     debug: () => ({
       cacheSize: 0,
@@ -158,6 +160,7 @@ describe("embedExtension", () => {
       fetch: () => undefined,
       resolve: () => Promise.reject(new Error("not used")),
       invalidate: () => undefined,
+      markStale: () => undefined,
       onUpdate: () => () => undefined,
       debug: () => ({
         cacheSize: 0,
@@ -239,6 +242,7 @@ describe("embedExtension", () => {
       fetch: () => undefined,
       resolve: () => Promise.reject(new Error("not used")),
       invalidate: () => undefined,
+      markStale: () => undefined,
       onUpdate: () => () => undefined,
       debug: () => ({
         cacheSize: 0,
@@ -435,6 +439,7 @@ describe("embedExtension", () => {
       resolve: async () =>
         cache.B ?? { kind: "unresolved", target_path: null, content: null },
       invalidate: () => undefined,
+      markStale: () => undefined,
       onUpdate: () => () => undefined,
       debug: () => ({
         cacheSize: Object.keys(cache).length,

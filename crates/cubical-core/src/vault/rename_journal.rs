@@ -32,6 +32,34 @@ pub fn parse_all(contents: &str) -> Vec<RenameJournalEntry> {
     contents.lines().filter_map(parse_entry).collect()
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct JournalRead {
+    pub entries: Vec<RenameJournalEntry>,
+    pub malformed_lines: usize,
+}
+
+impl JournalRead {
+    #[must_use]
+    pub fn is_intact(&self) -> bool {
+        self.malformed_lines == 0
+    }
+}
+
+#[must_use]
+pub fn parse_read(contents: &str) -> JournalRead {
+    let mut read = JournalRead::default();
+    for line in contents.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        match parse_entry(line) {
+            Some(entry) => read.entries.push(entry),
+            None => read.malformed_lines += 1,
+        }
+    }
+    read
+}
+
 #[must_use]
 pub fn compact(contents: &str, drop_ops: &HashSet<i64>) -> String {
     let mut out = String::new();
@@ -64,11 +92,11 @@ pub fn append_entry(vault_root: &Path, entry: &RenameJournalEntry) -> std::io::R
     f.write_all(line.as_bytes())
 }
 
-#[must_use]
-pub fn read_entries(vault_root: &Path) -> Vec<RenameJournalEntry> {
+pub fn read_journal(vault_root: &Path) -> std::io::Result<JournalRead> {
     match std::fs::read_to_string(journal_path(vault_root)) {
-        Ok(contents) => parse_all(&contents),
-        Err(_) => Vec::new(),
+        Ok(contents) => Ok(parse_read(&contents)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(JournalRead::default()),
+        Err(e) => Err(e),
     }
 }
 
@@ -165,16 +193,71 @@ mod tests {
     fn append_then_read_round_trips_in_order() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        assert!(read_entries(root).is_empty());
+        assert!(read_journal(root).unwrap().entries.is_empty());
 
         append_entry(root, &entry(1, "a.md", "b.md")).unwrap();
         append_entry(root, &entry(2, "c.md", "d.md")).unwrap();
 
-        let got = read_entries(root);
-        assert_eq!(got.len(), 2);
-        assert_eq!(got[0].op_id, 1);
-        assert_eq!(got[1].op_id, 2);
+        let got = read_journal(root).unwrap();
+        assert_eq!(got.entries.len(), 2);
+        assert_eq!(got.entries[0].op_id, 1);
+        assert_eq!(got.entries[1].op_id, 2);
+        assert!(got.is_intact());
         assert!(journal_path(root).ends_with(".cubical/renames.jsonl"));
+    }
+
+    #[test]
+    fn absent_journal_is_an_intact_empty_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let got = read_journal(dir.path()).expect("absent journal is not an error");
+        assert_eq!(got, JournalRead::default());
+        assert!(got.is_intact());
+    }
+
+    #[test]
+    fn unreadable_journal_is_an_error_not_an_empty_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = journal_path(dir.path());
+        std::fs::create_dir_all(&path).unwrap();
+
+        let err = read_journal(dir.path()).expect_err("a journal that cannot be read must error");
+        assert_ne!(err.kind(), std::io::ErrorKind::NotFound);
+    }
+
+    #[test]
+    fn non_utf8_journal_is_an_error_not_an_empty_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = journal_path(dir.path());
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, [0xff, 0xfe, 0x00, 0x9f]).unwrap();
+
+        assert!(read_journal(dir.path()).is_err());
+    }
+
+    #[test]
+    fn malformed_lines_are_counted_not_silently_dropped() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        append_entry(root, &entry(1, "a.md", "b.md")).unwrap();
+        let path = journal_path(root);
+        let mut body = std::fs::read_to_string(&path).unwrap();
+        body.push_str("{\"op_id\": 2, truncated\n");
+        std::fs::write(&path, body).unwrap();
+
+        let got = read_journal(root).unwrap();
+        assert_eq!(got.entries.len(), 1);
+        assert_eq!(got.malformed_lines, 1);
+        assert!(!got.is_intact());
+    }
+
+    #[test]
+    fn blank_lines_do_not_count_as_malformed() {
+        let got = parse_read(&format!(
+            "\n{}\n\n   \n",
+            serialize_entry(&entry(1, "a.md", "b.md"))
+        ));
+        assert_eq!(got.entries.len(), 1);
+        assert!(got.is_intact());
     }
 
     #[test]
@@ -186,7 +269,7 @@ mod tests {
 
         rewrite_without(root, &[1].into_iter().collect()).unwrap();
 
-        let got = read_entries(root);
+        let got = read_journal(root).unwrap().entries;
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].op_id, 2);
     }
@@ -203,7 +286,7 @@ mod tests {
             !journal_path(root).exists(),
             "empty journal file is removed"
         );
-        assert!(read_entries(root).is_empty());
+        assert!(read_journal(root).unwrap().entries.is_empty());
     }
 
     #[test]

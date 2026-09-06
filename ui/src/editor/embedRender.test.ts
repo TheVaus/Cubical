@@ -16,6 +16,7 @@ function stubResolver(entries: Record<string, EmbedResolution>): {
       fetch: (t) => fetched.push(t),
       resolve: () => Promise.reject(new Error("not used")),
       invalidate: () => undefined,
+      markStale: () => undefined,
       onUpdate: () => () => undefined,
       debug: () => ({
         cacheSize: 0,

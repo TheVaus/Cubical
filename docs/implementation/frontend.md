@@ -446,6 +446,21 @@ renderer is the same registration with `render` crossing the sandbox boundary.
 It is *not* itself a plugin boundary — everything in it is first-party, in-process
 and unsandboxed. Do not treat it as one.
 
+### A block that scrolls needs inline-size containment
+
+`.cm-content` is a flex item with `min-width: auto`, so its min-content width is
+whatever its widest descendant demands. A block widget holding a wide table
+therefore inflates the *editor* rather than overflowing its own frame: the
+scroll container's `max-width: 100%` resolves against the inflated width, no
+overflow is ever detected, and the whole document pans sideways instead of the
+table.
+
+`contain: inline-size` on the scrolling wrapper is what fixes it — the wrapper
+stops contributing its content width upward, `.cm-content` collapses back to the
+viewport, and the overflow lands where it belongs. It is load-bearing, not
+decorative; removing it silently restores the panning editor, and no jsdom test
+can catch that because jsdom does not lay out.
+
 ## Block widgets and the cursor
 
 Rendering block-sized content inside a text line is the root of CodeMirror's

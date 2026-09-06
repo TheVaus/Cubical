@@ -49,3 +49,53 @@ describe("propertyResolver", () => {
     expect(r.get("N", "p")).toEqual({ kind: "note_unresolved", value: null });
   });
 });
+
+describe("propertyResolver staleness", () => {
+  it("serves the cached value while refreshing a stale entry in the background", async () => {
+    const ipc = vi
+      .fn()
+      .mockResolvedValueOnce({ kind: "resolved", value: 41 })
+      .mockResolvedValueOnce({ kind: "resolved", value: 42 });
+    const r = createPropertyResolver("v1", ipc);
+    await r.resolve("Gandalf", "age");
+    expect(r.get("Gandalf", "age")?.value).toBe(41);
+
+    r.markStale();
+
+    // The stale read still answers with the old value — no "loading" flash …
+    expect(r.get("Gandalf", "age")?.value).toBe(41);
+    // … and it kicks off exactly one refresh.
+    await vi.waitFor(() => expect(ipc).toHaveBeenCalledTimes(2));
+    expect(r.get("Gandalf", "age")?.value).toBe(42);
+  });
+
+  it("refreshes a stale entry only once", async () => {
+    const ipc = vi.fn().mockResolvedValue({ kind: "resolved", value: 1 });
+    const r = createPropertyResolver("v1", ipc);
+    await r.resolve("N", "p");
+    r.markStale();
+    r.get("N", "p");
+    r.get("N", "p");
+    r.get("N", "p");
+    await vi.waitFor(() => expect(ipc).toHaveBeenCalledTimes(2));
+    expect(ipc).toHaveBeenCalledTimes(2);
+  });
+
+  it("notifies subscribers when a stale refresh lands", async () => {
+    const ipc = vi
+      .fn()
+      .mockResolvedValueOnce({ kind: "resolved", value: 1 })
+      .mockResolvedValueOnce({ kind: "resolved", value: 2 });
+    const r = createPropertyResolver("v1", ipc);
+    await r.resolve("N", "p");
+    const seen = vi.fn();
+    r.onUpdate(seen);
+    r.markStale();
+    // markStale notifies once so the view rebuilds and reads through get()…
+    expect(seen).toHaveBeenCalledTimes(1);
+    r.get("N", "p");
+    // …and the landing refresh notifies again with the new value.
+    await vi.waitFor(() => expect(seen).toHaveBeenCalledTimes(2));
+    expect(r.get("N", "p")?.value).toBe(2);
+  });
+});

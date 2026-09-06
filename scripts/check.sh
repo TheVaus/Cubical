@@ -8,8 +8,9 @@
 #     meant a slow or flaky cargo step could abort the script before they ever
 #     ran — `set -e` stops at the first failure, so a gate that never runs looks
 #     exactly like a gate that passed. See issue #52.
-#  2. Frontend gates next: Tauri's generate_context!() embeds ui/dist at compile
-#     time, so the bundle must exist before any cargo step builds cubical-app.
+#  2. Frontend gates next: fast feedback, and no cargo step below depends on
+#     them. Embedding ui/dist takes `--features custom-protocol`, which no gate
+#     passes -- `tauri build` supplies it and builds its own bundle first.
 #  3. Cargo last, slowest, and the only stage that can currently abort early.
 #
 # EXIT CODES: `scripts/check.sh | tail` reports tail's status, not the gate's.
@@ -23,6 +24,7 @@ echo "==> ds-components";       python3 scripts/gates/ds_components.py
 echo "==> ds-colours";          python3 scripts/gates/ds_colours.py
 echo "==> composition";        python3 scripts/gates/composition.py
 echo "==> dependency-boundary"; python3 scripts/gates/dependency_boundary.py
+echo "==> view-freshness";      python3 scripts/gates/view_freshness.py
 echo "==> techstack";           python3 scripts/gates/techstack.py
 echo "==> symbol-anchors";      python3 scripts/gates/symbol_anchors.py
 echo "==> docs";                python3 scripts/check_docs.py

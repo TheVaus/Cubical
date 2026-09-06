@@ -45,6 +45,8 @@ These commitments produce hard rules that downstream decisions must respect:
 
 **Metadata and index storage:** libSQL (a SQLite fork). Single file at `<vault>/.cubical/index.db`. Holds file metadata, link index, block-reference index, CRDT operation logs, Time Machine snapshots, and (later) vector embeddings. The libSQL choice over plain SQLite is for the embedded server / network mode option later, and for native vector support; for the core flow, libSQL is used as a standard embedded database.
 
+**Tabular data decoding:** `csv` (BurntSushi) and `calamine`, both read-only and both used only by the `cubical-table` crate, which decodes a `.csv`/`.tsv`/`.xlsx`/`.xlsm` file into an in-memory relation so a query block can read a data file the same way it reads notes. `csv` rather than splitting on the delimiter, because RFC 4180 quoting — a delimiter inside a quoted field, an embedded newline, an escaped quote — silently corrupts a hand-rolled reader, and the failure looks like bad user data rather than a bug. `calamine` because it is pure Rust, read-only by construction, and reads the cached values of formula cells without evaluating them: Cubical never writes a workbook, so a writer's surface would be unused risk. Neither crate touches the network, and neither participates in the index — a decoded table is transient, held in a stat-validated memo and rebuilt from the file whenever the file changes.
+
 **Full-text search:** Tantivy. Rust-native, BM25-ranked, with stemming and typo tolerance. Indexes the canonical AST, not the raw markdown — which means search understands document structure (heading-only search, code-block exclusion, etc.).
 
 **CRDT engine:** Loro. Rust-native, supports movable trees natively (relevant for the file tree and outliner moves), has a rich-text model closer to Peritext than Yjs's. The CRDT layer is abstracted behind a Rust trait so swapping is theoretically possible — though a swap is not planned.
@@ -55,7 +57,7 @@ These commitments produce hard rules that downstream decisions must respect:
 
 ### 2.1 Native capabilities in first-party features
 
-The plugin sandbox exists to contain **untrusted third-party code**. It says nothing about Cubical's own compiled features: sandboxing a core feature toggle against the binary it ships inside is meaningless. So the rule is narrower than "everything is sandboxed", and deliberately so — the general reading would otherwise be read as "core features are exempt", which would later justify a core feature doing anything at all.
+The plugin sandbox exists to contain **untrusted third-party code**. It says nothing about Cubical's own compiled features: sandboxing a core feature against the binary it ships inside is meaningless. The rule is therefore narrower than "everything is sandboxed" — but not "core features are exempt", which would later justify a core feature doing anything at all.
 
 **The rule.** First-party core features may use native capabilities. But any core feature whose *purpose* is to grant an unsandboxed capability to arbitrary external code must satisfy all three of:
 
@@ -63,12 +65,12 @@ The plugin sandbox exists to contain **untrusted third-party code**. It says not
 2. **Unable to compromise vault integrity when abused.** The vault must converge on whatever state the external code leaves behind — the feature may not be load-bearing for correctness. See §2.2.
 3. **Auditable.** Effects on the vault land in `audit_log` like any other mutation.
 
-The motivating case is the embedded terminal, which spawns real child processes (`claude`, `python`, `git`) that are *at least* as untrusted as any community plugin — a community plugin has at least passed through the WASI ABI, while `npx some-tool` has passed through nothing. The terminal is therefore not an exception to the sandbox rule; it is a gateway, and the three conditions above are what replace the sandbox for gateways.
+The motivating case is the embedded terminal, which spawns child processes (`claude`, `python`, `git`) *at least* as untrusted as any community plugin — a plugin has passed through the WASI ABI, `npx some-tool` through nothing. The terminal is not an exception to the sandbox rule; it is a gateway, and the three conditions replace the sandbox for gateways.
 
-This refines, and does not weaken, the **Backend** webview constraint above: the webview never gains shell or broad filesystem access. Rust owns the PTY and the child process; the webview receives an opaque byte stream and sends keystrokes. The capability is granted to the *child process*, by the Rust core, at the user's explicit request.
+This refines rather than weakens the **Backend** constraint above: the webview never gains shell or broad filesystem access. Rust owns the PTY and the child; the webview receives an opaque byte stream and sends keystrokes. The capability is granted to the *child process*, by the Rust core, at the user's explicit request.
 
 ### 2.2 Convergence over interception
 
-Cubical cannot intercept filesystem mutations made by external processes — an AI CLI's file write is an `open`/`write` syscall, and interposing on it would require OS-level machinery (FUSE, DYLD interposition) that contradicts portability and the no-external-services rule. Attempting it would also be a lie: correctness would silently depend on interception that any `python` script trivially bypasses.
+Cubical cannot intercept filesystem mutations made by external processes — an AI CLI's write is an `open`/`write` syscall, and interposing would require OS-level machinery (FUSE, DYLD interposition) contradicting portability and the no-external-services rule. It would also be a lie: correctness would silently depend on interception any `python` script trivially bypasses.
 
-The commitment is therefore **convergence, not interception**: the engine must converge on whatever the filesystem becomes, regardless of who changed it. This is already most of the way true — the index is derived state (commitment 1) and the watcher rebuilds it. Where a raw filesystem operation destroys *semantics* the index cannot re-derive — a move that leaves every `[[wikilink]]` dangling — the watcher recovers the semantics where it can and surfaces the residue to the user where it cannot. Silent rot is the one unacceptable outcome.
+The commitment is therefore **convergence, not interception**: the engine converges on whatever the filesystem becomes, regardless of who changed it. Mostly true already — the index is derived state (commitment 1) and the watcher rebuilds it. Where a raw operation destroys *semantics* the index cannot re-derive — a move leaving every `[[wikilink]]` dangling — the watcher recovers what it can and surfaces the residue where it cannot. Silent rot is the one unacceptable outcome.

@@ -15,6 +15,7 @@ cubical-index  = { path = "../cubical-index" }
 cubical-graph  = { path = "../cubical-graph" }
 cubical-search = { path = "../cubical-search" }
 cubical-query  = { path = "../cubical-query" }
+cubical-table  = { path = "../cubical-table" }
 
 # Database — From<libsql::Error> on CubicalError + libsql::params! in handlers.
 libsql = { workspace = true }

@@ -49,6 +49,16 @@ pulldown-cmark = { version = "0.13", default-features = false }
 # Full-text search — Tantivy wrapper lives in `cubical-search` (L4-A).
 tantivy = "0.26"
 
+# Tabular decode — `cubical-table` turns .csv/.tsv/.xlsx bytes into a relation.
+# BurntSushi's `csv` for delimited text: RFC 4180 quoting, embedded newlines and
+# escaped quotes are the reason this is a dependency and not a `split(',')`.
+csv = "1"
+
+# Excel workbooks (.xlsx/.xlsm) for `cubical-table`. Pure Rust, no COM, no
+# Office install, no network — it only ever reads a local zip container, which
+# is what a self-contained vault needs.
+calamine = "0.36"
+
 # Test-only — used as a dev-dep across crates that need an isolated FS.
 tempfile = "3"
 

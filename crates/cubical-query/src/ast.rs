@@ -8,7 +8,7 @@ pub enum Command {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Source {
     Tag(String),
-    Folder(String),
+    Path(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

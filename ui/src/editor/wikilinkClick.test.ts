@@ -20,6 +20,7 @@ function resolverWith(
         : Promise.resolve(hit);
     },
     invalidate: () => {},
+    markStale: () => {},
     onUpdate: () => () => {},
     debug: () => ({
       cacheSize: 0,
@@ -97,6 +98,7 @@ describe("handleWikiLinkClick", () => {
       fetch: vi.fn(),
       resolve: () => lateFetch,
       invalidate: () => {},
+      markStale: () => {},
       onUpdate: () => () => {},
       debug: () => ({
         cacheSize: 0,

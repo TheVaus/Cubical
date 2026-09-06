@@ -1172,13 +1172,23 @@ export interface NoteRef {
 }
 
 export interface DataviewRow {
-  note: NoteRef;
+  note: NoteRef | null;
   cells: string[];
 }
 
+export interface DataviewListItem {
+  text: string;
+  note: NoteRef | null;
+}
+
 export type DataviewResult =
-  | { kind: "list"; notes: NoteRef[] }
-  | { kind: "table"; columns: string[]; rows: DataviewRow[] }
+  | { kind: "list"; items: DataviewListItem[] }
+  | {
+      kind: "table";
+      columns: string[];
+      rows: DataviewRow[];
+      row_label: string | null;
+    }
   | { kind: "count"; count: number }
   | { kind: "error"; message: string };
 

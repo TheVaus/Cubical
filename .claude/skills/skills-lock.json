@@ -1,0 +1,70 @@
+{
+  "version": 2,
+  "note": "Provenance for .agents/skills/. upstreamSha256 hashes the UPSTREAM file at upstreamCommit, not the local copy: a tailored skill never matches it by design. To re-sync one, fetch the upstream path at a newer commit, diff it against upstreamSha256's version to see what changed there, then re-apply that change over the local edits described in the skill's own 'Local edits' section.",
+  "skills": {
+    "grill-me": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "upstreamCommit": "6654f6b60cd9d5be8b54c6fafe44346dabeb3b76",
+      "localEdits": false,
+      "files": {
+        "SKILL.md": {
+          "skillPath": "skills/productivity/grill-me/SKILL.md",
+          "upstreamSha256": "caaf8b8de1684f96e26b28f3c29189db5c89cce4b73e1c93d86164f66ef88637"
+        }
+      }
+    },
+    "grilling": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "upstreamCommit": "6654f6b60cd9d5be8b54c6fafe44346dabeb3b76",
+      "localEdits": true,
+      "files": {
+        "SKILL.md": {
+          "skillPath": "skills/productivity/grilling/SKILL.md",
+          "upstreamSha256": "10ff989e7498b23b5acb49d5048f11dcd906757d2f79c5cdf8a00001381296f2"
+        }
+      }
+    },
+    "setup-matt-pocock-skills": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "upstreamCommit": "6654f6b60cd9d5be8b54c6fafe44346dabeb3b76",
+      "localEdits": true,
+      "files": {
+        "SKILL.md": {
+          "skillPath": "skills/engineering/setup-matt-pocock-skills/SKILL.md",
+          "upstreamSha256": "2bcd89e97777cdb705914424e39c97d5db524c8eb4eafac8120778a07774f0ec"
+        }
+      }
+    },
+    "triage": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "upstreamCommit": "6654f6b60cd9d5be8b54c6fafe44346dabeb3b76",
+      "localEdits": true,
+      "files": {
+        "SKILL.md": {
+          "skillPath": "skills/engineering/triage/SKILL.md",
+          "upstreamSha256": "623a2ed692bdc77d2090e2a3dea3b627dd722ad3bbaca0be83aada75292c8fc4"
+        },
+        "AGENT-BRIEF.md": {
+          "skillPath": "skills/engineering/triage/AGENT-BRIEF.md",
+          "upstreamSha256": "7f5f87fed3033df1b06e083c480f3e847b1fbb0647746b8a4c6a50f9f26ef44f"
+        }
+      }
+    },
+    "wayfinder": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "upstreamCommit": "6654f6b60cd9d5be8b54c6fafe44346dabeb3b76",
+      "localEdits": true,
+      "files": {
+        "SKILL.md": {
+          "skillPath": "skills/engineering/wayfinder/SKILL.md",
+          "upstreamSha256": "fee6e1d0c50f0e736b4ef8a599060c959afae904c9a97d82c97f049fcc3aa0f1"
+        }
+      }
+    }
+  }
+}
