@@ -51,7 +51,7 @@ tokio-util = { workspace = true }
 
 [features]
 # Empty by default so the gate and `tauri dev` compile the same feature set.
-# `tauri build` supplies `custom-protocol` itself for production bundles; the
-# dev loop runs `cargo run --no-default-features` and never wants it.
+# `custom-protocol` selects the production context (embedded assets over the
+# dev server); `tauri build` supplies it, and it stays a manual escape hatch.
 default = []
 custom-protocol = ["tauri/custom-protocol"]

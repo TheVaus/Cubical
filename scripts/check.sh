@@ -8,9 +8,9 @@
 #     meant a slow or flaky cargo step could abort the script before they ever
 #     ran — `set -e` stops at the first failure, so a gate that never runs looks
 #     exactly like a gate that passed. See issue #52.
-#  2. Frontend gates next: fast feedback, and they leave ui/dist built. Only
-#     `tauri build` embeds that bundle -- it enables tauri/custom-protocol
-#     itself and runs beforeBuildCommand, so no gate step depends on it.
+#  2. Frontend gates next: fast feedback, and no cargo step below depends on
+#     them. Embedding ui/dist takes `--features custom-protocol`, which no gate
+#     passes -- `tauri build` supplies it and builds its own bundle first.
 #  3. Cargo last, slowest, and the only stage that can currently abort early.
 #
 # EXIT CODES: `scripts/check.sh | tail` reports tail's status, not the gate's.
