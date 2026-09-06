@@ -50,7 +50,8 @@ cubical-core = { path = "../cubical-core" }
 tokio-util = { workspace = true }
 
 [features]
-# By default, Tauri runs against the dev server.
-# `custom-protocol` is enabled by `tauri build` for production bundles.
-default = ["custom-protocol"]
+# Empty by default so the gate and `tauri dev` compile the same feature set.
+# `custom-protocol` selects the production context (embedded assets over the
+# dev server); `tauri build` supplies it, and it stays a manual escape hatch.
+default = []
 custom-protocol = ["tauri/custom-protocol"]
