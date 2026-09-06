@@ -2,7 +2,7 @@
 
 **Rule:** Every crate, engine command module and `ui/src` domain is substrate, a block, or the shell. Substrate is always on and may depend only on substrate. A block may depend on substrate and on its own domain, never on another domain's block. Only the shell may know every block. Two features that need the same behaviour write it twice rather than share a module across the boundary.
 
-**Gate:** `scripts/gates/domain_boundary.py`, over the census in `scripts/domain-boundaries.json`. Landed green as a ratchet, with one crate edge and seven `ui/src` edges grandfathered, each carrying the issue that removes it.
+**Gate:** `scripts/gates/domain_boundary.py`, over the census in `scripts/domain-boundaries.json`. Landed green as a ratchet, with one crate edge and eight `ui/src` edges grandfathered, each carrying the issue that removes it.
 
 **Why:** [`composability`](composability.md) already says most features are removable blocks over always-on substrate, and it had no gate. Without one the claim decayed in the direction every codebase decays: a feature needed something a neighbour had, imported it, and two features that were never related began failing together. The cost is not theoretical — the feature-independence audit found four unreported bugs of exactly this shape, including an evicted tab freezing other notes' dataview queries and a cancelled scan killing live updates for the rest of the session. The gate is deliberately about **edges, not sizes**: a wide module is not a violation, and a module that makes an unrelated feature's failure your failure is. Size is [`component-composition`](component-composition.md)'s question, and answering it here would have meant splitting files that are wide because they are chokepoints on purpose.
 

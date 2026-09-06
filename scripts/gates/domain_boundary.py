@@ -37,6 +37,38 @@ UI_IMPORT = re.compile(
 ENGINE_USE = re.compile(r"\bcrate::commands::([a-z_]+)")
 
 
+def production_lines(text: str) -> list[tuple[int, str]]:
+    """Numbered lines outside any `#[cfg(test)]` item.
+
+    Brace-depth tracked rather than "break at the first #[cfg(test)]": that
+    assumed the test module comes last, and commands/graph.rs disproves it with
+    a `#[cfg(test)] fn` inside an impl 124 lines above its `mod tests`. Breaking
+    there stopped scanning the file's real code silently, which is the failure
+    mode a gate must not have.
+
+    Braces inside string literals can skew the depth. An unbalanced one makes
+    the gate include test lines (a visible false positive) or skip a few real
+    ones; it is counted rather than parsed because the alternative is a Rust
+    parser, and the previous heuristic was strictly worse.
+    """
+    out: list[tuple[int, str]] = []
+    depth = 0
+    skip_from: int | None = None
+    for n, line in enumerate(text.splitlines(), 1):
+        if skip_from is None and line.strip().startswith("#[cfg(test)]"):
+            skip_from = depth
+            depth += line.count("{") - line.count("}")
+            continue
+        closed = line.count("}")
+        depth += line.count("{") - closed
+        if skip_from is not None:
+            if depth <= skip_from and closed:
+                skip_from = None
+            continue
+        out.append((n, line))
+    return out
+
+
 def classify(cfg_table: dict, name: str) -> tuple[str, str]:
     entry = cfg_table.get(name)
     if entry is None:
@@ -92,13 +124,7 @@ def check_engine_modules(gate: Gate, cfg: dict) -> None:
             continue
         src = classify(table, src_name)
         text = f.read_text(encoding="utf-8", errors="replace")
-        for n, line in enumerate(text.splitlines(), 1):
-            # Everything from the first `#[cfg(test)]` on is test code, which
-            # may reach anywhere — the same exemption the ui check gives
-            # `.test.` files. Rust convention puts that module last; a gate
-            # that policed test wiring would be enforcing a rule nobody has.
-            if line.lstrip().startswith("#[cfg(test)]"):
-                break
+        for n, line in production_lines(text):
             for dst_name in ENGINE_USE.findall(line):
                 if dst_name == src_name:
                     continue
@@ -132,16 +158,19 @@ def check_ui(gate: Gate, cfg: dict) -> None:
         src_name = ui_domain(r)
         src = classify(table, src_name)
         text = f.read_text(encoding="utf-8", errors="replace")
-        for n, line in enumerate(text.splitlines(), 1):
-            for spec in UI_IMPORT.findall(line):
-                target = posixpath.normpath(
-                    posixpath.join(posixpath.dirname(r), spec))
-                dst_name = ui_domain(target)
-                if dst_name is None or dst_name == src_name:
-                    continue
-                why = verdict(src, classify(table, dst_name))
-                if why and f"{src_name} -> {dst_name}" not in allowed:
-                    gate.fail(f"{r}:{n}: {why}.")
+        # Whole text, not line by line: a braced import puts `from` several
+        # lines below `import`, so a per-line match sees neither half. The
+        # class is negated rather than dotted precisely so it spans newlines.
+        for m in UI_IMPORT.finditer(text):
+            target = posixpath.normpath(
+                posixpath.join(posixpath.dirname(r), m.group(1)))
+            dst_name = ui_domain(target)
+            if dst_name is None or dst_name == src_name:
+                continue
+            why = verdict(src, classify(table, dst_name))
+            if why and f"{src_name} -> {dst_name}" not in allowed:
+                n = text.count("\n", 0, m.start()) + 1
+                gate.fail(f"{r}:{n}: {why}.")
 
 
 def run() -> int:

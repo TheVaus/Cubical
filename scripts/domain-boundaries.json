@@ -160,6 +160,19 @@
       "issue": 278,
       "reason": ["Same as settings -> graph."]
     },
+    "settings -> statusbar": {
+      "issue": 278,
+      "reason": [
+        "settingsState.ts, resetSettings.ts and panes/StatusbarPane.tsx import",
+        "the statusbar's segment definitions, so the always-on settings store",
+        "hardcodes a removable block's registry — the same shape as the",
+        "corePlugins case, and it wants the same fix.",
+        "",
+        "Invisible until the gate learned to read braced imports: all three are",
+        "multi-line `import { … } from`, which the first line-by-line matcher",
+        "could not see. It is the reason the gate reads whole files now."
+      ]
+    },
     "settings -> properties": {
       "issue": 279,
       "reason": [
