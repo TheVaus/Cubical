@@ -23,7 +23,7 @@ function readColors(): MinimapColors {
   return {
     text: tok("--c-fg-primary", "#111"),
     background: tok("--c-bg-primary", "#fff"),
-    indicator: tok("--editor-selection-bg", "#3b82f6"),
+    indicator: tok("--editor-selection-bg", "rgba(79, 109, 104, 0.18)"),
   };
 }
 

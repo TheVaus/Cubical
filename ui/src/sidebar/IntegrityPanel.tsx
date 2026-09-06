@@ -283,27 +283,25 @@ const GroupCard: Component<{
       <For each={props.group.occurrences}>
         {(occurrence) => (
           <li style={{ "min-width": 0 }}>
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="sm"
+              fullWidth
               onClick={() => props.onOpenSource(occurrence.source_path)}
               title={occurrence.source_path}
               style={{
-                width: "100%",
+                display: "block",
                 "text-align": "left",
-                "font-size": "var(--text-xs)",
                 "font-family": "var(--font-mono)",
                 color: "var(--c-fg-secondary)",
-                background: "transparent",
-                border: "none",
                 padding: 0,
-                cursor: "pointer",
                 overflow: "hidden",
                 "text-overflow": "ellipsis",
                 "white-space": "nowrap",
               }}
             >
               {occurrence.source_path}
-            </button>
+            </Button>
           </li>
         )}
       </For>

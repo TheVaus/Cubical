@@ -20,7 +20,7 @@ A gate failure names its principle file; that file is the explanation.
 | [`crate-separation`](crate-separation.md) | Keep every other crate buildable and testable without the app harness. | `scripts/check.sh` |
 | [`dependencies`](dependencies.md) | Pin third-party Actions to commit SHAs, keep the Rust toolchain pinned, and enable only the features you use. | `scripts/check.sh` |
 | [`derived-state-disposable`](derived-state-disposable.md) | Never make the vault's correctness depend on state you cannot regenerate from the `.md` files. | — |
-| [`design-system`](design-system.md) | Check the component inventory before writing a raw `<button>`, `<input>`, `<select>` or `<dialog>`. | `scripts/gates/ds_components.py` |
+| [`design-system`](design-system.md) | Check the component inventory before writing a raw `<button>`, `<input>`, `<select>` or `<dialog>`. Spend a token before writing a colour: `design-system/src/styles/tokens.css` mints colour, `ui/` only spends it through `var()`. | `scripts/gates/ds_components.py` |
 | [`generated-artifacts`](generated-artifacts.md) | Never hand-edit a file carrying a do-not-edit banner; change the generator instead. | `scripts/gates/generated.py` |
 | [`implementation-anchors`](implementation-anchors.md) | Anchor every invariant in `implementation/**` to symbols that still exist. | `scripts/gates/symbol_anchors.py` |
 | [`native-capability-gateway`](native-capability-gateway.md) | Any feature whose purpose is handing an unsandboxed capability to arbitrary external code must satisfy all three conditions before it ships. | — |
