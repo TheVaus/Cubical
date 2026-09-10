@@ -20,7 +20,7 @@ vi.mock("../sidebar/SearchBar", () => ({
 }));
 
 import type { FileEntry } from "../api/ipc";
-import ExplorerPanel from "./ExplorerPanel";
+import { ExplorerPanel } from "../shell/composed";
 import type { FileActions } from "./fileActions";
 
 let dispose: (() => void) | undefined;

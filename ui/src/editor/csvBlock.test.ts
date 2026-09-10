@@ -5,6 +5,7 @@ import { EditorView } from "@codemirror/view";
 
 import { markdown } from "@codemirror/lang-markdown";
 import { csvBlockRenderer, delimiterForInfo } from "./csvBlock";
+import { renderDelimitedTable } from "../viewer/render";
 import { blockRenderers, blockRenderersField } from "./blockRenderers";
 
 function stateWith(doc: string, cursor = 0): EditorState {
@@ -14,7 +15,7 @@ function stateWith(doc: string, cursor = 0): EditorState {
     extensions: [
       markdown(),
       blockRenderersField,
-      blockRenderers(csvBlockRenderer),
+      blockRenderers(csvBlockRenderer(renderDelimitedTable)),
     ],
   });
 }

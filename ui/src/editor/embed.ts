@@ -16,12 +16,19 @@ import { syntaxTree } from "@codemirror/language";
 import { scanWikilinks } from "../ast/wikilink";
 import { decorationField } from "./decorationField";
 import type { EmbedResolver } from "./embedResolver";
-import { renderEmbedBody } from "./embedRender";
+import { renderEmbedBody, type EmbedFileRenderer } from "./embedRender";
 import { renderGuarded } from "./widgetGuard";
 
 export const embedResolverFacet = Facet.define<
   EmbedResolver | null,
   EmbedResolver | null
+>({
+  combine: (values) => values[0] ?? null,
+});
+
+export const embedFileRendererFacet = Facet.define<
+  EmbedFileRenderer,
+  EmbedFileRenderer | null
 >({
   combine: (values) => values[0] ?? null,
 });
@@ -46,6 +53,7 @@ class EmbedWidget extends WidgetType {
     private readonly targetRaw: string,
     private readonly openNotePath: string | null,
     private readonly version: number,
+    private readonly renderFile: EmbedFileRenderer | null,
   ) {
     super();
   }
@@ -60,6 +68,7 @@ class EmbedWidget extends WidgetType {
           resolver: this.resolver,
           targetRaw: this.targetRaw,
           chain: seedChain,
+          renderFile: this.renderFile,
         }),
       ),
     );
@@ -70,7 +79,8 @@ class EmbedWidget extends WidgetType {
     return (
       this.targetRaw === other.targetRaw &&
       this.openNotePath === other.openNotePath &&
-      this.version === other.version
+      this.version === other.version &&
+      this.renderFile === other.renderFile
     );
   }
 
@@ -87,6 +97,7 @@ function buildDecorations(state: EditorState): DecorationSet {
   const resolver = state.facet(embedResolverFacet);
   if (!resolver) return Decoration.none;
   const openNotePath = state.facet(openNotePathFacet);
+  const renderFile = state.facet(embedFileRendererFacet);
   const tree = syntaxTree(state);
   const doc = state.doc;
   const head = state.selection.main.head;
@@ -108,6 +119,7 @@ function buildDecorations(state: EditorState): DecorationSet {
         targetRaw,
         openNotePath,
         resolver.version(),
+        renderFile,
       );
       ranges.push(
         Decoration.replace({ widget, block: true }).range(line.from, line.to),
@@ -125,6 +137,7 @@ export const embedBlockField = decorationField({
   watch: [
     (s) => s.facet(embedResolverFacet),
     (s) => s.facet(openNotePathFacet),
+    (s) => s.facet(embedFileRendererFacet),
   ],
 });
 

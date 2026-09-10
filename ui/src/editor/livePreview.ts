@@ -8,8 +8,7 @@ import {
   blockRenderersField,
 } from "./blockRenderers";
 import { calcBlockRenderer, calcBlockBaseTheme } from "./calcBlock";
-import { csvBlockRenderer } from "./csvBlock";
-import { dataviewBlockRenderer, dataviewBaseTheme } from "./dataview";
+import { dataviewBaseTheme } from "./dataview";
 import { mathBlockRenderer, mathBaseTheme, mathEnabledFacet } from "./math";
 import { displayMathField } from "./mathDollar";
 import { equationField, equationBaseTheme, equationsEnabledFacet } from "./equation";
@@ -26,12 +25,7 @@ export const livePreviewBundle: Extension = [
   embedBaseTheme,
   blockRenderersField,
   blockRenderersBaseTheme,
-  blockRenderers(
-    dataviewBlockRenderer,
-    csvBlockRenderer,
-    mathBlockRenderer,
-    calcBlockRenderer,
-  ),
+  blockRenderers(mathBlockRenderer, calcBlockRenderer),
   dataviewBaseTheme,
   mathBaseTheme,
   displayMathField,
@@ -52,10 +46,12 @@ export interface LivePreviewPlugins {
 export function livePreviewFor(
   rawSource: boolean,
   plugins: LivePreviewPlugins,
+  blocks: Extension = [],
 ): Extension {
   return rawSource
     ? []
     : [
+        blocks,
         livePreviewBundle,
         mathEnabledFacet.of(plugins.math),
         equationsEnabledFacet.of(plugins.equations),

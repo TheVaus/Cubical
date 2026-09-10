@@ -1,10 +1,10 @@
-import { Show, type Component } from "solid-js";
+import { Show, useContext, type Component } from "solid-js";
 
 import FileTreeRow from "@ds/components/data/FileTreeRow/FileTreeRow";
 import Icon from "@ds/components/graphics/Icon/Icon";
 
 import { isValidNoteName, noteNameError } from "../vault/noteName";
-import { hasViewer } from "../viewer";
+import { CanViewContext } from "./canView";
 import { splitFileName } from "./fileTree";
 import { FILE_ROW_HEIGHT } from "./rowMetrics";
 
@@ -22,8 +22,9 @@ export interface FileRowProps {
 }
 
 const FileRow: Component<FileRowProps> = (props) => {
+  const canView = useContext(CanViewContext);
   const isMarkdown = () => props.typeId === "markdown";
-  const isUnsupported = () => !isMarkdown() && !hasViewer(props.path);
+  const isUnsupported = () => !isMarkdown() && !canView(props.path);
   const isDotted = () => isMarkdown() && !isValidNoteName(props.name);
   const parts = () => splitFileName(props.name);
 

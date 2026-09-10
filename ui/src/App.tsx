@@ -22,7 +22,7 @@ import TextInput from "@ds/components/forms/TextInput/TextInput";
 import Icon from "@ds/components/graphics/Icon/Icon";
 import ConfirmDialog from "@ds/components/overlay/ConfirmDialog/ConfirmDialog";
 
-import Editor, { type EditorApi } from "./Editor";
+import type { EditorApi } from "./Editor";
 import {
   TERMINAL_COMMAND_ID,
   TerminalButton,
@@ -122,7 +122,7 @@ import {
 } from "./editor/autocompleteProvider";
 import { buildFileTree, countFilesUnderFolder } from "./explorer/fileTree";
 import { createFileActions } from "./explorer/fileActions";
-import ExplorerPanel from "./explorer/ExplorerPanel";
+import { Editor, ExplorerPanel } from "./shell/composed";
 import FileContextMenu from "./explorer/FileContextMenu";
 import DeleteDialog from "./explorer/DeleteDialog";
 import { buildBlockRefLink } from "./editor/blockRef";

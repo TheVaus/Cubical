@@ -83,7 +83,6 @@ function panel(over: PanelOver = {}) {
       actions={stubActions()}
       onModeChange={over.onModeChange ?? (() => {})}
       onRefresh={over.onRefresh ?? (() => {})}
-      onNavigate={() => {}}
       onSelectFile={() => {}}
       onRenameCommit={() => {}}
     />

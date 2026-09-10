@@ -10,6 +10,7 @@ import {
 } from "./dataview";
 import { blockRenderers, blockRenderersField } from "./blockRenderers";
 import type { DataviewResult } from "../api/ipc";
+import { renderDataview } from "../dataview/dataviewRender";
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -40,7 +41,7 @@ function fieldFor(doc: string, headOffset: number): DecorationSet {
       markdown(),
       dataviewRunnerFacet.of(stubRunner()),
       blockRenderersField,
-      blockRenderers(dataviewBlockRenderer),
+      blockRenderers(dataviewBlockRenderer(renderDataview)),
     ],
   });
   return state.field(blockRenderersField).deco;
@@ -70,7 +71,7 @@ describe("dataview block detection", () => {
       extensions: [
         markdown(),
         blockRenderersField,
-        blockRenderers(dataviewBlockRenderer),
+        blockRenderers(dataviewBlockRenderer(renderDataview)),
       ],
     });
     expect(countRanges(state.field(blockRenderersField).deco)).toBe(0);
