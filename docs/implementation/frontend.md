@@ -372,6 +372,37 @@ principle names, so a block whose requirement is off reads as off.
 `corePluginEnabled` answers the raw switch position only: right for drawing the
 switch in Settings, and for a block that declares no requirements.
 
+## The shell hands settings each block's contribution
+
+**Anchors:** registerBlocks · registerCorePlugins · registeredCorePlugins · BUILTIN_PLUGINS · registerStatusbarSegments · registeredStatusbarSegments
+
+Settings is substrate, so it may not import a block —
+[`../principles/domain-scoped-dependencies.md`](../principles/domain-scoped-dependencies.md).
+It still has to list every plugin toggle and every statusbar segment: hydrate
+reads their keys, reset restores their defaults, and two panes draw them. So
+settings owns the *contract* (`CorePlugin`, `StatusbarSegment`, the lookups) and
+a registry, and `shell/registerBlocks.ts` fills the registry from the blocks'
+own `registration.ts` and `segments.ts` before `App` renders. The block keeps
+its entry; the shell is the only code that knows every block exists.
+
+The registry is module state rather than a `createSettingsState` argument
+because the activeness check has to be callable without the store.
+`corePluginActive(state, "dataview")` looks a plugin up by id to fold in its
+requirements, and its callers are block wirings that only hold the toggle
+record. Passing a registry to every call would thread the list through each
+block; a registry filled once at boot gives every caller the same answer.
+
+`BUILTIN_PLUGINS` is what settings itself declares: Query, property
+references, math and equations. All four render inside the editor, and the
+editor has no registration seam yet, so no block owns their entries. Their
+presence before any registration also keeps the editor's wiring tests
+self-contained — they resolve `"dataview"` by id without booting the shell.
+Registration appends after them, which is what fixes the Plugins pane order.
+
+Registration is idempotent by id, so a second boot (HMR re-running `main.tsx`)
+cannot duplicate a row. It is not a conflict check. The registry test asserts
+distinct ids and setting keys.
+
 ## Editor compartments
 
 `Editor.tsx` owns its DOM and the `EditorView`; Solid stays out of it so the

@@ -10,15 +10,15 @@ import {
   type ResolvedTheme,
   type ThemeMode,
 } from "../styles/theme";
-import { CORE_PLUGINS, type BooleanSettingKey } from "./corePlugins";
+import { registeredCorePlugins, type BooleanSettingKey } from "./corePlugins";
 import { SETTINGS_DEFAULTS } from "./defaults";
 import {
   STATUSBAR_DEFAULT,
   STATUSBAR_ENABLED_KEY,
-  STATUSBAR_SEGMENTS,
+  registeredStatusbarSegments,
   segmentVisible,
   type StatusbarSegment,
-} from "../statusbar/segments";
+} from "./statusbarSettings";
 
 export type RightSidebarPanel = "backlinks" | "unlinked_mentions" | "integrity";
 export type LeftSidebarMode = "files" | "tags";
@@ -328,7 +328,7 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
     );
 
     const enabled: Record<string, boolean> = {};
-    for (const p of CORE_PLUGINS) {
+    for (const p of registeredCorePlugins()) {
       try {
         const stored = await getSetting(vaultId, p.settingKey);
         enabled[p.id] = stored ?? p.defaultEnabled;
@@ -342,7 +342,7 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
     const cfg: Record<string, boolean> = {};
     const keys: BooleanSettingKey[] = [
       STATUSBAR_ENABLED_KEY,
-      ...STATUSBAR_SEGMENTS.map((s) => s.settingKey),
+      ...registeredStatusbarSegments().map((s) => s.settingKey),
     ];
     for (const k of keys) {
       try {
