@@ -65,16 +65,22 @@ mod tests {
         let vault = cubical_core::Vault::open(dir.path()).await.expect("open");
         let (tx, mut rx) = mpsc::channel(64);
         let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
-        cubical_core::scan(vault.clone(), CancellationToken::new(), tx)
-            .await
-            .expect("scan");
+        cubical_core::scan(
+            vault.clone(),
+            CancellationToken::new(),
+            tx,
+            cubical_core::NoScanSink,
+        )
+        .await
+        .expect("scan");
         drain.await.expect("drain");
 
         let state = AppState::new();
         state.vaults().write().await.insert(
             "v1".to_string(),
             OpenVault::new(
-                vault,
+                vault.clone(),
+                cubical_engine::search_handle::SearchHandle::open(&vault).await,
                 CancellationToken::new(),
                 ScanStatusBackend::Complete,
                 None,

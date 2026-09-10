@@ -542,9 +542,9 @@ So the guard is a **lookup**, never a work scope. `with_open_vault` takes a
 synchronous closure and hands back what it extracted; the guard is gone before
 the caller resumes. It is deliberately not `async`: a closure that could await
 would put the stall straight back. `open_vault_cloned` is the common case —
-everything reachable from the vault handle (index connection, search index,
-root) is clonable, so almost every handler needs nothing else. What must
-outlive the guard is cloned out with it: the settings map, the search-state
+everything reachable from the vault handle (index connection, root) is
+clonable, so almost every handler needs nothing else. What must outlive the
+guard is cloned out with it: the settings map, the search handle and its state
 cell, the cancellation token, the own-write gate.
 
 Sync CPU work goes through `spawn_blocking` for the same reason the guard

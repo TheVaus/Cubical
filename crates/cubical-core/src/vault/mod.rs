@@ -17,7 +17,6 @@ pub mod pending;
 pub mod relpath;
 pub mod rename_journal;
 mod scan;
-pub mod search_refresh;
 pub mod settings;
 pub mod tags;
 mod watcher;
@@ -34,7 +33,7 @@ pub use pending::{apply_pending, materialize_on_read};
 pub use relpath::{
     contained_join, directory_holds_exact_name, validate_rel_dir, validate_rel_file, RelPathError,
 };
-pub use scan::{inode_of, scan, ScanOutcome, ScanProgress, VanishedFile};
+pub use scan::{inode_of, scan, NoScanSink, ScanOutcome, ScanProgress, ScanSink, VanishedFile};
 pub use tags::{extract_tags, refresh_tags, refresh_tags_with_doc, TagExtraction};
 pub use watcher::{start_watcher, WatchEvent, WatcherHandle};
 
@@ -61,9 +60,6 @@ pub enum VaultError {
     #[error("scan cancelled")]
     ScanCancelled,
 
-    #[error("search index: {0}")]
-    Search(String),
-
     #[error("settings file error: {0}")]
     Settings(String),
 }
@@ -73,7 +69,6 @@ pub struct Vault {
     root: Arc<PathBuf>,
     registry: Arc<FileTypeRegistry>,
     index: Arc<IndexConn>,
-    search: Arc<cubical_search::SearchIndex>,
 }
 
 impl Vault {
@@ -109,20 +104,12 @@ impl Vault {
         let db_path = cubical_dir.join("index.db");
         let index = index_recovery::open_index_recovering(&root, &db_path).await?;
 
-        let search_dir = cubical_dir.join("search");
-        let search = cubical_search::SearchIndex::open(&search_dir)
-            .map_err(|e| VaultError::Search(e.to_string()))?;
-        if let Some(reason) = search.rebuilt_reason() {
-            index_recovery::record_search_rebuild(&index, &search_dir, reason).await;
-        }
-
         tracing::info!(path = %root.display(), "vault opened");
 
         Ok(Self {
             root: Arc::new(root),
             registry: Arc::new(FileTypeRegistry::default()),
             index: Arc::new(index),
-            search: Arc::new(search),
         })
     }
 
@@ -144,11 +131,6 @@ impl Vault {
     #[must_use]
     pub fn index(&self) -> &IndexConn {
         &self.index
-    }
-
-    #[must_use]
-    pub fn search(&self) -> &cubical_search::SearchIndex {
-        &self.search
     }
 }
 
@@ -263,13 +245,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn vault_open_creates_search_dir_and_stamp() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let vault = Vault::open(tmp.path()).await.unwrap();
-        let search_dir = tmp.path().join(".cubical").join("search");
-        assert!(search_dir.exists());
-        assert!(search_dir.join("schema.json").exists());
-        assert_eq!(vault.search().doc_count().unwrap(), 0);
+    async fn open_leaves_the_search_directory_to_its_owner() {
+        let dir = tempdir().unwrap();
+        let _vault = Vault::open(dir.path()).await.expect("open");
+        assert!(!dir.path().join(".cubical").join("search").exists());
     }
 
     #[tokio::test]

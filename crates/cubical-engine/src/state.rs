@@ -8,8 +8,11 @@ use tokio_util::sync::CancellationToken;
 use cubical_core::{vault::settings::SettingsMap, Vault, WatcherHandle};
 use cubical_search::{IndexState, IndexStatus};
 
+use crate::search_handle::SearchHandle;
+
 pub struct OpenVault {
     pub vault: Vault,
+    pub search: SearchHandle,
     pub cancel: CancellationToken,
     pub scan_status: ScanStatusBackend,
     pub watcher: Option<WatcherHandle>,
@@ -57,13 +60,23 @@ impl SearchStateInner {
 impl OpenVault {
     pub fn new(
         vault: Vault,
+        search: SearchHandle,
         cancel: CancellationToken,
         scan_status: ScanStatusBackend,
         watcher: Option<WatcherHandle>,
         settings: SettingsMap,
     ) -> Self {
+        let search_state = SearchStateInner {
+            state: if search.is_available() {
+                IndexState::Building
+            } else {
+                IndexState::Error
+            },
+            ..SearchStateInner::default()
+        };
         Self {
             vault,
+            search,
             cancel,
             scan_status,
             watcher_cancel: CancellationToken::new(),
@@ -73,7 +86,7 @@ impl OpenVault {
             flush_in_progress: Arc::new(Mutex::new(())),
             flush_timer_cancel: CancellationToken::new(),
             flush_timer_live: Arc::new(AtomicBool::new(false)),
-            search_state: Arc::new(std::sync::Mutex::new(SearchStateInner::default())),
+            search_state: Arc::new(std::sync::Mutex::new(search_state)),
             settings: Arc::new(RwLock::new(settings)),
             lock_guard: None,
         }
