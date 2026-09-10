@@ -7,8 +7,10 @@ use cubical_core::{unix_now_secs, ScanSink, Vault};
 use cubical_index::{append_audit, AuditLevel};
 use cubical_search::{SearchError, SearchIndex};
 
+use crate::commands::open::with_open_vault;
 use crate::error::CubicalError;
 use crate::events::record_vault_warning;
+use crate::state::AppState;
 
 pub const SEARCH_REBUILT: &str = "search_rebuilt";
 
@@ -182,6 +184,13 @@ impl ScanSink for SearchScanSink {
             Err(e) => tracing::warn!(error = %e, "search index reconcile failed"),
         }
     }
+}
+
+pub(crate) async fn open_search_cloned(
+    state: &AppState,
+    vault_id: &str,
+) -> Result<SearchHandle, CubicalError> {
+    with_open_vault(state, vault_id, |open| open.search.clone()).await
 }
 
 #[cfg(test)]

@@ -24,14 +24,14 @@ use crate::api::types::{
     RenameTagRequest, RenameTagResponse, UndoRenameRequest, UndoRenameResponse,
 };
 use crate::commands::link_match::link_name_forms;
-use crate::commands::open::{open_search_cloned, open_vault_cloned, with_open_vault};
+use crate::commands::open::{open_vault_cloned, with_open_vault};
 use crate::commands::paths;
 use crate::error::CubicalError;
 use crate::events::{
     emit_flush_complete, emit_pending_rewrites_changed, EventSink, FlushOwnWrites,
     VaultFlushComplete, VaultPendingRewritesChanged,
 };
-use crate::search_handle::SearchHandle;
+use crate::search_handle::{open_search_cloned, SearchHandle};
 use crate::state::AppState;
 
 const RENAME_OP_ID_KEY: &str = "pending_rewrites.next_rename_op_id";
@@ -1793,7 +1793,7 @@ mod tests {
     async fn rename_file_keeps_search_index_in_sync() {
         use cubical_search::query::{run_search, FieldScope, SearchQuery, SortMode};
         let (_d, vault, state) = fresh("v1").await;
-        let search = crate::commands::open::open_search_cloned(&state, "v1")
+        let search = crate::search_handle::open_search_cloned(&state, "v1")
             .await
             .unwrap();
         seed_file(&vault, "Daily.md", "markdown").await;

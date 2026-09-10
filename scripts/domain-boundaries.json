@@ -60,7 +60,33 @@
     "search":      { "class": "block", "domain": "search" }
   },
 
-  "engine_allowed": {},
+  "engine_support": {
+    "_": [
+      "crates/cubical-engine/src/* modules outside commands/ that belong to",
+      "one domain. The engine crate is shell, so without this a block's",
+      "handle moved beside commands/ would make every edge to it invisible."
+    ],
+    "search_handle": { "class": "block", "domain": "search" }
+  },
+
+  "engine_allowed": {
+    "vault -> search_handle": {
+      "issue": 288,
+      "reason": [
+        "open_vault calls SearchHandle::open while assembling OpenVault.",
+        "Attaching blocks to an opened vault is composition-root work that",
+        "belongs in the shell, not in the substrate command."
+      ]
+    },
+    "rename -> search_handle": {
+      "issue": 288,
+      "reason": [
+        "Rename deletes and upserts search docs for the paths it moves. The",
+        "search block should learn of the move through a sink the shell",
+        "supplies — the ScanSink pattern — not be written by substrate."
+      ]
+    }
+  },
 
   "ui_domains": {
     "_": [

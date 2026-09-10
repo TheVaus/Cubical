@@ -4,9 +4,10 @@ use std::sync::Arc;
 use cubical_search::{query::run_search, IndexHealth, IndexState, IndexStatus, SearchResponse};
 
 use crate::api::types::{SearchRequest, SearchVaultRequest};
-use crate::commands::open::{open_search_cloned, with_open_vault};
+use crate::commands::open::with_open_vault;
 use crate::error::CubicalError;
 use crate::events::{spawn_scan_dispatcher, EventSink};
+use crate::search_handle::open_search_cloned;
 use crate::state::AppState;
 
 pub async fn search(state: &AppState, req: SearchRequest) -> Result<SearchResponse, CubicalError> {
