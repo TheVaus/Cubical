@@ -262,7 +262,7 @@ about any feature. Two boundaries worth preserving:
 
 ## One feature's failure is not the app's
 
-**Anchors:** FeatureBoundary · renderGuarded · createListenerGroup · BlockWidget · EmbedWidget · createSearchState · SearchBar · SearchResults
+**Anchors:** FeatureBoundary · renderGuarded · createListenerGroup · BlockWidget · EmbedWidget · createSearchState · SearchBar · SearchResults · ExplorerSearchSlot
 
 There is one Solid root and no code splitting, so without a boundary any
 render-time throw blanks the whole window. Every surface that renders
@@ -310,9 +310,12 @@ throw. No boundary placement fixes that — wrapping the parent keeps the parent
 siblings alive, never its children. The fix is nesting. Search is three pieces
 now: `createSearchState` holds the query, the filters and the polled index
 status; `SearchBar` draws the chrome; `SearchResults` draws the overlay. The
-explorer creates the state and renders bar, tree and results as **siblings**
-inside one positioned container, each in its own boundary, so a failure in any
-one of the three leaves the other two on screen.
+shell (`shell/composed.tsx`) creates the state and hands the explorer an
+`ExplorerSearchSlot` — bar, results and an `active` accessor — because search
+is the sidebar block's and a block may not import another. The explorer renders
+bar, tree and results as **siblings** inside one positioned container, each in
+its own boundary, so a failure in any one of the three leaves the other two on
+screen. With no slot the explorer draws the tree alone.
 
 The state factory sits outside all three boundaries, which is deliberate and is
 the residual risk: it declares signals and registers a poll timer and nothing
@@ -428,8 +431,10 @@ source will not kill it. Current members are the decoration plugin, the embed
 block field, the block-renderer field, the display-math field, the property-ref
 field and the equation field, each with its base theme.
 
-`livePreviewFor(rawSource, plugins)` — not the bare bundle — is what the editor
-installs, where `plugins` is a `LivePreviewPlugins` record. Settings that only
+`livePreviewFor(rawSource, plugins, blocks)` — not the bare bundle — is what the
+editor installs, where `plugins` is a `LivePreviewPlugins` record and `blocks`
+is whatever the shell plugged into the editor's seams (below), so injected
+renderers die with raw source exactly like built-in ones. Settings that only
 gate a preview extension belong in that record, so they ride inside the
 compartment raw source already kills, instead of earning a compartment and a
 reconfigure effect of their own in `Editor.tsx`. The record exists because the
@@ -564,14 +569,47 @@ note's path so a self-embed is detected.
 ## One renderer per viewer format
 
 `viewer/render.ts` holds framework-free DOM builders — table, plain text,
-image. Three surfaces consume them and none of them owns a second copy: the
+image. Three surfaces draw with them and none of them owns a second copy: the
 file tab (`viewer/FileViewer.tsx`, which mounts a fragment rather than
-duplicating the markup in JSX), the embed body (`editor/embedRender.ts`), and
-the ` ```csv ` widget (`editor/csvBlock.ts`).
+duplicating the markup in JSX), the embed body, and the ` ```csv ` widget. The
+last two are the editor's, and the editor does not import the viewer — they get
+the builders through the seams below.
 
 That is what makes "an embed looks like the file's own tab" a property of the
-code rather than a convention to maintain — both call `renderViewerPayload`.
-A new viewer format is added once, in `render.ts`, and appears in all three.
+code rather than a convention to maintain — both go through
+`renderViewerPayload`. A new viewer format is added once, in `render.ts`, and
+appears in all three.
+
+## The editor draws other blocks only through seams
+
+**Anchors:** editorBlocks · renderEmbeddedFile · embedFileRendererFacet · csvBlockRenderer · dataviewBlockRenderer · livePreviewFor · CanViewContext
+
+The editor, the viewer and dataview are separate blocks
+([`domain-scoped-dependencies`](../principles/domain-scoped-dependencies.md)),
+so the editor owns the *slot* and never the *drawing*: `csvBlockRenderer` and
+`dataviewBlockRenderer` are factories that take a render function, and an
+embedded non-Markdown file is drawn by whatever `embedFileRendererFacet`
+holds. `shell/editorBlocks.ts` is the only module that names both sides — it
+fills the factories with `renderDelimitedTable` and `renderDataview` and the
+facet with `renderEmbeddedFile`, and `shell/composed.tsx` hands the result to
+every `Editor` as `previewBlocks`. The block renderers' contract type stays in
+the editor; the shell adapts, so neither the viewer nor dataview imports even a
+type from the editor.
+
+**Absent means degraded, never broken.** With no blocks plugged in, a
+` ```csv ` or ` ```query ` fence stays source, a file embed is a plain
+`![[…]]` link, and the editor constructs as usual. Tests build it that way on
+purpose; do not give a seam a default that imports the block it stands in for.
+
+**`previewBlocks` is composition, not state.** The shell passes a module
+constant, so `Editor` reads it when the preview compartment is built and does
+not watch it. A caller that swaps it at runtime must also flip something the
+compartment's effect already tracks.
+
+The explorer's file rows follow the same rule for `hasViewer`: `FileRow` reads
+`CanViewContext`, `ExplorerPanel` provides it from its `canView` prop, and the
+shell passes the viewer's `hasViewer`. Without it every non-Markdown file shows
+the unsupported badge — which is what a vault without the viewer should show.
 
 ## Viewing, source mode, and editing are three different permissions
 

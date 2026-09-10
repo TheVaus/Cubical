@@ -4,6 +4,7 @@ import { render } from "solid-js/web";
 
 import type { FileEntry } from "../api/ipc";
 import FileTreePanel from "./FileTreePanel";
+import { CanViewContext } from "./canView";
 import type { FileActions } from "./fileActions";
 
 let dispose: (() => void) | undefined;
@@ -174,6 +175,23 @@ describe("FileTreePanel", () => {
   it("marks a file Cubical has no viewer for as unsupported", () => {
     const host = panel({ files: [entry("archive.zip", "binary")] });
     expect(host.querySelector(".tree-row--unsupported")).not.toBeNull();
+  });
+
+  it("asks the injected viewer, not a hardcoded list, whether a file opens", () => {
+    const host = mount(() => (
+      <CanViewContext.Provider value={(p) => p.endsWith(".png")}>
+        <FileTreePanel
+          files={[entry("photo.png", "binary"), entry("archive.zip", "binary")]}
+          folders={[]}
+          vaultId="v1"
+          selectedPath={null}
+          actions={stubActions()}
+          onSelectFile={() => {}}
+          onRenameCommit={() => {}}
+        />
+      </CanViewContext.Provider>
+    ));
+    expect(host.querySelectorAll(".tree-row--unsupported")).toHaveLength(1);
   });
 
   it("opens the context menu for empty space when the list itself is right-clicked", () => {

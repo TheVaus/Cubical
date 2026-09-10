@@ -94,6 +94,7 @@
 
     "App":        { "class": "shell", "domain": "shell" },
     "main":       { "class": "shell", "domain": "shell" },
+    "shell":      { "class": "shell", "domain": "shell" },
 
     "Editor":     { "class": "block", "domain": "editor" },
     "editor":     { "class": "block", "domain": "editor" },
@@ -116,37 +117,6 @@
   },
 
   "ui_allowed": {
-    "editor -> viewer": {
-      "issue": 276,
-      "reason": [
-        "csvBlock.ts and embedRender.ts import the viewer's renderer directly",
-        "to draw an embedded non-Markdown file, so breaking the viewer breaks",
-        "the editor. Wants a block-renderer registry — the seam KaTeX math",
-        "already uses — not an import."
-      ]
-    },
-    "editor -> dataview": {
-      "issue": 276,
-      "reason": [
-        "dataview.ts imports the query renderer to draw a ```query fence.",
-        "Same cause and same fix as the viewer edge above."
-      ]
-    },
-    "explorer -> sidebar": {
-      "issue": 277,
-      "reason": [
-        "ExplorerPanel composes the sidebar's search bar, results and state",
-        "inside itself. Composition done by import rather than by the shell,",
-        "which already imports both."
-      ]
-    },
-    "explorer -> viewer": {
-      "issue": 277,
-      "reason": [
-        "FileRow wants a file kind for its icon. Closer to substrate than to",
-        "the viewer block; resolve with the viewerKind question in 276."
-      ]
-    },
     "settings -> graph": {
       "issue": 278,
       "reason": [

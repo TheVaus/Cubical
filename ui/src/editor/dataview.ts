@@ -6,7 +6,6 @@ import {
   type DataviewQueryRequest,
   type DataviewResult,
 } from "../api/ipc";
-import { renderDataview } from "../dataview/dataviewRender";
 import { createKeyedResolver } from "./keyedResolver";
 import type { BlockRenderer } from "./blockRenderers";
 
@@ -66,31 +65,37 @@ function runnerIdentity(runner: DataviewRunner): number {
   return id;
 }
 
-export const dataviewBlockRenderer: BlockRenderer = {
-  id: "dataview",
-  languages: ["query"],
-  frameClass: "cm-dataview-frame",
-  completions: [{ language: "query", detail: "Dataview query" }],
-  active: (state) => state.facet(dataviewRunnerFacet) !== null,
-  revision: (state: EditorState) => {
-    const runner = state.facet(dataviewRunnerFacet);
-    return runner ? `${runnerIdentity(runner)}:${runner.version()}` : null;
-  },
-  render: (source, ctx) => {
-    const runner = ctx.state.facet(dataviewRunnerFacet);
-    const query = source.trim();
-    if (!runner) return document.createDocumentFragment();
-    const result = runner.get(query);
-    if (result === undefined) {
-      runner.fetch(query);
-      const loading = document.createElement("div");
-      loading.className = "cm-dataview-loading";
-      loading.textContent = "Loading…";
-      return loading;
-    }
-    return renderDataview(result);
-  },
-};
+export type DataviewResultRenderer = (result: DataviewResult) => Node;
+
+export function dataviewBlockRenderer(
+  renderResult: DataviewResultRenderer,
+): BlockRenderer {
+  return {
+    id: "dataview",
+    languages: ["query"],
+    frameClass: "cm-dataview-frame",
+    completions: [{ language: "query", detail: "Dataview query" }],
+    active: (state) => state.facet(dataviewRunnerFacet) !== null,
+    revision: (state: EditorState) => {
+      const runner = state.facet(dataviewRunnerFacet);
+      return runner ? `${runnerIdentity(runner)}:${runner.version()}` : null;
+    },
+    render: (source, ctx) => {
+      const runner = ctx.state.facet(dataviewRunnerFacet);
+      const query = source.trim();
+      if (!runner) return document.createDocumentFragment();
+      const result = runner.get(query);
+      if (result === undefined) {
+        runner.fetch(query);
+        const loading = document.createElement("div");
+        loading.className = "cm-dataview-loading";
+        loading.textContent = "Loading…";
+        return loading;
+      }
+      return renderResult(result);
+    },
+  };
+}
 
 export const dataviewBaseTheme = EditorView.baseTheme({
   ".cm-dataview-frame": {

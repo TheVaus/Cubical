@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { MAX_EMBED_DEPTH, renderEmbedBody } from "./embedRender";
 import type { EmbedResolver, EmbedResolution } from "./embedResolver";
+import { renderEmbeddedFile } from "../shell/editorBlocks";
 
 function stubResolver(entries: Record<string, EmbedResolution>): {
   resolver: EmbedResolver;
@@ -234,6 +235,7 @@ describe("renderEmbedBody", () => {
       resolver,
       targetRaw: "photo.png",
       chain: [],
+      renderFile: renderEmbeddedFile,
     });
     const img = frag.querySelector("img");
     expect(img).not.toBeNull();
@@ -254,6 +256,7 @@ describe("renderEmbedBody", () => {
       resolver,
       targetRaw: "data.csv",
       chain: [],
+      renderFile: renderEmbeddedFile,
     });
     const headers = [...frag.querySelectorAll("th")].map((c) => c.textContent);
     expect(headers).toEqual(["name", "role"]);
@@ -274,6 +277,7 @@ describe("renderEmbedBody", () => {
       resolver,
       targetRaw: "notes.txt",
       chain: [],
+      renderFile: renderEmbeddedFile,
     });
     expect(frag.querySelector(".viewer__text")!.textContent).toBe(
       "line one\nline two",
@@ -296,5 +300,25 @@ describe("renderEmbedBody", () => {
     });
     expect(frag.querySelector("img")).toBeNull();
     expect(frag.textContent).toContain("too large to embed");
+  });
+
+  it("degrades a file embed to a plain link when no viewer is plugged in", () => {
+    const { resolver } = stubResolver({
+      "photo.png": {
+        kind: "file",
+        target_path: "photo.png",
+        content: btoa("\x89PNG\r\n\x1a\n"),
+        mime: "image/png",
+      },
+    });
+    const frag = renderEmbedBody({
+      resolver,
+      targetRaw: "photo.png",
+      chain: [],
+    });
+    expect(frag.querySelector("img")).toBeNull();
+    const link = frag.querySelector(".cm-md-embed-link-file");
+    expect(link).not.toBeNull();
+    expect(link!.textContent).toBe("![[photo.png]]");
   });
 });
