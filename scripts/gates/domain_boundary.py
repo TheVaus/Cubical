@@ -33,7 +33,8 @@ from _common import ROOT, Gate, main_guard, rel, tracked  # noqa: E402
 CONFIG = ROOT / "scripts" / "domain-boundaries.json"
 
 UI_IMPORT = re.compile(
-    r"""^\s*(?:import|export)\s[^;]*?from\s+["'](\.[^"']+)["']""", re.M)
+    r"""(?:^\s*(?:import|export)\s[^;]*?from\s+|^\s*import\s+|\bimport\s*\(\s*)"""
+    r"""["'](\.[^"']+)["']""", re.M)
 ENGINE_USE = re.compile(r"\bcrate::commands::([a-z_]+)")
 
 
