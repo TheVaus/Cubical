@@ -21,7 +21,9 @@ use crate::api::types::{
 use crate::commands::open::{open_vault_cloned, with_open_vault};
 use crate::commands::paths;
 use crate::error::CubicalError;
-use crate::events::{spawn_scan_dispatcher, spawn_watcher_dispatcher, EventSink, WatcherLifetime};
+use crate::events::{
+    spawn_scan_dispatcher, spawn_watcher_dispatcher, EventSink, WatchedVault, WatcherLifetime,
+};
 use crate::state::{AppState, OpenVault, ScanStatusBackend};
 
 const WATCHER_CHANNEL_DEPTH: usize = 256;
@@ -86,6 +88,7 @@ pub async fn open_vault(
     };
 
     let vault = Vault::open(&req.path).await?;
+    let search = crate::search_handle::SearchHandle::open(&vault).await;
     let vault_id = state.new_vault_id();
     let cancel = CancellationToken::new();
 
@@ -96,6 +99,7 @@ pub async fn open_vault(
 
     let mut open = OpenVault::new(
         vault.clone(),
+        search.clone(),
         cancel.clone(),
         ScanStatusBackend::InProgress,
         None,
@@ -140,13 +144,17 @@ pub async fn open_vault(
         state.vaults_arc(),
         vault_id.clone(),
         vault.clone(),
+        search.clone(),
         cancel,
     );
 
     spawn_watcher_dispatcher(
         app.clone(),
         vault_id.clone(),
-        vault.clone(),
+        WatchedVault {
+            vault: vault.clone(),
+            search,
+        },
         watch_rx,
         flush_own_writes.clone(),
         settings_handle.clone(),
@@ -933,6 +941,7 @@ mod tests {
             vault_id.to_string(),
             OpenVault::new(
                 vault.clone(),
+                crate::search_handle::SearchHandle::open(&vault).await,
                 tokio_util::sync::CancellationToken::new(),
                 ScanStatusBackend::Complete,
                 None,
@@ -1735,6 +1744,7 @@ mod tests {
             vault.clone(),
             tokio_util::sync::CancellationToken::new(),
             tx,
+            cubical_core::NoScanSink,
         )
         .await
         .expect("scan");
@@ -2371,7 +2381,8 @@ mod tests {
             state.vaults().write().await.insert(
                 "v1".into(),
                 OpenVault::new(
-                    vault,
+                    vault.clone(),
+                    crate::search_handle::SearchHandle::open(&vault).await,
                     tokio_util::sync::CancellationToken::new(),
                     ScanStatusBackend::Complete,
                     None,
@@ -2396,7 +2407,8 @@ mod tests {
         state.vaults().write().await.insert(
             "v1".into(),
             OpenVault::new(
-                vault,
+                vault.clone(),
+                crate::search_handle::SearchHandle::open(&vault).await,
                 tokio_util::sync::CancellationToken::new(),
                 ScanStatusBackend::Complete,
                 None,
@@ -2560,6 +2572,72 @@ mod tests {
         }
 
         std::env::remove_var("CUBICAL_RUNTIME_DIR");
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn a_search_index_that_cannot_open_degrades_search_not_the_vault() {
+        let _env = crate::vault_lock::RUNTIME_ENV_GUARD.lock().unwrap();
+        let runtime = tempdir().unwrap();
+        std::env::set_var("CUBICAL_RUNTIME_DIR", runtime.path());
+
+        let vault_dir = tempdir().unwrap();
+        let cubical = vault_dir.path().join(".cubical");
+        std::fs::create_dir_all(&cubical).unwrap();
+        std::fs::write(cubical.join("search"), b"not a directory").unwrap();
+        std::fs::write(vault_dir.path().join("note.md"), "body\n").unwrap();
+
+        let state = AppState::new();
+        let opened = open_vault(
+            &state,
+            Arc::new(crate::events::NoopEventSink),
+            OpenVaultRequest {
+                path: vault_dir.path().to_path_buf(),
+            },
+            None,
+        )
+        .await
+        .expect("a search failure must not refuse the vault");
+        let vault_id = opened.vault_id.clone();
+
+        let mut complete = false;
+        for _ in 0..240 {
+            let status = state
+                .vaults()
+                .read()
+                .await
+                .get(&vault_id)
+                .unwrap()
+                .scan_status;
+            if status == crate::state::ScanStatusBackend::Complete {
+                complete = true;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+        assert!(complete, "the scan runs to completion without search");
+
+        let info = get_vault_info(
+            &state,
+            GetVaultInfoRequest {
+                vault_id: vault_id.clone(),
+            },
+        )
+        .await
+        .expect("info");
+        assert_eq!(info.markdown_count, 1, "the vault still indexes its notes");
+
+        let req = || crate::api::types::SearchVaultRequest {
+            vault_id: vault_id.clone(),
+        };
+        let status = crate::commands::search::search_index_status(&state, req())
+            .await
+            .expect("status");
+        assert!(matches!(status.state, cubical_search::IndexState::Error));
+        let err = crate::commands::search::search_get_health(&state, req())
+            .await
+            .expect_err("search reports its own failure");
+        assert!(matches!(err, CubicalError::Search(_)), "got {err:?}");
     }
 
     #[tokio::test]
@@ -2776,7 +2854,8 @@ mod tests {
         state.vaults().write().await.insert(
             "scanning".to_string(),
             OpenVault::new(
-                vault,
+                vault.clone(),
+                crate::search_handle::SearchHandle::open(&vault).await,
                 tokio_util::sync::CancellationToken::new(),
                 ScanStatusBackend::InProgress,
                 None,

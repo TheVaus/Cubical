@@ -4,14 +4,14 @@ use std::sync::Arc;
 use cubical_search::{query::run_search, IndexHealth, IndexState, IndexStatus, SearchResponse};
 
 use crate::api::types::{SearchRequest, SearchVaultRequest};
-use crate::commands::open::{open_vault_cloned, with_open_vault};
+use crate::commands::open::{open_search_cloned, with_open_vault};
 use crate::error::CubicalError;
 use crate::events::{spawn_scan_dispatcher, EventSink};
 use crate::state::AppState;
 
 pub async fn search(state: &AppState, req: SearchRequest) -> Result<SearchResponse, CubicalError> {
-    let (vault, search_state) = with_open_vault(state, &req.vault_id, |open| {
-        (open.vault.clone(), Arc::clone(&open.search_state))
+    let (search, search_state) = with_open_vault(state, &req.vault_id, |open| {
+        (open.search.clone(), Arc::clone(&open.search_state))
     })
     .await?;
 
@@ -23,9 +23,11 @@ pub async fn search(state: &AppState, req: SearchRequest) -> Result<SearchRespon
         IndexState::Building,
     );
 
-    let mut response = tokio::task::spawn_blocking(move || run_search(vault.search(), &req.query))
-        .await
-        .map_err(|e| CubicalError::Io(format!("search task join error: {e}")))??;
+    let mut response = tokio::task::spawn_blocking(move || -> Result<_, CubicalError> {
+        Ok(run_search(search.index()?, &req.query)?)
+    })
+    .await
+    .map_err(|e| CubicalError::Io(format!("search task join error: {e}")))??;
     response.still_indexing = building;
     Ok(response)
 }
@@ -54,27 +56,30 @@ pub async fn search_rebuild_index(
     app: std::sync::Arc<dyn EventSink>,
     req: SearchVaultRequest,
 ) -> Result<(), CubicalError> {
-    let (vault, cancel, search_state) = with_open_vault(state, &req.vault_id, |open| {
+    let (vault, search, cancel, search_state) = with_open_vault(state, &req.vault_id, |open| {
         (
             open.vault.clone(),
+            open.search.clone(),
             open.cancel.clone(),
             Arc::clone(&open.search_state),
         )
     })
     .await?;
 
+    let index = search.index()?;
     if let Ok(mut cell) = search_state.lock() {
         cell.state = IndexState::Building;
     }
 
-    vault.search().delete_all()?;
-    vault.search().commit()?;
+    index.delete_all()?;
+    index.commit()?;
 
     spawn_scan_dispatcher(
         app.clone(),
         state.vaults_arc(),
         req.vault_id.clone(),
         vault,
+        search.clone(),
         cancel,
     );
 
@@ -85,9 +90,9 @@ pub async fn search_get_health(
     state: &AppState,
     req: SearchVaultRequest,
 ) -> Result<IndexHealth, CubicalError> {
-    let vault = open_vault_cloned(state, &req.vault_id).await?;
+    let search = open_search_cloned(state, &req.vault_id).await?;
 
-    let idx = vault.search();
+    let idx = search.index()?;
     Ok(IndexHealth {
         schema_version: cubical_search::index::SCHEMA_VERSION,
         segments: idx.segment_count(),
@@ -114,27 +119,30 @@ fn dir_size(p: &Path) -> std::io::Result<u64> {
 mod tests {
     use super::*;
     use crate::api::types::SearchQuery;
+    use crate::search_handle::SearchHandle;
     use crate::state::{OpenVault, ScanStatusBackend};
     use cubical_core::Vault;
     use cubical_search::IndexState;
     use tempfile::{tempdir, TempDir};
     use tokio_util::sync::CancellationToken;
 
-    async fn fresh_state_with_vault(vault_id: &str) -> (TempDir, Vault, AppState) {
+    async fn fresh_state_with_vault(vault_id: &str) -> (TempDir, SearchHandle, AppState) {
         let dir = tempdir().unwrap();
         let vault = Vault::open(dir.path()).await.expect("open");
+        let handle = SearchHandle::open(&vault).await;
         let state = AppState::new();
         state.vaults().write().await.insert(
             vault_id.to_string(),
             OpenVault::new(
-                vault.clone(),
+                vault,
+                handle.clone(),
                 CancellationToken::new(),
                 ScanStatusBackend::Complete,
                 None,
                 cubical_core::vault::settings::SettingsMap::new(),
             ),
         );
-        (dir, vault, state)
+        (dir, handle, state)
     }
 
     async fn mark_ready(state: &AppState, vault_id: &str) {
@@ -145,7 +153,7 @@ mod tests {
 
     #[tokio::test]
     async fn search_round_trips_empty_query() {
-        let (_dir, _vault, state) = fresh_state_with_vault("v1").await;
+        let (_dir, _handle, state) = fresh_state_with_vault("v1").await;
         mark_ready(&state, "v1").await;
 
         let resp = search(
@@ -171,7 +179,7 @@ mod tests {
 
     #[tokio::test]
     async fn still_indexing_flag_set_when_state_is_building() {
-        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        let (_dir, handle, state) = fresh_state_with_vault("v1").await;
         {
             let guard = state.vaults().read().await;
             let open = guard.get("v1").unwrap();
@@ -179,16 +187,10 @@ mod tests {
         }
 
         let src = "# Hello\n\nworld of search.\n";
-        cubical_core::vault::search_refresh::refresh_search_index(
-            &vault,
-            "a.md",
-            src,
-            0,
-            src.len() as u64,
-        )
-        .await
-        .unwrap();
-        vault.search().commit().unwrap();
+        handle
+            .upsert_source("a.md", src, 0, src.len() as u64)
+            .unwrap();
+        handle.index().unwrap().commit().unwrap();
 
         let resp = search(
             &state,
@@ -215,7 +217,7 @@ mod tests {
 
     #[tokio::test]
     async fn status_reflects_state_cell() {
-        let (_dir, _vault, state) = fresh_state_with_vault("v1").await;
+        let (_dir, _handle, state) = fresh_state_with_vault("v1").await;
         mark_ready(&state, "v1").await;
 
         let st = search_index_status(
@@ -231,18 +233,12 @@ mod tests {
 
     #[tokio::test]
     async fn health_reports_schema_version_2() {
-        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        let (_dir, handle, state) = fresh_state_with_vault("v1").await;
         let src = "# Hello\n\nbody.\n";
-        cubical_core::vault::search_refresh::refresh_search_index(
-            &vault,
-            "a.md",
-            src,
-            0,
-            src.len() as u64,
-        )
-        .await
-        .unwrap();
-        vault.search().commit().unwrap();
+        handle
+            .upsert_source("a.md", src, 0, src.len() as u64)
+            .unwrap();
+        handle.index().unwrap().commit().unwrap();
 
         let h = search_get_health(
             &state,
@@ -265,7 +261,7 @@ mod tests {
 
     #[tokio::test]
     async fn search_unknown_vault_errors() {
-        let (_dir, _vault, state) = fresh_state_with_vault("v1").await;
+        let (_dir, _handle, state) = fresh_state_with_vault("v1").await;
         let err = search(
             &state,
             SearchRequest {
@@ -297,7 +293,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_rebuild_runs_under_the_vaults_own_cancellation_token() {
-        let (_dir, _vault, state) = fresh_state_with_vault("v1").await;
+        let (_dir, _handle, state) = fresh_state_with_vault("v1").await;
         let cancel = state
             .vaults()
             .read()
@@ -333,33 +329,21 @@ mod tests {
 
     #[tokio::test]
     async fn rebuild_wipes_docs_immediately() {
-        let (_dir, vault, _state) = fresh_state_with_vault("v1").await;
+        let (_dir, handle, _state) = fresh_state_with_vault("v1").await;
         let src = "# Hello\n\nbody one.\n";
-        cubical_core::vault::search_refresh::refresh_search_index(
-            &vault,
-            "a.md",
-            src,
-            0,
-            src.len() as u64,
-        )
-        .await
-        .unwrap();
-        cubical_core::vault::search_refresh::refresh_search_index(
-            &vault,
-            "b.md",
-            src,
-            0,
-            src.len() as u64,
-        )
-        .await
-        .unwrap();
-        vault.search().commit().unwrap();
-        assert_eq!(vault.search().doc_count().unwrap(), 2);
+        handle
+            .upsert_source("a.md", src, 0, src.len() as u64)
+            .unwrap();
+        handle
+            .upsert_source("b.md", src, 0, src.len() as u64)
+            .unwrap();
+        handle.index().unwrap().commit().unwrap();
+        assert_eq!(handle.index().unwrap().doc_count().unwrap(), 2);
 
-        vault.search().delete_all().unwrap();
-        vault.search().commit().unwrap();
+        handle.index().unwrap().delete_all().unwrap();
+        handle.index().unwrap().commit().unwrap();
         assert_eq!(
-            vault.search().doc_count().unwrap(),
+            handle.index().unwrap().doc_count().unwrap(),
             0,
             "delete_all + commit must clear the reader's view",
         );

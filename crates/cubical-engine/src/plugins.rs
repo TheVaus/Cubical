@@ -229,7 +229,8 @@ mod tests {
         state.vaults().write().await.insert(
             vault_id.to_string(),
             OpenVault::new(
-                vault,
+                vault.clone(),
+                crate::search_handle::SearchHandle::open(&vault).await,
                 tokio_util::sync::CancellationToken::new(),
                 ScanStatusBackend::Complete,
                 None,

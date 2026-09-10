@@ -865,7 +865,6 @@ version = "0.1.0"
 dependencies = [
  "cubical-ast",
  "cubical-index",
- "cubical-search",
  "libsql",
  "notify",
  "notify-debouncer-full",

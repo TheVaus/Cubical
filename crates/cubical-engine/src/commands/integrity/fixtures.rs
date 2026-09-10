@@ -21,6 +21,7 @@ pub(super) async fn vault_with(files: &[(&str, &str)]) -> (TempDir, Vault, AppSt
         "v1".to_string(),
         OpenVault::new(
             vault.clone(),
+            crate::search_handle::SearchHandle::open(&vault).await,
             CancellationToken::new(),
             ScanStatusBackend::Complete,
             None,
@@ -32,9 +33,14 @@ pub(super) async fn vault_with(files: &[(&str, &str)]) -> (TempDir, Vault, AppSt
 
 pub(super) async fn scan(vault: &Vault) {
     let (tx, _rx) = tokio::sync::mpsc::channel(64);
-    cubical_core::vault::scan(vault.clone(), CancellationToken::new(), tx)
-        .await
-        .unwrap();
+    cubical_core::vault::scan(
+        vault.clone(),
+        CancellationToken::new(),
+        tx,
+        cubical_core::NoScanSink,
+    )
+    .await
+    .unwrap();
 }
 
 pub(super) async fn drop_file_as_watcher_would(dir: &TempDir, vault: &Vault, rel: &str) {

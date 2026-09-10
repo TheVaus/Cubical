@@ -209,6 +209,7 @@ mod tests {
             vault_id.to_string(),
             OpenVault::new(
                 vault.clone(),
+                crate::search_handle::SearchHandle::open(&vault).await,
                 CancellationToken::new(),
                 ScanStatusBackend::Complete,
                 None,
@@ -228,7 +229,8 @@ mod tests {
             state.vaults().write().await.insert(
                 (*id).to_string(),
                 OpenVault::new(
-                    vault,
+                    vault.clone(),
+                    crate::search_handle::SearchHandle::open(&vault).await,
                     CancellationToken::new(),
                     ScanStatusBackend::Complete,
                     None,

@@ -172,7 +172,7 @@ spreadsheet row.
 
 ## Full-text search (`cubical-search`)
 
-**Anchors:** SearchIndex · rebuilt_reason · is_recoverable_by_wipe
+**Anchors:** SearchIndex · rebuilt_reason · is_recoverable_by_wipe · SearchHandle · SearchScanSink · SEARCH_REBUILT · SEARCH_UNAVAILABLE
 
 Every byte in the search directory is derived from the `.md` files, so wiping
 it costs a rescan and nothing else. `SearchIndex::open` therefore wipes and
@@ -180,8 +180,34 @@ retries **once** rather than failing: first when `schema.json` is missing or
 not the current `SCHEMA_VERSION`, then again if building the index, writer or
 reader fails anyway — the case a stamp check cannot see, where the stamp is
 current but the segment files are not. `rebuilt_reason` carries why, so
-`Vault::open` can write the `search_rebuilt` audit row instead of healing
-silently.
+`SearchHandle::open` can write the `search_rebuilt` audit row instead of
+healing silently.
+
+**The engine owns the index; the vault does not.** `SearchHandle` lives on
+`OpenVault` beside the search-state cell, and `Vault` has no search field, so
+the substrate builds and runs without the block
+([`domain-scoped-dependencies`](../principles/domain-scoped-dependencies.md)).
+Until #274 `Vault::open` opened the index itself, which made any search failure
+refuse the whole vault. Now a handle that cannot open **degrades search and
+nothing else**: it writes a `search_unavailable` audit row, the state cell reads
+`Error`, the search commands return the `Search` error code, and every writer —
+the scan sink, the watcher, rename — treats a search write as a no-op, per
+[`best-effort-resilience`](../principles/best-effort-resilience.md). Reopening the
+vault retries. Whoever opens a vault for real must go through
+`SearchHandle::open`, or corrupt-directory recovery silently stops being
+recorded.
+
+The write paths take the handle explicitly — the watcher dispatcher through
+`WatchedVault`, rename through its commit input, the scan through
+`SearchScanSink` — so a path that forgets search fails to compile rather than
+quietly leaving the index stale. The sink owns what used to live inline in the
+walk: the commit every 5,000 documents that bounds `IndexWriter` memory, and
+the end-of-scan `retain_paths` reconcile over every path it was handed.
+
+Tantivy holds one writer lock per directory, so a second `SearchHandle::open`
+on a directory whose handle is still alive fails with `LockFailure` and yields
+an unavailable handle. Share the open vault's handle instead of opening a
+second one.
 
 Two failures are excluded from the retry, because for them a wipe destroys
 rather than repairs: a writer `LockFailure` means another process holds the

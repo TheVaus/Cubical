@@ -138,6 +138,7 @@ mod tests {
             vault_id.to_string(),
             OpenVault::new(
                 vault.clone(),
+                crate::search_handle::SearchHandle::open(&vault).await,
                 CancellationToken::new(),
                 ScanStatusBackend::Complete,
                 None,
@@ -155,15 +156,21 @@ mod tests {
         let vault = Vault::open(dir.path()).await.expect("open");
         let (tx, mut rx) = mpsc::channel::<ScanProgress>(64);
         let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
-        scan(vault.clone(), CancellationToken::new(), tx)
-            .await
-            .expect("scan");
+        scan(
+            vault.clone(),
+            CancellationToken::new(),
+            tx,
+            cubical_core::NoScanSink,
+        )
+        .await
+        .expect("scan");
         drain.await.unwrap();
         let state = AppState::new();
         state.vaults().write().await.insert(
             vault_id.to_string(),
             OpenVault::new(
-                vault,
+                vault.clone(),
+                crate::search_handle::SearchHandle::open(&vault).await,
                 CancellationToken::new(),
                 ScanStatusBackend::Complete,
                 None,
@@ -190,7 +197,8 @@ mod tests {
         state.vaults().write().await.insert(
             "v1".to_string(),
             OpenVault::new(
-                vault,
+                vault.clone(),
+                crate::search_handle::SearchHandle::open(&vault).await,
                 CancellationToken::new(),
                 ScanStatusBackend::Complete,
                 None,
@@ -281,15 +289,21 @@ mod tests {
         let vault = Vault::open(dir.path()).await.expect("open");
         let (tx, mut rx) = mpsc::channel::<ScanProgress>(64);
         let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
-        scan(vault.clone(), CancellationToken::new(), tx)
-            .await
-            .expect("scan");
+        scan(
+            vault.clone(),
+            CancellationToken::new(),
+            tx,
+            cubical_core::NoScanSink,
+        )
+        .await
+        .expect("scan");
         drain.await.unwrap();
         let state = AppState::new();
         state.vaults().write().await.insert(
             "v1".to_string(),
             OpenVault::new(
-                vault,
+                vault.clone(),
+                crate::search_handle::SearchHandle::open(&vault).await,
                 CancellationToken::new(),
                 ScanStatusBackend::Complete,
                 None,
@@ -339,7 +353,8 @@ mod tests {
         state.vaults().write().await.insert(
             "v1".to_string(),
             OpenVault::new(
-                vault,
+                vault.clone(),
+                crate::search_handle::SearchHandle::open(&vault).await,
                 CancellationToken::new(),
                 ScanStatusBackend::Complete,
                 None,

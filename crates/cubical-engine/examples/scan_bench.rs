@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use cubical_core::vault::{scan, ScanProgress, Vault};
+use cubical_engine::search_handle::SearchHandle;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
@@ -389,17 +390,27 @@ async fn cold_run(dir: &Path) -> Result<(f64, f64, u32, u64), BenchError> {
 
     let t_open = Instant::now();
     let vault = Vault::open(dir).await?;
+    let search = SearchHandle::open(&vault).await;
     let open_secs = t_open.elapsed().as_secs_f64();
 
     let t_scan = Instant::now();
     let (tx, mut rx) = mpsc::channel::<ScanProgress>(64);
-    let handle = tokio::spawn(scan(vault.clone(), CancellationToken::new(), tx));
+    let handle = tokio::spawn(scan(
+        vault.clone(),
+        CancellationToken::new(),
+        tx,
+        search.scan_sink(),
+    ));
     let pump = tokio::spawn(async move { while rx.recv().await.is_some() {} });
     let processed = handle.await??.file_count;
     let _ = pump.await;
     let scan_secs = t_scan.elapsed().as_secs_f64();
 
-    let docs = vault.search().doc_count().unwrap_or(0);
+    let docs = search
+        .index()
+        .ok()
+        .and_then(|i| i.doc_count().ok())
+        .unwrap_or(0);
     Ok((open_secs, scan_secs, processed, docs))
 }
 

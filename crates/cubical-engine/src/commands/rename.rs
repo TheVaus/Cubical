@@ -3,7 +3,6 @@ use cubical_core::unix_now_secs;
 use std::collections::HashSet;
 
 use cubical_core::vault::pending::apply_pending;
-use cubical_core::vault::search_refresh::{delete_search_index, refresh_search_index_with_doc};
 use cubical_core::{
     atomic_write, parse_off_executor, refresh_block_refs_for_file, refresh_blocks,
     refresh_frontmatter_with_doc, refresh_links_with_doc, refresh_tags_with_doc, sha256_bytes_hex,
@@ -25,13 +24,14 @@ use crate::api::types::{
     RenameTagRequest, RenameTagResponse, UndoRenameRequest, UndoRenameResponse,
 };
 use crate::commands::link_match::link_name_forms;
-use crate::commands::open::{open_vault_cloned, with_open_vault};
+use crate::commands::open::{open_search_cloned, open_vault_cloned, with_open_vault};
 use crate::commands::paths;
 use crate::error::CubicalError;
 use crate::events::{
     emit_flush_complete, emit_pending_rewrites_changed, EventSink, FlushOwnWrites,
     VaultFlushComplete, VaultPendingRewritesChanged,
 };
+use crate::search_handle::SearchHandle;
 use crate::state::AppState;
 
 const RENAME_OP_ID_KEY: &str = "pending_rewrites.next_rename_op_id";
@@ -276,6 +276,7 @@ async fn enqueue_referrers_in_tx(
 
 struct RenameCommitInput<'a> {
     vault: &'a cubical_core::Vault,
+    search: &'a SearchHandle,
     flush_own_writes: &'a FlushOwnWrites,
     vault_id: &'a str,
     from_path: &'a str,
@@ -295,6 +296,7 @@ async fn commit_rename(
 ) -> Result<RenameCommit, CubicalError> {
     let RenameCommitInput {
         vault,
+        search,
         flush_own_writes,
         vault_id,
         from_path,
@@ -340,7 +342,7 @@ async fn commit_rename(
     let byte_len = raw_bytes.len() as u64;
     let text = String::from_utf8(raw_bytes).ok();
 
-    let _ = delete_search_index(vault, from_path).await;
+    let _ = search.delete(from_path);
 
     if let Some(on_disk) = text.as_deref() {
         let doc = parse_off_executor(on_disk).await.unwrap_or_default();
@@ -361,14 +363,14 @@ async fn commit_rename(
                 (mtime, m.len())
             })
             .unwrap_or((0, byte_len));
-        let _ = refresh_search_index_with_doc(vault, to_path, &doc, mtime_secs, size_bytes).await;
+        let _ = search.upsert_doc(to_path, &doc, mtime_secs, size_bytes);
     } else {
         tracing::debug!(
             path = %to_path,
             "rename: destination is not valid UTF-8; skipping content re-extraction",
         );
     }
-    let _ = vault.search().commit();
+    let _ = search.commit();
 
     enforce_fifty_per_file_fuse(vault, flush_own_writes, &fuse_targets).await?;
 
@@ -394,6 +396,7 @@ pub async fn rename_file(
 ) -> Result<RenameFileResponse, CubicalError> {
     let (vault, flush_own_writes, _flush_in_progress) =
         clone_vault_with_flush_state(state, &req.vault_id).await?;
+    let search = open_search_cloned(state, &req.vault_id).await?;
     let conn = vault.index().connection();
 
     let (from_path, from_abs) = paths::vault_file(&vault, &req.from_path)?;
@@ -429,6 +432,7 @@ pub async fn rename_file(
         app,
         RenameCommitInput {
             vault: &vault,
+            search: &search,
             flush_own_writes: &flush_own_writes,
             vault_id: &req.vault_id,
             from_path: &from_path,
@@ -447,6 +451,7 @@ pub async fn rename_file(
 
 pub(crate) struct AdoptExternalRenameInput<'a> {
     pub vault: &'a cubical_core::Vault,
+    pub search: &'a SearchHandle,
     pub flush_own_writes: &'a FlushOwnWrites,
     pub vault_id: &'a str,
     pub from_path: &'a str,
@@ -460,6 +465,7 @@ pub(crate) async fn adopt_external_rename(
 ) -> Result<bool, CubicalError> {
     let AdoptExternalRenameInput {
         vault,
+        search,
         flush_own_writes,
         vault_id,
         from_path,
@@ -485,6 +491,7 @@ pub(crate) async fn adopt_external_rename(
         app,
         RenameCommitInput {
             vault,
+            search,
             flush_own_writes,
             vault_id,
             from_path,
@@ -506,6 +513,7 @@ pub async fn rename_folder(
 ) -> Result<RenameFolderResponse, CubicalError> {
     let (vault, flush_own_writes, _flush_in_progress) =
         clone_vault_with_flush_state(state, &req.vault_id).await?;
+    let search = open_search_cloned(state, &req.vault_id).await?;
     let conn = vault.index().connection();
 
     let (from_path, from_abs) = paths::vault_file(&vault, &req.from_path)?;
@@ -662,7 +670,7 @@ pub async fn rename_folder(
         let _ = refresh_blocks(&vault, to, &on_disk).await;
         let _ = refresh_block_refs_for_file(&vault, to).await;
 
-        let _ = delete_search_index(&vault, from).await;
+        let _ = search.delete(from);
         let (mtime_secs, size_bytes) = std::fs::metadata(&to_abs_file)
             .map(|m| {
                 let mtime = m
@@ -674,9 +682,9 @@ pub async fn rename_folder(
                 (mtime, m.len())
             })
             .unwrap_or((0, on_disk.len() as u64));
-        let _ = refresh_search_index_with_doc(&vault, to, &doc, mtime_secs, size_bytes).await;
+        let _ = search.upsert_doc(to, &doc, mtime_secs, size_bytes);
     }
-    let _ = vault.search().commit();
+    let _ = search.commit();
 
     enforce_fifty_per_file_fuse(&vault, &flush_own_writes, &fuse_targets).await?;
 
@@ -1516,6 +1524,7 @@ mod tests {
             vault_id.into(),
             OpenVault::new(
                 vault.clone(),
+                crate::search_handle::SearchHandle::open(&vault).await,
                 CancellationToken::new(),
                 ScanStatusBackend::Complete,
                 None,
@@ -1784,19 +1793,16 @@ mod tests {
     async fn rename_file_keeps_search_index_in_sync() {
         use cubical_search::query::{run_search, FieldScope, SearchQuery, SortMode};
         let (_d, vault, state) = fresh("v1").await;
+        let search = crate::commands::open::open_search_cloned(&state, "v1")
+            .await
+            .unwrap();
         seed_file(&vault, "Daily.md", "markdown").await;
         let body = "uniquetoken body\n";
         std::fs::write(vault.root().join("Daily.md"), body).unwrap();
-        cubical_core::vault::search_refresh::refresh_search_index(
-            &vault,
-            "Daily.md",
-            body,
-            0,
-            body.len() as u64,
-        )
-        .await
-        .unwrap();
-        vault.search().commit().unwrap();
+        search
+            .upsert_source("Daily.md", body, 0, body.len() as u64)
+            .unwrap();
+        search.index().unwrap().commit().unwrap();
 
         let q = |text: &str| SearchQuery {
             text: text.into(),
@@ -1806,7 +1812,7 @@ mod tests {
             fuzzy: false,
             sort: SortMode::Relevance,
         };
-        let before = run_search(vault.search(), &q("uniquetoken")).unwrap();
+        let before = run_search(search.index().unwrap(), &q("uniquetoken")).unwrap();
         assert_eq!(before.hits.len(), 1);
         assert_eq!(before.hits[0].path, "Daily.md");
 
@@ -1822,7 +1828,7 @@ mod tests {
         .await
         .expect("ok");
 
-        let after = run_search(vault.search(), &q("uniquetoken")).unwrap();
+        let after = run_search(search.index().unwrap(), &q("uniquetoken")).unwrap();
         assert_eq!(after.hits.len(), 1, "exactly one doc after rename");
         assert_eq!(
             after.hits[0].path, "Journal.md",
@@ -2023,6 +2029,7 @@ mod tests {
                 "v1".into(),
                 OpenVault::new(
                     vault.clone(),
+                    crate::search_handle::SearchHandle::open(&vault).await,
                     CancellationToken::new(),
                     ScanStatusBackend::Complete,
                     None,
@@ -2059,9 +2066,14 @@ mod tests {
 
         let (tx, mut rx) = tokio::sync::mpsc::channel(64);
         let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
-        cubical_core::vault::scan(vault.clone(), CancellationToken::new(), tx)
-            .await
-            .expect("rescan");
+        cubical_core::vault::scan(
+            vault.clone(),
+            CancellationToken::new(),
+            tx,
+            cubical_core::NoScanSink,
+        )
+        .await
+        .expect("rescan");
         drain.await.unwrap();
 
         replay_rename_journal(&vault, &NoopEventSink, "v1").await;
@@ -3578,9 +3590,14 @@ mod tests {
         );
         std::fs::write(vault.root().join("Notes.md"), referrer).unwrap();
         let (tx, _rx) = tokio::sync::mpsc::channel(64);
-        cubical_core::vault::scan(vault.clone(), CancellationToken::new(), tx)
-            .await
-            .expect("scan");
+        cubical_core::vault::scan(
+            vault.clone(),
+            CancellationToken::new(),
+            tx,
+            cubical_core::NoScanSink,
+        )
+        .await
+        .expect("scan");
 
         rename_file(
             &state,
@@ -3628,9 +3645,14 @@ mod tests {
         {
             let vault = Vault::open(dir.path()).await.expect("open");
             let (tx, _rx) = tokio::sync::mpsc::channel(64);
-            cubical_core::vault::scan(vault.clone(), CancellationToken::new(), tx)
-                .await
-                .expect("scan");
+            cubical_core::vault::scan(
+                vault.clone(),
+                CancellationToken::new(),
+                tx,
+                cubical_core::NoScanSink,
+            )
+            .await
+            .expect("scan");
             vault
                 .index()
                 .connection()
@@ -3644,15 +3666,21 @@ mod tests {
 
         let vault = Vault::open(dir.path()).await.expect("reopen");
         let (tx, _rx) = tokio::sync::mpsc::channel(64);
-        cubical_core::vault::scan(vault.clone(), CancellationToken::new(), tx)
-            .await
-            .expect("rescan");
+        cubical_core::vault::scan(
+            vault.clone(),
+            CancellationToken::new(),
+            tx,
+            cubical_core::NoScanSink,
+        )
+        .await
+        .expect("rescan");
 
         let state = AppState::new();
         state.vaults().write().await.insert(
             "v1".to_string(),
             OpenVault::new(
                 vault.clone(),
+                crate::search_handle::SearchHandle::open(&vault).await,
                 CancellationToken::new(),
                 ScanStatusBackend::Complete,
                 None,

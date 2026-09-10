@@ -31,7 +31,7 @@ registries (tests, headless tooling) may omit it and accept `None`.
 
 ## Scan
 
-**Anchors:** scan · open_vault · last_seen
+**Anchors:** scan · open_vault · last_seen · ScanSink · NoScanSink
 
 - **Batched commits.** Autocommitting per file means one `fsync` per file —
   tens of thousands on a large vault, the difference between seconds and
@@ -45,10 +45,22 @@ registries (tests, headless tooling) may omit it and accept `None`.
   still older afterwards vanished from disk while the app wasn't watching and
   are deleted so they stop surfacing in the tree. Skipped under cancellation,
   where an incomplete walk would make live rows look stale.
-- **Cooperative cancellation** is checked between files. The search refresher is
-  the heaviest per-file step, so it is skipped once cancellation is in flight to
-  hold the cancellation budget; upsert is idempotent, so a skipped file
-  converges on the next scan.
+- **Cooperative cancellation** is checked between files. Feeding the scan sink
+  (search indexing, in practice) is the heaviest per-file step, so the scan
+  stops feeding it once cancellation is in flight to hold the cancellation
+  budget; upsert is idempotent, so a skipped file converges on the next scan.
+- **The scan does not know search.** `scan` hands every Markdown file it reads
+  to a caller-supplied `ScanSink` — path, parsed document, mtime, size — and
+  calls `finish(walk_complete)` once the walk ends. `cubical-core` is substrate
+  and `cubical-search` is a block, so indexing reaches the scan through this
+  seam and never through the core manifest
+  ([`domain-scoped-dependencies`](../principles/domain-scoped-dependencies.md)).
+  The periodic commit and the orphan reconcile are the sink's business, not
+  the walk's: see [`search-index.md`](search-index.md) → Full-text search.
+  `finish(false)` after a cancellation means "commit what you have, reconcile
+  nothing" for the same reason the stale sweep is skipped — an incomplete walk
+  makes live entries look orphaned. A caller with no derived index to feed
+  passes `NoScanSink`.
 - Per-file I/O or hash failures are logged and skipped, never fatal. The
   progress channel is best-effort — a dropped receiver silently discards
   updates rather than failing the scan.
@@ -167,9 +179,10 @@ That is why both take `Option<&Document>` instead of a `Document`. `Document`
 implements `Default`, so an `unwrap_or_default()` at a call site silently
 restates "could not parse" as "the file is empty" — which is what the watcher
 did, wiping a note's rows the moment an edit put it in a transient
-unparseable state while a rescan of the same file kept them. The scan counts
-an unparseable path as still indexed for the same reason, so its end-of-scan
-`retain_paths` reconciliation does not drop the file's search doc either.
+unparseable state while a rescan of the same file kept them. The scan still
+hands an unparseable path to its sink, with no document, for the same reason:
+the search sink counts it as seen, so its end-of-scan `retain_paths`
+reconciliation does not drop the file's search doc either.
 
 SQL errors propagate so the caller decides whether to retry, and both paths
 log and continue.
@@ -337,8 +350,9 @@ the next corruption: bounded junk in `.cubical/` beats an unbounded pile of
 timestamped carcasses, and only the most recent failure is diagnostically
 interesting. The rebuild is recorded in `audit_log` at warn level under
 `index_rebuilt`, carrying the SQLite error, the quarantine path and how many
-journal entries were held. `search_rebuilt` records the same for the search
-directory.
+journal entries were held. The search directory's equivalent,
+`search_rebuilt`, is written by whoever owns the search index — the engine, not
+the vault: see [`search-index.md`](search-index.md) → Full-text search.
 
 ## Unlinked mentions
 

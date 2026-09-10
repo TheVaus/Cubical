@@ -69,6 +69,7 @@ mod tests {
             vault_id.to_string(),
             OpenVault::new(
                 vault.clone(),
+                crate::search_handle::SearchHandle::open(&vault).await,
                 CancellationToken::new(),
                 ScanStatusBackend::Complete,
                 None,
@@ -92,9 +93,14 @@ mod tests {
 
     async fn scan(vault: &Vault) {
         let (tx, _rx) = tokio::sync::mpsc::channel(8);
-        cubical_core::vault::scan(vault.clone(), CancellationToken::new(), tx)
-            .await
-            .expect("scan");
+        cubical_core::vault::scan(
+            vault.clone(),
+            CancellationToken::new(),
+            tx,
+            cubical_core::NoScanSink,
+        )
+        .await
+        .expect("scan");
     }
 
     #[tokio::test]

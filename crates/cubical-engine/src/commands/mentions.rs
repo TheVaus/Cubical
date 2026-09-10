@@ -278,6 +278,7 @@ mod tests {
             vault_id.into(),
             OpenVault::new(
                 vault.clone(),
+                crate::search_handle::SearchHandle::open(&vault).await,
                 CancellationToken::new(),
                 ScanStatusBackend::Complete,
                 None,

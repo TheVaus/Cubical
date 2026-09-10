@@ -143,6 +143,7 @@ mod tests {
             vault_id.to_string(),
             OpenVault::new(
                 vault.clone(),
+                crate::search_handle::SearchHandle::open(&vault).await,
                 CancellationToken::new(),
                 ScanStatusBackend::Complete,
                 None,
@@ -158,9 +159,14 @@ mod tests {
         std::fs::write(dir.path().join("a.md"), "first para\n\nsecond para\n").unwrap();
         let (vault, state) = state_with_vault_at(dir.path(), "v1").await;
         let (tx, _rx) = tokio::sync::mpsc::channel(8);
-        cubical_core::vault::scan(vault.clone(), CancellationToken::new(), tx)
-            .await
-            .unwrap();
+        cubical_core::vault::scan(
+            vault.clone(),
+            CancellationToken::new(),
+            tx,
+            cubical_core::NoScanSink,
+        )
+        .await
+        .unwrap();
 
         let resp = create_block_ref(
             &state,
@@ -193,9 +199,14 @@ mod tests {
         std::fs::write(dir.path().join("a.md"), "first para ^existing\n").unwrap();
         let (vault, state) = state_with_vault_at(dir.path(), "v1").await;
         let (tx, _rx) = tokio::sync::mpsc::channel(8);
-        cubical_core::vault::scan(vault.clone(), CancellationToken::new(), tx)
-            .await
-            .unwrap();
+        cubical_core::vault::scan(
+            vault.clone(),
+            CancellationToken::new(),
+            tx,
+            cubical_core::NoScanSink,
+        )
+        .await
+        .unwrap();
         let resp = create_block_ref(
             &state,
             CreateBlockRefRequest {
@@ -218,9 +229,14 @@ mod tests {
         std::fs::write(dir.path().join("tgt.md"), "body\n").unwrap();
         let (vault, state) = state_with_vault_at(dir.path(), "v1").await;
         let (tx, _rx) = tokio::sync::mpsc::channel(8);
-        cubical_core::vault::scan(vault.clone(), CancellationToken::new(), tx)
-            .await
-            .unwrap();
+        cubical_core::vault::scan(
+            vault.clone(),
+            CancellationToken::new(),
+            tx,
+            cubical_core::NoScanSink,
+        )
+        .await
+        .unwrap();
 
         let resp = get_broken_block_refs(
             &state,

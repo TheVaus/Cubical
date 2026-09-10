@@ -36,17 +36,7 @@
     "cubical-cli":    { "class": "shell",     "domain": "app" }
   },
 
-  "crate_allowed": {
-    "cubical-core -> cubical-search": {
-      "issue": 274,
-      "reason": [
-        "The `Vault` handle owns `search: Arc<SearchIndex>` and `VaultError`",
-        "carries a `Search(String)` variant, so a search failure is a vault",
-        "failure and the substrate cannot be built without the block. This is",
-        "the one crate-level violation and the reason this gate exists."
-      ]
-    }
-  },
+  "crate_allowed": {},
 
   "engine_modules": {
     "_": "crates/cubical-engine/src/commands/*. Anything not listed is shell.",

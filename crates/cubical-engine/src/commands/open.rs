@@ -4,6 +4,7 @@ use cubical_core::Vault;
 
 use crate::error::CubicalError;
 use crate::plugins::{ensure_active, Feature};
+use crate::search_handle::SearchHandle;
 use crate::state::{AppState, OpenVault};
 
 pub(crate) async fn with_open_vault<T, F>(
@@ -26,6 +27,13 @@ pub(crate) async fn open_vault_cloned(
     vault_id: &str,
 ) -> Result<Vault, CubicalError> {
     with_open_vault(state, vault_id, |open| open.vault.clone()).await
+}
+
+pub(crate) async fn open_search_cloned(
+    state: &AppState,
+    vault_id: &str,
+) -> Result<SearchHandle, CubicalError> {
+    with_open_vault(state, vault_id, |open| open.search.clone()).await
 }
 
 pub(crate) async fn open_vault_cloned_for(
@@ -54,7 +62,8 @@ mod tests {
         state.vaults().write().await.insert(
             vault_id.to_string(),
             OpenVault::new(
-                vault,
+                vault.clone(),
+                crate::search_handle::SearchHandle::open(&vault).await,
                 CancellationToken::new(),
                 ScanStatusBackend::Complete,
                 None,
@@ -80,7 +89,8 @@ mod tests {
         state.vaults().write().await.insert(
             "v2".into(),
             OpenVault::new(
-                vault,
+                vault.clone(),
+                crate::search_handle::SearchHandle::open(&vault).await,
                 CancellationToken::new(),
                 ScanStatusBackend::Complete,
                 None,

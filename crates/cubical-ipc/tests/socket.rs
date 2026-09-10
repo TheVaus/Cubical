@@ -124,7 +124,8 @@ async fn socket_declines_while_the_vault_is_still_scanning() {
     state.vaults().write().await.insert(
         "scanning".to_string(),
         OpenVault::new(
-            vault,
+            vault.clone(),
+            cubical_engine::search_handle::SearchHandle::open(&vault).await,
             tokio_util::sync::CancellationToken::new(),
             ScanStatusBackend::InProgress,
             None,
