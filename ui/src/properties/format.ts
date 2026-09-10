@@ -1,10 +1,10 @@
+import type { CurrencyCode } from "../settings/propertyFormats";
+
 const CURRENCY_ISO: Record<string, string> = {
   usd: "USD",
   nis: "ILS",
   eur: "EUR",
-};
-
-export const CURRENCY_CODES: string[] = Object.keys(CURRENCY_ISO);
+} satisfies Record<CurrencyCode, string>;
 
 export const DEFAULT_CURRENCY = "usd";
 

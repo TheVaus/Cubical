@@ -147,14 +147,6 @@
         "FileRow wants a file kind for its icon. Closer to substrate than to",
         "the viewer block; resolve with the viewerKind question in 276."
       ]
-    },
-    "settings -> properties": {
-      "issue": 279,
-      "reason": [
-        "The editor settings pane renders date-format choices the properties",
-        "block owns. Either those formatters are substrate, or settings/ is",
-        "mis-scoped and its panes/ are a block. Pick one, not both."
-      ]
     }
   }
 }

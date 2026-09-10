@@ -30,11 +30,9 @@ import StringListCell from "./properties/StringListCell";
 import RawCell from "./properties/RawCell";
 import CurrencyCell from "./properties/CurrencyCell";
 import EnumCell from "./properties/EnumCell";
-import { DATE_FORMAT_TOKENS, convertDate } from "./properties/dateFormats";
-import {
-  parseTypeComments,
-  type PropertyType,
-} from "./properties/typeComments";
+import { convertDate } from "./properties/dateFormats";
+import { DATE_FORMAT_TOKENS } from "./settings/propertyFormats";
+import { parseTypeComments, type PropertyType } from "./properties/typeComments";
 import {
   buildAnnotations,
   effectiveCurrency,
