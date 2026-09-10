@@ -1,3 +1,5 @@
+import type { DateFormatToken } from "../settings/propertyFormats";
+
 export const DEFAULT_DATE_FORMAT = "YYYY-MM-DD";
 
 interface DateParts {
@@ -11,7 +13,7 @@ interface DateParts {
 export type DateWidget = "date" | "datetime" | "number" | "text";
 
 export interface DateFormatDef {
-  token: string;
+  token: DateFormatToken;
   placeholder: string;
   widget: DateWidget;
   hasTime: boolean;
@@ -149,8 +151,6 @@ export const DATE_FORMATS: DateFormatDef[] = [
     },
   },
 ];
-
-export const DATE_FORMAT_TOKENS: string[] = DATE_FORMATS.map((f) => f.token);
 
 export function getDateFormat(token: string): DateFormatDef | undefined {
   return DATE_FORMATS.find((f) => f.token === token);

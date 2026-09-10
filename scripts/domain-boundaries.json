@@ -116,40 +116,5 @@
     "viewer":     { "class": "block", "domain": "viewer" }
   },
 
-  "ui_allowed": {
-    "settings -> graph": {
-      "issue": 278,
-      "reason": [
-        "CORE_PLUGINS hardcodes the registry, so the always-on settings store",
-        "cannot be constructed without the graph block. Assembling the plugin",
-        "list is a composition-root job. The back-edge is `import type` and",
-        "needs nothing."
-      ]
-    },
-    "settings -> terminal": {
-      "issue": 278,
-      "reason": ["Same as settings -> graph."]
-    },
-    "settings -> statusbar": {
-      "issue": 278,
-      "reason": [
-        "settingsState.ts, resetSettings.ts and panes/StatusbarPane.tsx import",
-        "the statusbar's segment definitions, so the always-on settings store",
-        "hardcodes a removable block's registry — the same shape as the",
-        "corePlugins case, and it wants the same fix.",
-        "",
-        "Invisible until the gate learned to read braced imports: all three are",
-        "multi-line `import { … } from`, which the first line-by-line matcher",
-        "could not see. It is the reason the gate reads whole files now."
-      ]
-    },
-    "settings -> properties": {
-      "issue": 279,
-      "reason": [
-        "The editor settings pane renders date-format choices the properties",
-        "block owns. Either those formatters are substrate, or settings/ is",
-        "mis-scoped and its panes/ are a block. Pick one, not both."
-      ]
-    }
-  }
+  "ui_allowed": {}
 }

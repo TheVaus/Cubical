@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { CURRENCY_CODES } from "../settings/propertyFormats";
 import {
   formatCurrency,
   isKnownCurrency,
@@ -24,6 +25,9 @@ describe("isKnownCurrency", () => {
     expect(isKnownCurrency("nis")).toBe(true);
     expect(isKnownCurrency("eur")).toBe(true);
     expect(isKnownCurrency("gbp")).toBe(false);
+  });
+  it("recognizes every code settings can store", () => {
+    for (const code of CURRENCY_CODES) expect(isKnownCurrency(code)).toBe(true);
   });
 });
 
