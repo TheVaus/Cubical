@@ -7,8 +7,6 @@ use crate::time::unix_now_secs;
 
 pub const INDEX_REBUILT: &str = "index_rebuilt";
 
-pub const SEARCH_REBUILT: &str = "search_rebuilt";
-
 const QUARANTINE_SUFFIX: &str = ".corrupt";
 
 const SIDECAR_SUFFIXES: [&str; 2] = ["-wal", "-shm"];
@@ -112,26 +110,6 @@ pub(crate) async fn open_index_recovering(
     }
 
     Ok(conn)
-}
-
-pub(crate) async fn record_search_rebuild(conn: &IndexConn, search_dir: &Path, reason: &str) {
-    let detail = serde_json::json!({
-        "dir": search_dir.display().to_string(),
-        "reason": reason,
-    })
-    .to_string();
-    if let Err(e) = append_audit(
-        conn,
-        AuditLevel::Warn,
-        SEARCH_REBUILT,
-        "search index was unusable; it was wiped and is being rebuilt by the vault scan",
-        &detail,
-        unix_now_secs(),
-    )
-    .await
-    {
-        tracing::warn!(error = %e, "search-rebuild audit insert failed");
-    }
 }
 
 #[cfg(test)]

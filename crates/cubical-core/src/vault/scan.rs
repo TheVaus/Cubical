@@ -18,14 +18,11 @@ use crate::vault::{
     },
     parse::parse_off_executor,
     pending::materialize_on_read,
-    search_refresh::refresh_search_index_with_doc,
     tags::refresh_tags_with_doc,
     Vault, VaultError,
 };
 
 const SCAN_BATCH_SIZE: u32 = 500;
-
-const SEARCH_COMMIT_EVERY: usize = 5_000;
 
 #[derive(Debug, Clone, Copy)]
 pub struct ScanProgress {
@@ -44,6 +41,20 @@ pub struct VanishedFile {
 pub struct ScanOutcome {
     pub file_count: u32,
     pub vanished: Vec<VanishedFile>,
+}
+
+pub trait ScanSink: Send {
+    fn markdown(&mut self, path: &str, doc: Option<&Document>, mtime_unix: i64, size_bytes: u64);
+
+    fn finish(&mut self, walk_complete: bool);
+}
+
+pub struct NoScanSink;
+
+impl ScanSink for NoScanSink {
+    fn markdown(&mut self, _path: &str, _doc: Option<&Document>, _mtime: i64, _size: u64) {}
+
+    fn finish(&mut self, _walk_complete: bool) {}
 }
 
 async fn collect_vanished(conn: &libsql::Connection, scan_started_secs: i64) -> Vec<VanishedFile> {
@@ -78,8 +89,6 @@ pub(crate) struct ScannedMarkdown<'a> {
     pub vault: &'a Vault,
     pub path: &'a str,
     pub source: &'a str,
-    pub mtime_unix: i64,
-    pub index_search: bool,
 }
 
 pub(crate) async fn refresh_scanned_markdown(
@@ -102,26 +111,14 @@ pub(crate) async fn refresh_scanned_markdown(
     if let Err(e) = refresh_blocks(md.vault, md.path, md.source).await {
         tracing::warn!(path = md.path, error = %e, "blocks refresh failed");
     }
-    if md.index_search {
-        if let Err(e) = refresh_search_index_with_doc(
-            md.vault,
-            md.path,
-            doc,
-            md.mtime_unix,
-            md.source.len() as u64,
-        )
-        .await
-        {
-            tracing::warn!(path = md.path, error = %e, "search index refresh failed");
-        }
-    }
     extract_links(doc)
 }
 
-pub async fn scan(
+pub async fn scan<S: ScanSink>(
     vault: Vault,
     cancel: CancellationToken,
     progress: mpsc::Sender<ScanProgress>,
+    mut sink: S,
 ) -> Result<ScanOutcome, VaultError> {
     let root = vault.root().to_path_buf();
     let registry = vault.registry_arc();
@@ -134,9 +131,6 @@ pub async fn scan(
     let conn = vault.index().connection();
     let mut tx = conn.transaction().await.map_err(IndexError::from)?;
     let mut batch_count: u32 = 0;
-    let mut search_batch_count: usize = 0;
-    let mut indexed_search_paths: std::collections::HashSet<String> =
-        std::collections::HashSet::new();
 
     let mut pending_links: Vec<(String, Vec<LinkExtraction>)> = Vec::new();
 
@@ -263,14 +257,11 @@ pub async fn scan(
             };
 
             let doc = parse_off_executor(&source).await;
-            let index_search = !cancel.is_cancelled();
             let extractions = refresh_scanned_markdown(
                 ScannedMarkdown {
                     vault: &vault,
                     path: &path_str,
                     source: &source,
-                    mtime_unix,
-                    index_search,
                 },
                 doc.as_ref(),
             )
@@ -278,17 +269,8 @@ pub async fn scan(
             if !extractions.is_empty() {
                 pending_links.push((path_str.clone(), extractions));
             }
-            if index_search {
-                indexed_search_paths.insert(path_str.clone());
-                if doc.is_some() {
-                    search_batch_count += 1;
-                    if search_batch_count >= SEARCH_COMMIT_EVERY {
-                        if let Err(e) = vault.search().commit() {
-                            tracing::warn!(error = %e, "search index periodic commit failed");
-                        }
-                        search_batch_count = 0;
-                    }
-                }
+            if !cancel.is_cancelled() {
+                sink.markdown(&path_str, doc.as_ref(), mtime_unix, source.len() as u64);
             }
         }
 
@@ -311,23 +293,7 @@ pub async fn scan(
 
     tx.commit().await.map_err(IndexError::from)?;
 
-    if let Err(e) = vault.search().commit() {
-        tracing::warn!(error = %e, "search index final commit failed");
-    }
-
-    if !cancel.is_cancelled() {
-        match vault.search().retain_paths(&indexed_search_paths) {
-            Ok(removed) if removed > 0 => {
-                if let Err(e) = vault.search().commit() {
-                    tracing::warn!(error = %e, "search index reconcile commit failed");
-                } else {
-                    tracing::info!(removed, "search index reconciled (dropped orphan docs)");
-                }
-            }
-            Ok(_) => {}
-            Err(e) => tracing::warn!(error = %e, "search index reconcile failed"),
-        }
-    }
+    sink.finish(!cancel.is_cancelled());
 
     let mut vanished: Vec<VanishedFile> = Vec::new();
     if !cancel.is_cancelled() {
@@ -483,76 +449,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn scan_indexes_every_markdown_file_for_search() {
-        use cubical_search::query::{run_search, FieldScope, SearchQuery, SortMode};
-        let n = 60usize;
-        let dir = tempdir().unwrap();
-        for i in 0..n {
-            let p = dir.path().join(format!("note-{i:03}.md"));
-            fs::write(&p, format!("# Title {i}\n\nzzqx{i:03} body content\n")).unwrap();
-        }
-        let vault = Vault::open(dir.path()).await.expect("open");
-        let (tx, _rx) = mpsc::channel::<ScanProgress>(256);
-        let cancel = CancellationToken::new();
-        let count = scan(vault.clone(), cancel, tx).await.expect("scan");
-        assert_eq!(count.file_count as usize, n);
-        assert_eq!(
-            vault.search().doc_count().unwrap(),
-            n as u64,
-            "every markdown file must land in the search index"
-        );
-        for i in 0..n {
-            let q = SearchQuery {
-                text: format!("zzqx{i:03}"),
-                limit: 0,
-                offset: 0,
-                fields: FieldScope::Default,
-                fuzzy: false,
-                sort: SortMode::Relevance,
-            };
-            let r = run_search(vault.search(), &q).unwrap();
-            assert_eq!(
-                r.hits.len(),
-                1,
-                "token zzqx{i:03} should find exactly its file, got {}",
-                r.hits.len()
-            );
-            assert_eq!(r.hits[0].path, format!("note-{i:03}.md"));
-        }
-    }
-
-    #[tokio::test]
-    async fn scan_reconciles_orphan_search_docs() {
-        use cubical_search::query::{run_search, FieldScope, SearchQuery, SortMode};
-        let dir = tempdir().unwrap();
-        fs::write(dir.path().join("live.md"), "alpha live note\n").unwrap();
-        let vault = Vault::open(dir.path()).await.expect("open");
-
-        cubical_core_index_doc(&vault, "ghost.md", "alpha ghost note").await;
-        vault.search().commit().unwrap();
-        let q = SearchQuery {
-            text: "alpha".into(),
-            limit: 0,
-            offset: 0,
-            fields: FieldScope::Default,
-            fuzzy: false,
-            sort: SortMode::Relevance,
-        };
-        let before = run_search(vault.search(), &q).unwrap().hits;
-        assert_eq!(before.len(), 1);
-        assert_eq!(before[0].path, "ghost.md", "orphan present pre-scan");
-
-        let (tx, _rx) = mpsc::channel::<ScanProgress>(8);
-        scan(vault.clone(), CancellationToken::new(), tx)
-            .await
-            .expect("scan");
-
-        let after = run_search(vault.search(), &q).unwrap().hits;
-        assert_eq!(after.len(), 1, "ghost doc reconciled away, live indexed");
-        assert_eq!(after[0].path, "live.md");
-    }
-
-    #[tokio::test]
     async fn scan_sweeps_files_rows_for_paths_deleted_while_app_closed() {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("live.md"), "still here\n").unwrap();
@@ -572,7 +468,7 @@ mod tests {
             .unwrap();
 
         let (tx, _rx) = mpsc::channel::<ScanProgress>(8);
-        scan(vault.clone(), CancellationToken::new(), tx)
+        scan(vault.clone(), CancellationToken::new(), tx, NoScanSink)
             .await
             .expect("scan");
 
@@ -615,7 +511,7 @@ mod tests {
             .unwrap();
 
         let (tx, _rx) = mpsc::channel::<ScanProgress>(8);
-        scan(vault.clone(), CancellationToken::new(), tx)
+        scan(vault.clone(), CancellationToken::new(), tx, NoScanSink)
             .await
             .expect("scan");
 
@@ -625,12 +521,6 @@ mod tests {
             vec!["empty", "projects", "projects/2026"],
             "every on-disk dir recorded (incl. the empty one); ghost swept",
         );
-    }
-
-    async fn cubical_core_index_doc(vault: &Vault, path: &str, body: &str) {
-        super::super::search_refresh::refresh_search_index(vault, path, body, 0, body.len() as u64)
-            .await
-            .unwrap();
     }
 
     #[tokio::test]
@@ -645,7 +535,9 @@ mod tests {
 
         let (tx, _rx) = mpsc::channel::<ScanProgress>(64);
         let cancel = CancellationToken::new();
-        let count = scan(vault.clone(), cancel, tx).await.expect("scan");
+        let count = scan(vault.clone(), cancel, tx, NoScanSink)
+            .await
+            .expect("scan");
         assert_eq!(count.file_count, 10);
 
         assert_eq!(scalar_i64(&vault, "SELECT COUNT(*) FROM files").await, 10);
@@ -690,7 +582,7 @@ mod tests {
         .await;
 
         let (tx, _rx) = mpsc::channel::<ScanProgress>(64);
-        scan(vault.clone(), CancellationToken::new(), tx)
+        scan(vault.clone(), CancellationToken::new(), tx, NoScanSink)
             .await
             .expect("scan");
 
@@ -718,7 +610,7 @@ mod tests {
         let (_dir, vault) = fixture_vault(20, &[]).await;
         let (tx, mut rx) = mpsc::channel::<ScanProgress>(64);
         let cancel = CancellationToken::new();
-        let scan_handle = tokio::spawn(scan(vault, cancel, tx));
+        let scan_handle = tokio::spawn(scan(vault, cancel, tx, NoScanSink));
 
         let mut events = 0;
         let mut last: Option<ScanProgress> = None;
@@ -740,7 +632,7 @@ mod tests {
         let (tx, mut rx) = mpsc::channel::<ScanProgress>(64);
         let cancel = CancellationToken::new();
 
-        let scan_handle = tokio::spawn(scan(vault.clone(), cancel.clone(), tx));
+        let scan_handle = tokio::spawn(scan(vault.clone(), cancel.clone(), tx, NoScanSink));
 
         let _ = tokio::time::timeout(Duration::from_secs(2), rx.recv())
             .await
@@ -771,7 +663,7 @@ mod tests {
         let cancel = CancellationToken::new();
 
         let (tx, _rx) = mpsc::channel::<ScanProgress>(64);
-        scan(vault.clone(), cancel.clone(), tx)
+        scan(vault.clone(), cancel.clone(), tx, NoScanSink)
             .await
             .expect("scan1");
         let first_created: Vec<(String, i64)> = {
@@ -793,7 +685,9 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(1100)).await;
 
         let (tx2, _rx2) = mpsc::channel::<ScanProgress>(64);
-        scan(vault.clone(), cancel, tx2).await.expect("scan2");
+        scan(vault.clone(), cancel, tx2, NoScanSink)
+            .await
+            .expect("scan2");
         assert_eq!(scalar_i64(&vault, "SELECT COUNT(*) FROM files").await, 5);
 
         let second_created: Vec<(String, i64)> = {
@@ -838,7 +732,7 @@ mod tests {
         .await;
 
         let (tx, _rx) = mpsc::channel::<ScanProgress>(64);
-        scan(vault.clone(), CancellationToken::new(), tx)
+        scan(vault.clone(), CancellationToken::new(), tx, NoScanSink)
             .await
             .expect("scan");
 
@@ -866,7 +760,7 @@ mod tests {
             fixture_vault_with(&[("broken.md", b"---\ntitle: : :\n  - bad\n---\n\nbody\n")]).await;
 
         let (tx, _rx) = mpsc::channel::<ScanProgress>(64);
-        scan(vault.clone(), CancellationToken::new(), tx)
+        scan(vault.clone(), CancellationToken::new(), tx, NoScanSink)
             .await
             .expect("scan should succeed despite malformed YAML");
 
@@ -896,7 +790,7 @@ mod tests {
         let vault = Vault::open(dir.path()).await.expect("open");
 
         let (tx, _rx) = mpsc::channel::<ScanProgress>(64);
-        scan(vault.clone(), CancellationToken::new(), tx)
+        scan(vault.clone(), CancellationToken::new(), tx, NoScanSink)
             .await
             .expect("scan1");
         assert_eq!(
@@ -907,7 +801,7 @@ mod tests {
         fs::write(&p, "---\nheading: B\n---\n").unwrap();
 
         let (tx2, _rx2) = mpsc::channel::<ScanProgress>(64);
-        scan(vault.clone(), CancellationToken::new(), tx2)
+        scan(vault.clone(), CancellationToken::new(), tx2, NoScanSink)
             .await
             .expect("scan2");
         assert_eq!(
@@ -941,7 +835,7 @@ mod tests {
         .await;
 
         let (tx, _rx) = mpsc::channel::<ScanProgress>(64);
-        scan(vault.clone(), CancellationToken::new(), tx)
+        scan(vault.clone(), CancellationToken::new(), tx, NoScanSink)
             .await
             .expect("scan");
 
@@ -967,7 +861,7 @@ mod tests {
     async fn inode_param_round_trips() {
         let (_dir, vault) = fixture_vault(1, &[]).await;
         let (tx, _rx) = mpsc::channel::<ScanProgress>(64);
-        scan(vault.clone(), CancellationToken::new(), tx)
+        scan(vault.clone(), CancellationToken::new(), tx, NoScanSink)
             .await
             .expect("scan");
         let conn = vault.index().connection();
@@ -992,7 +886,7 @@ mod tests {
         let vault = Vault::open(dir.path()).await.expect("open");
 
         let (tx, _rx) = mpsc::channel::<ScanProgress>(64);
-        scan(vault.clone(), CancellationToken::new(), tx)
+        scan(vault.clone(), CancellationToken::new(), tx, NoScanSink)
             .await
             .expect("scan");
 
@@ -1019,7 +913,9 @@ mod tests {
 
         let (tx, _rx) = mpsc::channel::<ScanProgress>(64);
         let cancel = CancellationToken::new();
-        scan(vault.clone(), cancel, tx).await.expect("scan");
+        scan(vault.clone(), cancel, tx, NoScanSink)
+            .await
+            .expect("scan");
 
         let from_aaa = links_from(vault.index(), "aaa.md").await.expect("query");
         assert_eq!(from_aaa.len(), 1);
@@ -1053,7 +949,7 @@ mod tests {
         .unwrap();
 
         let (tx, _rx) = mpsc::channel::<ScanProgress>(64);
-        scan(vault.clone(), CancellationToken::new(), tx)
+        scan(vault.clone(), CancellationToken::new(), tx, NoScanSink)
             .await
             .expect("scan");
 
@@ -1080,7 +976,9 @@ mod tests {
 
         let (tx, _rx) = mpsc::channel::<ScanProgress>(64);
         let cancel = CancellationToken::new();
-        scan(vault.clone(), cancel, tx).await.expect("scan");
+        scan(vault.clone(), cancel, tx, NoScanSink)
+            .await
+            .expect("scan");
 
         let rows = links_from(vault.index(), "a.md").await.expect("query");
         assert_eq!(rows.len(), 2);
@@ -1090,20 +988,75 @@ mod tests {
         assert!(to_c.target_path.is_none());
     }
 
-    #[tokio::test]
-    async fn scan_populates_search_index() {
-        let dir = tempdir().unwrap();
-        fs::write(dir.path().join("a.md"), "# A\n\nalpha body\n").unwrap();
-        fs::write(dir.path().join("b.md"), "# B\n\nbeta body\n").unwrap();
-
-        let vault = Vault::open(dir.path()).await.expect("open");
-        let (tx, mut rx) = mpsc::channel::<ScanProgress>(8);
-        let cancel = CancellationToken::new();
-        scan(vault.clone(), cancel, tx).await.expect("scan");
-        while rx.recv().await.is_some() {}
-
-        assert_eq!(vault.search().doc_count().unwrap(), 2);
+    #[derive(Default)]
+    struct Recorded {
+        markdown: Vec<(String, bool)>,
+        finished: Vec<bool>,
     }
+
+    struct RecordingSink(std::sync::Arc<std::sync::Mutex<Recorded>>);
+
+    impl ScanSink for RecordingSink {
+        fn markdown(&mut self, path: &str, doc: Option<&Document>, _mtime: i64, _size: u64) {
+            self.0
+                .lock()
+                .unwrap()
+                .markdown
+                .push((path.to_string(), doc.is_some()));
+        }
+
+        fn finish(&mut self, walk_complete: bool) {
+            self.0.lock().unwrap().finished.push(walk_complete);
+        }
+    }
+
+    #[tokio::test]
+    async fn scan_hands_every_markdown_file_to_the_sink_then_finishes_it() {
+        let (_dir, vault) = fixture_vault(3, &[("ok-binary.png", b"\x89PNG\r\n\x1a\n")]).await;
+        let recorded = std::sync::Arc::new(std::sync::Mutex::new(Recorded::default()));
+        let (tx, _rx) = mpsc::channel::<ScanProgress>(64);
+        scan(
+            vault,
+            CancellationToken::new(),
+            tx,
+            RecordingSink(std::sync::Arc::clone(&recorded)),
+        )
+        .await
+        .expect("scan");
+
+        let recorded = recorded.lock().unwrap();
+        let mut paths: Vec<&str> = recorded.markdown.iter().map(|(p, _)| p.as_str()).collect();
+        paths.sort_unstable();
+        assert_eq!(paths, vec!["note-000.md", "note-001.md", "note-002.md"]);
+        assert!(recorded.markdown.iter().all(|(_, parsed)| *parsed));
+        assert_eq!(
+            recorded.finished,
+            vec![true],
+            "finished exactly once, walk complete"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_scan_cancelled_before_the_walk_never_feeds_the_sink() {
+        let (_dir, vault) = fixture_vault(3, &[]).await;
+        let recorded = std::sync::Arc::new(std::sync::Mutex::new(Recorded::default()));
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        let (tx, _rx) = mpsc::channel::<ScanProgress>(64);
+        let result = scan(
+            vault,
+            cancel,
+            tx,
+            RecordingSink(std::sync::Arc::clone(&recorded)),
+        )
+        .await;
+
+        assert!(matches!(result, Err(VaultError::ScanCancelled)));
+        let recorded = recorded.lock().unwrap();
+        assert!(recorded.markdown.is_empty());
+        assert!(recorded.finished.is_empty());
+    }
+
     const UNPARSEABLE_FIXTURE: &str =
         "---\ntitle: Keep Me\n---\n\nlinks to [[b]] and tagged #keepme\n\nblock line ^blk1\n";
 
@@ -1129,7 +1082,7 @@ mod tests {
         fs::write(dir.path().join("b.md"), "body\n").unwrap();
         let vault = Vault::open(dir.path()).await.expect("open");
         let (tx, _rx) = mpsc::channel::<ScanProgress>(64);
-        scan(vault.clone(), CancellationToken::new(), tx)
+        scan(vault.clone(), CancellationToken::new(), tx, NoScanSink)
             .await
             .expect("scan");
         (dir, vault)
@@ -1153,8 +1106,6 @@ mod tests {
                 vault: &vault,
                 path: "a.md",
                 source: UNPARSEABLE_FIXTURE,
-                mtime_unix: 0,
-                index_search: true,
             },
             None,
         )
@@ -1189,8 +1140,6 @@ mod tests {
                 vault: &vault,
                 path: "a.md",
                 source: "",
-                mtime_unix: 0,
-                index_search: true,
             },
             Some(&Document::default()),
         )

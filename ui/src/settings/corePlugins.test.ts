@@ -1,12 +1,15 @@
 import { describe, expect, test } from "vitest";
 import {
-  CORE_PLUGINS,
+  BUILTIN_PLUGINS,
   corePluginActive,
   corePluginEnabled,
   missingRequirements,
+  registerCorePlugins,
+  registeredCorePlugins,
+  type CorePlugin,
 } from "./corePlugins";
 
-const dataview = CORE_PLUGINS.find((p) => p.id === "dataview")!;
+const dataview = BUILTIN_PLUGINS.find((p) => p.id === "dataview")!;
 
 describe("corePluginEnabled", () => {
   test("uses the stored value when present", () => {
@@ -25,7 +28,6 @@ describe("corePluginActive", () => {
 
   test("falls back to the plugin's default when unset", () => {
     expect(corePluginActive({}, "math")).toBe(true);
-    expect(corePluginActive({}, "terminal")).toBe(false);
   });
 
   test("is false for an unknown id rather than throwing", () => {
@@ -39,13 +41,13 @@ describe("corePluginActive", () => {
   });
 
   test("is false for a plugin switched on whose requirement is off", () => {
-    const equations = CORE_PLUGINS.find((p) => p.id === "equations")!;
+    const equations = BUILTIN_PLUGINS.find((p) => p.id === "equations")!;
     expect(corePluginEnabled({ "property-refs": false }, equations)).toBe(true);
     expect(corePluginActive({ "property-refs": false }, equations)).toBe(false);
   });
 });
 
-describe("CORE_PLUGINS", () => {
+describe("BUILTIN_PLUGINS", () => {
   test("ships the dataview entry, default-on", () => {
     expect(dataview.settingKey).toBe("plugins.dataview_enabled");
     expect(dataview.defaultEnabled).toBe(true);
@@ -58,7 +60,7 @@ describe("CORE_PLUGINS", () => {
   });
 
   test("points the explainable plugins at a doc, and no others", () => {
-    const withDocs = CORE_PLUGINS.filter((p) => p.docId !== undefined);
+    const withDocs = BUILTIN_PLUGINS.filter((p) => p.docId !== undefined);
     expect(withDocs.map((p) => p.docId)).toEqual([
       "query",
       "property-refs",
@@ -68,30 +70,31 @@ describe("CORE_PLUGINS", () => {
   });
 
   test("ships the property-refs entry, default-on", () => {
-    const pr = CORE_PLUGINS.find((p) => p.id === "property-refs")!;
+    const pr = BUILTIN_PLUGINS.find((p) => p.id === "property-refs")!;
     expect(pr).toBeDefined();
     expect(pr.settingKey).toBe("plugins.property_refs_enabled");
     expect(pr.defaultEnabled).toBe(true);
   });
 
   test("ships the math entry, default-on — it renders, it grants nothing", () => {
-    const math = CORE_PLUGINS.find((p) => p.id === "math")!;
+    const math = BUILTIN_PLUGINS.find((p) => p.id === "math")!;
     expect(math).toBeDefined();
     expect(math.settingKey).toBe("plugins.math_enabled");
     expect(math.defaultEnabled).toBe(true);
   });
 
-  test("ships the terminal entry, default-OFF — it grants an unsandboxed capability", () => {
-    const terminal = CORE_PLUGINS.find((p) => p.id === "terminal")!;
-    expect(terminal).toBeDefined();
-    expect(terminal.settingKey).toBe("plugins.terminal_enabled");
-    expect(terminal.defaultEnabled).toBe(false);
-    expect(corePluginEnabled({}, terminal)).toBe(false);
+  test("holds only the editor-hosted features, in pane order", () => {
+    expect(BUILTIN_PLUGINS.map((p) => p.id)).toEqual([
+      "dataview",
+      "property-refs",
+      "math",
+      "equations",
+    ]);
   });
 });
 
 describe("equations", () => {
-  const equations = CORE_PLUGINS.find((p) => p.id === "equations")!;
+  const equations = BUILTIN_PLUGINS.find((p) => p.id === "equations")!;
 
   test("ships default-on with its own setting key", () => {
     expect(equations.settingKey).toBe("plugins.equations_enabled");
@@ -114,7 +117,7 @@ describe("equations", () => {
 });
 
 describe("missingRequirements", () => {
-  const equations = CORE_PLUGINS.find((p) => p.id === "equations")!;
+  const equations = BUILTIN_PLUGINS.find((p) => p.id === "equations")!;
 
   test("is empty when every requirement is on", () => {
     expect(missingRequirements({}, equations)).toEqual([]);
@@ -129,7 +132,43 @@ describe("missingRequirements", () => {
   });
 
   test("is empty for a plugin that requires nothing", () => {
-    const math = CORE_PLUGINS.find((p) => p.id === "math")!;
+    const math = BUILTIN_PLUGINS.find((p) => p.id === "math")!;
     expect(missingRequirements({ "property-refs": false }, math)).toEqual([]);
+  });
+});
+
+describe("registerCorePlugins", () => {
+  const needsProbe: CorePlugin = {
+    id: "fixture-dependent",
+    name: "Dependent",
+    description: "",
+    settingKey: "plugins.graph_view_enabled",
+    defaultEnabled: true,
+    requires: ["fixture-probe"],
+  };
+  const probe: CorePlugin = {
+    id: "fixture-probe",
+    name: "Probe",
+    description: "",
+    settingKey: "plugins.terminal_enabled",
+    defaultEnabled: false,
+  };
+
+  test("appends after the built-ins in the order given, once per id", () => {
+    registerCorePlugins([needsProbe, probe]);
+    registerCorePlugins([probe]);
+    expect(registeredCorePlugins().map((p) => p.id)).toEqual([
+      ...BUILTIN_PLUGINS.map((p) => p.id),
+      "fixture-dependent",
+      "fixture-probe",
+    ]);
+  });
+
+  test("resolves a requirement on a registered plugin, not only a built-in", () => {
+    expect(corePluginActive({}, "fixture-dependent")).toBe(false);
+    expect(missingRequirements({}, needsProbe).map((p) => p.id)).toEqual([
+      "fixture-probe",
+    ]);
+    expect(corePluginActive({ "fixture-probe": true }, needsProbe)).toBe(true);
   });
 });

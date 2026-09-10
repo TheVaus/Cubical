@@ -22,6 +22,7 @@ use crate::rename_pairing::{
     capture_tombstone, drop_row, find_rename_source, forget_tombstone, new_tombstones,
     path_is_tracked, restore_row, RenameSource, Tombstones,
 };
+use crate::search_handle::SearchHandle;
 use crate::state::{OpenVault, ScanStatusBackend};
 
 pub type FlushOwnWrites = Arc<Mutex<HashSet<(String, String)>>>;
@@ -183,13 +184,14 @@ pub fn spawn_scan_dispatcher(
     state: Arc<RwLock<std::collections::HashMap<String, OpenVault>>>,
     vault_id: String,
     vault: Vault,
+    search: SearchHandle,
     cancel: CancellationToken,
 ) {
     tokio::spawn(async move {
         let started = Instant::now();
         let scan_started_secs = unix_now_secs();
         let (tx, mut rx) = mpsc::channel::<ScanProgress>(64);
-        let scan_handle = tokio::spawn(scan(vault.clone(), cancel.clone(), tx));
+        let scan_handle = tokio::spawn(scan(vault.clone(), cancel.clone(), tx, search.scan_sink()));
 
         let vid_for_progress = vault_id.clone();
         let sink_for_progress = Arc::clone(&sink);
@@ -224,10 +226,12 @@ pub fn spawn_scan_dispatcher(
                         duration_ms: elapsed_ms,
                     },
                 );
-                (
-                    ScanStatusBackend::Complete,
-                    cubical_search::IndexState::Ready,
-                )
+                let searchable = if search.is_available() {
+                    cubical_search::IndexState::Ready
+                } else {
+                    cubical_search::IndexState::Error
+                };
+                (ScanStatusBackend::Complete, searchable)
             }
             Ok(Err(VaultError::ScanCancelled)) => {
                 emit_scan_cancelled(
@@ -287,6 +291,11 @@ pub(crate) struct WatchContext<'a> {
     pub tombstones: &'a Tombstones,
 }
 
+pub struct WatchedVault {
+    pub vault: Vault,
+    pub search: SearchHandle,
+}
+
 pub struct WatcherLifetime {
     pub cancel: CancellationToken,
     pub live: Arc<AtomicBool>,
@@ -319,12 +328,13 @@ pub(crate) async fn record_vault_warning(
 pub fn spawn_watcher_dispatcher(
     sink: Arc<dyn EventSink>,
     vault_id: String,
-    vault: Vault,
+    watched: WatchedVault,
     mut events_rx: tokio::sync::mpsc::Receiver<WatchEvent>,
     flush_own_writes: FlushOwnWrites,
     settings: Arc<RwLock<SettingsMap>>,
     lifetime: WatcherLifetime,
 ) {
+    let WatchedVault { vault, search } = watched;
     tokio::spawn(async move {
         let tombstones = new_tombstones();
         while let Some(first) = events_rx.recv().await {
@@ -335,6 +345,7 @@ pub fn spawn_watcher_dispatcher(
             let sink = Arc::clone(&sink);
             let batch_vault_id = vault_id.clone();
             let batch_vault = vault.clone();
+            let batch_search = search.clone();
             let flush_own_writes = Arc::clone(&flush_own_writes);
             let settings = Arc::clone(&settings);
             let tombstones = Arc::clone(&tombstones);
@@ -346,7 +357,7 @@ pub fn spawn_watcher_dispatcher(
                     settings: settings.as_ref(),
                     tombstones: &tombstones,
                 };
-                handle_watch_batch(&batch_vault, batch, &ctx).await;
+                handle_watch_batch(&batch_vault, &batch_search, batch, &ctx).await;
             });
             if let Err(e) = batch_task.await {
                 tracing::error!(vault_id = %vault_id, error = %e, "watcher: batch handler died; dropping that batch and staying up");
@@ -405,13 +416,18 @@ async fn journal_renames_found_by_scan(
     }
 }
 
-async fn handle_watch_batch(vault: &Vault, batch: Vec<WatchEvent>, ctx: &WatchContext<'_>) {
+async fn handle_watch_batch(
+    vault: &Vault,
+    search: &SearchHandle,
+    batch: Vec<WatchEvent>,
+    ctx: &WatchContext<'_>,
+) {
     let arrived = Instant::now();
     let sink = ctx.sink;
     let vault_id = ctx.vault_id;
     let flush_own_writes = ctx.flush_own_writes;
 
-    let hashes = apply_watch_events_batch(vault, &batch, Some(ctx)).await;
+    let hashes = apply_watch_events_batch(vault, search, &batch, Some(ctx)).await;
 
     for (ev, new_content_hash) in batch.iter().zip(hashes) {
         if consume_own_write_hash(flush_own_writes, ev, new_content_hash.as_deref()).await {
@@ -435,6 +451,7 @@ async fn handle_watch_batch(vault: &Vault, batch: Vec<WatchEvent>, ctx: &WatchCo
 
 pub(crate) async fn refresh_watched_markdown(
     vault: &Vault,
+    search: &SearchHandle,
     path: &str,
     source: &str,
     mtime: i64,
@@ -462,21 +479,14 @@ pub(crate) async fn refresh_watched_markdown(
     if let Err(e) = refresh_block_refs_for_file(vault, path).await {
         tracing::warn!(path, error = %e, "watcher: block_refs refresh failed");
     }
-    if let Err(e) = cubical_core::vault::search_refresh::refresh_search_index_with_doc(
-        vault,
-        path,
-        doc,
-        mtime,
-        source.len() as u64,
-    )
-    .await
-    {
+    if let Err(e) = search.upsert_doc(path, doc, mtime, source.len() as u64) {
         tracing::warn!(path, error = %e, "watcher: search refresh failed");
     }
 }
 
 pub(crate) async fn apply_watch_event_to_db(
     vault: &Vault,
+    search: &SearchHandle,
     ev: &WatchEvent,
     ctx: Option<&WatchContext<'_>>,
 ) -> Option<String> {
@@ -513,7 +523,7 @@ pub(crate) async fn apply_watch_event_to_db(
             let stats = read_file_stats(&abs, vault).await.unwrap_or_default();
 
             if matches!(ev, WatchEvent::Created(_)) {
-                try_pair_created_as_rename(vault, ctx, &path_str, &stats, now).await;
+                try_pair_created_as_rename(vault, search, ctx, &path_str, &stats, now).await;
             }
 
             let FileStats {
@@ -557,7 +567,8 @@ pub(crate) async fn apply_watch_event_to_db(
                 };
 
                 let doc = parse_off_executor(&source).await;
-                refresh_watched_markdown(vault, &path_str, &source, mtime, doc.as_ref()).await;
+                refresh_watched_markdown(vault, search, &path_str, &source, mtime, doc.as_ref())
+                    .await;
             }
 
             if hash.is_empty() {
@@ -583,9 +594,7 @@ pub(crate) async fn apply_watch_event_to_db(
             if let Err(e) = cubical_index::delete_folder(vault.index(), &path_str).await {
                 tracing::warn!(path = %path_str, error = %e, "watcher: folder row delete failed");
             }
-            if let Err(e) =
-                cubical_core::vault::search_refresh::delete_search_index(vault, &path_str).await
-            {
+            if let Err(e) = search.delete(&path_str) {
                 tracing::warn!(path = %path_str, error = %e, "watcher: search delete failed");
             }
             None
@@ -594,7 +603,7 @@ pub(crate) async fn apply_watch_event_to_db(
             let from_str = from.clone();
             let to_str = to.clone();
 
-            if try_adopt_external_rename(vault, ctx, &from_str, &to_str).await {
+            if try_adopt_external_rename(vault, search, ctx, &from_str, &to_str).await {
                 if let Err(e) = conn
                     .execute(
                         "UPDATE files SET last_seen = ?1, updated_at = ?1 WHERE path = ?2",
@@ -614,9 +623,7 @@ pub(crate) async fn apply_watch_event_to_db(
                 {
                     tracing::warn!(path = %from_str, error = %e, "watcher: rename last_seen update failed");
                 }
-                if let Err(e) =
-                    cubical_core::vault::search_refresh::delete_search_index(vault, &from_str).await
-                {
+                if let Err(e) = search.delete(&from_str) {
                     tracing::warn!(path = %from_str, error = %e, "watcher: search delete (rename old) failed");
                 }
             }
@@ -643,6 +650,7 @@ pub(crate) async fn apply_watch_event_to_db(
 
 async fn try_pair_created_as_rename(
     vault: &Vault,
+    search: &SearchHandle,
     ctx: Option<&WatchContext<'_>>,
     to_path: &str,
     stats: &FileStats,
@@ -670,7 +678,7 @@ async fn try_pair_created_as_rename(
         RenameSource::Tracked(_) => false,
     };
 
-    let adopted = try_adopt_external_rename(vault, Some(ctx), &from_path, to_path).await;
+    let adopted = try_adopt_external_rename(vault, search, Some(ctx), &from_path, to_path).await;
     if adopted {
         forget_tombstone(ctx.tombstones, &from_path).await;
         tracing::info!(
@@ -686,6 +694,7 @@ async fn try_pair_created_as_rename(
 
 async fn try_adopt_external_rename(
     vault: &Vault,
+    search: &SearchHandle,
     ctx: Option<&WatchContext<'_>>,
     from: &str,
     to: &str,
@@ -705,6 +714,7 @@ async fn try_adopt_external_rename(
         ctx.sink,
         crate::commands::rename::AdoptExternalRenameInput {
             vault,
+            search,
             flush_own_writes: ctx.flush_own_writes,
             vault_id: ctx.vault_id,
             from_path: from,
@@ -729,14 +739,15 @@ async fn try_adopt_external_rename(
 
 pub(crate) async fn apply_watch_events_batch(
     vault: &Vault,
+    search: &SearchHandle,
     events: &[WatchEvent],
     ctx: Option<&WatchContext<'_>>,
 ) -> Vec<Option<String>> {
     let mut hashes = Vec::with_capacity(events.len());
     for ev in events {
-        hashes.push(apply_watch_event_to_db(vault, ev, ctx).await);
+        hashes.push(apply_watch_event_to_db(vault, search, ev, ctx).await);
     }
-    if let Err(e) = vault.search().commit() {
+    if let Err(e) = search.commit() {
         tracing::warn!(error = %e, "watcher: batch search commit failed");
     }
     if let Err(e) =
@@ -897,9 +908,15 @@ mod tests {
     #[tokio::test]
     async fn created_event_writes_files_row_and_audit_log() {
         let (_dir, vault) = fresh_vault_with_one_md("note.md").await;
+        let search = crate::search_handle::SearchHandle::open(&vault).await;
 
-        let hash =
-            apply_watch_event_to_db(&vault, &WatchEvent::Created("note.md".into()), None).await;
+        let hash = apply_watch_event_to_db(
+            &vault,
+            &search,
+            &WatchEvent::Created("note.md".into()),
+            None,
+        )
+        .await;
         assert!(hash.is_some(), "Created on a real file returns its hash");
 
         let conn = vault.index().connection();
@@ -952,7 +969,7 @@ mod tests {
         out
     }
 
-    fn spawn_dispatcher_for(
+    async fn spawn_dispatcher_for(
         vault: &Vault,
         rx: mpsc::Receiver<WatchEvent>,
         lifetime: WatcherLifetime,
@@ -960,7 +977,10 @@ mod tests {
         spawn_watcher_dispatcher(
             Arc::new(NoopEventSink),
             "v1".into(),
-            vault.clone(),
+            WatchedVault {
+                vault: vault.clone(),
+                search: crate::search_handle::SearchHandle::open(vault).await,
+            },
             rx,
             Arc::new(Mutex::new(HashSet::new())),
             Arc::new(RwLock::new(SettingsMap::new())),
@@ -984,7 +1004,8 @@ mod tests {
                 cancel: CancellationToken::new(),
                 live: Arc::clone(&live),
             },
-        );
+        )
+        .await;
 
         drop(tx);
         for _ in 0..200 {
@@ -1024,7 +1045,8 @@ mod tests {
                 cancel: cancel.clone(),
                 live: Arc::clone(&live),
             },
-        );
+        )
+        .await;
 
         cancel.cancel();
         drop(tx);
@@ -1078,14 +1100,16 @@ mod tests {
         std::fs::write(dir.path().join("a.md"), WATCHED_FIXTURE).unwrap();
         std::fs::write(dir.path().join("b.md"), "body\n").unwrap();
         let vault = Vault::open(dir.path()).await.expect("vault open");
-        apply_watch_event_to_db(&vault, &WatchEvent::Created("b.md".into()), None).await;
-        apply_watch_event_to_db(&vault, &WatchEvent::Created("a.md".into()), None).await;
+        let search = crate::search_handle::SearchHandle::open(&vault).await;
+        apply_watch_event_to_db(&vault, &search, &WatchEvent::Created("b.md".into()), None).await;
+        apply_watch_event_to_db(&vault, &search, &WatchEvent::Created("a.md".into()), None).await;
         (dir, vault)
     }
 
     #[tokio::test]
     async fn watcher_path_keeps_derived_rows_when_the_parse_yields_nothing() {
         let (_dir, vault) = watched_fixture().await;
+        let search = crate::search_handle::SearchHandle::open(&vault).await;
 
         let before = watched_derived_counts(&vault).await;
         assert!(
@@ -1093,7 +1117,7 @@ mod tests {
             "fixture must seed frontmatter, links, tags and blocks; got {before:?}",
         );
 
-        refresh_watched_markdown(&vault, "a.md", WATCHED_FIXTURE, 0, None).await;
+        refresh_watched_markdown(&vault, &search, "a.md", WATCHED_FIXTURE, 0, None).await;
 
         assert_eq!(
             watched_derived_counts(&vault).await,
@@ -1105,10 +1129,12 @@ mod tests {
     #[tokio::test]
     async fn watcher_path_wipes_derived_rows_for_a_genuinely_empty_document() {
         let (_dir, vault) = watched_fixture().await;
+        let search = crate::search_handle::SearchHandle::open(&vault).await;
         assert_ne!(watched_derived_counts(&vault).await, (0, 0, 0, 0));
 
         refresh_watched_markdown(
             &vault,
+            &search,
             "a.md",
             "",
             0,
@@ -1140,10 +1166,17 @@ mod tests {
         use std::os::unix::fs::MetadataExt;
 
         let (dir, vault) = fresh_vault_with_one_md("note.md").await;
+        let search = crate::search_handle::SearchHandle::open(&vault).await;
         let fresh = dir.path().join("fresh.md");
         std::fs::write(&fresh, "body\n").unwrap();
 
-        apply_watch_event_to_db(&vault, &WatchEvent::Created("fresh.md".into()), None).await;
+        apply_watch_event_to_db(
+            &vault,
+            &search,
+            &WatchEvent::Created("fresh.md".into()),
+            None,
+        )
+        .await;
 
         let expected = i64::try_from(std::fs::metadata(&fresh).unwrap().ino()).unwrap();
         assert_eq!(
@@ -1159,9 +1192,16 @@ mod tests {
         use std::os::unix::fs::MetadataExt;
 
         let (dir, vault) = fresh_vault_with_one_md("note.md").await;
+        let search = crate::search_handle::SearchHandle::open(&vault).await;
         let note = dir.path().join("note.md");
 
-        apply_watch_event_to_db(&vault, &WatchEvent::Created("note.md".into()), None).await;
+        apply_watch_event_to_db(
+            &vault,
+            &search,
+            &WatchEvent::Created("note.md".into()),
+            None,
+        )
+        .await;
         let first = read_inode_column(&vault, "note.md")
             .await
             .expect("inode set");
@@ -1172,7 +1212,13 @@ mod tests {
         let replaced = i64::try_from(std::fs::metadata(&note).unwrap().ino()).unwrap();
         assert_ne!(first, replaced, "replacement must change the inode");
 
-        apply_watch_event_to_db(&vault, &WatchEvent::Modified("note.md".into()), None).await;
+        apply_watch_event_to_db(
+            &vault,
+            &search,
+            &WatchEvent::Modified("note.md".into()),
+            None,
+        )
+        .await;
 
         assert_eq!(
             read_inode_column(&vault, "note.md").await,
@@ -1184,8 +1230,15 @@ mod tests {
     #[tokio::test]
     async fn created_event_on_missing_file_leaves_inode_null() {
         let (_dir, vault) = fresh_vault_with_one_md("note.md").await;
+        let search = crate::search_handle::SearchHandle::open(&vault).await;
 
-        apply_watch_event_to_db(&vault, &WatchEvent::Created("ghost.md".into()), None).await;
+        apply_watch_event_to_db(
+            &vault,
+            &search,
+            &WatchEvent::Created("ghost.md".into()),
+            None,
+        )
+        .await;
 
         let conn = vault.index().connection();
         let mut rows = conn
@@ -1206,14 +1259,25 @@ mod tests {
         let p = dir.path().join("note.md");
         std::fs::write(&p, "---\ntitle: Old\n---\n\nbody\n").unwrap();
         let vault = Vault::open(dir.path()).await.expect("vault open");
+        let search = crate::search_handle::SearchHandle::open(&vault).await;
 
-        let h1 = apply_watch_event_to_db(&vault, &WatchEvent::Created("note.md".into()), None)
-            .await
-            .expect("Created hash");
+        let h1 = apply_watch_event_to_db(
+            &vault,
+            &search,
+            &WatchEvent::Created("note.md".into()),
+            None,
+        )
+        .await
+        .expect("Created hash");
         std::fs::write(&p, "---\ntitle: New\nstatus: ready\n---\n\nbody\n").unwrap();
-        let h2 = apply_watch_event_to_db(&vault, &WatchEvent::Modified("note.md".into()), None)
-            .await
-            .expect("Modified hash");
+        let h2 = apply_watch_event_to_db(
+            &vault,
+            &search,
+            &WatchEvent::Modified("note.md".into()),
+            None,
+        )
+        .await
+        .expect("Modified hash");
         assert_ne!(h1, h2, "hash must change after content changes");
 
         let conn = vault.index().connection();
@@ -1245,9 +1309,16 @@ mod tests {
         std::fs::write(&p, raw).unwrap();
         std::fs::write(dir.path().join("Daily.md"), "body\n").unwrap();
         let vault = Vault::open(dir.path()).await.expect("vault open");
+        let search = crate::search_handle::SearchHandle::open(&vault).await;
 
-        apply_watch_event_to_db(&vault, &WatchEvent::Created("a.md".into()), None).await;
-        apply_watch_event_to_db(&vault, &WatchEvent::Created("Daily.md".into()), None).await;
+        apply_watch_event_to_db(&vault, &search, &WatchEvent::Created("a.md".into()), None).await;
+        apply_watch_event_to_db(
+            &vault,
+            &search,
+            &WatchEvent::Created("Daily.md".into()),
+            None,
+        )
+        .await;
 
         enqueue_pending(
             vault.index(),
@@ -1263,9 +1334,10 @@ mod tests {
         .await
         .unwrap();
 
-        let hash = apply_watch_event_to_db(&vault, &WatchEvent::Modified("a.md".into()), None)
-            .await
-            .expect("Modified hash");
+        let hash =
+            apply_watch_event_to_db(&vault, &search, &WatchEvent::Modified("a.md".into()), None)
+                .await
+                .expect("Modified hash");
 
         let rows = links_from(vault.index(), "a.md").await.expect("query");
         assert_eq!(rows.len(), 1);
@@ -1281,9 +1353,15 @@ mod tests {
         let dir = tempdir().unwrap();
         std::fs::create_dir(dir.path().join("projects")).unwrap();
         let vault = Vault::open(dir.path()).await.expect("vault open");
+        let search = crate::search_handle::SearchHandle::open(&vault).await;
 
-        let hash =
-            apply_watch_event_to_db(&vault, &WatchEvent::Created("projects".into()), None).await;
+        let hash = apply_watch_event_to_db(
+            &vault,
+            &search,
+            &WatchEvent::Created("projects".into()),
+            None,
+        )
+        .await;
         assert!(hash.is_none(), "a directory carries no content hash");
 
         let folders = cubical_index::list_folders(vault.index()).await.unwrap();
@@ -1303,7 +1381,14 @@ mod tests {
         let dir = tempdir().unwrap();
         std::fs::create_dir(dir.path().join("projects")).unwrap();
         let vault = Vault::open(dir.path()).await.expect("vault open");
-        apply_watch_event_to_db(&vault, &WatchEvent::Created("projects".into()), None).await;
+        let search = crate::search_handle::SearchHandle::open(&vault).await;
+        apply_watch_event_to_db(
+            &vault,
+            &search,
+            &WatchEvent::Created("projects".into()),
+            None,
+        )
+        .await;
         assert_eq!(
             cubical_index::list_folders(vault.index())
                 .await
@@ -1313,7 +1398,13 @@ mod tests {
         );
 
         std::fs::remove_dir(dir.path().join("projects")).unwrap();
-        apply_watch_event_to_db(&vault, &WatchEvent::Removed("projects".into()), None).await;
+        apply_watch_event_to_db(
+            &vault,
+            &search,
+            &WatchEvent::Removed("projects".into()),
+            None,
+        )
+        .await;
         assert!(
             cubical_index::list_folders(vault.index())
                 .await
@@ -1326,9 +1417,11 @@ mod tests {
     #[tokio::test]
     async fn renamed_event_audits_with_from_and_to() {
         let (_dir, vault) = fresh_vault_with_one_md("a.md").await;
+        let search = crate::search_handle::SearchHandle::open(&vault).await;
 
         let hash = apply_watch_event_to_db(
             &vault,
+            &search,
             &WatchEvent::Renamed {
                 from: "a.md".to_string(),
                 to: "b.md".to_string(),
@@ -1360,10 +1453,22 @@ mod tests {
     #[tokio::test]
     async fn removed_event_returns_no_hash() {
         let (_dir, vault) = fresh_vault_with_one_md("note.md").await;
-        apply_watch_event_to_db(&vault, &WatchEvent::Created("note.md".into()), None).await;
+        let search = crate::search_handle::SearchHandle::open(&vault).await;
+        apply_watch_event_to_db(
+            &vault,
+            &search,
+            &WatchEvent::Created("note.md".into()),
+            None,
+        )
+        .await;
 
-        let hash =
-            apply_watch_event_to_db(&vault, &WatchEvent::Removed("note.md".into()), None).await;
+        let hash = apply_watch_event_to_db(
+            &vault,
+            &search,
+            &WatchEvent::Removed("note.md".into()),
+            None,
+        )
+        .await;
         assert!(hash.is_none(), "Removed must not carry a hash");
     }
 
@@ -1373,8 +1478,15 @@ mod tests {
         let p = dir.path().join("note.md");
         std::fs::write(&p, "---\ntitle: Hi\n---\n\n#planning body\n").unwrap();
         let vault = Vault::open(dir.path()).await.expect("vault open");
+        let search = crate::search_handle::SearchHandle::open(&vault).await;
 
-        apply_watch_event_to_db(&vault, &WatchEvent::Created("note.md".into()), None).await;
+        apply_watch_event_to_db(
+            &vault,
+            &search,
+            &WatchEvent::Created("note.md".into()),
+            None,
+        )
+        .await;
         let conn = vault.index().connection();
         let count = |sql: &'static str| {
             let conn = conn.clone();
@@ -1395,7 +1507,13 @@ mod tests {
         );
 
         std::fs::remove_file(&p).unwrap();
-        apply_watch_event_to_db(&vault, &WatchEvent::Removed("note.md".into()), None).await;
+        apply_watch_event_to_db(
+            &vault,
+            &search,
+            &WatchEvent::Removed("note.md".into()),
+            None,
+        )
+        .await;
 
         assert_eq!(
             count("SELECT COUNT(*) FROM files WHERE path='note.md'").await,
@@ -1526,15 +1644,28 @@ mod tests {
         let p = dir.path().join("note.md");
         std::fs::write(&p, "old body\n").unwrap();
         let vault = Vault::open(dir.path()).await.expect("vault open");
+        let search = crate::search_handle::SearchHandle::open(&vault).await;
 
-        apply_watch_events_batch(&vault, &[WatchEvent::Created("note.md".into())], None).await;
+        apply_watch_events_batch(
+            &vault,
+            &search,
+            &[WatchEvent::Created("note.md".into())],
+            None,
+        )
+        .await;
         std::fs::write(&p, "freshly indexed unicorn token\n").unwrap();
-        apply_watch_events_batch(&vault, &[WatchEvent::Modified("note.md".into())], None).await;
+        apply_watch_events_batch(
+            &vault,
+            &search,
+            &[WatchEvent::Modified("note.md".into())],
+            None,
+        )
+        .await;
 
-        assert_eq!(vault.search().doc_count().unwrap(), 1);
+        assert_eq!(search.index().unwrap().doc_count().unwrap(), 1);
 
         let resp = run_search(
-            vault.search(),
+            search.index().unwrap(),
             &SearchQuery {
                 text: "unicorn".into(),
                 limit: 10,
@@ -1549,7 +1680,7 @@ mod tests {
         assert_eq!(resp.hits[0].path, "note.md");
 
         let stale = run_search(
-            vault.search(),
+            search.index().unwrap(),
             &SearchQuery {
                 text: "old".into(),
                 limit: 10,
@@ -1570,16 +1701,29 @@ mod tests {
     #[tokio::test]
     async fn removed_event_drops_doc_from_search_index() {
         let (_dir, vault) = fresh_vault_with_one_md("gone.md").await;
-        apply_watch_events_batch(&vault, &[WatchEvent::Created("gone.md".into())], None).await;
+        let search = crate::search_handle::SearchHandle::open(&vault).await;
+        apply_watch_events_batch(
+            &vault,
+            &search,
+            &[WatchEvent::Created("gone.md".into())],
+            None,
+        )
+        .await;
         assert_eq!(
-            vault.search().doc_count().unwrap(),
+            search.index().unwrap().doc_count().unwrap(),
             1,
             "Created should seed exactly one search doc",
         );
 
-        apply_watch_events_batch(&vault, &[WatchEvent::Removed("gone.md".into())], None).await;
+        apply_watch_events_batch(
+            &vault,
+            &search,
+            &[WatchEvent::Removed("gone.md".into())],
+            None,
+        )
+        .await;
         assert_eq!(
-            vault.search().doc_count().unwrap(),
+            search.index().unwrap().doc_count().unwrap(),
             0,
             "Removed should drop the search doc",
         );
@@ -1588,11 +1732,14 @@ mod tests {
     #[tokio::test]
     async fn renamed_event_drops_old_path_from_search_index() {
         let (_dir, vault) = fresh_vault_with_one_md("a.md").await;
-        apply_watch_events_batch(&vault, &[WatchEvent::Created("a.md".into())], None).await;
-        assert_eq!(vault.search().doc_count().unwrap(), 1);
+        let search = crate::search_handle::SearchHandle::open(&vault).await;
+        apply_watch_events_batch(&vault, &search, &[WatchEvent::Created("a.md".into())], None)
+            .await;
+        assert_eq!(search.index().unwrap().doc_count().unwrap(), 1);
 
         apply_watch_events_batch(
             &vault,
+            &search,
             &[WatchEvent::Renamed {
                 from: "a.md".to_string(),
                 to: "b.md".to_string(),
@@ -1601,7 +1748,7 @@ mod tests {
         )
         .await;
         assert_eq!(
-            vault.search().doc_count().unwrap(),
+            search.index().unwrap().doc_count().unwrap(),
             0,
             "Renamed must remove the old path's search doc",
         );
@@ -1622,17 +1769,18 @@ mod tests {
             events.push(WatchEvent::Modified(rel.to_string()));
         }
         let vault = Vault::open(dir.path()).await.expect("vault open");
+        let search = crate::search_handle::SearchHandle::open(&vault).await;
 
-        let before = vault.search().commit_count();
-        apply_watch_events_batch(&vault, &events, None).await;
-        let delta = vault.search().commit_count() - before;
+        let before = search.index().unwrap().commit_count();
+        apply_watch_events_batch(&vault, &search, &events, None).await;
+        let delta = search.index().unwrap().commit_count() - before;
 
         assert_eq!(
             delta, 1,
             "a batch of {n} events must commit exactly once (got {delta})"
         );
         assert_eq!(
-            vault.search().doc_count().unwrap(),
+            search.index().unwrap().doc_count().unwrap(),
             n as u64,
             "all batched docs must be searchable after the single commit",
         );
@@ -1663,6 +1811,7 @@ mod tests {
         struct LiveVault {
             state: AppState,
             vault: Vault,
+            search: crate::search_handle::SearchHandle,
             _watcher: WatcherHandle,
         }
 
@@ -1713,14 +1862,21 @@ mod tests {
             sink: Arc<dyn EventSink>,
         ) -> LiveVault {
             let vault = Vault::open(dir.path()).await.expect("vault open");
+            let search = crate::search_handle::SearchHandle::open(&vault).await;
             for rel in seed {
-                apply_watch_events_batch(&vault, &[WatchEvent::Created(rel.to_string())], None)
-                    .await;
+                apply_watch_events_batch(
+                    &vault,
+                    &search,
+                    &[WatchEvent::Created(rel.to_string())],
+                    None,
+                )
+                .await;
             }
 
             let state = AppState::new();
             let open = OpenVault::new(
                 vault.clone(),
+                search.clone(),
                 CancellationToken::new(),
                 ScanStatusBackend::Complete,
                 None,
@@ -1740,7 +1896,10 @@ mod tests {
             spawn_watcher_dispatcher(
                 sink,
                 VAULT_ID.into(),
-                vault.clone(),
+                WatchedVault {
+                    vault: vault.clone(),
+                    search: search.clone(),
+                },
                 rx,
                 flush_own_writes,
                 settings,
@@ -1751,6 +1910,7 @@ mod tests {
             LiveVault {
                 state,
                 vault,
+                search,
                 _watcher: watcher,
             }
         }
@@ -1859,6 +2019,7 @@ mod tests {
             let tombstones = new_tombstones();
             apply_watch_event_to_db(
                 &live.vault,
+                &live.search,
                 &WatchEvent::Renamed {
                     from: "Daily.md".to_string(),
                     to: "Journal.md".to_string(),
@@ -1913,9 +2074,14 @@ mod tests {
             {
                 let vault = Vault::open(dir.path()).await.expect("open");
                 let (tx, _rx) = mpsc::channel(64);
-                cubical_core::vault::scan(vault.clone(), CancellationToken::new(), tx)
-                    .await
-                    .expect("scan");
+                cubical_core::vault::scan(
+                    vault.clone(),
+                    CancellationToken::new(),
+                    tx,
+                    cubical_core::NoScanSink,
+                )
+                .await
+                .expect("scan");
                 let sql = if drop_inodes {
                     "UPDATE files SET last_seen = last_seen - 60, inode = NULL"
                 } else {
@@ -1932,9 +2098,14 @@ mod tests {
             let vault = Vault::open(dir.path()).await.expect("reopen");
             let scan_started_secs = unix_now_secs();
             let (tx, _rx) = mpsc::channel(64);
-            let outcome = cubical_core::vault::scan(vault.clone(), CancellationToken::new(), tx)
-                .await
-                .expect("rescan");
+            let outcome = cubical_core::vault::scan(
+                vault.clone(),
+                CancellationToken::new(),
+                tx,
+                cubical_core::NoScanSink,
+            )
+            .await
+            .expect("rescan");
             journal_renames_found_by_scan(&vault, &outcome, scan_started_secs).await;
             crate::commands::rename::replay_rename_journal(&vault, &NoopEventSink, VAULT_ID).await;
             vault
@@ -1991,9 +2162,14 @@ mod tests {
             {
                 let vault = Vault::open(dir.path()).await.expect("open");
                 let (tx, _rx) = mpsc::channel(64);
-                cubical_core::vault::scan(vault.clone(), CancellationToken::new(), tx)
-                    .await
-                    .expect("scan");
+                cubical_core::vault::scan(
+                    vault.clone(),
+                    CancellationToken::new(),
+                    tx,
+                    cubical_core::NoScanSink,
+                )
+                .await
+                .expect("scan");
                 vault
                     .index()
                     .connection()
@@ -2007,9 +2183,14 @@ mod tests {
             let vault = Vault::open(dir.path()).await.expect("reopen");
             let scan_started_secs = unix_now_secs();
             let (tx, _rx) = mpsc::channel(64);
-            let outcome = cubical_core::vault::scan(vault.clone(), CancellationToken::new(), tx)
-                .await
-                .expect("rescan");
+            let outcome = cubical_core::vault::scan(
+                vault.clone(),
+                CancellationToken::new(),
+                tx,
+                cubical_core::NoScanSink,
+            )
+            .await
+            .expect("rescan");
             journal_renames_found_by_scan(&vault, &outcome, scan_started_secs).await;
             crate::commands::rename::replay_rename_journal(&vault, &NoopEventSink, VAULT_ID).await;
 
@@ -2159,6 +2340,7 @@ mod tests {
             let tombstones = new_tombstones();
             let hash = apply_watch_event_to_db(
                 &live.vault,
+                &live.search,
                 &WatchEvent::Renamed {
                     from: "Daily.md".to_string(),
                     to: "Journal.md".to_string(),
@@ -2243,6 +2425,7 @@ mod tests {
             let tombstones = new_tombstones();
             apply_watch_event_to_db(
                 &live.vault,
+                &live.search,
                 &WatchEvent::Renamed {
                     from: "Daily.md".to_string(),
                     to: "daily.md".to_string(),
@@ -2267,13 +2450,21 @@ mod tests {
             let dir = tempdir().unwrap();
             std::fs::write(dir.path().join("Journal.md"), "# Daily\n").unwrap();
             let vault = Vault::open(dir.path()).await.expect("vault open");
-            apply_watch_event_to_db(&vault, &WatchEvent::Created("Journal.md".into()), None).await;
+            let search = crate::search_handle::SearchHandle::open(&vault).await;
+            apply_watch_event_to_db(
+                &vault,
+                &search,
+                &WatchEvent::Created("Journal.md".into()),
+                None,
+            )
+            .await;
 
             let flush_own_writes: FlushOwnWrites = Arc::new(Mutex::new(HashSet::new()));
             let settings = RwLock::new(SettingsMap::new());
             let tombstones = new_tombstones();
             apply_watch_event_to_db(
                 &vault,
+                &search,
                 &WatchEvent::Renamed {
                     from: "Daily.md".to_string(),
                     to: "Journal.md".to_string(),
@@ -2294,7 +2485,14 @@ mod tests {
             let png = [0x89u8, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0xFF, 0xFE];
             std::fs::write(dir.path().join("logo.png"), png).unwrap();
             let vault = Vault::open(dir.path()).await.expect("vault open");
-            apply_watch_event_to_db(&vault, &WatchEvent::Created("logo.png".into()), None).await;
+            let search = crate::search_handle::SearchHandle::open(&vault).await;
+            apply_watch_event_to_db(
+                &vault,
+                &search,
+                &WatchEvent::Created("logo.png".into()),
+                None,
+            )
+            .await;
             assert!(file_row_exists(&vault, "logo.png").await);
 
             std::fs::rename(dir.path().join("logo.png"), dir.path().join("brand.png")).unwrap();
@@ -2304,6 +2502,7 @@ mod tests {
             let tombstones = new_tombstones();
             let hash = apply_watch_event_to_db(
                 &vault,
+                &search,
                 &WatchEvent::Renamed {
                     from: "logo.png".to_string(),
                     to: "brand.png".to_string(),
@@ -2328,24 +2527,36 @@ mod tests {
             struct StaticVault {
                 state: AppState,
                 vault: Vault,
+                search: crate::search_handle::SearchHandle,
             }
 
             async fn static_vault(dir: &TempDir, seed: &[&str]) -> StaticVault {
                 let vault = Vault::open(dir.path()).await.expect("vault open");
+                let search = crate::search_handle::SearchHandle::open(&vault).await;
                 for rel in seed {
-                    apply_watch_events_batch(&vault, &[WatchEvent::Created(rel.to_string())], None)
-                        .await;
+                    apply_watch_events_batch(
+                        &vault,
+                        &search,
+                        &[WatchEvent::Created(rel.to_string())],
+                        None,
+                    )
+                    .await;
                 }
                 let state = AppState::new();
                 let open = OpenVault::new(
                     vault.clone(),
+                    search.clone(),
                     CancellationToken::new(),
                     ScanStatusBackend::Complete,
                     None,
                     SettingsMap::new(),
                 );
                 state.vaults().write().await.insert(VAULT_ID.into(), open);
-                StaticVault { state, vault }
+                StaticVault {
+                    state,
+                    vault,
+                    search,
+                }
             }
 
             async fn clear_inode(vault: &Vault, path: &str) {
@@ -2365,7 +2576,7 @@ mod tests {
                 let settings = RwLock::new(SettingsMap::new());
                 let ctx = watch_ctx(&flush_own_writes, &settings, tombstones);
                 for ev in events {
-                    apply_watch_event_to_db(&live.vault, ev, Some(&ctx)).await;
+                    apply_watch_event_to_db(&live.vault, &live.search, ev, Some(&ctx)).await;
                 }
             }
 
@@ -2606,7 +2817,9 @@ mod tests {
             let dir = tempdir().unwrap();
             std::fs::create_dir(dir.path().join("notes")).unwrap();
             let vault = Vault::open(dir.path()).await.expect("vault open");
-            apply_watch_event_to_db(&vault, &WatchEvent::Created("notes".into()), None).await;
+            let search = crate::search_handle::SearchHandle::open(&vault).await;
+            apply_watch_event_to_db(&vault, &search, &WatchEvent::Created("notes".into()), None)
+                .await;
             std::fs::rename(dir.path().join("notes"), dir.path().join("archive")).unwrap();
 
             let flush_own_writes: FlushOwnWrites = Arc::new(Mutex::new(HashSet::new()));
@@ -2614,6 +2827,7 @@ mod tests {
             let tombstones = new_tombstones();
             apply_watch_event_to_db(
                 &vault,
+                &search,
                 &WatchEvent::Renamed {
                     from: "notes".to_string(),
                     to: "archive".to_string(),

@@ -1,15 +1,22 @@
 import { scanWikilinks } from "../ast/wikilink";
-import { renderViewerPayload } from "../viewer/FileViewer";
-import { viewerKindForPath } from "../viewer/viewerKind";
 import type { EmbedResolver } from "./embedResolver";
 
 export const MAX_EMBED_DEPTH = 4;
+
+export interface EmbeddedFile {
+  path: string;
+  mime: string;
+  base64: string;
+}
+
+export type EmbedFileRenderer = (file: EmbeddedFile) => Node;
 
 export interface RenderEmbedCtx {
   resolver: EmbedResolver;
   targetRaw: string;
   chain: string[];
   maxDepth?: number;
+  renderFile?: EmbedFileRenderer | null;
 }
 
 export function renderEmbedBody(ctx: RenderEmbedCtx): DocumentFragment {
@@ -17,7 +24,7 @@ export function renderEmbedBody(ctx: RenderEmbedCtx): DocumentFragment {
   const maxDepth = ctx.maxDepth ?? MAX_EMBED_DEPTH;
 
   if (ctx.chain.length >= maxDepth) {
-    frag.appendChild(depthOrCycleLink(ctx.targetRaw, "depth"));
+    frag.appendChild(plainEmbedLink(ctx.targetRaw, "depth"));
     return frag;
   }
 
@@ -35,17 +42,14 @@ export function renderEmbedBody(ctx: RenderEmbedCtx): DocumentFragment {
         frag.appendChild(warningPlaceholder("too-large", ctx.targetRaw));
         return frag;
       }
+      if (!ctx.renderFile) {
+        frag.appendChild(plainEmbedLink(ctx.targetRaw, "file"));
+        return frag;
+      }
       const body = document.createElement("div");
       body.className = "cm-md-embed-body";
       body.appendChild(
-        renderViewerPayload(
-          {
-            kind: viewerKindForPath(path),
-            mime: entry.mime,
-            base64: entry.content,
-          },
-          path,
-        ),
+        ctx.renderFile({ path, mime: entry.mime, base64: entry.content }),
       );
       frag.appendChild(body);
       return frag;
@@ -61,7 +65,7 @@ export function renderEmbedBody(ctx: RenderEmbedCtx): DocumentFragment {
     case "block": {
       const here = entry.target_path;
       if (here !== null && ctx.chain.includes(here)) {
-        frag.appendChild(depthOrCycleLink(ctx.targetRaw, "cycle"));
+        frag.appendChild(plainEmbedLink(ctx.targetRaw, "cycle"));
         return frag;
       }
       const body = document.createElement("div");
@@ -71,6 +75,7 @@ export function renderEmbedBody(ctx: RenderEmbedCtx): DocumentFragment {
         resolver: ctx.resolver,
         chain: nextChain,
         maxDepth,
+        renderFile: ctx.renderFile ?? null,
       });
       frag.appendChild(body);
       return frag;
@@ -82,6 +87,7 @@ interface NestedCtx {
   resolver: EmbedResolver;
   chain: string[];
   maxDepth: number;
+  renderFile: EmbedFileRenderer | null;
 }
 
 function appendContentWithNestedEmbeds(
@@ -112,6 +118,7 @@ function appendContentWithNestedEmbeds(
       targetRaw: nestedTargetRaw,
       chain: ctx.chain,
       maxDepth: ctx.maxDepth,
+      renderFile: ctx.renderFile,
     });
     host.appendChild(sub);
   }
@@ -139,9 +146,9 @@ function reconstructLiteral(
   return `${open}${target}${anchor}${display}]]`;
 }
 
-function depthOrCycleLink(
+function plainEmbedLink(
   targetRaw: string,
-  kind: "depth" | "cycle",
+  kind: "depth" | "cycle" | "file",
 ): HTMLElement {
   const a = document.createElement("a");
   a.className = `cm-md-embed-link cm-md-embed-link-${kind}`;

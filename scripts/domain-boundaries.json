@@ -36,17 +36,7 @@
     "cubical-cli":    { "class": "shell",     "domain": "app" }
   },
 
-  "crate_allowed": {
-    "cubical-core -> cubical-search": {
-      "issue": 274,
-      "reason": [
-        "The `Vault` handle owns `search: Arc<SearchIndex>` and `VaultError`",
-        "carries a `Search(String)` variant, so a search failure is a vault",
-        "failure and the substrate cannot be built without the block. This is",
-        "the one crate-level violation and the reason this gate exists."
-      ]
-    }
-  },
+  "crate_allowed": {},
 
   "engine_modules": {
     "_": "crates/cubical-engine/src/commands/*. Anything not listed is shell.",
@@ -70,7 +60,33 @@
     "search":      { "class": "block", "domain": "search" }
   },
 
-  "engine_allowed": {},
+  "engine_support": {
+    "_": [
+      "crates/cubical-engine/src/* modules outside commands/ that belong to",
+      "one domain. The engine crate is shell, so without this a block's",
+      "handle moved beside commands/ would make every edge to it invisible."
+    ],
+    "search_handle": { "class": "block", "domain": "search" }
+  },
+
+  "engine_allowed": {
+    "vault -> search_handle": {
+      "issue": 288,
+      "reason": [
+        "open_vault calls SearchHandle::open while assembling OpenVault.",
+        "Attaching blocks to an opened vault is composition-root work that",
+        "belongs in the shell, not in the substrate command."
+      ]
+    },
+    "rename -> search_handle": {
+      "issue": 288,
+      "reason": [
+        "Rename deletes and upserts search docs for the paths it moves. The",
+        "search block should learn of the move through a sink the shell",
+        "supplies — the ScanSink pattern — not be written by substrate."
+      ]
+    }
+  },
 
   "ui_domains": {
     "_": [
@@ -94,6 +110,7 @@
 
     "App":        { "class": "shell", "domain": "shell" },
     "main":       { "class": "shell", "domain": "shell" },
+    "shell":      { "class": "shell", "domain": "shell" },
 
     "Editor":     { "class": "block", "domain": "editor" },
     "editor":     { "class": "block", "domain": "editor" },
@@ -115,71 +132,5 @@
     "viewer":     { "class": "block", "domain": "viewer" }
   },
 
-  "ui_allowed": {
-    "editor -> viewer": {
-      "issue": 276,
-      "reason": [
-        "csvBlock.ts and embedRender.ts import the viewer's renderer directly",
-        "to draw an embedded non-Markdown file, so breaking the viewer breaks",
-        "the editor. Wants a block-renderer registry — the seam KaTeX math",
-        "already uses — not an import."
-      ]
-    },
-    "editor -> dataview": {
-      "issue": 276,
-      "reason": [
-        "dataview.ts imports the query renderer to draw a ```query fence.",
-        "Same cause and same fix as the viewer edge above."
-      ]
-    },
-    "explorer -> sidebar": {
-      "issue": 277,
-      "reason": [
-        "ExplorerPanel composes the sidebar's search bar, results and state",
-        "inside itself. Composition done by import rather than by the shell,",
-        "which already imports both."
-      ]
-    },
-    "explorer -> viewer": {
-      "issue": 277,
-      "reason": [
-        "FileRow wants a file kind for its icon. Closer to substrate than to",
-        "the viewer block; resolve with the viewerKind question in 276."
-      ]
-    },
-    "settings -> graph": {
-      "issue": 278,
-      "reason": [
-        "CORE_PLUGINS hardcodes the registry, so the always-on settings store",
-        "cannot be constructed without the graph block. Assembling the plugin",
-        "list is a composition-root job. The back-edge is `import type` and",
-        "needs nothing."
-      ]
-    },
-    "settings -> terminal": {
-      "issue": 278,
-      "reason": ["Same as settings -> graph."]
-    },
-    "settings -> statusbar": {
-      "issue": 278,
-      "reason": [
-        "settingsState.ts, resetSettings.ts and panes/StatusbarPane.tsx import",
-        "the statusbar's segment definitions, so the always-on settings store",
-        "hardcodes a removable block's registry — the same shape as the",
-        "corePlugins case, and it wants the same fix.",
-        "",
-        "Invisible until the gate learned to read braced imports: all three are",
-        "multi-line `import { … } from`, which the first line-by-line matcher",
-        "could not see. It is the reason the gate reads whole files now."
-      ]
-    },
-    "settings -> properties": {
-      "issue": 279,
-      "reason": [
-        "The editor settings pane renders date-format choices the properties",
-        "block owns. Either those formatters are substrate, or settings/ is",
-        "mis-scoped and its panes/ are a block. Pick one, not both."
-      ]
-    }
-  }
+  "ui_allowed": {}
 }

@@ -1,11 +1,11 @@
 import { For } from "solid-js";
 
-import {
-  STATUSBAR_ENABLED_KEY,
-  STATUSBAR_SEGMENTS,
-} from "../../statusbar/segments";
 import OnOffControl from "../OnOffControl";
 import type { SettingsState } from "../settingsState";
+import {
+  STATUSBAR_ENABLED_KEY,
+  registeredStatusbarSegments,
+} from "../statusbarSettings";
 
 const StatusbarPane = (props: { settings: SettingsState }) => (
   <>
@@ -24,7 +24,7 @@ const StatusbarPane = (props: { settings: SettingsState }) => (
         }
       />
     </div>
-    <For each={STATUSBAR_SEGMENTS}>
+    <For each={registeredStatusbarSegments()}>
       {(seg) => {
         const on = () => props.settings.segVisible(seg);
         return (

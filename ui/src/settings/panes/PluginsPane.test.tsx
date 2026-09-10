@@ -2,8 +2,11 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { render } from "solid-js/web";
 
+import { registerBlocks } from "../../shell/registerBlocks";
 import PluginsPane from "./PluginsPane";
 import type { SettingsState } from "../settingsState";
+
+registerBlocks();
 
 let dispose: (() => void) | undefined;
 afterEach(() => {
@@ -43,5 +46,22 @@ describe("PluginsPane dependencies", () => {
   it("does not mark a plugin blocked when an unrelated one is off", () => {
     const host = mount({ math: false });
     expect(host.querySelector(".set-row__desc--blocked")).toBeNull();
+  });
+});
+
+describe("PluginsPane rows", () => {
+  it("lists every plugin the shell assembled, in registry order", () => {
+    const host = mount({});
+    const labels = [...host.querySelectorAll(".set-row__lab")].map(
+      (el) => el.textContent,
+    );
+    expect(labels).toEqual([
+      "Query",
+      "Property references",
+      "Math",
+      "Equations",
+      "Terminal",
+      "Graph view",
+    ]);
   });
 });

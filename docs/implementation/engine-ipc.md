@@ -523,8 +523,12 @@ requires of the terminal specifically. `plugins.terminal_enabled` defaults to
 simply asked.
 
 Defaults live in two places that must agree — `Feature::default_enabled` here
-and the registry in `ui/src/settings/corePlugins.ts` — so a test parses the
-TypeScript and asserts the Rust matches, key for key and default for default.
+and the frontend registry, whose entries sit in `ui/src/settings/corePlugins.ts`
+and in each block's `registration.ts` ([`frontend.md`](frontend.md) says which
+is which) — so a test parses those TypeScript files and asserts the Rust
+matches, key for key and default for default. A new block registration file is
+a new path in that test's list; forgetting it fails the test rather than
+passing it, because the Rust side then has a key the frontend lacks.
 
 ## Lock discipline
 
@@ -542,9 +546,9 @@ So the guard is a **lookup**, never a work scope. `with_open_vault` takes a
 synchronous closure and hands back what it extracted; the guard is gone before
 the caller resumes. It is deliberately not `async`: a closure that could await
 would put the stall straight back. `open_vault_cloned` is the common case —
-everything reachable from the vault handle (index connection, search index,
-root) is clonable, so almost every handler needs nothing else. What must
-outlive the guard is cloned out with it: the settings map, the search-state
+everything reachable from the vault handle (index connection, root) is
+clonable, so almost every handler needs nothing else. What must outlive the
+guard is cloned out with it: the settings map, the search handle and its state
 cell, the cancellation token, the own-write gate.
 
 Sync CPU work goes through `spawn_blocking` for the same reason the guard

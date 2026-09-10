@@ -54,7 +54,8 @@ mod tests {
         state.vaults().write().await.insert(
             vault_id.to_string(),
             OpenVault::new(
-                vault,
+                vault.clone(),
+                crate::search_handle::SearchHandle::open(&vault).await,
                 CancellationToken::new(),
                 ScanStatusBackend::Complete,
                 None,
@@ -80,7 +81,8 @@ mod tests {
         state.vaults().write().await.insert(
             "v2".into(),
             OpenVault::new(
-                vault,
+                vault.clone(),
+                crate::search_handle::SearchHandle::open(&vault).await,
                 CancellationToken::new(),
                 ScanStatusBackend::Complete,
                 None,

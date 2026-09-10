@@ -69,7 +69,8 @@ async fn vault_with_cases() -> (TempDir, AppState) {
     state.vaults().write().await.insert(
         "v1".to_string(),
         OpenVault::new(
-            vault,
+            vault.clone(),
+            cubical_engine::search_handle::SearchHandle::open(&vault).await,
             CancellationToken::new(),
             ScanStatusBackend::Complete,
             None,

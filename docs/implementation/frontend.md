@@ -262,7 +262,7 @@ about any feature. Two boundaries worth preserving:
 
 ## One feature's failure is not the app's
 
-**Anchors:** FeatureBoundary · renderGuarded · createListenerGroup · BlockWidget · EmbedWidget · createSearchState · SearchBar · SearchResults
+**Anchors:** FeatureBoundary · renderGuarded · createListenerGroup · BlockWidget · EmbedWidget · createSearchState · SearchBar · SearchResults · ExplorerSearchSlot
 
 There is one Solid root and no code splitting, so without a boundary any
 render-time throw blanks the whole window. Every surface that renders
@@ -310,9 +310,12 @@ throw. No boundary placement fixes that — wrapping the parent keeps the parent
 siblings alive, never its children. The fix is nesting. Search is three pieces
 now: `createSearchState` holds the query, the filters and the polled index
 status; `SearchBar` draws the chrome; `SearchResults` draws the overlay. The
-explorer creates the state and renders bar, tree and results as **siblings**
-inside one positioned container, each in its own boundary, so a failure in any
-one of the three leaves the other two on screen.
+shell (`shell/composed.tsx`) creates the state and hands the explorer an
+`ExplorerSearchSlot` — bar, results and an `active` accessor — because search
+is the sidebar block's and a block may not import another. The explorer renders
+bar, tree and results as **siblings** inside one positioned container, each in
+its own boundary, so a failure in any one of the three leaves the other two on
+screen. With no slot the explorer draws the tree alone.
 
 The state factory sits outside all three boundaries, which is deliberate and is
 the residual risk: it declares signals and registers a poll timer and nothing
@@ -372,6 +375,59 @@ principle names, so a block whose requirement is off reads as off.
 `corePluginEnabled` answers the raw switch position only: right for drawing the
 switch in Settings, and for a block that declares no requirements.
 
+## The shell hands settings each block's contribution
+
+**Anchors:** registerBlocks · registerCorePlugins · registeredCorePlugins · BUILTIN_PLUGINS · registerStatusbarSegments · registeredStatusbarSegments
+
+Settings is substrate, so it may not import a block —
+[`../principles/domain-scoped-dependencies.md`](../principles/domain-scoped-dependencies.md).
+It still has to list every plugin toggle and every statusbar segment: hydrate
+reads their keys, reset restores their defaults, and two panes draw them. So
+settings owns the *contract* (`CorePlugin`, `StatusbarSegment`, the lookups) and
+a registry, and `shell/registerBlocks.ts` fills the registry from the blocks'
+own `registration.ts` and `segments.ts` before `App` renders. The block keeps
+its entry; the shell is the only code that knows every block exists.
+
+The registry is module state rather than a `createSettingsState` argument
+because the activeness check has to be callable without the store.
+`corePluginActive(state, "dataview")` looks a plugin up by id to fold in its
+requirements, and its callers are block wirings that only hold the toggle
+record. Passing a registry to every call would thread the list through each
+block; a registry filled once at boot gives every caller the same answer.
+
+`BUILTIN_PLUGINS` is what settings itself declares: Query, property
+references, math and equations. All four render inside the editor, and the
+editor has no registration seam yet, so no block owns their entries. Their
+presence before any registration also keeps the editor's wiring tests
+self-contained — they resolve `"dataview"` by id without booting the shell.
+Registration appends after them, which is what fixes the Plugins pane order.
+
+Registration is idempotent by id, so a second boot (HMR re-running `main.tsx`)
+cannot duplicate a row. It is not a conflict check. The registry test asserts
+distinct ids and setting keys.
+
+## Settings owns the vocabulary of what it stores
+
+**Anchors:** DATE_FORMAT_TOKENS · CURRENCY_CODES · DateFormatToken · CurrencyCode
+
+`properties.date_format_default` and `properties.default_currency` are written
+by the settings store and read by the properties block. The set of values they
+may hold is therefore the contract between the two, and a contract between
+substrate and a block belongs to the substrate: `settings/propertyFormats.ts`
+lists the date tokens and currency codes, the Editor pane offers them, and
+`properties/` interprets them. The alternative reading — that `settings/` is
+mis-scoped and its panes are a block — would split one always-on config
+surface in two to save one import. Copying the two lists into the pane would
+also have passed the gate, but it gives one fact two owners.
+
+The properties block does not keep its own copy. `DateFormatDef.token` is typed
+`DateFormatToken`, and the currency table `satisfies Record<CurrencyCode, …>`,
+so a def for a token settings does not know fails to compile, and so does a
+currency settings offers without a symbol. A token settings knows but
+`DATE_FORMATS` does not define is the one gap types cannot close. The parse
+order of `DATE_FORMATS` is load-bearing, so that array stays in `properties/`,
+and `dateFormats.test.ts` asserts it covers the token list in the same order.
+
 ## Editor compartments
 
 `Editor.tsx` owns its DOM and the `EditorView`; Solid stays out of it so the
@@ -428,8 +484,10 @@ source will not kill it. Current members are the decoration plugin, the embed
 block field, the block-renderer field, the display-math field, the property-ref
 field and the equation field, each with its base theme.
 
-`livePreviewFor(rawSource, plugins)` — not the bare bundle — is what the editor
-installs, where `plugins` is a `LivePreviewPlugins` record. Settings that only
+`livePreviewFor(rawSource, plugins, blocks)` — not the bare bundle — is what the
+editor installs, where `plugins` is a `LivePreviewPlugins` record and `blocks`
+is whatever the shell plugged into the editor's seams (below), so injected
+renderers die with raw source exactly like built-in ones. Settings that only
 gate a preview extension belong in that record, so they ride inside the
 compartment raw source already kills, instead of earning a compartment and a
 reconfigure effect of their own in `Editor.tsx`. The record exists because the
@@ -564,14 +622,47 @@ note's path so a self-embed is detected.
 ## One renderer per viewer format
 
 `viewer/render.ts` holds framework-free DOM builders — table, plain text,
-image. Three surfaces consume them and none of them owns a second copy: the
+image. Three surfaces draw with them and none of them owns a second copy: the
 file tab (`viewer/FileViewer.tsx`, which mounts a fragment rather than
-duplicating the markup in JSX), the embed body (`editor/embedRender.ts`), and
-the ` ```csv ` widget (`editor/csvBlock.ts`).
+duplicating the markup in JSX), the embed body, and the ` ```csv ` widget. The
+last two are the editor's, and the editor does not import the viewer — they get
+the builders through the seams below.
 
 That is what makes "an embed looks like the file's own tab" a property of the
-code rather than a convention to maintain — both call `renderViewerPayload`.
-A new viewer format is added once, in `render.ts`, and appears in all three.
+code rather than a convention to maintain — both go through
+`renderViewerPayload`. A new viewer format is added once, in `render.ts`, and
+appears in all three.
+
+## The editor draws other blocks only through seams
+
+**Anchors:** editorBlocks · renderEmbeddedFile · embedFileRendererFacet · csvBlockRenderer · dataviewBlockRenderer · livePreviewFor · CanViewContext
+
+The editor, the viewer and dataview are separate blocks
+([`domain-scoped-dependencies`](../principles/domain-scoped-dependencies.md)),
+so the editor owns the *slot* and never the *drawing*: `csvBlockRenderer` and
+`dataviewBlockRenderer` are factories that take a render function, and an
+embedded non-Markdown file is drawn by whatever `embedFileRendererFacet`
+holds. `shell/editorBlocks.ts` is the only module that names both sides — it
+fills the factories with `renderDelimitedTable` and `renderDataview` and the
+facet with `renderEmbeddedFile`, and `shell/composed.tsx` hands the result to
+every `Editor` as `previewBlocks`. The block renderers' contract type stays in
+the editor; the shell adapts, so neither the viewer nor dataview imports even a
+type from the editor.
+
+**Absent means degraded, never broken.** With no blocks plugged in, a
+` ```csv ` or ` ```query ` fence stays source, a file embed is a plain
+`![[…]]` link, and the editor constructs as usual. Tests build it that way on
+purpose; do not give a seam a default that imports the block it stands in for.
+
+**`previewBlocks` is composition, not state.** The shell passes a module
+constant, so `Editor` reads it when the preview compartment is built and does
+not watch it. A caller that swaps it at runtime must also flip something the
+compartment's effect already tracks.
+
+The explorer's file rows follow the same rule for `hasViewer`: `FileRow` reads
+`CanViewContext`, `ExplorerPanel` provides it from its `canView` prop, and the
+shell passes the viewer's `hasViewer`. Without it every non-Markdown file shows
+the unsupported badge — which is what a vault without the viewer should show.
 
 ## Viewing, source mode, and editing are three different permissions
 

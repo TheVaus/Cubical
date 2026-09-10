@@ -1,4 +1,11 @@
-import { createEffect, createSignal, on, Show, type Component } from "solid-js";
+import {
+  createEffect,
+  createSignal,
+  on,
+  Show,
+  type Component,
+  type JSXElement,
+} from "solid-js";
 
 import IconButton from "@ds/components/forms/IconButton/IconButton";
 import SegmentedControl from "@ds/components/forms/SegmentedControl/SegmentedControl";
@@ -7,12 +14,16 @@ import Icon from "@ds/components/graphics/Icon/Icon";
 import type { FileEntry } from "../api/ipc";
 import type { LeftSidebarMode } from "../settings/settingsState";
 import FeatureBoundary from "../core/FeatureBoundary";
-import SearchBar from "../sidebar/SearchBar";
-import SearchResults from "../sidebar/SearchResults";
-import { createSearchState } from "../sidebar/searchState";
+import { CanViewContext, cannotView, type CanView } from "./canView";
 import FileTreePanel from "./FileTreePanel";
 import TagTreePanel from "./TagTreePanel";
 import type { FileActions } from "./fileActions";
+
+export interface ExplorerSearchSlot {
+  active: () => boolean;
+  bar: () => JSXElement;
+  results: () => JSXElement;
+}
 
 export interface ExplorerPanelProps {
   files: FileEntry[];
@@ -24,9 +35,10 @@ export interface ExplorerPanelProps {
   actions: FileActions;
   onModeChange: (mode: string) => void;
   onRefresh: () => void;
-  onNavigate: (path: string) => void;
   onSelectFile: (entry: FileEntry) => void;
   onRenameCommit: (fromPath: string, target: string, isFolder: boolean) => void;
+  search?: ExplorerSearchSlot;
+  canView?: CanView;
 }
 
 const MODES = [
@@ -37,11 +49,6 @@ const MODES = [
 const ExplorerPanel: Component<ExplorerPanelProps> = (props) => {
   const [reloadToken, setReloadToken] = createSignal(0);
   const [syncedSignal, setSyncedSignal] = createSignal(0);
-
-  const searchState = createSearchState({
-    vaultId: () => props.vaultId,
-    refreshSignal: () => props.refreshSignal,
-  });
 
   const reloadTags = () => {
     setSyncedSignal(props.refreshSignal);
@@ -83,9 +90,11 @@ const ExplorerPanel: Component<ExplorerPanelProps> = (props) => {
         gap: "var(--space-2)",
       }}
     >
-      <FeatureBoundary feature="Search">
-        <SearchBar state={searchState} />
-      </FeatureBoundary>
+      <Show when={props.search}>
+        {(search) => (
+          <FeatureBoundary feature="Search">{search().bar()}</FeatureBoundary>
+        )}
+      </Show>
 
       <div
         style={{
@@ -148,35 +157,37 @@ const ExplorerPanel: Component<ExplorerPanelProps> = (props) => {
         </div>
 
         <FeatureBoundary feature="File tree">
-          <Show
-            when={props.mode === "tags"}
-            fallback={
-              <FileTreePanel
+          <CanViewContext.Provider value={props.canView ?? cannotView}>
+            <Show
+              when={props.mode === "tags"}
+              fallback={
+                <FileTreePanel
+                  files={props.files}
+                  folders={props.folders}
+                  vaultId={props.vaultId}
+                  selectedPath={props.selectedPath}
+                  actions={props.actions}
+                  onSelectFile={props.onSelectFile}
+                  onRenameCommit={props.onRenameCommit}
+                />
+              }
+            >
+              <TagTreePanel
                 files={props.files}
-                folders={props.folders}
                 vaultId={props.vaultId}
                 selectedPath={props.selectedPath}
+                reloadToken={reloadToken()}
                 actions={props.actions}
                 onSelectFile={props.onSelectFile}
                 onRenameCommit={props.onRenameCommit}
               />
-            }
-          >
-            <TagTreePanel
-              files={props.files}
-              vaultId={props.vaultId}
-              selectedPath={props.selectedPath}
-              reloadToken={reloadToken()}
-              actions={props.actions}
-              onSelectFile={props.onSelectFile}
-              onRenameCommit={props.onRenameCommit}
-            />
-          </Show>
+            </Show>
+          </CanViewContext.Provider>
         </FeatureBoundary>
 
-        <Show when={searchState.isSearching()}>
+        <Show when={props.search?.active()}>
           <FeatureBoundary feature="Search results">
-            <SearchResults state={searchState} onNavigate={props.onNavigate} />
+            {props.search?.results()}
           </FeatureBoundary>
         </Show>
       </div>

@@ -7,7 +7,10 @@ a dependency can be written:
   1. Crates. A substrate crate may not depend on a block crate, and a block
      may not depend on another domain's block.
   2. cubical-engine command modules. Same rule one level down, because the
-     engine crate is a shell and check 1 cannot see inside it.
+     engine crate is a shell and check 1 cannot see inside it. A module that
+     lives beside `commands/` but belongs to one domain (`engine_support`)
+     counts as that domain's, so moving a block's handle out of `commands/`
+     does not hide the edges to it.
   3. ui/src domains. Same rule again on the frontend.
 
 The rule is edges, not sizes. A wide module is not a violation; a module that
@@ -33,8 +36,10 @@ from _common import ROOT, Gate, main_guard, rel, tracked  # noqa: E402
 CONFIG = ROOT / "scripts" / "domain-boundaries.json"
 
 UI_IMPORT = re.compile(
-    r"""^\s*(?:import|export)\s[^;]*?from\s+["'](\.[^"']+)["']""", re.M)
+    r"""(?:^\s*(?:import|export)\s[^;]*?from\s+|^\s*import\s+|\bimport\s*\(\s*)"""
+    r"""["'](\.[^"']+)["']""", re.M)
 ENGINE_USE = re.compile(r"\bcrate::commands::([a-z_]+)")
+ENGINE_SUPPORT_USE = re.compile(r"\bcrate::([a-z_]+)")
 
 
 def production_lines(text: str) -> list[tuple[int, str]]:
@@ -113,11 +118,40 @@ def check_crates(gate: Gate, cfg: dict) -> None:
                           f"tracks removing it, or route it through the shell.")
 
 
+TEST_MOD = re.compile(r"^\s*#\[cfg\(test\)\]\s*\n\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+([a-z_0-9]+)\s*;", re.M)
+
+
+def test_only_modules(files: list[Path]) -> set[Path]:
+    """Files declared as `#[cfg(test)] mod x;` in their parent module.
+
+    production_lines only sees a `#[cfg(test)]` item inside the file it reads;
+    a module whose whole file is test-gated at its declaration looks like
+    production code from inside. The principle exempts test code, so the gate
+    has to find these rather than grandfather a fixture as if it shipped.
+    """
+    out: set[Path] = set()
+    for f in files:
+        if f.name not in ("mod.rs",) and f.parent.name != "commands":
+            continue
+        text = f.read_text(encoding="utf-8", errors="replace")
+        base = f.parent if f.name == "mod.rs" else f.parent / f.stem
+        for name in TEST_MOD.findall(text):
+            for cand in (base / f"{name}.rs", base / name / "mod.rs"):
+                out.add(cand)
+    return out
+
+
 def check_engine_modules(gate: Gate, cfg: dict) -> None:
     table = cfg["engine_modules"]
     allowed = cfg["engine_allowed"]
+    support = {k: v for k, v in cfg.get("engine_support", {}).items()
+               if k != "_"}
     prefix = "crates/cubical-engine/src/commands/"
-    for f in tracked(prefix, suffixes=(".rs",)):
+    files = tracked(prefix, suffixes=(".rs",))
+    test_only = test_only_modules(files)
+    for f in files:
+        if f in test_only:
+            continue
         parts = rel(f)[len(prefix):].split("/")
         src_name = parts[0] if len(parts) > 1 else parts[0][:-len(".rs")]
         if src_name == "mod":
@@ -125,10 +159,13 @@ def check_engine_modules(gate: Gate, cfg: dict) -> None:
         src = classify(table, src_name)
         text = f.read_text(encoding="utf-8", errors="replace")
         for n, line in production_lines(text):
-            for dst_name in ENGINE_USE.findall(line):
+            dsts = [(d, classify(table, d)) for d in ENGINE_USE.findall(line)]
+            dsts += [(d, classify(support, d))
+                     for d in ENGINE_SUPPORT_USE.findall(line) if d in support]
+            for dst_name, dst in dsts:
                 if dst_name == src_name:
                     continue
-                why = verdict(src, classify(table, dst_name))
+                why = verdict(src, dst)
                 if why and f"{src_name} -> {dst_name}" not in allowed:
                     gate.fail(f"{rel(f)}:{n}: {why}.")
 

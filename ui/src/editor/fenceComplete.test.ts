@@ -16,6 +16,8 @@ import {
 import { csvBlockRenderer } from "./csvBlock";
 import { mathBlockRenderer, mathEnabledFacet } from "./math";
 import { dataviewBlockRenderer, dataviewRunnerFacet } from "./dataview";
+import { renderDataview } from "../dataview/dataviewRender";
+import { renderDelimitedTable } from "../viewer/render";
 
 describe("detectFenceTrigger", () => {
   it("fires on a bare backtick fence", () => {
@@ -90,7 +92,11 @@ function optionsFor(
     selection: { anchor: at },
     extensions: [
       markdown(),
-      blockRenderers(dataviewBlockRenderer, csvBlockRenderer, mathBlockRenderer),
+      blockRenderers(
+        dataviewBlockRenderer(renderDataview),
+        csvBlockRenderer(renderDelimitedTable),
+        mathBlockRenderer,
+      ),
       ...(extensions as never[]),
     ],
   });

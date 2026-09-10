@@ -11,10 +11,17 @@ vi.mock("../styles/theme", () => ({
 }));
 
 import { setSetting } from "../api/ipc";
-import { CORE_PLUGINS } from "./corePlugins";
+import { registerBlocks } from "../shell/registerBlocks";
+import { registeredCorePlugins } from "./corePlugins";
 import { SETTINGS_DEFAULTS } from "./defaults";
 import { resetSettings } from "./resetSettings";
 import { createSettingsState } from "./settingsState";
+import {
+  STATUSBAR_DEFAULT,
+  registeredStatusbarSegments,
+} from "./statusbarSettings";
+
+registerBlocks();
 
 const written = setSetting as unknown as ReturnType<typeof vi.fn>;
 
@@ -65,8 +72,22 @@ describe("resetSettings", () => {
 
     resetSettings(s);
 
-    for (const plugin of CORE_PLUGINS) {
+    expect(s.corePlugins()["terminal"]).toBe(false);
+    for (const plugin of registeredCorePlugins()) {
       expect(s.corePlugins()[plugin.id]).toBe(plugin.defaultEnabled);
+    }
+  });
+
+  it("shows every registered statusbar segment again", () => {
+    const s = build();
+    const segments = registeredStatusbarSegments();
+    expect(segments.length).toBeGreaterThan(0);
+    for (const seg of segments) s.setStatusbarSetting(seg.settingKey, false);
+
+    resetSettings(s);
+
+    for (const seg of segments) {
+      expect(s.statusbarConfig()[seg.settingKey]).toBe(STATUSBAR_DEFAULT);
     }
   });
 

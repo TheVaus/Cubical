@@ -9,7 +9,7 @@ import {
 } from "solid-js";
 import { EditorView, keymap } from "@codemirror/view";
 import Minimap from "./editor/minimap/Minimap";
-import { Compartment, EditorState } from "@codemirror/state";
+import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
 import {
@@ -56,8 +56,7 @@ import {
   propertyResolverFacet,
   propertyResolverUpdated,
 } from "./editor/propertyRef";
-import type { DataviewRunner } from "./editor/dataview";
-import { dataviewRunnerFacet, dataviewRunnerUpdated } from "./editor/dataview";
+import { dataviewRunnerFacet, dataviewRunnerUpdated, type DataviewRunner } from "./editor/dataview";
 import {
   closestDataviewFrame,
   closestDataviewLink,
@@ -136,6 +135,7 @@ export interface EditorProps {
   mathEnabled?: boolean;
   equationsEnabled?: boolean;
   dataviewRunner?: DataviewRunner | null;
+  previewBlocks?: Extension;
   openNotePath?: string | null;
   autocompleteProvider?: AutocompleteProvider | null;
   editorBindings?: KeyBinding[];
@@ -159,7 +159,7 @@ const Editor: Component<EditorProps> = (props) => {
       math: props.mathEnabled ?? true,
       equations: props.equationsEnabled ?? true,
       propertyRefs: props.propertyRefsEnabled ?? true,
-    });
+    }, props.previewBlocks);
   let host!: HTMLDivElement;
   let view: EditorView | undefined;
   let astPending: ReturnType<typeof setTimeout> | undefined;

@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  STATUSBAR_SEGMENTS,
   STATUSBAR_ENABLED_KEY,
-  VAULT_PATH_SEGMENT,
   segmentVisible,
-} from "./segments";
+} from "../settings/statusbarSettings";
+import { STATUSBAR_SEGMENTS, VAULT_PATH_SEGMENT } from "./segments";
 
 describe("statusbar segments", () => {
   it("exposes exactly the four configurable item segments", () => {

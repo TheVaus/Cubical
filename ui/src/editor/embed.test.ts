@@ -10,11 +10,13 @@ import { tagExtension } from "./tag";
 import {
   embedBlockField,
   embedExtension,
+  embedFileRendererFacet,
   embedResolverFacet,
   openNotePathFacet,
   embedResolverUpdated,
 } from "./embed";
 import type { EmbedResolver, EmbedResolution } from "./embedResolver";
+import { renderEmbeddedFile } from "../shell/editorBlocks";
 
 function makeStubResolver(resp: EmbedResolution): EmbedResolver {
   return {
@@ -74,6 +76,7 @@ function makeView(
         markdown({ extensions: [wikilinkExtension] }),
         embedResolverFacet.of(resolver),
         openNotePathFacet.of(null),
+        embedFileRendererFacet.of(renderEmbeddedFile),
         embedExtension,
       ],
     }),

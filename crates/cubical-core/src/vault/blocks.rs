@@ -164,6 +164,7 @@ mod tests {
             vault.clone(),
             tokio_util::sync::CancellationToken::new(),
             tx,
+            crate::vault::NoScanSink,
         )
         .await
         .expect("scan");
@@ -191,6 +192,7 @@ mod tests {
             vault.clone(),
             tokio_util::sync::CancellationToken::new(),
             tx,
+            crate::vault::NoScanSink,
         )
         .await
         .expect("scan");

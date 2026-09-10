@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 
+import { DATE_FORMAT_TOKENS } from "../settings/propertyFormats";
 import {
   convertDate,
-  DATE_FORMAT_TOKENS,
+  DATE_FORMATS,
   DEFAULT_DATE_FORMAT,
   effectiveDateFormat,
   getDateFormat,
@@ -15,6 +16,9 @@ describe("table", () => {
     expect(DEFAULT_DATE_FORMAT).toBe("YYYY-MM-DD");
     for (const t of DATE_FORMAT_TOKENS) expect(isKnownDateFormat(t)).toBe(true);
     expect(isKnownDateFormat("MMM D")).toBe(false);
+  });
+  it("defines every token settings can store, in the same order", () => {
+    expect(DATE_FORMATS.map((f) => f.token)).toEqual([...DATE_FORMAT_TOKENS]);
   });
   it("assigns the right widget per format", () => {
     expect(getDateFormat("YYYY-MM-DD")!.widget).toBe("date");

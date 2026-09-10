@@ -1,16 +1,4 @@
-import type { BooleanSettingKey } from "../settings/corePlugins";
-
-export const STATUSBAR_ENABLED_KEY = "statusbar.enabled" as const;
-
-export const STATUSBAR_DEFAULT = true;
-
-export interface StatusbarSegment {
-  id: "vault_path" | "file_path" | "word_count" | "block_count";
-  name: string;
-  description: string;
-  settingKey: BooleanSettingKey;
-  defaultVisible: boolean;
-}
+import type { StatusbarSegment } from "../settings/statusbarSettings";
 
 export const VAULT_PATH_SEGMENT: StatusbarSegment = {
   id: "vault_path",
@@ -50,10 +38,3 @@ export const STATUSBAR_SEGMENTS: StatusbarSegment[] = [
   WORD_COUNT_SEGMENT,
   BLOCK_COUNT_SEGMENT,
 ];
-
-export function segmentVisible(
-  state: Record<string, boolean>,
-  seg: StatusbarSegment,
-): boolean {
-  return state[seg.settingKey] ?? seg.defaultVisible;
-}

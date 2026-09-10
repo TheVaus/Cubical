@@ -3,10 +3,9 @@ import { For, Show } from "solid-js";
 import Select from "@ds/components/forms/Select/Select";
 import TextInput from "@ds/components/forms/TextInput/TextInput";
 
-import { DATE_FORMAT_TOKENS } from "../../properties/dateFormats";
-import { CURRENCY_CODES } from "../../properties/format";
 import InfoButton, { type InfoControl } from "../InfoButton";
 import OnOffControl from "../OnOffControl";
+import { CURRENCY_CODES, DATE_FORMAT_TOKENS } from "../propertyFormats";
 import type { SettingsState } from "../settingsState";
 
 const TYPE_TOKENS: [string, string][] = [

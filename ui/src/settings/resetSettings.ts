@@ -1,11 +1,11 @@
+import { registeredCorePlugins } from "./corePlugins";
+import { SETTINGS_DEFAULTS } from "./defaults";
+import type { SettingsState } from "./settingsState";
 import {
   STATUSBAR_DEFAULT,
   STATUSBAR_ENABLED_KEY,
-  STATUSBAR_SEGMENTS,
-} from "../statusbar/segments";
-import { CORE_PLUGINS } from "./corePlugins";
-import { SETTINGS_DEFAULTS } from "./defaults";
-import type { SettingsState } from "./settingsState";
+  registeredStatusbarSegments,
+} from "./statusbarSettings";
 
 export function resetSettings(settings: SettingsState): void {
   settings.setTheme(SETTINGS_DEFAULTS.themeMode);
@@ -20,12 +20,12 @@ export function resetSettings(settings: SettingsState): void {
   settings.setCurrencyDefaultValue(SETTINGS_DEFAULTS.currencyDefault);
   settings.setTagsKeyAsTagsValue(SETTINGS_DEFAULTS.tagsKeyAsTags);
 
-  for (const plugin of CORE_PLUGINS) {
+  for (const plugin of registeredCorePlugins()) {
     settings.setCorePlugin(plugin.id, plugin.settingKey, plugin.defaultEnabled);
   }
 
   settings.setStatusbarSetting(STATUSBAR_ENABLED_KEY, STATUSBAR_DEFAULT);
-  for (const segment of STATUSBAR_SEGMENTS) {
+  for (const segment of registeredStatusbarSegments()) {
     settings.setStatusbarSetting(segment.settingKey, STATUSBAR_DEFAULT);
   }
 

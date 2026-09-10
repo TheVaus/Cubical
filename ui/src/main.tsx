@@ -2,6 +2,7 @@ import { render } from "solid-js/web";
 import "katex/dist/katex.min.css";
 import App from "./App";
 import { installPerfConsole } from "./core/perf";
+import { registerBlocks } from "./shell/registerBlocks";
 
 const root = document.getElementById("root");
 if (!root) {
@@ -9,5 +10,6 @@ if (!root) {
 }
 
 installPerfConsole(window);
+registerBlocks();
 
 render(() => <App />, root);

@@ -1,5 +1,3 @@
-import { GRAPH_PLUGIN } from "../graph/registration";
-import { TERMINAL_PLUGIN } from "../terminal/registration";
 import type { Setting } from "../api/ipc";
 
 export type BooleanSettingKey = Extract<Setting, { value: boolean }>["key"];
@@ -16,7 +14,7 @@ export interface CorePlugin {
   requires?: readonly string[];
 }
 
-export const CORE_PLUGINS: CorePlugin[] = [
+export const BUILTIN_PLUGINS: readonly CorePlugin[] = [
   {
     id: "dataview",
     name: "Query",
@@ -54,9 +52,19 @@ export const CORE_PLUGINS: CorePlugin[] = [
     docId: "equations",
     requires: ["property-refs"],
   },
-  TERMINAL_PLUGIN,
-  GRAPH_PLUGIN,
 ];
+
+const registry: CorePlugin[] = [...BUILTIN_PLUGINS];
+
+export function registerCorePlugins(plugins: readonly CorePlugin[]): void {
+  for (const plugin of plugins) {
+    if (!registry.some((p) => p.id === plugin.id)) registry.push(plugin);
+  }
+}
+
+export function registeredCorePlugins(): readonly CorePlugin[] {
+  return registry;
+}
 
 export function corePluginEnabled(
   state: Record<string, boolean>,
@@ -70,7 +78,7 @@ export function missingRequirements(
   plugin: CorePlugin,
 ): CorePlugin[] {
   return (plugin.requires ?? []).flatMap((id) =>
-    CORE_PLUGINS.filter((p) => p.id === id && !corePluginEnabled(state, p)),
+    registry.filter((p) => p.id === id && !corePluginEnabled(state, p)),
   );
 }
 
@@ -80,7 +88,7 @@ export function corePluginActive(
 ): boolean {
   const plugin =
     typeof target === "string"
-      ? CORE_PLUGINS.find((p) => p.id === target)
+      ? registry.find((p) => p.id === target)
       : target;
   if (!plugin) return false;
   return (

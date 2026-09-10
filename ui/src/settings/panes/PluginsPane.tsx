@@ -5,9 +5,9 @@ import IconButton from "@ds/components/forms/IconButton/IconButton";
 import Icon from "@ds/components/graphics/Icon/Icon";
 
 import {
-  CORE_PLUGINS,
   corePluginEnabled,
   missingRequirements,
+  registeredCorePlugins,
   type PluginDocId,
 } from "../corePlugins";
 import { PLUGIN_DOCS } from "../docs";
@@ -27,7 +27,7 @@ const PluginsPane = (props: { settings: SettingsState }) => {
       fallback={
         <>
           <h2 class="set-h2">Core Plugins</h2>
-          <For each={CORE_PLUGINS}>
+          <For each={registeredCorePlugins()}>
             {(p) => (
               <div class="set-row">
                 <div class="set-row__text">
