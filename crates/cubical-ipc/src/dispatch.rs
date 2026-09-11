@@ -397,7 +397,7 @@ mod tests {
         std::fs::write(dir.path().join("N.md"), "#project\n").unwrap();
         let (state, vault_id) = open_temp(dir.path()).await;
 
-        let query = cubical_engine::api::types::DataviewQueryRequest {
+        let query = cubical_engine::commands::dataview::DataviewQueryRequest {
             vault_id: vault_id.clone(),
             source: "LIST FROM #project".into(),
         };

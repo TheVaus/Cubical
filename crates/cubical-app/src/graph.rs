@@ -1,8 +1,7 @@
-use cubical_engine::api::types::{
+use cubical_engine::commands::graph::{
     GraphLayoutCancelRequest, GraphLayoutRequest, GraphSnapshot, GraphSnapshotRequest,
-    LayoutComplete, LayoutFrame,
+    LayoutComplete, LayoutFrame, LayoutRegistry,
 };
-use cubical_engine::commands::graph::LayoutRegistry;
 use cubical_engine::error::CubicalError;
 use cubical_engine::state::AppState;
 use tauri::ipc::Channel;
@@ -46,8 +45,7 @@ pub async fn graph_layout_cancel(
 mod tests {
     use super::*;
 
-    use cubical_engine::api::types::GraphFilter;
-    use cubical_engine::api::types::{EdgeKind, NodeKind};
+    use cubical_engine::commands::graph::{EdgeKind, GraphFilter, NodeKind};
     use cubical_engine::state::{OpenVault, ScanStatusBackend};
     use tokio::sync::mpsc;
     use tokio_util::sync::CancellationToken;

@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use libsql::params;
 
-use crate::api::types::{
+use super::{
     DanglingLinkGroup, DanglingLinkOccurrence, ListDanglingLinksRequest, ListDanglingLinksResponse,
     RepairCandidate,
 };

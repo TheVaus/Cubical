@@ -1,9 +1,9 @@
 use cubical_ast::note_title;
-use cubical_index::{all_tag_assignments, files_for_tag_prefix};
+use cubical_index::{all_tag_assignments, all_tag_paths, files_for_tag_prefix};
 
 use crate::api::types::{
-    ListTagAssignmentsRequest, ListTagAssignmentsResponse, QueryTagPageRequest,
-    QueryTagPageResponse, TagAssignmentDto, TagPageFile,
+    ListTagAssignmentsRequest, ListTagAssignmentsResponse, ListTagsRequest, ListTagsResponse,
+    QueryTagPageRequest, QueryTagPageResponse, TagAssignmentDto, TagPageFile,
 };
 use crate::commands::open::open_vault_cloned;
 use crate::error::CubicalError;
@@ -25,6 +25,15 @@ pub async fn query_tag_page(
         .collect();
 
     Ok(QueryTagPageResponse { files })
+}
+
+pub async fn list_tags(
+    state: &AppState,
+    req: ListTagsRequest,
+) -> Result<ListTagsResponse, CubicalError> {
+    let vault = open_vault_cloned(state, &req.vault_id).await?;
+    let tags = all_tag_paths(vault.index()).await?;
+    Ok(ListTagsResponse { tags })
 }
 
 pub async fn list_tag_assignments(
@@ -91,6 +100,43 @@ mod tests {
             tag_path: path.into(),
             source,
         }
+    }
+
+    #[tokio::test]
+    async fn list_tags_returns_all_distinct_sorted() {
+        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        seed_file(&vault, "a.md").await;
+        seed_file(&vault, "b.md").await;
+        replace_tags_for_file(
+            vault.index(),
+            "a.md",
+            &[
+                tag("project/cubical", TagSource::Inline),
+                tag("alpha", TagSource::Inline),
+            ],
+        )
+        .await
+        .unwrap();
+        replace_tags_for_file(
+            vault.index(),
+            "b.md",
+            &[tag("project/cubical", TagSource::Frontmatter)],
+        )
+        .await
+        .unwrap();
+
+        let resp = list_tags(
+            &state,
+            ListTagsRequest {
+                vault_id: "v1".into(),
+            },
+        )
+        .await
+        .expect("ok");
+        assert_eq!(
+            resp.tags,
+            vec!["alpha".to_string(), "project/cubical".to_string()]
+        );
     }
 
     #[tokio::test]

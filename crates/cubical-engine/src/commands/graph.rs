@@ -2,16 +2,64 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use cubical_graph::{
-    build_model, layout_streaming, GraphEdge, GraphModel, GraphNode, LayoutParams, NodeId,
-};
+use cubical_graph::{build_model, layout_streaming, GraphModel, LayoutParams};
+use serde::{Deserialize, Serialize};
 
-use crate::api::types::{
-    GraphFilter, GraphLayoutRequest, GraphSnapshot, GraphSnapshotRequest, LayoutComplete,
-    LayoutFrame,
-};
 use crate::error::CubicalError;
 use crate::state::AppState;
+
+pub use cubical_graph::{EdgeKind, GraphEdge, GraphNode, NodeId, NodeKind};
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphFilter {
+    pub kinds: Option<Vec<NodeKind>>,
+    pub path_prefix: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphSnapshotRequest {
+    pub vault_id: String,
+    #[serde(default)]
+    pub filter: GraphFilter,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphSnapshot {
+    pub nodes: Vec<GraphNode>,
+    pub edges: Vec<GraphEdge>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphLayoutRequest {
+    pub vault_id: String,
+    pub snapshot: GraphSnapshot,
+    pub seed: Option<u64>,
+    pub iterations: Option<u32>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphLayoutCancelRequest {
+    pub vault_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LayoutFrame {
+    pub iteration: u32,
+    pub positions: Vec<f32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LayoutComplete {
+    pub iterations: u32,
+    pub positions: Vec<f32>,
+}
 
 pub const FRAME_INTERVAL: u32 = 10;
 

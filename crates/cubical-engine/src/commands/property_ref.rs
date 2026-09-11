@@ -3,11 +3,33 @@ use cubical_core::vault::links::{read_source_off_executor, resolve_target};
 use cubical_core::vault::pending::materialize_on_read;
 use cubical_index::all_file_paths;
 
-use crate::api::types::{GetPropertyRequest, GetPropertyResponse, PropertyRefKind};
+use serde::{Deserialize, Serialize};
+
 use crate::commands::open::open_vault_cloned_for;
 use crate::error::CubicalError;
 use crate::plugins::Feature;
 use crate::state::AppState;
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct GetPropertyRequest {
+    pub vault_id: String,
+    pub note_raw: String,
+    pub property: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PropertyRefKind {
+    Resolved,
+    NoteUnresolved,
+    PropertyMissing,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct GetPropertyResponse {
+    pub kind: PropertyRefKind,
+    pub value: Option<serde_json::Value>,
+}
 
 pub async fn get_property(
     state: &AppState,

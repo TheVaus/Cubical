@@ -1,9 +1,26 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use cubical_search::{query::run_search, IndexHealth, IndexState, IndexStatus, SearchResponse};
+use cubical_search::{query::run_search, IndexHealth, IndexState, IndexStatus};
+use serde::Deserialize;
 
-use crate::api::types::{SearchRequest, SearchVaultRequest};
+pub use cubical_search::{
+    FieldScope as SearchFieldScope, IndexHealth as SearchHealthDto, IndexState as SearchIndexState,
+    IndexStatus as SearchIndexStatusDto, MatchedField as SearchMatchedField, SearchHit,
+    SearchQuery, SearchResponse, SortMode as SearchSortMode,
+};
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SearchRequest {
+    pub vault_id: String,
+    pub query: SearchQuery,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SearchVaultRequest {
+    pub vault_id: String,
+}
+
 use crate::commands::open::with_open_vault;
 use crate::error::CubicalError;
 use crate::events::{spawn_scan_dispatcher, EventSink};
@@ -119,8 +136,8 @@ fn dir_size(p: &Path) -> std::io::Result<u64> {
 
 #[cfg(test)]
 mod tests {
+    use super::SearchQuery;
     use super::*;
-    use crate::api::types::SearchQuery;
     use crate::search_handle::SearchHandle;
     use crate::state::{OpenVault, ScanStatusBackend};
     use cubical_core::Vault;

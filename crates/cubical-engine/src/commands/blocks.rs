@@ -4,13 +4,40 @@ use cubical_core::vault::blocks::refresh_blocks;
 use cubical_index::broken_block_refs;
 use sha2::{Digest, Sha256};
 
-use crate::api::types::{
-    BrokenBlockRefDto, CreateBlockRefRequest, CreateBlockRefResponse, GetBrokenBlockRefsRequest,
-    GetBrokenBlockRefsResponse,
-};
+use serde::{Deserialize, Serialize};
+
 use crate::commands::open::open_vault_cloned;
 use crate::error::CubicalError;
 use crate::state::AppState;
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateBlockRefRequest {
+    pub vault_id: String,
+    pub target_path: String,
+    pub position: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CreateBlockRefResponse {
+    pub block_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct GetBrokenBlockRefsRequest {
+    pub vault_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct GetBrokenBlockRefsResponse {
+    pub refs: Vec<BrokenBlockRefDto>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BrokenBlockRefDto {
+    pub source_file_path: String,
+    pub target_file_path: String,
+    pub target_block_id: String,
+}
 
 pub async fn create_block_ref(
     state: &AppState,

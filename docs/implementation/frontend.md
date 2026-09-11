@@ -22,9 +22,9 @@ and the vault events — and each block owns one module beside it (`search.ts`,
 classes as part of that block. While every contract sat in one substrate file,
 a block importing another block's wire type was invisible to the domain gate —
 splitting it surfaced two such edges, the editor core's property slot and the
-statusbar, and both now declare the shape they consume instead. The Rust side
-keeps the same split for the same reason: a block's request and response types
-live with its command module, not in the engine's shared `api/types.rs`.
+statusbar, and both now declare the shape they consume instead. The engine
+splits its wire types the same way, for the same reason —
+[`engine-ipc.md`](engine-ipc.md#a-blocks-wire-types-live-with-its-commands).
 
 Every command passes its arguments under a single `req` key, matching the Rust
 handlers' parameter name. Small tests pin that on-wire envelope deliberately —

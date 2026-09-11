@@ -3,7 +3,7 @@ use libsql::params;
 use cubical_core::unix_now_secs;
 use cubical_index::pending_count_total;
 
-use crate::api::types::{RepairDanglingLinkRequest, RepairDanglingLinkResponse};
+use super::{RepairDanglingLinkRequest, RepairDanglingLinkResponse};
 use crate::commands::link_match::derive_reattach_token;
 use crate::commands::rename::{
     clone_vault_with_flush_state, enqueue_coalesced, flush_pending_for_target, mint_rename_op_id,
@@ -125,8 +125,8 @@ async fn dangling_referrers(
 mod tests {
     use super::super::fixtures::{drop_file_as_watcher_would, vault_with};
     use super::super::list_dangling_links;
+    use super::super::ListDanglingLinksRequest;
     use super::*;
-    use crate::api::types::ListDanglingLinksRequest;
     use crate::events::NoopEventSink;
 
     async fn dangling_count(state: &AppState) -> usize {

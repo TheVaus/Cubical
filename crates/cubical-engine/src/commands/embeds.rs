@@ -3,12 +3,40 @@ use cubical_core::vault::links::{read_source_off_executor, resolve_target};
 use cubical_core::vault::pending::materialize_on_read;
 use cubical_index::{all_file_paths, blocks_for_file};
 
-use crate::api::types::{EmbedKind, GetEmbedRequest, GetEmbedResponse, ResolvedAnchor};
+use serde::{Deserialize, Serialize};
+
+use crate::api::types::ResolvedAnchor;
 use crate::commands::links::split_target_anchor;
 use crate::commands::open::open_vault_cloned;
 use crate::commands::vault::mime_for_extension;
 use crate::error::CubicalError;
 use crate::state::AppState;
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct GetEmbedRequest {
+    pub vault_id: String,
+    pub target_raw: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum EmbedKind {
+    Note,
+    Section,
+    Block,
+    File,
+    Unresolved,
+    MissingAnchor,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct GetEmbedResponse {
+    pub kind: EmbedKind,
+    pub target_path: Option<String>,
+    pub content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mime: Option<String>,
+}
 
 pub const MAX_EMBEDDED_FILE_BYTES: u64 = 25 * 1024 * 1024;
 

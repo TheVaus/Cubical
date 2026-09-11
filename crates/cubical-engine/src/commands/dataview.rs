@@ -4,12 +4,55 @@ use std::sync::Arc;
 use cubical_core::vault::relpath::contained_join;
 use cubical_query::{Query, Relation, Source};
 use cubical_table::TableCache;
+use serde::{Deserialize, Serialize};
 
-use crate::api::types::{DataviewQueryRequest, DataviewResult};
 use crate::commands::open::open_vault_cloned_for;
 use crate::error::CubicalError;
 use crate::plugins::Feature;
 use crate::state::AppState;
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DataviewQueryRequest {
+    pub vault_id: String,
+    pub source: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum DataviewResult {
+    List {
+        items: Vec<cubical_query::ListItem>,
+    },
+    Table {
+        columns: Vec<String>,
+        rows: Vec<cubical_query::Row>,
+        row_label: Option<String>,
+    },
+    Count {
+        count: usize,
+    },
+    Error {
+        message: String,
+    },
+}
+
+impl From<cubical_query::QueryResult> for DataviewResult {
+    fn from(r: cubical_query::QueryResult) -> Self {
+        match r {
+            cubical_query::QueryResult::List { items } => Self::List { items },
+            cubical_query::QueryResult::Table {
+                columns,
+                rows,
+                row_label,
+            } => Self::Table {
+                columns,
+                rows,
+                row_label,
+            },
+            cubical_query::QueryResult::Count { count } => Self::Count { count },
+        }
+    }
+}
 
 fn extension_of(path: &str) -> Option<&str> {
     let name = path.rsplit('/').next()?;
