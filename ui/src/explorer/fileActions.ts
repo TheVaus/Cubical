@@ -1,8 +1,8 @@
 import { createSignal } from "solid-js";
 
 import { createFile, createFolder, deleteFile } from "../api/ipc";
-import { errorMessage } from "../errorMessage";
-import { showErrorToast } from "../toastState";
+import { errorMessage } from "../core/errorMessage";
+import { showErrorToast } from "../toast/toastState";
 
 export type EntryKind = "file" | "folder";
 

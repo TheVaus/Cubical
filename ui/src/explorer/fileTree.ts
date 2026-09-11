@@ -1,4 +1,4 @@
-import { stabilizeByKey } from "../listStability";
+import { stabilizeByKey } from "../core/listStability";
 
 export interface FileLeaf {
   path: string;

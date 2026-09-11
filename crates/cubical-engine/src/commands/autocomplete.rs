@@ -1,16 +1,50 @@
 use cubical_ast::note_title;
 use cubical_core::vault::links::resolve_target;
-use cubical_index::{
-    all_file_paths, all_tag_paths, blocks_for_file, files_for_link_query, tag_paths_for_prefix,
-};
+use cubical_index::{all_file_paths, blocks_for_file, files_for_link_query, tag_paths_for_prefix};
 
-use crate::api::types::{
-    BlockIdAutocompleteRequest, BlockIdAutocompleteResponse, LinkAutocompleteRequest,
-    LinkAutocompleteResponse, LinkCandidate, ListTagsRequest, ListTagsResponse,
-    TagAutocompleteRequest, TagAutocompleteResponse,
-};
+use serde::{Deserialize, Serialize};
+
 use crate::commands::open::open_vault_cloned;
 use crate::error::CubicalError;
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct LinkAutocompleteRequest {
+    pub vault_id: String,
+    pub query: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LinkAutocompleteResponse {
+    pub candidates: Vec<LinkCandidate>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LinkCandidate {
+    pub path: String,
+    pub title: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct TagAutocompleteRequest {
+    pub vault_id: String,
+    pub query: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TagAutocompleteResponse {
+    pub candidates: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct BlockIdAutocompleteRequest {
+    pub vault_id: String,
+    pub target_raw: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BlockIdAutocompleteResponse {
+    pub candidates: Vec<String>,
+}
 use crate::state::AppState;
 
 const AUTOCOMPLETE_LIMIT: u32 = 50;
@@ -38,15 +72,6 @@ pub async fn tag_autocomplete(
     let vault = open_vault_cloned(state, &req.vault_id).await?;
     let candidates = tag_paths_for_prefix(vault.index(), &req.query, AUTOCOMPLETE_LIMIT).await?;
     Ok(TagAutocompleteResponse { candidates })
-}
-
-pub async fn list_tags(
-    state: &AppState,
-    req: ListTagsRequest,
-) -> Result<ListTagsResponse, CubicalError> {
-    let vault = open_vault_cloned(state, &req.vault_id).await?;
-    let tags = all_tag_paths(vault.index()).await?;
-    Ok(ListTagsResponse { tags })
 }
 
 pub async fn block_id_autocomplete(
@@ -164,43 +189,6 @@ mod tests {
         .await
         .expect("ok");
         assert_eq!(resp.candidates, vec!["project".to_string()]);
-    }
-
-    #[tokio::test]
-    async fn list_tags_returns_all_distinct_sorted() {
-        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
-        seed_file(&vault, "a.md", "markdown").await;
-        seed_file(&vault, "b.md", "markdown").await;
-        replace_tags_for_file(
-            vault.index(),
-            "a.md",
-            &[
-                tag("project/cubical", TagSource::Inline),
-                tag("alpha", TagSource::Inline),
-            ],
-        )
-        .await
-        .unwrap();
-        replace_tags_for_file(
-            vault.index(),
-            "b.md",
-            &[tag("project/cubical", TagSource::Frontmatter)],
-        )
-        .await
-        .unwrap();
-
-        let resp = list_tags(
-            &state,
-            ListTagsRequest {
-                vault_id: "v1".into(),
-            },
-        )
-        .await
-        .expect("ok");
-        assert_eq!(
-            resp.tags,
-            vec!["alpha".to_string(), "project/cubical".to_string()]
-        );
     }
 
     #[tokio::test]

@@ -9,7 +9,7 @@ import {
   navForward,
   navPush,
   type NavState,
-} from "../navHistory";
+} from "./navHistory";
 
 export interface NavSession {
   readonly canBack: () => boolean;

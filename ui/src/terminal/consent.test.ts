@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { AgentInstructionsStatus } from "../api/ipc";
+import type { AgentInstructionsStatus } from "../api/terminal";
 import { createConsentGate } from "./consent";
 
 const status = (offered: boolean): AgentInstructionsStatus => ({

@@ -2,7 +2,7 @@ import {
   getProperty as defaultGetProperty,
   type GetPropertyRequest,
   type GetPropertyResponse,
-} from "../api/ipc";
+} from "../api/propertyRef";
 import { createKeyedResolver } from "./keyedResolver";
 import type { PropertyResolver } from "./propertySlot";
 

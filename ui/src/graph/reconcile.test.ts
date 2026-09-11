@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { GraphEdge, GraphNode, GraphSnapshot } from "../api/ipc";
+import type { GraphEdge, GraphNode, GraphSnapshot } from "../api/graph";
 import { positionsByKey, reconcilePositions } from "./reconcile";
 
 const node = (id: number, key: string, kind: GraphNode["kind"] = "note"): GraphNode => ({

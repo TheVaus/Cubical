@@ -121,9 +121,15 @@ def parse_helpers(text: str, name: str) -> list[str]:
     return out
 
 
+def is_test(file: Path) -> bool:
+    return ".test." in file.name
+
+
 def components(category: Path) -> list[tuple[str, Path, list[tuple[str, str, bool]], list[str]]]:
     found = []
     for file in sorted(category.rglob("*.tsx"), key=lambda p: p.as_posix()):
+        if is_test(file):
+            continue
         text = file.read_text(encoding="utf-8")
         m = DEFAULT_EXPORT.search(text)
         if not m:
@@ -134,7 +140,8 @@ def components(category: Path) -> list[tuple[str, Path, list[tuple[str, str, boo
 
 
 def modules(category: Path) -> list[Path]:
-    return sorted(category.rglob("*.ts"), key=lambda p: p.as_posix())
+    return sorted((p for p in category.rglob("*.ts") if not is_test(p)),
+                  key=lambda p: p.as_posix())
 
 
 def render() -> str:

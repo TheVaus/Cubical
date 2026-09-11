@@ -13,7 +13,7 @@ vi.mock("../api/ipc", () => ({
   renameTag: vi.fn(async () => ({ rename_op_id: 1, pending_count: 0 })),
 }));
 
-vi.mock("../sidebar/SearchBar", () => ({
+vi.mock("../search/SearchBar", () => ({
   default: () => {
     throw new Error("search chrome exploded");
   },

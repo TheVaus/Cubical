@@ -3,7 +3,7 @@ import { ErrorBoundary, type Component, type JSX } from "solid-js";
 import Button from "@ds/components/forms/Button/Button";
 import Callout from "@ds/components/feedback/Callout/Callout";
 
-import { errorMessage } from "../errorMessage";
+import { errorMessage } from "./errorMessage";
 
 export interface FeatureBoundaryProps {
   feature: string;

@@ -2,8 +2,6 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-pub use cubical_graph::{EdgeKind, GraphEdge, GraphNode, NodeId, NodeKind};
-
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ScanStatus {
@@ -257,34 +255,6 @@ pub struct TagPageFile {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct LinkAutocompleteRequest {
-    pub vault_id: String,
-    pub query: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct LinkAutocompleteResponse {
-    pub candidates: Vec<LinkCandidate>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct LinkCandidate {
-    pub path: String,
-    pub title: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct TagAutocompleteRequest {
-    pub vault_id: String,
-    pub query: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct TagAutocompleteResponse {
-    pub candidates: Vec<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
 pub struct ListTagsRequest {
     pub vault_id: String,
 }
@@ -313,93 +283,6 @@ pub struct ListTagAssignmentsResponse {
 #[derive(Debug, Clone, Deserialize)]
 pub struct CloseVaultRequest {
     pub vault_id: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct CreateBlockRefRequest {
-    pub vault_id: String,
-    pub target_path: String,
-    pub position: u64,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct CreateBlockRefResponse {
-    pub block_id: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct GetBrokenBlockRefsRequest {
-    pub vault_id: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct GetBrokenBlockRefsResponse {
-    pub refs: Vec<BrokenBlockRefDto>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct BrokenBlockRefDto {
-    pub source_file_path: String,
-    pub target_file_path: String,
-    pub target_block_id: String,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct BlockIdAutocompleteRequest {
-    pub vault_id: String,
-    pub target_raw: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct BlockIdAutocompleteResponse {
-    pub candidates: Vec<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct GetEmbedRequest {
-    pub vault_id: String,
-    pub target_raw: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum EmbedKind {
-    Note,
-    Section,
-    Block,
-    File,
-    Unresolved,
-    MissingAnchor,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct GetEmbedResponse {
-    pub kind: EmbedKind,
-    pub target_path: Option<String>,
-    pub content: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mime: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct GetPropertyRequest {
-    pub vault_id: String,
-    pub note_raw: String,
-    pub property: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum PropertyRefKind {
-    Resolved,
-    NoteUnresolved,
-    PropertyMissing,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct GetPropertyResponse {
-    pub kind: PropertyRefKind,
-    pub value: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -563,71 +446,6 @@ pub struct UndoRenameResponse {
     pub pending_count: i64,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct ListDanglingLinksRequest {
-    pub vault_id: String,
-    #[serde(default)]
-    pub limit: Option<u32>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct DanglingLinkOccurrence {
-    pub source_path: String,
-    pub count: i64,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct RepairCandidate {
-    pub path: String,
-    pub rank: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct DanglingLinkGroup {
-    pub target_raw: String,
-    pub missing_path: Option<String>,
-    pub total: i64,
-    pub occurrences: Vec<DanglingLinkOccurrence>,
-    pub candidates: Vec<RepairCandidate>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct ListDanglingLinksResponse {
-    pub groups: Vec<DanglingLinkGroup>,
-    pub truncated: bool,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct RepairDanglingLinkRequest {
-    pub vault_id: String,
-    pub target_raw: String,
-    pub to_path: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct RepairDanglingLinkResponse {
-    pub files_rewritten: i64,
-    pub refs_updated: i64,
-    pub pending_count: i64,
-}
-
-pub use cubical_search::{
-    FieldScope as SearchFieldScope, IndexHealth as SearchHealthDto, IndexState as SearchIndexState,
-    IndexStatus as SearchIndexStatusDto, MatchedField as SearchMatchedField, SearchHit,
-    SearchQuery, SearchResponse, SortMode as SearchSortMode,
-};
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct SearchRequest {
-    pub vault_id: String,
-    pub query: SearchQuery,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct SearchVaultRequest {
-    pub vault_id: String,
-}
-
 #[derive(Debug, serde::Deserialize)]
 pub struct ReloadSettingsRequest {
     pub vault_id: String,
@@ -636,98 +454,4 @@ pub struct ReloadSettingsRequest {
 #[derive(Debug, serde::Serialize)]
 pub struct ReloadSettingsResponse {
     pub settings: std::collections::BTreeMap<String, serde_json::Value>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct DataviewQueryRequest {
-    pub vault_id: String,
-    pub source: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum DataviewResult {
-    List {
-        items: Vec<cubical_query::ListItem>,
-    },
-    Table {
-        columns: Vec<String>,
-        rows: Vec<cubical_query::Row>,
-        row_label: Option<String>,
-    },
-    Count {
-        count: usize,
-    },
-    Error {
-        message: String,
-    },
-}
-
-impl From<cubical_query::QueryResult> for DataviewResult {
-    fn from(r: cubical_query::QueryResult) -> Self {
-        match r {
-            cubical_query::QueryResult::List { items } => Self::List { items },
-            cubical_query::QueryResult::Table {
-                columns,
-                rows,
-                row_label,
-            } => Self::Table {
-                columns,
-                rows,
-                row_label,
-            },
-            cubical_query::QueryResult::Count { count } => Self::Count { count },
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GraphFilter {
-    pub kinds: Option<Vec<cubical_graph::NodeKind>>,
-    pub path_prefix: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GraphSnapshotRequest {
-    pub vault_id: String,
-    #[serde(default)]
-    pub filter: GraphFilter,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GraphSnapshot {
-    pub nodes: Vec<cubical_graph::GraphNode>,
-    pub edges: Vec<cubical_graph::GraphEdge>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GraphLayoutRequest {
-    pub vault_id: String,
-    pub snapshot: GraphSnapshot,
-    pub seed: Option<u64>,
-    pub iterations: Option<u32>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GraphLayoutCancelRequest {
-    pub vault_id: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LayoutFrame {
-    pub iteration: u32,
-    pub positions: Vec<f32>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LayoutComplete {
-    pub iterations: u32,
-    pub positions: Vec<f32>,
 }

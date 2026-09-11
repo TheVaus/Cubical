@@ -9,10 +9,10 @@ import {
 
 import type { FileEntry, TagAssignmentDto } from "../api/ipc";
 import { listTagAssignments, renameTag, undoRename } from "../api/ipc";
-import { errorMessage } from "../errorMessage";
-import { renameTarget } from "../fileRename";
-import { showErrorToast, showToast } from "../toastState";
-import { computeWindow } from "../virtualList";
+import { errorMessage } from "../core/errorMessage";
+import { renameTarget } from "../vault/fileRename";
+import { showErrorToast, showToast } from "../toast/toastState";
+import { computeWindow } from "../core/virtualList";
 import FileRow from "./FileRow";
 import FolderRow from "./FolderRow";
 import type { FileActions } from "./fileActions";

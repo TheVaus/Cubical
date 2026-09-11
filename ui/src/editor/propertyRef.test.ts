@@ -13,7 +13,7 @@ import {
   propertyResolverUpdated,
 } from "./propertyRef";
 import type { PropertyResolver } from "./propertyResolver";
-import type { GetPropertyResponse } from "../api/ipc";
+import type { GetPropertyResponse } from "../api/propertyRef";
 
 function stubResolver(
   entries: Record<string, GetPropertyResponse>,

@@ -2502,7 +2502,7 @@ mod tests {
         .expect("info");
         assert_eq!(info.markdown_count, 1, "the vault still indexes its notes");
 
-        let req = || crate::api::types::SearchVaultRequest {
+        let req = || crate::commands::search::SearchVaultRequest {
             vault_id: vault_id.clone(),
         };
         let status = crate::commands::search::search_index_status(&state, req())

@@ -3710,7 +3710,7 @@ mod tests {
 
         let dangling = crate::commands::integrity::list_dangling_links(
             &state,
-            crate::api::types::ListDanglingLinksRequest {
+            crate::commands::integrity::ListDanglingLinksRequest {
                 vault_id: "v1".into(),
                 limit: None,
             },

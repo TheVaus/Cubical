@@ -10,7 +10,9 @@ a dependency can be written:
      engine crate is a shell and check 1 cannot see inside it. A module that
      lives beside `commands/` but belongs to one domain (`engine_support`)
      counts as that domain's, so moving a block's handle out of `commands/`
-     does not hide the edges to it.
+     does not hide the edges to it. A workspace crate such a module names
+     (`cubical_search::…`) is an edge to that crate's census entry, because
+     check 1 sees only the engine's manifest, and the engine is shell.
   3. ui/src domains. Same rule again on the frontend.
 
 The rule is edges, not sizes. A wide module is not a violation; a module that
@@ -39,9 +41,10 @@ UI_IMPORT = re.compile(
     r"""(?:^\s*(?:import|export)\s[^;]*?from\s+|^\s*import\s+|\bimport\s*\(\s*)"""
     r"""["'](\.[^"']+)["']""", re.M)
 ENGINE_USE = re.compile(r"\bcrate::commands::([a-z_]+)")
-ENGINE_USE_GROUP = re.compile(r"\bcrate::commands::\{([^}]*)\}")
 ENGINE_SUPPORT_USE = re.compile(r"\bcrate::([a-z_]+)")
-ENGINE_SUPPORT_GROUP = re.compile(r"\buse\s+crate::\{([^}]*)\}")
+ENGINE_GROUP = re.compile(r"\bcrate::(commands::)?\{")
+CRATE_PATH = re.compile(r"\b(cubical_[a-z_]+)\s*::")
+CRATE_USE = re.compile(r"\buse\s+(cubical_[a-z_]+)\b")
 GROUP_HEAD = re.compile(r"^\s*([a-z_]+)")
 
 
@@ -96,8 +99,78 @@ def production_text(text: str) -> str:
                      for n in range(1, len(text.splitlines()) + 1))
 
 
+def braced(text: str, open_pos: int) -> str:
+    """The body of the brace group opening at `open_pos`, nesting respected."""
+    depth = 0
+    for i in range(open_pos, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[open_pos + 1:i]
+    return text[open_pos + 1:]
+
+
+def top_level_parts(body: str) -> list[str]:
+    """`body` split on the commas that are not inside a nested group."""
+    parts: list[str] = []
+    depth = 0
+    start = 0
+    for i, ch in enumerate(body):
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            parts.append(body[start:i])
+            start = i + 1
+    parts.append(body[start:])
+    return parts
+
+
+def group_targets(body: str, in_commands: bool) -> list[str]:
+    """Module targets named by a `crate::{…}` or `crate::commands::{…}` group.
+
+    A `commands::x` inside a `crate::{…}` group is resolved to the command
+    module rather than read as a module called `commands`: reading only the
+    head of each part is what let `use crate::{commands::graph::X, …}` in a
+    substrate module through while `use crate::commands::graph::X` failed.
+    """
+    out: list[str] = []
+    for part in top_level_parts(body):
+        head = GROUP_HEAD.match(part)
+        if not head or head.group(1) == "self":
+            continue
+        name = head.group(1)
+        if in_commands:
+            out.append("commands::" + name)
+            continue
+        if name != "commands":
+            out.append(name)
+            continue
+        rest = part[head.end():].lstrip()
+        if not rest.startswith("::"):
+            continue
+        rest = rest[2:].lstrip()
+        if rest.startswith("{"):
+            out.extend(group_targets(braced(rest, 0), True))
+        else:
+            sub = GROUP_HEAD.match(rest)
+            if sub and sub.group(1) != "self":
+                out.append("commands::" + sub.group(1))
+    return out
+
+
 def engine_edges(text: str) -> list[tuple[int, str]]:
-    """(line, module) for every `crate::commands::x` or `crate::x` it names."""
+    """(line, target) for every engine module or workspace crate a file names.
+
+    A target is `commands::x`, a bare `x` for `crate::x`, or `crate:cubical-x`
+    for a workspace crate named by path (`cubical_x::…`) or by `use cubical_x`.
+    The crate form exists because the crate check reads Cargo manifests, and
+    the engine's manifest is the shell's: a substrate command module writing
+    `use cubical_search::…` compiled against a block and no check saw it.
+    """
     prod = production_text(text)
     found: list[tuple[int, str]] = []
 
@@ -106,18 +179,16 @@ def engine_edges(text: str) -> list[tuple[int, str]]:
 
     for m in ENGINE_USE.finditer(prod):
         found.append((line_of(m.start()), "commands::" + m.group(1)))
-    for m in ENGINE_USE_GROUP.finditer(prod):
-        for part in m.group(1).split(","):
-            head = GROUP_HEAD.match(part)
-            if head and head.group(1) != "self":
-                found.append((line_of(m.start()), "commands::" + head.group(1)))
     for m in ENGINE_SUPPORT_USE.finditer(prod):
         found.append((line_of(m.start()), m.group(1)))
-    for m in ENGINE_SUPPORT_GROUP.finditer(prod):
-        for part in m.group(1).split(","):
-            head = GROUP_HEAD.match(part)
-            if head:
-                found.append((line_of(m.start()), head.group(1)))
+    for m in ENGINE_GROUP.finditer(prod):
+        body = braced(prod, m.end() - 1)
+        for target in group_targets(body, bool(m.group(1))):
+            found.append((line_of(m.start()), target))
+    for pattern in (CRATE_PATH, CRATE_USE):
+        for m in pattern.finditer(prod):
+            crate = m.group(1).replace("_", "-")
+            found.append((line_of(m.start()), "crate:" + crate))
     return found
 
 
@@ -198,6 +269,7 @@ def check_engine_modules(gate: Gate, cfg: dict) -> None:
     """
     table = cfg["engine_modules"]
     allowed = cfg["engine_allowed"]
+    crates = cfg["crates"]
     support = {k: v for k, v in cfg.get("engine_support", {}).items()
                if k != "_"}
     root = "crates/cubical-engine/src/"
@@ -220,8 +292,19 @@ def check_engine_modules(gate: Gate, cfg: dict) -> None:
             sources.append((f, name, classify(support, name)))
     for f, src_name, src in sources:
         text = f.read_text(encoding="utf-8", errors="replace")
+        seen: set[tuple[int, str]] = set()
         for n, target in engine_edges(text):
-            if target.startswith("commands::"):
+            if (n, target) in seen:
+                continue
+            seen.add((n, target))
+            via = ""
+            if target.startswith("crate:"):
+                dst_name = target[len("crate:"):]
+                if dst_name not in crates:
+                    continue
+                dst = classify(crates, dst_name)
+                via = f" (names the {dst_name} crate)"
+            elif target.startswith("commands::"):
                 dst_name = target[len("commands::"):]
                 dst = classify(table, dst_name)
             elif target in support:
@@ -233,7 +316,7 @@ def check_engine_modules(gate: Gate, cfg: dict) -> None:
                 continue
             why = verdict(src, dst)
             if why and f"{src_name} -> {dst_name}" not in allowed:
-                gate.fail(f"{rel(f)}:{n}: {why}.")
+                gate.fail(f"{rel(f)}:{n}: {why}{via}.")
 
 
 def ui_domain(path: str, table: dict | None = None) -> str | None:

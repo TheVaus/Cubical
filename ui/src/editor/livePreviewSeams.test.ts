@@ -4,7 +4,7 @@ import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { markdown } from "@codemirror/lang-markdown";
 
-import type { DataviewResult } from "../api/ipc";
+import type { DataviewResult } from "../api/dataview";
 import { editorBlocks } from "../shell/editorBlocks";
 import { dataviewRunnerFacet, type DataviewRunner } from "./dataview";
 import { livePreviewFor, type PreviewBlocks } from "./livePreview";

@@ -22,7 +22,7 @@ import {
   type PendingRewritesPopoverState,
 } from "./pendingRewritesState";
 import { formatPendingRewrites } from "./pendingRewritesLabel";
-import { errorMessage } from "../errorMessage";
+import { errorMessage } from "../core/errorMessage";
 
 export interface PendingRewritesProps {
   vaultId: string | null;

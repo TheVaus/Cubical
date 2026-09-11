@@ -57,21 +57,21 @@ means the §15.1 semantics.
 | Entry point | Emitted by | Routes through | Result |
 |---|---|---|---|
 | File-tree row click | left file panel | `handleSelectFile` | Open-or-focus. A non-markdown row opens a read-only viewer when its extension has one (§15.5); rows with no viewer stay inert |
-| Wikilink click in Live Preview | `Editor.tsx` → `handleClickAtPos` → `createPathForTarget` (`editor/wikilinkClick.ts`) | `handleNavigateWikilink` | Resolved → open-or-focus (+ anchor, §15.3). Unresolved → **no navigation**; raises the create-offer dialog instead |
-| Follow link under cursor (`Alt-Enter`) | `core/commands.ts`, `Editor.tsx` | same as above | Identical to the click; it reuses `handleClickAtPos` at the cursor |
+| Wikilink click in Live Preview | `editor/Editor.tsx` → `handleClickAtPos` → `createPathForTarget` (`editor/wikilinkClick.ts`) | `handleNavigateWikilink` | Resolved → open-or-focus (+ anchor, §15.3). Unresolved → **no navigation**; raises the create-offer dialog instead |
+| Follow link under cursor (`Alt-Enter`) | `core/commands.ts`, `editor/Editor.tsx` | same as above | Identical to the click; it reuses `handleClickAtPos` at the cursor |
 | Embed (`![[…]]`) | — | — | **Not a navigation entry point.** The embed widget has no click handler and no `data-path` (`editor/embed.ts`, `editor/embedRender.ts`); a click just places the caret. Embeds render content in place, they do not go anywhere |
-| Tag click in the editor | `Editor.tsx` | `handleNavigateTag` | Open-or-focus a `tag` tab |
-| Tag chip in the Properties table | `Properties.tsx` | `handleNavigateTag` | Same |
-| Backlink row | `sidebar/Backlinks.tsx` | `handleNavigateWikilink(path, null)` | Open-or-focus, no anchor |
-| Unlinked-mention row | `sidebar/UnlinkedMentions.tsx` | same | Same |
-| Integrity-panel row | `sidebar/IntegrityPanel.tsx` | same | Same |
-| Tag-page file row | `TagPage.tsx` | same | Same |
-| Tag-page Back button | `TagPage.tsx` | `handleExitTagView` | Activates the tab named by the *current history entry*, then closes the tag tab. If there is no such open tab it just closes the tag tab |
-| Search-panel result | `sidebar/SearchResults.tsx` | `handleNavigateWikilink(path, null)` | Opens the **file**, not the hit. Results are grouped per file and the group header is the only open affordance; there is no jump-to-match |
+| Tag click in the editor | `editor/Editor.tsx` | `handleNavigateTag` | Open-or-focus a `tag` tab |
+| Tag chip in the Properties table | `properties/Properties.tsx` | `handleNavigateTag` | Same |
+| Backlink row | `backlinks/Backlinks.tsx` | `handleNavigateWikilink(path, null)` | Open-or-focus, no anchor |
+| Unlinked-mention row | `backlinks/UnlinkedMentions.tsx` | same | Same |
+| Integrity-panel row | `integrity/IntegrityPanel.tsx` | same | Same |
+| Tag-page file row | `tags/TagPage.tsx` | same | Same |
+| Tag-page Back button | `tags/TagPage.tsx` | `handleExitTagView` | Activates the tab named by the *current history entry*, then closes the tag tab. If there is no such open tab it just closes the tag tab |
+| Search-panel result | `search/SearchResults.tsx` | `handleNavigateWikilink(path, null)` | Opens the **file**, not the hit. Results are grouped per file and the group header is the only open affordance; there is no jump-to-match |
 | Omni-Bar note result | `omnibar/OmniBar.tsx` | `handleNavigateWikilink(path, null)` | Open-or-focus, then the bar closes |
 | Omni-Bar tag result | `omnibar/OmniBar.tsx` | `handleNavigateTag` | Tag tab |
 | Omni-Bar command result | `omnibar/OmniBar.tsx` | `handleRunCommand` | Not navigation — the omni-bar command set is one entry (`omnibar/commands.ts`), separate from the keymap registry |
-| Dataview result link | `Editor.tsx` → the runner's `open` | `handleNavigateWikilink(path, null)` | Open-or-focus |
+| Dataview result link | the dataview mousedown plugin (`editor/dataview.ts`) → the runner's `open` | `handleNavigateWikilink(path, null)` | Open-or-focus |
 | Create from unresolved link | the create-offer dialog | `createFileAtPath` then `handleNavigateWikilink` | Creates the file, then opens it. The fresh content hash is threaded through so the watcher's created-echo is not read as an external edit |
 | New note (`Mod-N`, the `+` button) | left file panel, keymap | `createFile` then `handleNavigateWikilink` | Same shape |
 | Tab-strip click | `tabs/TabStrip.tsx` | `activateTabById` | Focus. Also pushes history when the target is a file tab |
@@ -79,7 +79,7 @@ means the §15.1 semantics.
 | `Mod-Tab` / `Mod-Shift-Tab` / `Mod-Shift-W` | keymap | `activateTabById` / `closeTabById` | Cyclic; wraps at both ends |
 | Back / forward (`Mod-Alt-←/→`, topbar arrows) | keymap, topbar | `goBack` / `goForward` | §15.4 |
 | Open terminal (`Mod-Shift-T`, topbar button) | keymap, topbar | `openTab` directly, via `createTerminalWiring` | **Always a new tab** |
-| Vault open / switch / recent-vault pick | `VaultSwitcher.tsx`, `RecentVaultList.tsx` | `openVaultByPath` → `restoreTabs` | Tab set is cleared to empty, then the machine-local session is restored. Missing files are dropped only once the scan is `complete` |
+| Vault open / switch / recent-vault pick | `vaultSwitcher/VaultSwitcher.tsx`, `vaultSwitcher/RecentVaultList.tsx` | `openVaultByPath` → `restoreTabs` | Tab set is cleared to empty, then the machine-local session is restored. Missing files are dropped only once the scan is `complete` |
 | External rename (watcher or in-app) | the rename handler | `remapTabPaths` | Tab ids follow the path; the active tab stays active |
 | External delete | the tab-set effect | `dropMissingTabs` | Falls back to the first surviving tab, gated on scan-complete so a partial file list cannot evict a live tab |
 
@@ -142,7 +142,7 @@ ordering is duplicated, not violated. Any new tab-switching path goes through
 **Anchors:** NavState · navPush · navBack · navForward · navCurrent · createNavSession · handleSelectFile · activateTabById · navigateToHistoryPath · handleExitTagView
 
 History is **one global `NavState`**, a pure list-with-a-cursor over *file
-paths* (`navHistory.ts`). Global rather than per-tab because dedupe-by-identity
+paths* (`core/navHistory.ts`). Global rather than per-tab because dedupe-by-identity
 makes a tab *be* a document — rationale owned by
 [`../implementation/frontend.md`](../implementation/frontend.md) → Tabs.
 
@@ -252,7 +252,7 @@ them visible.
    remains for those. Whether link resolution can ever *return* such a target
    was still not determined from the frontend alone.
 4. **Open question — search results do not jump to the match.** The panel groups
-   hits per file and opens the file only (`sidebar/SearchResults.tsx`). Nothing
+   hits per file and opens the file only (`search/SearchResults.tsx`). Nothing
    in the code or the specs says whether jump-to-hit was cut or simply never
    built.
 

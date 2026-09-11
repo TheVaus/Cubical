@@ -7,10 +7,23 @@ rules live there (§11.6); this file records frontend implementation invariants.
 
 **Anchors:** invoke · Channel · UnlistenFn
 
-Components call typed functions from `ui/src/api/ipc.ts` — **never raw
-`invoke()`, never `@tauri-apps/api/*` directly.** The module is named `ipc.ts`
-rather than `tauri.ts` so a transport swap doesn't leave a misleading filename;
-a growing API surface is then a one-file change.
+Components call typed functions from `ui/src/api/` — **never raw `invoke()`,
+never `@tauri-apps/api/*` directly.** The chokepoint is the directory, not one
+file: `transport.ts` holds the one `invoke` every command goes through, so a
+transport swap or a cross-cutting concern such as timing is a one-file change.
+The directory is named `api/` rather than `tauri/` so a transport swap doesn't
+leave a misleading name.
+
+**A block's wire contract lives in its own file.** `ipc.ts` holds the
+substrate surface — vault and file operations, links, tags, rename, settings
+and the vault events — and each block owns one module beside it, which the
+domain census (`scripts/domain-boundaries.json`, the `api/<block>` keys)
+classes as part of that block. While every contract sat in one substrate file,
+a block importing another block's wire type was invisible to the domain gate —
+splitting it surfaced two such edges, the editor core's property slot and the
+statusbar, and both now declare the shape they consume instead. The engine
+splits its wire types the same way, for the same reason —
+[`engine-ipc.md`](engine-ipc.md#a-blocks-wire-types-live-with-its-commands).
 
 Every command passes its arguments under a single `req` key, matching the Rust
 handlers' parameter name. Small tests pin that on-wire envelope deliberately —
@@ -101,7 +114,7 @@ invalidate.
 **Anchors:** TabStrip
 
 The active-document model lives in an immutable `TabSet` (`tabs/tabModel.ts`),
-in the style of `navHistory.ts` — `App` holds one `tabs` signal and derives the
+in the style of `core/navHistory.ts` — `App` holds one `tabs` signal and derives the
 old `view()` / `selectedPath()` accessors from it, so every existing read site
 kept working untouched.
 
@@ -312,7 +325,7 @@ now: `createSearchState` holds the query, the filters and the polled index
 status; `SearchBar` draws the chrome; `SearchResults` draws the overlay. The
 shell (`shell/composed.tsx`) creates the state and hands the explorer an
 `ExplorerSearchSlot` — bar, results and an `active` accessor — because search
-is the sidebar block's and a block may not import another. The explorer renders
+is its own block (`search/`) and a block may not import another. The explorer renders
 bar, tree and results as **siblings** inside one positioned container, each in
 its own boundary, so a failure in any one of the three leaves the other two on
 screen. With no slot the explorer draws the tree alone.
@@ -448,8 +461,20 @@ compartments rather than rebuilding the view:
 | Live Preview decorations | raw-source toggles (swapped for a no-op) |
 | Raw-source coloring | raw source **and** the colorize setting are both on |
 | CM6 chrome theme | the resolved theme flips |
-| Autocomplete | a different vault opens (`null` provider ⇒ no-op) |
+| One per block extension | that block's inputs change — a new embed resolver or open note, a new dataview runner, a new autocomplete provider |
 | Keymap | a shortcut is remapped in Settings |
+
+**The editor core names no block.** Embeds, dataview and autocomplete each
+export an `…ExtensionFor(inputs)` builder that installs everything the block
+needs — its facet value, its resolver's update subscription, its own DOM
+handlers (dataview's link and frame clicks) — and the shell's composed `Editor`
+(`shell/composed.tsx`) builds one per block and passes them as
+`blockExtensions`. The core gives each entry its own compartment and
+reconfigures only the entry whose identity changed, so switching tabs swaps the
+embed facet without rebuilding autocompletion. A new block joins by writing a
+builder and adding it in the shell; `Editor.tsx` does not change. Vertical
+cursor motion past block widgets is core behaviour, not the embed block's, so
+it stays in the core keymap (`verticalMotion.ts`) ahead of the default keys.
 
 Decorations and raw-source coloring are **mutually exclusive by construction**
 (one is gated on raw source, the other on its negation), and neither references
@@ -749,9 +774,9 @@ that blew a frame. It is on in dev and off in a shipped build until the
 `cubical:perf` key is set in `localStorage`, so a slow build in front of a user
 can be asked what it is spending without a special binary.
 
-Two seams cover most of it. `ui/src/api/ipc.ts` is already the one chokepoint
-every command goes through, so a local `invoke` wrapper times all of them for
-the cost of four lines rather than an edit per command; and `buildFor` in the
+Two seams cover most of it. Every command goes through the one `invoke` in
+`ui/src/api/transport.ts`, so timing it there times all of them for the cost of
+four lines rather than an edit per command; and `buildFor` in the
 Live Preview plugin wraps the single Lezer walk, which is the largest
 synchronous cost the editor pays per update.
 
@@ -844,7 +869,7 @@ switch.
 
 **Anchors:** resolveAutoDismissMs · showErrorToast · enqueueToast
 
-`ui/src/toastState.ts` is a queue, not a slot, and the auto-dismiss window is a
+`ui/src/toast/toastState.ts` is a queue, not a slot, and the auto-dismiss window is a
 function of tone: an `error` toast has no window at all and stays until it is
 dismissed, everything else gets the default one, and an explicit `durationMs`
 from the caller beats both.
@@ -967,6 +992,9 @@ point:
   rows land and Solid sees no state change at all.
 
 The component picks between them by remembering the target it last fetched.
+That tracker is substrate (`core/refreshTarget.ts`) rather than a copy per
+panel: backlinks, mentions and integrity are separate blocks, and the rule is
+one fact about how every panel refreshes, not three panels' similar code.
 Dispatching `fetch:start` on every tick is not a subtle degradation: it replaces
 the list with a one-line "Loading…" placeholder and rebuilds it a moment later,
 so the sidebar visibly collapses and re-expands on every pause in typing.

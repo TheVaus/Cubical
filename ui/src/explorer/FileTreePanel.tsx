@@ -1,8 +1,8 @@
 import { createMemo, createSignal, For, Show, type Component } from "solid-js";
 
 import type { FileEntry } from "../api/ipc";
-import { renameTarget } from "../fileRename";
-import { computeWindow } from "../virtualList";
+import { renameTarget } from "../vault/fileRename";
+import { computeWindow } from "../core/virtualList";
 import FileRow from "./FileRow";
 import FolderRow from "./FolderRow";
 import { buildStableTreeRows, type FlatRow } from "./fileTree";

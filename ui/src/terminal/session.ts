@@ -4,7 +4,7 @@ import {
   terminalResize,
   terminalWrite,
   type TerminalExit,
-} from "../api/ipc";
+} from "../api/terminal";
 import { decodeChunk } from "./chunk";
 import { sizeChanged, type TerminalSize } from "./resize";
 

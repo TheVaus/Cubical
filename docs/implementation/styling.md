@@ -58,6 +58,18 @@ This rule is locked in [`../architecture/ui.md`](../architecture/ui.md) §11.6;
 the CSS-side consequence is that "just inherit it from `base.css`" is never an
 acceptable fix for a component.
 
+## Design-system tests live with the component
+
+A component's test sits beside it as `<Name>.test.tsx` and runs under the
+design-system package's own vitest, so a DS change is testable without the app.
+App tests cover only how the app uses a component. The inventory generator
+skips `*.test.*` files so a test never shows up as a component or module.
+
+Both packages turn off `vite-plugin-solid`'s `hot` option when vite runs in
+test mode. solid-refresh serves its runtime from the virtual path `/@solid-refresh`, which
+Node on Windows rejects as a non-absolute `file:` URL, killing the whole vitest
+run. Hot reload does nothing in a test process, so nothing is lost.
+
 ## Overlay content vs overlay chrome
 
 Where the app passes a class into a design-system overlay (`Popover`, `Modal`),

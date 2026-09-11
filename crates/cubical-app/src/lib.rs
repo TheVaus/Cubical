@@ -8,32 +8,45 @@ mod tauri_sink;
 mod terminal;
 
 use cubical_engine::api::types::{
-    BlockIdAutocompleteRequest, BlockIdAutocompleteResponse, CancelVaultScanRequest,
-    CloseVaultRequest, CreateBlockRefRequest, CreateBlockRefResponse, CreateFileAtPathRequest,
-    CreateFileAtPathResponse, CreateFileRequest, CreateFileResponse, CreateFolderRequest,
-    CreateFolderResponse, DataviewQueryRequest, DataviewResult, DeletePathRequest,
-    FlushPendingRewritesForTargetRequest, FlushPendingRewritesRequest,
+    CancelVaultScanRequest, CloseVaultRequest, CreateFileAtPathRequest, CreateFileAtPathResponse,
+    CreateFileRequest, CreateFileResponse, CreateFolderRequest, CreateFolderResponse,
+    DeletePathRequest, FlushPendingRewritesForTargetRequest, FlushPendingRewritesRequest,
     FlushPendingRewritesResponse, GetBacklinksRequest, GetBacklinksResponse,
-    GetBrokenBlockRefsRequest, GetBrokenBlockRefsResponse, GetCanonicalAstRequest,
-    GetCanonicalAstResponse, GetEmbedRequest, GetEmbedResponse, GetFrontmatterRequest,
-    GetFrontmatterResponse, GetPendingRewritesBreakdownRequest,
-    GetPendingRewritesBreakdownResponse, GetPendingRewritesCountRequest,
-    GetPendingRewritesCountResponse, GetPropertyRequest, GetPropertyResponse, GetSettingRequest,
-    GetSettingResponse, GetVaultInfoRequest, GetVaultInfoResponse, LinkAutocompleteRequest,
-    LinkAutocompleteResponse, ListDanglingLinksRequest, ListDanglingLinksResponse,
-    ListFilesRequest, ListFilesResponse, ListRecentRenameOpsRequest, ListRecentRenameOpsResponse,
+    GetCanonicalAstRequest, GetCanonicalAstResponse, GetFrontmatterRequest, GetFrontmatterResponse,
+    GetPendingRewritesBreakdownRequest, GetPendingRewritesBreakdownResponse,
+    GetPendingRewritesCountRequest, GetPendingRewritesCountResponse, GetSettingRequest,
+    GetSettingResponse, GetVaultInfoRequest, GetVaultInfoResponse, ListFilesRequest,
+    ListFilesResponse, ListRecentRenameOpsRequest, ListRecentRenameOpsResponse,
     ListTagAssignmentsRequest, ListTagAssignmentsResponse, ListTagsRequest, ListTagsResponse,
     OpenVaultRequest, OpenVaultResponse, QueryTagPageRequest, QueryTagPageResponse,
     ReadFileBytesRequest, ReadFileBytesResponse, ReadFileTextRequest, ReadFileTextResponse,
     ReloadSettingsRequest, ReloadSettingsResponse, RenameBlockIdRequest, RenameBlockIdResponse,
     RenameFileRequest, RenameFileResponse, RenameFolderRequest, RenameFolderResponse,
-    RenameTagRequest, RenameTagResponse, RepairDanglingLinkRequest, RepairDanglingLinkResponse,
-    ResolveLinkRequest, ResolveLinkResponse, SearchHealthDto, SearchIndexStatusDto, SearchRequest,
-    SearchResponse, SearchVaultRequest, SetSettingRequest, SetSettingResponse,
-    TagAutocompleteRequest, TagAutocompleteResponse, UndoRenameRequest, UndoRenameResponse,
+    RenameTagRequest, RenameTagResponse, ResolveLinkRequest, ResolveLinkResponse,
+    SetSettingRequest, SetSettingResponse, UndoRenameRequest, UndoRenameResponse,
     WriteFileTextRequest, WriteFileTextResponse,
 };
 use cubical_engine::commands;
+use cubical_engine::commands::{
+    autocomplete::{
+        BlockIdAutocompleteRequest, BlockIdAutocompleteResponse, LinkAutocompleteRequest,
+        LinkAutocompleteResponse, TagAutocompleteRequest, TagAutocompleteResponse,
+    },
+    blocks::{
+        CreateBlockRefRequest, CreateBlockRefResponse, GetBrokenBlockRefsRequest,
+        GetBrokenBlockRefsResponse,
+    },
+    dataview::{DataviewQueryRequest, DataviewResult},
+    embeds::{GetEmbedRequest, GetEmbedResponse},
+    integrity::{
+        ListDanglingLinksRequest, ListDanglingLinksResponse, RepairDanglingLinkRequest,
+        RepairDanglingLinkResponse,
+    },
+    property_ref::{GetPropertyRequest, GetPropertyResponse},
+    search::{
+        SearchHealthDto, SearchIndexStatusDto, SearchRequest, SearchResponse, SearchVaultRequest,
+    },
+};
 use cubical_engine::error::CubicalError;
 use cubical_engine::state::AppState;
 use tauri::Manager;
@@ -506,7 +519,7 @@ async fn list_tags(
     state: tauri::State<'_, AppState>,
     req: ListTagsRequest,
 ) -> Result<ListTagsResponse, CubicalError> {
-    commands::autocomplete::list_tags(state.inner(), req).await
+    commands::tags::list_tags(state.inner(), req).await
 }
 
 #[tauri::command]

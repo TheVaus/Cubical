@@ -1,4 +1,4 @@
-import type { GraphEdge } from "../api/ipc";
+import type { GraphEdge } from "../api/graph";
 import { FLAG_DIMMED, FLAG_FOCUSED, FLAG_HIDDEN } from "./gpu/instances";
 import type { Adjacency } from "./graphModel";
 import { focusSet } from "./graphModel";

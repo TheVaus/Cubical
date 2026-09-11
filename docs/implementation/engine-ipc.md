@@ -14,6 +14,27 @@ only the shims.
 IPC request/response types are framework-free `serde` structs for the same
 reason — they survive a shell migration unchanged.
 
+## A block's wire types live with its commands
+
+**Anchors:** DataviewResult · GraphSnapshot · SearchVaultRequest · ListDanglingLinksRequest
+
+`api/types.rs` holds the substrate's request and response types — vault, files,
+links, tags, rename, settings. Each block's types live in its own command
+module — which modules are blocks is the `engine_modules` table in
+`scripts/domain-boundaries.json` — and the shell crates import them from there.
+
+While every type sat in `api/types.rs`, that file re-exported `cubical_graph`
+and `cubical_search` and converted from `cubical_query`, so every substrate
+module that imported it compiled against three block crates. Nothing failed at
+runtime, but a block crate's change rebuilt and could break the substrate, and
+the domain gate could not see it because the engine crate is shell. The gate
+now also counts a workspace crate an engine module names (`cubical_search::…`)
+as an edge to that crate's census entry.
+
+`list_tags` lives in `commands::tags` for the same reason: listing the vault's
+tags is substrate the explorer's tag tree reads, not part of the autocomplete
+block it used to sit in.
+
 ## Caller-supplied paths
 
 **Anchors:** validate_rel_file · validate_rel_dir · contained_join · vault_file · vault_dir

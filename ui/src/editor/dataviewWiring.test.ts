@@ -3,7 +3,7 @@ import { createRoot, createSignal } from "solid-js";
 
 import { createDataviewRunner, type DataviewRunner } from "./dataview";
 import { createDataviewWiring } from "./dataviewWiring";
-import type { DataviewResult } from "../api/ipc";
+import type { DataviewResult } from "../api/dataview";
 import { QUERY_PLUGIN } from "../dataview/registration";
 import { registerCorePlugins } from "../settings/corePlugins";
 

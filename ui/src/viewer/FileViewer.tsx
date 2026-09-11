@@ -3,7 +3,7 @@ import { Show, createEffect, createResource, type JSXElement } from "solid-js";
 import Callout from "@ds/components/feedback/Callout/Callout";
 
 import { readFileBytes } from "../api/ipc";
-import { errorMessage } from "../errorMessage";
+import { errorMessage } from "../core/errorMessage";
 import { basename } from "../vault/noteName";
 import { base64ToText } from "./decode";
 import {

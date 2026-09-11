@@ -86,24 +86,25 @@
       "directory is fenced in from its first commit."
     ],
     "api":        { "class": "substrate", "domain": "ipc" },
+    "api/autocomplete": { "class": "block", "domain": "autocomplete" },
+    "api/blocks": { "class": "block", "domain": "blocks" },
+    "api/dataview": { "class": "block", "domain": "dataview" },
+    "api/embeds": { "class": "block", "domain": "embeds" },
+    "api/graph": { "class": "block", "domain": "graph" },
+    "api/integrity": { "class": "block", "domain": "integrity" },
+    "api/propertyRef": { "class": "block", "domain": "property-refs" },
+    "api/search": { "class": "block", "domain": "search" },
+    "api/terminal": { "class": "block", "domain": "terminal" },
     "ast":        { "class": "substrate", "domain": "document" },
     "core":       { "class": "substrate", "domain": "core" },
     "vault":      { "class": "substrate", "domain": "vault" },
     "styles":     { "class": "substrate", "domain": "styles" },
-    "errorMessage":  { "class": "substrate", "domain": "core" },
-    "listStability": { "class": "substrate", "domain": "core" },
-    "virtualList":   { "class": "substrate", "domain": "core" },
-    "navHistory":    { "class": "substrate", "domain": "core" },
-    "ownWrite":      { "class": "substrate", "domain": "core" },
-    "overlayState":  { "class": "substrate", "domain": "core" },
-    "toastState":    { "class": "substrate", "domain": "core" },
-    "fileRename":    { "class": "substrate", "domain": "vault" },
+    "toast":      { "class": "substrate", "domain": "toast" },
 
     "App":        { "class": "shell", "domain": "shell" },
     "main":       { "class": "shell", "domain": "shell" },
     "shell":      { "class": "shell", "domain": "shell" },
 
-    "Editor":     { "class": "substrate", "domain": "editor" },
     "editor":     { "class": "substrate", "domain": "editor" },
     "editor/math":         { "class": "block", "domain": "math" },
     "editor/equation":     { "class": "block", "domain": "equations" },
@@ -115,38 +116,22 @@
     "editor/embed":        { "class": "block", "domain": "embeds" },
     "editor/autocomplete": { "class": "block", "domain": "autocomplete" },
     "editor/csvBlock":     { "class": "block", "domain": "csv" },
-    "Properties": { "class": "block", "domain": "properties" },
     "properties": { "class": "block", "domain": "properties" },
-    "TagPage":    { "class": "block", "domain": "tags" },
-    "ToastHost":  { "class": "block", "domain": "toast" },
-    "VaultSwitcher":   { "class": "block", "domain": "vault-switcher" },
-    "RecentVaultList": { "class": "block", "domain": "vault-switcher" },
+    "tags":       { "class": "block", "domain": "tags" },
+    "vaultSwitcher": { "class": "block", "domain": "vault-switcher" },
     "dataview":   { "class": "block", "domain": "dataview" },
     "explorer":   { "class": "block", "domain": "explorer" },
     "graph":      { "class": "block", "domain": "graph" },
     "omnibar":    { "class": "block", "domain": "omnibar" },
+    "search":     { "class": "block", "domain": "search" },
+    "backlinks":  { "class": "block", "domain": "backlinks" },
+    "integrity":  { "class": "block", "domain": "integrity" },
     "settings":   { "class": "substrate", "domain": "settings" },
-    "sidebar":    { "class": "block", "domain": "sidebar" },
     "statusbar":  { "class": "block", "domain": "statusbar" },
     "tabs":       { "class": "substrate", "domain": "tabs" },
     "terminal":   { "class": "block", "domain": "terminal" },
     "viewer":     { "class": "block", "domain": "viewer" }
   },
 
-  "ui_allowed": {
-    "Editor -> editor/embed": {
-      "issue": 289,
-      "reason": ["Editor.tsx installs the embed resolver facet, its update",
-                 "effect and embed line navigation by name."]
-    },
-    "Editor -> editor/dataview": {
-      "issue": 289,
-      "reason": ["Editor.tsx installs the dataview runner facet and",
-                 "intercepts dataview frame and link clicks by name."]
-    },
-    "Editor -> editor/autocomplete": {
-      "issue": 289,
-      "reason": ["Editor.tsx builds the autocomplete extension by name."]
-    }
-  }
+  "ui_allowed": {}
 }

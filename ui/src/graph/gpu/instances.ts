@@ -1,4 +1,4 @@
-import type { GraphEdge, GraphNode, GraphNodeKind } from "../../api/ipc";
+import type { GraphEdge, GraphNode, GraphNodeKind } from "../../api/graph";
 
 export const NODE_STRIDE_BYTES = 20;
 export const EDGE_STRIDE_BYTES = 24;
