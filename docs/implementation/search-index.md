@@ -172,7 +172,7 @@ spreadsheet row.
 
 ## Full-text search (`cubical-search`)
 
-**Anchors:** SearchIndex · rebuilt_reason · is_recoverable_by_wipe · SearchHandle · SearchScanSink · SEARCH_REBUILT · SEARCH_UNAVAILABLE
+**Anchors:** SearchIndex · rebuilt_reason · is_recoverable_by_wipe · SearchHandle · SearchScanSink · settle_after_scan · change_sink · SEARCH_REBUILT · SEARCH_UNAVAILABLE
 
 Every byte in the search directory is derived from the `.md` files, so wiping
 it costs a rescan and nothing else. `SearchIndex::open` therefore wipes and
@@ -194,12 +194,18 @@ nothing else**: it writes a `search_unavailable` audit row, the state cell reads
 the scan sink, the watcher, rename — treats a search write as a no-op, per
 [`best-effort-resilience`](../principles/best-effort-resilience.md). Reopening the
 vault retries. Whoever opens a vault for real must go through
-`SearchHandle::open`, or corrupt-directory recovery silently stops being
-recorded.
+`compose::open_vault`, the engine's composition root, which is the only
+production caller of `SearchHandle::open`; otherwise corrupt-directory recovery
+silently stops being recorded.
 
-The write paths take the handle explicitly — the watcher dispatcher through
-`WatchedVault`, rename through its commit input, the scan through
-`SearchScanSink` — so a path that forgets search fails to compile rather than
+Substrate never names the handle. The scan, the watcher and rename report what
+they did through the sink traits `cubical-core` owns, and the shell hands them
+the search block's implementation: `SearchScanSink` for the scan, and
+`SearchHandle` itself as the `ChangeSink` that the watcher receives through
+`WatchedVault` and rename fetches from `OpenVault::change_sink`. The scan
+dispatcher takes `settle_after_scan` as well, so the search-state cell is set by
+the block that owns it, not by the dispatcher. Each path takes its sink as a
+required argument, so a path that forgets search fails to compile rather than
 quietly leaving the index stale. The sink owns what used to live inline in the
 walk: the commit every 5,000 documents that bounds `IndexWriter` memory, and
 the end-of-scan `retain_paths` reconcile over every path it was handed.

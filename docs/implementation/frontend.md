@@ -377,7 +377,7 @@ switch in Settings, and for a block that declares no requirements.
 
 ## The shell hands settings each block's contribution
 
-**Anchors:** registerBlocks · registerCorePlugins · registeredCorePlugins · BUILTIN_PLUGINS · registerStatusbarSegments · registeredStatusbarSegments
+**Anchors:** registerBlocks · registerCorePlugins · registeredCorePlugins · QUERY_PLUGIN · PROPERTY_REFS_PLUGIN · registerStatusbarSegments · registeredStatusbarSegments
 
 Settings is substrate, so it may not import a block —
 [`../principles/domain-scoped-dependencies.md`](../principles/domain-scoped-dependencies.md).
@@ -395,12 +395,21 @@ requirements, and its callers are block wirings that only hold the toggle
 record. Passing a registry to every call would thread the list through each
 block; a registry filled once at boot gives every caller the same answer.
 
-`BUILTIN_PLUGINS` is what settings itself declares: Query, property
-references, math and equations. All four render inside the editor, and the
-editor has no registration seam yet, so no block owns their entries. Their
-presence before any registration also keeps the editor's wiring tests
-self-contained — they resolve `"dataview"` by id without booting the shell.
-Registration appends after them, which is what fixes the Plugins pane order.
+Settings declares no plugin: the registry starts empty. Each entry sits beside
+the code it switches. Query's is `dataview/registration.ts`; property
+references, math and equations are separate domains inside the editor
+directory, so each has its own file (`editor/propertyRefRegistration.ts`,
+`editor/mathRegistration.ts`, `editor/equationRegistration.ts`). Equations
+names property references in `requires` by id rather than importing its entry.
+The order `registerBlocks` passes them in is the Plugins pane order.
+
+An id is how a block names a plugin it may not import.
+`editor/dataviewWiring.ts` gates the query runner on `"dataview"`, but
+`QUERY_PLUGIN` sits across the dataview boundary, so the wiring resolves the id
+through the registry. The price is that an unregistered id reads as inactive
+rather than as an error, so a test that drives a wiring without booting the
+shell registers the entry it needs itself — test code may reach across the
+boundary, production code may not.
 
 Registration is idempotent by id, so a second boot (HMR re-running `main.tsx`)
 cannot duplicate a row. It is not a conflict check. The registry test asserts
@@ -474,20 +483,23 @@ not model frontmatter — so it scans the document directly.
 
 ## The Live Preview bundle is a hard contract
 
-`ui/src/editor/livePreview.ts` is the single composed extension installed into
-the decoration compartment. Raw-source mode reconfigures that compartment to
-`[]`, which structurally kills every transformation inside the bundle.
+`livePreviewFor(rawSource, plugins, blocks)` in `ui/src/editor/livePreview.ts`
+is the single composed extension installed into the decoration compartment.
+Raw-source mode reconfigures that compartment to `[]`, which structurally kills
+every transformation inside it.
 
-**Every preview-only extension MUST be a member of this bundle.** Adding one to
+**Every preview-only extension MUST go through `livePreviewFor`.** Adding one to
 the editor's base extension list, or to a separate compartment, is a bug: raw
-source will not kill it. Current members are the decoration plugin, the embed
-block field, the block-renderer field, the display-math field, the property-ref
-field and the equation field, each with its base theme.
-
-`livePreviewFor(rawSource, plugins, blocks)` — not the bare bundle — is what the
-editor installs, where `plugins` is a `LivePreviewPlugins` record and `blocks`
-is whatever the shell plugged into the editor's seams (below), so injected
-renderers die with raw source exactly like built-in ones. Settings that only
+source will not kill it. The editor core contributes `livePreviewBundle` — the
+decoration plugin and the block-renderer field — plus the render-failure theme,
+which `livePreviewFor` installs last, and names no feature. Everything a feature adds (the embed block field; the math,
+calc, query and csv renderers; the display-math, property-ref and equation
+fields, each with its base theme; and each feature's enable facet) is assembled
+by `editorBlocks(plugins)` in `shell/editorBlocks.ts`, which the shell hands
+every `Editor` as `blocks` through the seams below, so features die with raw
+source exactly like the core does. Renderer order is visible: fence completion
+lists languages in registration order, so `editorBlocks` registers query, csv,
+math, calc. Settings that only
 gate a preview extension belong in that record, so they ride inside the
 compartment raw source already kills, instead of earning a compartment and a
 reconfigure effect of their own in `Editor.tsx`. The record exists because the
@@ -655,9 +667,11 @@ type from the editor.
 purpose; do not give a seam a default that imports the block it stands in for.
 
 **`previewBlocks` is composition, not state.** The shell passes a module
-constant, so `Editor` reads it when the preview compartment is built and does
-not watch it. A caller that swaps it at runtime must also flip something the
-compartment's effect already tracks.
+function, `editorBlocks`, and `Editor` calls it with the current plugin flags
+whenever the preview compartment is rebuilt; it does not watch the function
+itself. The feature extensions are one module constant inside it, so only the
+enable facets are new on each rebuild. A caller that swaps the function at
+runtime must also flip something the compartment's effect already tracks.
 
 The explorer's file rows follow the same rule for `hasViewer`: `FileRow` reads
 `CanViewContext`, `ExplorerPanel` provides it from its `canView` prop, and the

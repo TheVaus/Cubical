@@ -6,6 +6,7 @@ use cubical_core::vault::pending::apply_pending;
 use cubical_core::{
     atomic_write, parse_off_executor, refresh_block_refs_for_file, refresh_blocks,
     refresh_frontmatter_with_doc, refresh_links_with_doc, refresh_tags_with_doc, sha256_bytes_hex,
+    ChangeSink,
 };
 use cubical_index::{
     delete_pending_for_target, delete_rename_op, list_recent_rename_ops as list_ops,
@@ -31,8 +32,28 @@ use crate::events::{
     emit_flush_complete, emit_pending_rewrites_changed, EventSink, FlushOwnWrites,
     VaultFlushComplete, VaultPendingRewritesChanged,
 };
-use crate::search_handle::{open_search_cloned, SearchHandle};
 use crate::state::AppState;
+
+async fn change_sink_for(
+    state: &AppState,
+    vault_id: &str,
+) -> Result<std::sync::Arc<dyn ChangeSink>, CubicalError> {
+    with_open_vault(state, vault_id, crate::state::OpenVault::change_sink).await
+}
+
+fn file_stamp(path: &std::path::Path, fallback_len: u64) -> (i64, u64) {
+    std::fs::metadata(path)
+        .map(|m| {
+            let mtime = m
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
+                .unwrap_or(0);
+            (mtime, m.len())
+        })
+        .unwrap_or((0, fallback_len))
+}
 
 const RENAME_OP_ID_KEY: &str = "pending_rewrites.next_rename_op_id";
 
@@ -276,7 +297,7 @@ async fn enqueue_referrers_in_tx(
 
 struct RenameCommitInput<'a> {
     vault: &'a cubical_core::Vault,
-    search: &'a SearchHandle,
+    sink: &'a dyn ChangeSink,
     flush_own_writes: &'a FlushOwnWrites,
     vault_id: &'a str,
     from_path: &'a str,
@@ -296,7 +317,7 @@ async fn commit_rename(
 ) -> Result<RenameCommit, CubicalError> {
     let RenameCommitInput {
         vault,
-        search,
+        sink,
         flush_own_writes,
         vault_id,
         from_path,
@@ -342,8 +363,6 @@ async fn commit_rename(
     let byte_len = raw_bytes.len() as u64;
     let text = String::from_utf8(raw_bytes).ok();
 
-    let _ = search.delete(from_path);
-
     if let Some(on_disk) = text.as_deref() {
         let doc = parse_off_executor(on_disk).await.unwrap_or_default();
         let _ = refresh_frontmatter_with_doc(vault, to_path, &doc).await;
@@ -352,25 +371,17 @@ async fn commit_rename(
         let _ = refresh_blocks(vault, to_path, on_disk).await;
         let _ = refresh_block_refs_for_file(vault, to_path).await;
 
-        let (mtime_secs, size_bytes) = std::fs::metadata(&to_abs)
-            .map(|m| {
-                let mtime = m
-                    .modified()
-                    .ok()
-                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
-                    .unwrap_or(0);
-                (mtime, m.len())
-            })
-            .unwrap_or((0, byte_len));
-        let _ = search.upsert_doc(to_path, &doc, mtime_secs, size_bytes);
+        let (mtime_secs, size_bytes) = file_stamp(&to_abs, byte_len);
+        sink.removed(from_path);
+        sink.changed(to_path, &doc, mtime_secs, size_bytes);
     } else {
         tracing::debug!(
             path = %to_path,
             "rename: destination is not valid UTF-8; skipping content re-extraction",
         );
+        sink.removed(from_path);
     }
-    let _ = search.commit();
+    sink.flush();
 
     enforce_fifty_per_file_fuse(vault, flush_own_writes, &fuse_targets).await?;
 
@@ -396,7 +407,7 @@ pub async fn rename_file(
 ) -> Result<RenameFileResponse, CubicalError> {
     let (vault, flush_own_writes, _flush_in_progress) =
         clone_vault_with_flush_state(state, &req.vault_id).await?;
-    let search = open_search_cloned(state, &req.vault_id).await?;
+    let sink = change_sink_for(state, &req.vault_id).await?;
     let conn = vault.index().connection();
 
     let (from_path, from_abs) = paths::vault_file(&vault, &req.from_path)?;
@@ -432,7 +443,7 @@ pub async fn rename_file(
         app,
         RenameCommitInput {
             vault: &vault,
-            search: &search,
+            sink: sink.as_ref(),
             flush_own_writes: &flush_own_writes,
             vault_id: &req.vault_id,
             from_path: &from_path,
@@ -451,7 +462,7 @@ pub async fn rename_file(
 
 pub(crate) struct AdoptExternalRenameInput<'a> {
     pub vault: &'a cubical_core::Vault,
-    pub search: &'a SearchHandle,
+    pub sink: &'a dyn ChangeSink,
     pub flush_own_writes: &'a FlushOwnWrites,
     pub vault_id: &'a str,
     pub from_path: &'a str,
@@ -465,7 +476,7 @@ pub(crate) async fn adopt_external_rename(
 ) -> Result<bool, CubicalError> {
     let AdoptExternalRenameInput {
         vault,
-        search,
+        sink,
         flush_own_writes,
         vault_id,
         from_path,
@@ -491,7 +502,7 @@ pub(crate) async fn adopt_external_rename(
         app,
         RenameCommitInput {
             vault,
-            search,
+            sink,
             flush_own_writes,
             vault_id,
             from_path,
@@ -513,7 +524,7 @@ pub async fn rename_folder(
 ) -> Result<RenameFolderResponse, CubicalError> {
     let (vault, flush_own_writes, _flush_in_progress) =
         clone_vault_with_flush_state(state, &req.vault_id).await?;
-    let search = open_search_cloned(state, &req.vault_id).await?;
+    let sink = change_sink_for(state, &req.vault_id).await?;
     let conn = vault.index().connection();
 
     let (from_path, from_abs) = paths::vault_file(&vault, &req.from_path)?;
@@ -661,7 +672,10 @@ pub async fn rename_folder(
         .await
         {
             Ok(Ok(content)) => content,
-            _ => continue,
+            _ => {
+                sink.removed(from);
+                continue;
+            }
         };
         let doc = parse_off_executor(&on_disk).await.unwrap_or_default();
         let _ = refresh_frontmatter_with_doc(&vault, to, &doc).await;
@@ -670,21 +684,11 @@ pub async fn rename_folder(
         let _ = refresh_blocks(&vault, to, &on_disk).await;
         let _ = refresh_block_refs_for_file(&vault, to).await;
 
-        let _ = search.delete(from);
-        let (mtime_secs, size_bytes) = std::fs::metadata(&to_abs_file)
-            .map(|m| {
-                let mtime = m
-                    .modified()
-                    .ok()
-                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
-                    .unwrap_or(0);
-                (mtime, m.len())
-            })
-            .unwrap_or((0, on_disk.len() as u64));
-        let _ = search.upsert_doc(to, &doc, mtime_secs, size_bytes);
+        let (mtime_secs, size_bytes) = file_stamp(&to_abs_file, on_disk.len() as u64);
+        sink.removed(from);
+        sink.changed(to, &doc, mtime_secs, size_bytes);
     }
-    let _ = search.commit();
+    sink.flush();
 
     enforce_fifty_per_file_fuse(&vault, &flush_own_writes, &fuse_targets).await?;
 

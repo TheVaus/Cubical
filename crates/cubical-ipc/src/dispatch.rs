@@ -234,7 +234,7 @@ mod tests {
 
     async fn open_temp(dir: &std::path::Path) -> (AppState, String) {
         let state = AppState::new();
-        let opened = vault::open_vault(
+        let opened = cubical_engine::compose::open_vault(
             &state,
             Arc::new(NoopEventSink),
             OpenVaultRequest {

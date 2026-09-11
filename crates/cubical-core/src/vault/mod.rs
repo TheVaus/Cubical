@@ -33,7 +33,10 @@ pub use pending::{apply_pending, materialize_on_read};
 pub use relpath::{
     contained_join, directory_holds_exact_name, validate_rel_dir, validate_rel_file, RelPathError,
 };
-pub use scan::{inode_of, scan, NoScanSink, ScanOutcome, ScanProgress, ScanSink, VanishedFile};
+pub use scan::{
+    inode_of, scan, ChangeSink, NoChangeSink, NoScanSink, ScanOutcome, ScanProgress, ScanSink,
+    VanishedFile,
+};
 pub use tags::{extract_tags, refresh_tags, refresh_tags_with_doc, TagExtraction};
 pub use watcher::{start_watcher, WatchEvent, WatcherHandle};
 

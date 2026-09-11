@@ -80,7 +80,8 @@ pub async fn search_rebuild_index(
         state.vaults_arc(),
         req.vault_id.clone(),
         vault,
-        search.clone(),
+        search.scan_sink(),
+        crate::search_handle::settle_after_scan,
         cancel,
     );
 

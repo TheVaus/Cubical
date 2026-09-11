@@ -6,6 +6,6 @@
 
 **Why:** The user decides which parts of Cubical are switched on. A toggle changes behaviour and derived state only — never the source of truth, never the vault's portability. Switching a feature off drops its derived state, which is rebuilt if it comes back on. The honest scope is **most** features, not all: the substrate (vault, canonical AST, index, IPC, among others — the census in `scripts/domain-boundaries.json` is the operative list) is always-on bedrock, and blocks stack on top of it.
 
-**Exceptions:** The substrate is never a toggle. And blocks form a **dependency graph**, not free stacking — a block cannot be active while one it depends on is off (backlinks need the link index; embeds need link resolution). Every toggle multiplies the interaction and test surface, so tested **default sets** matter more than raw togglability.
+**Exceptions:** The substrate is never a toggle. And blocks form a **dependency graph**, not free stacking — a block cannot be active while one it depends on is off (backlinks need the link index; embeds need link resolution). A dependency on another *block* is declared in the plugin registry (`requires`) and delivered through a slot the shell fills; the dependent block never imports the other one ([`domain-scoped-dependencies`](domain-scoped-dependencies.md)). Every toggle multiplies the interaction and test surface, so tested **default sets** matter more than raw togglability.
 
 **Detail:** [`../architecture/foundation.md`](../architecture/foundation.md) §1 (commitment 4).

@@ -523,12 +523,14 @@ requires of the terminal specifically. `plugins.terminal_enabled` defaults to
 simply asked.
 
 Defaults live in two places that must agree — `Feature::default_enabled` here
-and the frontend registry, whose entries sit in `ui/src/settings/corePlugins.ts`
-and in each block's `registration.ts` ([`frontend.md`](frontend.md) says which
-is which) — so a test parses those TypeScript files and asserts the Rust
-matches, key for key and default for default. A new block registration file is
-a new path in that test's list; forgetting it fails the test rather than
-passing it, because the Rust side then has a key the frontend lacks.
+and the frontend registry, whose entries sit in each block's registration file
+([`frontend.md`](frontend.md) says which block owns which) — so a test walks
+`ui/src` for every `registration.ts` and `*Registration.ts` and asserts the Rust
+matches, key for key and default for default. It discovers the files rather than
+listing them because a list goes stale the moment an entry moves between blocks.
+An entry declared anywhere other than a registration file still fails the test
+rather than passing it, because the Rust side then has a key the frontend
+lacks.
 
 ## Lock discipline
 

@@ -12,8 +12,8 @@ use cubical_core::vault::pending::materialize_on_read;
 use cubical_core::vault::settings::SettingsMap;
 use cubical_core::{
     parse_off_executor, refresh_block_refs_for_file, refresh_blocks, refresh_frontmatter_with_doc,
-    refresh_links_with_doc, refresh_tags_with_doc, scan, ScanProgress, Vault, VaultError,
-    WatchEvent,
+    refresh_links_with_doc, refresh_tags_with_doc, scan, ChangeSink, ScanProgress, ScanSink, Vault,
+    VaultError, WatchEvent,
 };
 use libsql::params;
 use tokio_util::sync::CancellationToken;
@@ -22,7 +22,6 @@ use crate::rename_pairing::{
     capture_tombstone, drop_row, find_rename_source, forget_tombstone, new_tombstones,
     path_is_tracked, restore_row, RenameSource, Tombstones,
 };
-use crate::search_handle::SearchHandle;
 use crate::state::{OpenVault, ScanStatusBackend};
 
 pub type FlushOwnWrites = Arc<Mutex<HashSet<(String, String)>>>;
@@ -179,19 +178,20 @@ pub fn emit_setting_changed(sink: &dyn EventSink, payload: VaultSettingChanged) 
     sink.emit(AppEvent::SettingChanged(payload));
 }
 
-pub fn spawn_scan_dispatcher(
+pub fn spawn_scan_dispatcher<S: ScanSink + 'static>(
     sink: Arc<dyn EventSink>,
     state: Arc<RwLock<std::collections::HashMap<String, OpenVault>>>,
     vault_id: String,
     vault: Vault,
-    search: SearchHandle,
+    scan_sink: S,
+    settle: fn(&OpenVault, bool),
     cancel: CancellationToken,
 ) {
     tokio::spawn(async move {
         let started = Instant::now();
         let scan_started_secs = unix_now_secs();
         let (tx, mut rx) = mpsc::channel::<ScanProgress>(64);
-        let scan_handle = tokio::spawn(scan(vault.clone(), cancel.clone(), tx, search.scan_sink()));
+        let scan_handle = tokio::spawn(scan(vault.clone(), cancel.clone(), tx, scan_sink));
 
         let vid_for_progress = vault_id.clone();
         let sink_for_progress = Arc::clone(&sink);
@@ -213,7 +213,7 @@ pub fn spawn_scan_dispatcher(
 
         let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
 
-        let (new_status, new_search_state) = match scan_outcome {
+        let new_status = match scan_outcome {
             Ok(Ok(outcome)) => {
                 journal_renames_found_by_scan(&vault, &outcome, scan_started_secs).await;
                 crate::commands::rename::replay_rename_journal(&vault, sink.as_ref(), &vault_id)
@@ -226,12 +226,7 @@ pub fn spawn_scan_dispatcher(
                         duration_ms: elapsed_ms,
                     },
                 );
-                let searchable = if search.is_available() {
-                    cubical_search::IndexState::Ready
-                } else {
-                    cubical_search::IndexState::Error
-                };
-                (ScanStatusBackend::Complete, searchable)
+                ScanStatusBackend::Complete
             }
             Ok(Err(VaultError::ScanCancelled)) => {
                 emit_scan_cancelled(
@@ -240,10 +235,7 @@ pub fn spawn_scan_dispatcher(
                         vault_id: vault_id.clone(),
                     },
                 );
-                (
-                    ScanStatusBackend::Cancelled,
-                    cubical_search::IndexState::Error,
-                )
+                ScanStatusBackend::Cancelled
             }
             Ok(Err(e)) => {
                 tracing::error!(error = %e, vault_id = %vault_id, "scan failed");
@@ -253,10 +245,7 @@ pub fn spawn_scan_dispatcher(
                         vault_id: vault_id.clone(),
                     },
                 );
-                (
-                    ScanStatusBackend::Cancelled,
-                    cubical_search::IndexState::Error,
-                )
+                ScanStatusBackend::Cancelled
             }
             Err(join_err) => {
                 tracing::error!(error = %join_err, vault_id = %vault_id, "scan task join failed");
@@ -266,19 +255,14 @@ pub fn spawn_scan_dispatcher(
                         vault_id: vault_id.clone(),
                     },
                 );
-                (
-                    ScanStatusBackend::Cancelled,
-                    cubical_search::IndexState::Error,
-                )
+                ScanStatusBackend::Cancelled
             }
         };
 
         let mut guard = state.write().await;
         if let Some(open) = guard.get_mut(&vault_id) {
             open.scan_status = new_status;
-            if let Ok(mut cell) = open.search_state.lock() {
-                cell.state = new_search_state;
-            }
+            settle(open, new_status == ScanStatusBackend::Complete);
         }
     });
 }
@@ -293,7 +277,7 @@ pub(crate) struct WatchContext<'a> {
 
 pub struct WatchedVault {
     pub vault: Vault,
-    pub search: SearchHandle,
+    pub changes: Arc<dyn ChangeSink>,
 }
 
 pub struct WatcherLifetime {
@@ -334,7 +318,7 @@ pub fn spawn_watcher_dispatcher(
     settings: Arc<RwLock<SettingsMap>>,
     lifetime: WatcherLifetime,
 ) {
-    let WatchedVault { vault, search } = watched;
+    let WatchedVault { vault, changes } = watched;
     tokio::spawn(async move {
         let tombstones = new_tombstones();
         while let Some(first) = events_rx.recv().await {
@@ -345,7 +329,7 @@ pub fn spawn_watcher_dispatcher(
             let sink = Arc::clone(&sink);
             let batch_vault_id = vault_id.clone();
             let batch_vault = vault.clone();
-            let batch_search = search.clone();
+            let batch_changes = Arc::clone(&changes);
             let flush_own_writes = Arc::clone(&flush_own_writes);
             let settings = Arc::clone(&settings);
             let tombstones = Arc::clone(&tombstones);
@@ -357,7 +341,7 @@ pub fn spawn_watcher_dispatcher(
                     settings: settings.as_ref(),
                     tombstones: &tombstones,
                 };
-                handle_watch_batch(&batch_vault, &batch_search, batch, &ctx).await;
+                handle_watch_batch(&batch_vault, batch_changes.as_ref(), batch, &ctx).await;
             });
             if let Err(e) = batch_task.await {
                 tracing::error!(vault_id = %vault_id, error = %e, "watcher: batch handler died; dropping that batch and staying up");
@@ -418,7 +402,7 @@ async fn journal_renames_found_by_scan(
 
 async fn handle_watch_batch(
     vault: &Vault,
-    search: &SearchHandle,
+    changes: &dyn ChangeSink,
     batch: Vec<WatchEvent>,
     ctx: &WatchContext<'_>,
 ) {
@@ -427,7 +411,7 @@ async fn handle_watch_batch(
     let vault_id = ctx.vault_id;
     let flush_own_writes = ctx.flush_own_writes;
 
-    let hashes = apply_watch_events_batch(vault, search, &batch, Some(ctx)).await;
+    let hashes = apply_watch_events_batch(vault, changes, &batch, Some(ctx)).await;
 
     for (ev, new_content_hash) in batch.iter().zip(hashes) {
         if consume_own_write_hash(flush_own_writes, ev, new_content_hash.as_deref()).await {
@@ -451,7 +435,7 @@ async fn handle_watch_batch(
 
 pub(crate) async fn refresh_watched_markdown(
     vault: &Vault,
-    search: &SearchHandle,
+    changes: &dyn ChangeSink,
     path: &str,
     source: &str,
     mtime: i64,
@@ -479,14 +463,12 @@ pub(crate) async fn refresh_watched_markdown(
     if let Err(e) = refresh_block_refs_for_file(vault, path).await {
         tracing::warn!(path, error = %e, "watcher: block_refs refresh failed");
     }
-    if let Err(e) = search.upsert_doc(path, doc, mtime, source.len() as u64) {
-        tracing::warn!(path, error = %e, "watcher: search refresh failed");
-    }
+    changes.changed(path, doc, mtime, source.len() as u64);
 }
 
 pub(crate) async fn apply_watch_event_to_db(
     vault: &Vault,
-    search: &SearchHandle,
+    changes: &dyn ChangeSink,
     ev: &WatchEvent,
     ctx: Option<&WatchContext<'_>>,
 ) -> Option<String> {
@@ -523,7 +505,7 @@ pub(crate) async fn apply_watch_event_to_db(
             let stats = read_file_stats(&abs, vault).await.unwrap_or_default();
 
             if matches!(ev, WatchEvent::Created(_)) {
-                try_pair_created_as_rename(vault, search, ctx, &path_str, &stats, now).await;
+                try_pair_created_as_rename(vault, changes, ctx, &path_str, &stats, now).await;
             }
 
             let FileStats {
@@ -567,7 +549,7 @@ pub(crate) async fn apply_watch_event_to_db(
                 };
 
                 let doc = parse_off_executor(&source).await;
-                refresh_watched_markdown(vault, search, &path_str, &source, mtime, doc.as_ref())
+                refresh_watched_markdown(vault, changes, &path_str, &source, mtime, doc.as_ref())
                     .await;
             }
 
@@ -594,16 +576,14 @@ pub(crate) async fn apply_watch_event_to_db(
             if let Err(e) = cubical_index::delete_folder(vault.index(), &path_str).await {
                 tracing::warn!(path = %path_str, error = %e, "watcher: folder row delete failed");
             }
-            if let Err(e) = search.delete(&path_str) {
-                tracing::warn!(path = %path_str, error = %e, "watcher: search delete failed");
-            }
+            changes.removed(&path_str);
             None
         }
         WatchEvent::Renamed { from, to } => {
             let from_str = from.clone();
             let to_str = to.clone();
 
-            if try_adopt_external_rename(vault, search, ctx, &from_str, &to_str).await {
+            if try_adopt_external_rename(vault, changes, ctx, &from_str, &to_str).await {
                 if let Err(e) = conn
                     .execute(
                         "UPDATE files SET last_seen = ?1, updated_at = ?1 WHERE path = ?2",
@@ -623,9 +603,7 @@ pub(crate) async fn apply_watch_event_to_db(
                 {
                     tracing::warn!(path = %from_str, error = %e, "watcher: rename last_seen update failed");
                 }
-                if let Err(e) = search.delete(&from_str) {
-                    tracing::warn!(path = %from_str, error = %e, "watcher: search delete (rename old) failed");
-                }
+                changes.removed(&from_str);
             }
             None
         }
@@ -650,7 +628,7 @@ pub(crate) async fn apply_watch_event_to_db(
 
 async fn try_pair_created_as_rename(
     vault: &Vault,
-    search: &SearchHandle,
+    changes: &dyn ChangeSink,
     ctx: Option<&WatchContext<'_>>,
     to_path: &str,
     stats: &FileStats,
@@ -678,7 +656,7 @@ async fn try_pair_created_as_rename(
         RenameSource::Tracked(_) => false,
     };
 
-    let adopted = try_adopt_external_rename(vault, search, Some(ctx), &from_path, to_path).await;
+    let adopted = try_adopt_external_rename(vault, changes, Some(ctx), &from_path, to_path).await;
     if adopted {
         forget_tombstone(ctx.tombstones, &from_path).await;
         tracing::info!(
@@ -694,7 +672,7 @@ async fn try_pair_created_as_rename(
 
 async fn try_adopt_external_rename(
     vault: &Vault,
-    search: &SearchHandle,
+    changes: &dyn ChangeSink,
     ctx: Option<&WatchContext<'_>>,
     from: &str,
     to: &str,
@@ -714,7 +692,7 @@ async fn try_adopt_external_rename(
         ctx.sink,
         crate::commands::rename::AdoptExternalRenameInput {
             vault,
-            search,
+            sink: changes,
             flush_own_writes: ctx.flush_own_writes,
             vault_id: ctx.vault_id,
             from_path: from,
@@ -739,17 +717,15 @@ async fn try_adopt_external_rename(
 
 pub(crate) async fn apply_watch_events_batch(
     vault: &Vault,
-    search: &SearchHandle,
+    changes: &dyn ChangeSink,
     events: &[WatchEvent],
     ctx: Option<&WatchContext<'_>>,
 ) -> Vec<Option<String>> {
     let mut hashes = Vec::with_capacity(events.len());
     for ev in events {
-        hashes.push(apply_watch_event_to_db(vault, search, ev, ctx).await);
+        hashes.push(apply_watch_event_to_db(vault, changes, ev, ctx).await);
     }
-    if let Err(e) = search.commit() {
-        tracing::warn!(error = %e, "watcher: batch search commit failed");
-    }
+    changes.flush();
     if let Err(e) =
         cubical_index::prune_audit_log(vault.index(), cubical_index::AUDIT_LOG_MAX_ROWS).await
     {
@@ -979,7 +955,7 @@ mod tests {
             "v1".into(),
             WatchedVault {
                 vault: vault.clone(),
-                search: crate::search_handle::SearchHandle::open(vault).await,
+                changes: Arc::new(crate::search_handle::SearchHandle::open(vault).await),
             },
             rx,
             Arc::new(Mutex::new(HashSet::new())),
@@ -1898,7 +1874,7 @@ mod tests {
                 VAULT_ID.into(),
                 WatchedVault {
                     vault: vault.clone(),
-                    search: search.clone(),
+                    changes: Arc::new(search.clone()),
                 },
                 rx,
                 flush_own_writes,

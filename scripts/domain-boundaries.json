@@ -63,36 +63,27 @@
   "engine_support": {
     "_": [
       "crates/cubical-engine/src/* modules outside commands/ that belong to",
-      "one domain. The engine crate is shell, so without this a block's",
-      "handle moved beside commands/ would make every edge to it invisible."
+      "one domain, checked both as sources and as targets. The engine crate",
+      "is shell, so without this a block's handle moved beside commands/, or",
+      "substrate such as the watcher living in events.rs, would be invisible.",
+      "Anything unlisted here (state, compose, plugins, api, error) is shell."
     ],
+    "events":        { "class": "substrate", "domain": "vault" },
+    "rename_pairing": { "class": "substrate", "domain": "rename" },
+    "vault_lock":    { "class": "substrate", "domain": "vault" },
     "search_handle": { "class": "block", "domain": "search" }
   },
 
-  "engine_allowed": {
-    "vault -> search_handle": {
-      "issue": 288,
-      "reason": [
-        "open_vault calls SearchHandle::open while assembling OpenVault.",
-        "Attaching blocks to an opened vault is composition-root work that",
-        "belongs in the shell, not in the substrate command."
-      ]
-    },
-    "rename -> search_handle": {
-      "issue": 288,
-      "reason": [
-        "Rename deletes and upserts search docs for the paths it moves. The",
-        "search block should learn of the move through a sink the shell",
-        "supplies — the ScanSink pattern — not be written by substrate."
-      ]
-    }
-  },
+  "engine_allowed": {},
 
   "ui_domains": {
     "_": [
       "A directory under ui/src is a domain; a bare file under ui/src is its",
-      "own domain named after the file. Anything unlisted defaults to block,",
-      "so a new feature directory is fenced in from its first commit."
+      "own domain named after the file. A key with a slash is a path prefix",
+      "inside a directory and the longest match wins: that is how the editor",
+      "directory holds the always-on editor core and each preview feature as",
+      "separate domains. Anything unlisted defaults to block, so a new feature",
+      "directory is fenced in from its first commit."
     ],
     "api":        { "class": "substrate", "domain": "ipc" },
     "ast":        { "class": "substrate", "domain": "document" },
@@ -112,8 +103,18 @@
     "main":       { "class": "shell", "domain": "shell" },
     "shell":      { "class": "shell", "domain": "shell" },
 
-    "Editor":     { "class": "block", "domain": "editor" },
-    "editor":     { "class": "block", "domain": "editor" },
+    "Editor":     { "class": "substrate", "domain": "editor" },
+    "editor":     { "class": "substrate", "domain": "editor" },
+    "editor/math":         { "class": "block", "domain": "math" },
+    "editor/equation":     { "class": "block", "domain": "equations" },
+    "editor/calcBlock":    { "class": "block", "domain": "equations" },
+    "editor/expr":         { "class": "block", "domain": "equations" },
+    "editor/propertyRef":  { "class": "block", "domain": "property-refs" },
+    "editor/propertyResolver": { "class": "block", "domain": "property-refs" },
+    "editor/dataview":     { "class": "block", "domain": "dataview" },
+    "editor/embed":        { "class": "block", "domain": "embeds" },
+    "editor/autocomplete": { "class": "block", "domain": "autocomplete" },
+    "editor/csvBlock":     { "class": "block", "domain": "csv" },
     "Properties": { "class": "block", "domain": "properties" },
     "properties": { "class": "block", "domain": "properties" },
     "TagPage":    { "class": "block", "domain": "tags" },
@@ -132,5 +133,20 @@
     "viewer":     { "class": "block", "domain": "viewer" }
   },
 
-  "ui_allowed": {}
+  "ui_allowed": {
+    "Editor -> editor/embed": {
+      "issue": 289,
+      "reason": ["Editor.tsx installs the embed resolver facet, its update",
+                 "effect and embed line navigation by name."]
+    },
+    "Editor -> editor/dataview": {
+      "issue": 289,
+      "reason": ["Editor.tsx installs the dataview runner facet and",
+                 "intercepts dataview frame and link clicks by name."]
+    },
+    "Editor -> editor/autocomplete": {
+      "issue": 289,
+      "reason": ["Editor.tsx builds the autocomplete extension by name."]
+    }
+  }
 }

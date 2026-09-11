@@ -66,7 +66,8 @@ beforeAll(() => {
   };
 });
 
-import { livePreviewBundle } from "./livePreview";
+import { livePreviewFor } from "./livePreview";
+import { editorBlocks } from "../shell/editorBlocks";
 import { wikilinkExtension } from "./wikilink";
 import { tagExtension } from "./tag";
 import {
@@ -115,7 +116,13 @@ function mountView(doc: string, selectionAnchor: number): {
       embedResolverFacet.of(makeResolver()),
       openNotePathFacet.of(null),
       wikilinkResolverFacet.of(null),
-      compartment.of(livePreviewBundle),
+      compartment.of(
+        livePreviewFor(
+          false,
+          { math: true, equations: true, propertyRefs: true },
+          editorBlocks,
+        ),
+      ),
     ],
   });
   const host = document.createElement("div");

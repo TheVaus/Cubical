@@ -6,7 +6,7 @@ import { equationsEnabledFacet, makeRefResolver } from "./equation";
 import { equationErrorMessage } from "./equationRender";
 import { evaluate } from "./expr/evaluate";
 import { formatResult } from "./expr/format";
-import { propertyResolverFacet } from "./propertyRef";
+import { propertyResolverFacet } from "./propertySlot";
 
 function appendRow(
   table: HTMLElement,

@@ -185,11 +185,30 @@ mod tests {
             .join("..")
             .join("ui")
             .join("src");
-        let sources = [
-            root.join("settings").join("corePlugins.ts"),
-            root.join("terminal").join("registration.ts"),
-            root.join("graph").join("registration.ts"),
-        ];
+        fn registrations(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            let entries =
+                std::fs::read_dir(dir).unwrap_or_else(|e| panic!("read {}: {e}", dir.display()));
+            for entry in entries.filter_map(|entry| entry.ok()) {
+                let path = entry.path();
+                if path.is_dir() {
+                    registrations(&path, out);
+                } else if path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n == "registration.ts" || n.ends_with("Registration.ts"))
+                {
+                    out.push(path);
+                }
+            }
+        }
+        let mut sources: Vec<std::path::PathBuf> = Vec::new();
+        registrations(&root, &mut sources);
+        sources.sort();
+        assert!(
+            !sources.is_empty(),
+            "no registration.ts or *Registration.ts found under {}",
+            root.display()
+        );
         let mut frontend: Vec<(String, bool)> = Vec::new();
         for path in &sources {
             let text = std::fs::read_to_string(path)
@@ -217,7 +236,7 @@ mod tests {
 
         assert_eq!(
             backend, frontend,
-            "ui/src/settings/corePlugins.ts and Feature must agree on every key and default"
+            "every frontend registration file and Feature must agree on every key and default"
         );
     }
 

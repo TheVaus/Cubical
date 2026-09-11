@@ -58,6 +58,11 @@ impl SearchStateInner {
 }
 
 impl OpenVault {
+    #[must_use]
+    pub fn change_sink(&self) -> Arc<dyn cubical_core::ChangeSink> {
+        Arc::new(self.search.clone())
+    }
+
     pub fn new(
         vault: Vault,
         search: SearchHandle,

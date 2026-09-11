@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import { EditorState } from "@codemirror/state";
 import { markdown } from "@codemirror/lang-markdown";
 
-import { livePreviewBundle } from "./livePreview";
+import { livePreviewFor } from "./livePreview";
+import { editorBlocks } from "../shell/editorBlocks";
+
+const ALL_ON = { math: true, equations: true, propertyRefs: true };
 import { wikilinkExtension } from "./wikilink";
 import { tagExtension } from "./tag";
 import {
@@ -39,7 +42,7 @@ const stubEmbedResolver = {
   version: () => 0,
 };
 
-describe("livePreviewBundle", () => {
+describe("livePreviewFor with the shell's blocks", () => {
   it("composes the embed StateField (resolved by state.field without throwing)", () => {
     const state = EditorState.create({
       doc: "# Heading\n\n![[Daily]]\n",
@@ -48,7 +51,7 @@ describe("livePreviewBundle", () => {
         embedResolverFacet.of(stubEmbedResolver),
         openNotePathFacet.of(null),
         wikilinkResolverFacet.of(null),
-        livePreviewBundle,
+        livePreviewFor(false, ALL_ON, editorBlocks),
       ],
     });
     expect(() => state.field(embedBlockField)).not.toThrow();
@@ -64,7 +67,7 @@ describe("livePreviewBundle", () => {
         embedResolverFacet.of(stubEmbedResolver),
         openNotePathFacet.of(null),
         wikilinkResolverFacet.of(null),
-        livePreviewBundle,
+        livePreviewFor(false, ALL_ON, editorBlocks),
       ],
     });
 
@@ -76,7 +79,7 @@ describe("livePreviewBundle", () => {
     expect(blockReplace).toBe(true);
   });
 
-  it("the bundle is the contract: outside the bundle, embedBlockField is not registered", () => {
+  it("live preview is the contract: outside it, embedBlockField is not registered", () => {
     const state = EditorState.create({
       doc: "![[Daily]]\n",
       extensions: [

@@ -9,7 +9,7 @@ import {
 } from "solid-js";
 import { EditorView, keymap } from "@codemirror/view";
 import Minimap from "./editor/minimap/Minimap";
-import { Compartment, EditorState, type Extension } from "@codemirror/state";
+import { Compartment, EditorState } from "@codemirror/state";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
 import {
@@ -51,18 +51,18 @@ import {
   embedResolverUpdated,
   openNotePathFacet,
 } from "./editor/embed";
-import type { PropertyResolver } from "./editor/propertyResolver";
 import {
   propertyResolverFacet,
   propertyResolverUpdated,
-} from "./editor/propertyRef";
+  type PropertyResolver,
+} from "./editor/propertySlot";
 import { dataviewRunnerFacet, dataviewRunnerUpdated, type DataviewRunner } from "./editor/dataview";
 import {
   closestDataviewFrame,
   closestDataviewLink,
   maybeInterceptDataviewMousedown,
 } from "./editor/dataviewMousedown";
-import { livePreviewFor } from "./editor/livePreview";
+import { livePreviewFor, type PreviewBlocks } from "./editor/livePreview";
 import { colorSourceHighlight } from "./editor/colorSource";
 import { createUpdateSubscriber } from "./editor/updateSubscription";
 import { verticalDocLineMotion } from "./editor/embedNav";
@@ -135,7 +135,7 @@ export interface EditorProps {
   mathEnabled?: boolean;
   equationsEnabled?: boolean;
   dataviewRunner?: DataviewRunner | null;
-  previewBlocks?: Extension;
+  previewBlocks?: PreviewBlocks;
   openNotePath?: string | null;
   autocompleteProvider?: AutocompleteProvider | null;
   editorBindings?: KeyBinding[];

@@ -51,6 +51,24 @@ pub trait ScanSink: Send {
 
 pub struct NoScanSink;
 
+pub trait ChangeSink: Send + Sync {
+    fn changed(&self, path: &str, doc: &Document, mtime_unix: i64, size_bytes: u64);
+
+    fn removed(&self, path: &str);
+
+    fn flush(&self);
+}
+
+pub struct NoChangeSink;
+
+impl ChangeSink for NoChangeSink {
+    fn changed(&self, _path: &str, _doc: &Document, _mtime: i64, _size: u64) {}
+
+    fn removed(&self, _path: &str) {}
+
+    fn flush(&self) {}
+}
+
 impl ScanSink for NoScanSink {
     fn markdown(&mut self, _path: &str, _doc: Option<&Document>, _mtime: i64, _size: u64) {}
 
