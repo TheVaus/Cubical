@@ -30,7 +30,7 @@ from _common import ROOT, Gate, main_guard, rel, tracked  # noqa: E402
 
 APP = ROOT / "ui" / "src" / "App.tsx"
 IPC = ROOT / "ui" / "src" / "api" / "ipc.ts"
-GROUP = ROOT / "ui" / "src" / "editor" / "resolverRefresh.ts"
+GROUP = ROOT / "ui" / "src" / "shell" / "resolverRefresh.ts"
 SHARED = ROOT / "ui" / "src" / "editor" / "keyedResolver.ts"
 SHARED_TYPE = "KeyedResolver"
 
