@@ -377,7 +377,7 @@ switch in Settings, and for a block that declares no requirements.
 
 ## The shell hands settings each block's contribution
 
-**Anchors:** registerBlocks · registerCorePlugins · registeredCorePlugins · BUILTIN_PLUGINS · registerStatusbarSegments · registeredStatusbarSegments
+**Anchors:** registerBlocks · registerCorePlugins · registeredCorePlugins · QUERY_PLUGIN · PROPERTY_REFS_PLUGIN · registerStatusbarSegments · registeredStatusbarSegments
 
 Settings is substrate, so it may not import a block —
 [`../principles/domain-scoped-dependencies.md`](../principles/domain-scoped-dependencies.md).
@@ -395,12 +395,19 @@ requirements, and its callers are block wirings that only hold the toggle
 record. Passing a registry to every call would thread the list through each
 block; a registry filled once at boot gives every caller the same answer.
 
-`BUILTIN_PLUGINS` is what settings itself declares: Query, property
-references, math and equations. All four render inside the editor, and the
-editor has no registration seam yet, so no block owns their entries. Their
-presence before any registration also keeps the editor's wiring tests
-self-contained — they resolve `"dataview"` by id without booting the shell.
-Registration appends after them, which is what fixes the Plugins pane order.
+Settings declares no plugin: the registry starts empty. Query's entry lives in
+`dataview/registration.ts` because dataview is its own block; property
+references, math and equations live in `editor/registration.ts` because the
+editor owns their parsing and rendering. The order `registerBlocks` passes them
+in is the Plugins pane order.
+
+An id is how a block names a plugin it may not import.
+`editor/dataviewWiring.ts` gates the query runner on `"dataview"`, but
+`QUERY_PLUGIN` sits across the dataview boundary, so the wiring resolves the id
+through the registry. The price is that an unregistered id reads as inactive
+rather than as an error, so a test that drives a wiring without booting the
+shell registers the entry it needs itself — test code may reach across the
+boundary, production code may not.
 
 Registration is idempotent by id, so a second boot (HMR re-running `main.tsx`)
 cannot duplicate a row. It is not a conflict check. The registry test asserts
