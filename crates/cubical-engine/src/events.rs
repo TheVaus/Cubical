@@ -710,11 +710,12 @@ async fn try_adopt_external_rename(
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(true);
 
+    let mut rename_sink = search.rename_sink();
     match crate::commands::rename::adopt_external_rename(
         ctx.sink,
         crate::commands::rename::AdoptExternalRenameInput {
             vault,
-            search,
+            sink: &mut rename_sink,
             flush_own_writes: ctx.flush_own_writes,
             vault_id: ctx.vault_id,
             from_path: from,

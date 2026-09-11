@@ -8,6 +8,7 @@ use cubical_index::{append_audit, AuditLevel};
 use cubical_search::{SearchError, SearchIndex};
 
 use crate::commands::open::with_open_vault;
+use crate::commands::rename::RenameSink;
 use crate::error::CubicalError;
 use crate::events::record_vault_warning;
 use crate::state::AppState;
@@ -109,6 +110,13 @@ impl SearchHandle {
     }
 
     #[must_use]
+    pub fn rename_sink(&self) -> SearchRenameSink {
+        SearchRenameSink {
+            search: self.clone(),
+        }
+    }
+
+    #[must_use]
     pub fn scan_sink(&self) -> SearchScanSink {
         SearchScanSink {
             search: self.clone(),
@@ -182,6 +190,37 @@ impl ScanSink for SearchScanSink {
             }
             Ok(_) => {}
             Err(e) => tracing::warn!(error = %e, "search index reconcile failed"),
+        }
+    }
+}
+
+pub struct SearchRenameSink {
+    search: SearchHandle,
+}
+
+impl RenameSink for SearchRenameSink {
+    fn moved(
+        &mut self,
+        from: &str,
+        to: &str,
+        doc: Option<&Document>,
+        mtime_secs: i64,
+        size_bytes: u64,
+    ) {
+        if let Err(e) = self.search.delete(from) {
+            tracing::warn!(path = from, error = %e, "rename: search delete of the old path failed");
+        }
+        let Some(doc) = doc else {
+            return;
+        };
+        if let Err(e) = self.search.upsert_doc(to, doc, mtime_secs, size_bytes) {
+            tracing::warn!(path = to, error = %e, "rename: search upsert of the new path failed");
+        }
+    }
+
+    fn finish(&mut self) {
+        if let Err(e) = self.search.commit() {
+            tracing::warn!(error = %e, "rename: search commit failed");
         }
     }
 }

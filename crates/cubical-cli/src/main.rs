@@ -50,7 +50,7 @@ async fn run(cli: Cli) -> i32 {
     let state = AppState::new();
     let sink: Arc<dyn EventSink> = Arc::new(NoopEventSink);
 
-    let opened = match vault::open_vault(
+    let opened = match cubical_engine::compose::open_vault(
         &state,
         Arc::clone(&sink),
         OpenVaultRequest {

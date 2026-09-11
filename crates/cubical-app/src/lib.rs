@@ -249,7 +249,7 @@ async fn open_vault(
     req: OpenVaultRequest,
 ) -> Result<OpenVaultResponse, CubicalError> {
     let vault_path = req.path.to_string_lossy().to_string();
-    let resp = commands::vault::open_vault(
+    let resp = cubical_engine::compose::open_vault(
         state.inner(),
         std::sync::Arc::new(crate::tauri_sink::TauriEventSink::new(app.clone())),
         req,

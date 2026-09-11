@@ -58,6 +58,11 @@ impl SearchStateInner {
 }
 
 impl OpenVault {
+    #[must_use]
+    pub fn rename_sink(&self) -> Box<dyn crate::commands::rename::RenameSink> {
+        Box::new(self.search.rename_sink())
+    }
+
     pub fn new(
         vault: Vault,
         search: SearchHandle,
