@@ -94,11 +94,10 @@ describe("dataviewExtensionFor", () => {
   it("drops its subscription and its listener with the view", () => {
     const { runner, listeners } = fakeRunner();
     const v = mount(runner);
-    const link = resultLink(v, "notes/a.md");
+    const removed = vi.spyOn(v.contentDOM, "removeEventListener");
     v.destroy();
     view = undefined;
-    link.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
     expect(listeners()).toBe(0);
-    expect(runner.open).not.toHaveBeenCalled();
+    expect(removed).toHaveBeenCalledWith("mousedown", expect.any(Function), true);
   });
 });
