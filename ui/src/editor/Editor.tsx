@@ -9,7 +9,12 @@ import {
 } from "solid-js";
 import { EditorView, keymap } from "@codemirror/view";
 import Minimap from "./minimap/Minimap";
-import { Compartment, EditorState } from "@codemirror/state";
+import {
+  Compartment,
+  EditorState,
+  StateEffect,
+  type Extension,
+} from "@codemirror/state";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
 import {
@@ -45,30 +50,16 @@ import {
   maybeInterceptWikiLinkMousedown,
 } from "./wikilinkMousedown";
 import type { WikiLinkResolver } from "./wikilinkResolver";
-import type { EmbedResolver } from "./embedResolver";
-import {
-  embedResolverFacet,
-  embedResolverUpdated,
-  openNotePathFacet,
-} from "./embed";
 import {
   propertyResolverFacet,
   propertyResolverUpdated,
   type PropertyResolver,
 } from "./propertySlot";
-import { dataviewRunnerFacet, dataviewRunnerUpdated, type DataviewRunner } from "./dataview";
-import {
-  closestDataviewFrame,
-  closestDataviewLink,
-  maybeInterceptDataviewMousedown,
-} from "./dataviewMousedown";
 import { livePreviewFor, type PreviewBlocks } from "./livePreview";
 import { colorSourceHighlight } from "./colorSource";
 import { createUpdateSubscriber } from "./updateSubscription";
-import { verticalDocLineMotion } from "./embedNav";
+import { verticalDocLineMotion } from "./verticalMotion";
 import { autoCloseExtension } from "./autoClose";
-import { autocompleteExtensionFor } from "./autocomplete";
-import type { AutocompleteProvider } from "./autocompleteProvider";
 import { byteOffsetOf } from "./blockRef";
 import { buildCmTheme } from "./cm-theme";
 import type { ResolvedAnchor } from "../api/ipc";
@@ -77,7 +68,6 @@ import type { ResolvedTheme } from "../styles/theme";
 declare global {
   interface Window {
     __cubical?: {
-      embedResolver: EmbedResolver | null;
       wikilinkResolver: WikiLinkResolver | null;
     };
   }
@@ -91,15 +81,7 @@ const themeCompartment = new Compartment();
 
 const wikilinkResolverCompartment = new Compartment();
 
-const embedResolverCompartment = new Compartment();
-
 const propertyResolverCompartment = new Compartment();
-
-const openNotePathCompartment = new Compartment();
-
-const dataviewRunnerCompartment = new Compartment();
-
-const autocompleteCompartment = new Compartment();
 
 const keymapCompartment = new Compartment();
 
@@ -129,15 +111,12 @@ export interface EditorProps {
   minimapEnabled?: boolean;
   colorizeSource?: boolean;
   wikilinkResolver?: WikiLinkResolver | null;
-  embedResolver?: EmbedResolver | null;
   propertyResolver?: PropertyResolver | null;
   propertyRefsEnabled?: boolean;
   mathEnabled?: boolean;
   equationsEnabled?: boolean;
-  dataviewRunner?: DataviewRunner | null;
   previewBlocks?: PreviewBlocks;
-  openNotePath?: string | null;
-  autocompleteProvider?: AutocompleteProvider | null;
+  blockExtensions?: readonly Extension[];
   editorBindings?: KeyBinding[];
   onNavigateWikilink?: (path: string, anchor: ResolvedAnchor | null) => void;
   onOfferCreateWikilink?: (path: string) => void;
@@ -180,11 +159,40 @@ const Editor: Component<EditorProps> = (props) => {
   };
 
   const subscribeResolver = createUpdateSubscriber(wikilinkResolverUpdated);
-  const subscribeEmbedResolver = createUpdateSubscriber(embedResolverUpdated);
   const subscribePropertyResolver = createUpdateSubscriber(
     propertyResolverUpdated,
   );
-  const subscribeDataviewRunner = createUpdateSubscriber(dataviewRunnerUpdated);
+
+  const blockCompartments: Compartment[] = [];
+  let installedBlocks: readonly Extension[] = [];
+
+  const installBlocks = (exts: readonly Extension[]): Extension[] => {
+    installedBlocks = exts;
+    return exts.map((ext, i) => {
+      const compartment = new Compartment();
+      blockCompartments[i] = compartment;
+      return compartment.of(ext);
+    });
+  };
+
+  const reconfigureBlocks = (next: readonly Extension[]) => {
+    const effects: StateEffect<unknown>[] = [];
+    const count = Math.max(next.length, blockCompartments.length);
+    for (let i = 0; i < count; i++) {
+      const ext = next[i] ?? [];
+      if (ext === installedBlocks[i]) continue;
+      const existing = blockCompartments[i];
+      if (existing) {
+        effects.push(existing.reconfigure(ext));
+      } else {
+        const compartment = new Compartment();
+        blockCompartments[i] = compartment;
+        effects.push(StateEffect.appendConfig.of(compartment.of(ext)));
+      }
+    }
+    installedBlocks = next;
+    if (effects.length > 0) view?.dispatch({ effects });
+  };
 
   const handleClickAtPos = (clickView: EditorView, pos: number): boolean => {
     const tree = syntaxTree(clickView.state);
@@ -314,21 +322,10 @@ const Editor: Component<EditorProps> = (props) => {
           wikilinkResolverCompartment.of(
             wikilinkResolverFacet.of(facetValueFor(props.wikilinkResolver)),
           ),
-          embedResolverCompartment.of(
-            embedResolverFacet.of(props.embedResolver ?? null),
-          ),
           propertyResolverCompartment.of(
             propertyResolverFacet.of(props.propertyResolver ?? null),
           ),
-          dataviewRunnerCompartment.of(
-            dataviewRunnerFacet.of(props.dataviewRunner ?? null),
-          ),
-          openNotePathCompartment.of(
-            openNotePathFacet.of(props.openNotePath ?? null),
-          ),
-          autocompleteCompartment.of(
-            autocompleteExtensionFor(props.autocompleteProvider),
-          ),
+          ...installBlocks(props.blockExtensions ?? []),
           autoCloseExtension,
           themeCompartment.of(buildCmTheme()),
           updateListener,
@@ -365,42 +362,11 @@ const Editor: Component<EditorProps> = (props) => {
     };
     view.contentDOM.addEventListener("mousedown", onContentTagMousedown, true);
 
-    const onContentDataviewMousedown = (event: MouseEvent) => {
-      if (!view) return;
-      const v = view;
-      maybeInterceptDataviewMousedown(event, {
-        findDataviewLink: closestDataviewLink,
-        findDataviewFrame: closestDataviewFrame,
-        onLinkHit: (link) => {
-          const path = link.getAttribute("data-path");
-          if (path === null || path === "") return false;
-          const runner = props.dataviewRunner;
-          if (!runner) return false;
-          runner.open(path);
-          return true;
-        },
-        onFrameHit: (frame) => {
-          const pos = v.posAtDOM(frame);
-          if (pos < 0) return false;
-          v.dispatch({ selection: { anchor: pos } });
-          return true;
-        },
-      });
-    };
-    view.contentDOM.addEventListener(
-      "mousedown",
-      onContentDataviewMousedown,
-      true,
-    );
-
     subscribeResolver(props.wikilinkResolver, view);
-    subscribeEmbedResolver(props.embedResolver, view);
     subscribePropertyResolver(props.propertyResolver, view);
-    subscribeDataviewRunner(props.dataviewRunner, view);
 
     if (import.meta.env.DEV) {
       window.__cubical = {
-        embedResolver: props.embedResolver ?? null,
         wikilinkResolver: props.wikilinkResolver ?? null,
       };
     }
@@ -548,24 +514,6 @@ const Editor: Component<EditorProps> = (props) => {
 
   createEffect(
     on(
-      () => props.embedResolver,
-      (resolver) => {
-        view?.dispatch({
-          effects: embedResolverCompartment.reconfigure(
-            embedResolverFacet.of(resolver ?? null),
-          ),
-        });
-        subscribeEmbedResolver(resolver, view);
-        if (import.meta.env.DEV && window.__cubical) {
-          window.__cubical.embedResolver = resolver ?? null;
-        }
-      },
-      { defer: true },
-    ),
-  );
-
-  createEffect(
-    on(
       () => props.propertyResolver,
       (resolver) => {
         view?.dispatch({
@@ -581,43 +529,8 @@ const Editor: Component<EditorProps> = (props) => {
 
   createEffect(
     on(
-      () => props.dataviewRunner,
-      (runner) => {
-        view?.dispatch({
-          effects: dataviewRunnerCompartment.reconfigure(
-            dataviewRunnerFacet.of(runner ?? null),
-          ),
-        });
-        subscribeDataviewRunner(runner, view);
-      },
-      { defer: true },
-    ),
-  );
-
-  createEffect(
-    on(
-      () => props.openNotePath,
-      (path) => {
-        view?.dispatch({
-          effects: openNotePathCompartment.reconfigure(
-            openNotePathFacet.of(path ?? null),
-          ),
-        });
-      },
-      { defer: true },
-    ),
-  );
-
-  createEffect(
-    on(
-      () => props.autocompleteProvider,
-      (provider) => {
-        view?.dispatch({
-          effects: autocompleteCompartment.reconfigure(
-            autocompleteExtensionFor(provider),
-          ),
-        });
-      },
+      () => props.blockExtensions ?? [],
+      (next) => reconfigureBlocks(next),
       { defer: true },
     ),
   );

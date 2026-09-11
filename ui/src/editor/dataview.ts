@@ -1,5 +1,10 @@
-import { EditorView } from "@codemirror/view";
-import { Facet, StateEffect, type EditorState } from "@codemirror/state";
+import { EditorView, ViewPlugin } from "@codemirror/view";
+import {
+  Facet,
+  StateEffect,
+  type EditorState,
+  type Extension,
+} from "@codemirror/state";
 
 import {
   dataviewQuery as defaultDataviewQuery,
@@ -8,6 +13,12 @@ import {
 } from "../api/dataview";
 import { createKeyedResolver } from "./keyedResolver";
 import type { BlockRenderer } from "./blockRenderers";
+import {
+  closestDataviewFrame,
+  closestDataviewLink,
+  maybeInterceptDataviewMousedown,
+} from "./dataviewMousedown";
+import { updateSubscriptionExtension } from "./updateSubscription";
 
 export interface DataviewRunner {
   get(source: string): DataviewResult | undefined;
@@ -52,6 +63,42 @@ export const dataviewRunnerFacet = Facet.define<
 });
 
 export const dataviewRunnerUpdated = StateEffect.define<null>();
+
+function dataviewMousedown(runner: DataviewRunner | null): Extension {
+  return ViewPlugin.define((view) => {
+    const onMousedown = (event: MouseEvent) => {
+      maybeInterceptDataviewMousedown(event, {
+        findDataviewLink: closestDataviewLink,
+        findDataviewFrame: closestDataviewFrame,
+        onLinkHit: (link) => {
+          const path = link.getAttribute("data-path");
+          if (path === null || path === "" || !runner) return false;
+          runner.open(path);
+          return true;
+        },
+        onFrameHit: (frame) => {
+          const pos = view.posAtDOM(frame);
+          if (pos < 0) return false;
+          view.dispatch({ selection: { anchor: pos } });
+          return true;
+        },
+      });
+    };
+    view.contentDOM.addEventListener("mousedown", onMousedown, true);
+    return {
+      destroy: () =>
+        view.contentDOM.removeEventListener("mousedown", onMousedown, true),
+    };
+  });
+}
+
+export function dataviewExtensionFor(runner: DataviewRunner | null): Extension {
+  return [
+    dataviewRunnerFacet.of(runner),
+    updateSubscriptionExtension(runner, dataviewRunnerUpdated),
+    dataviewMousedown(runner),
+  ];
+}
 
 const runnerIds = new WeakMap<DataviewRunner, number>();
 let nextRunnerId = 0;

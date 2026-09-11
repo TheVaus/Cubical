@@ -17,6 +17,7 @@ import { scanWikilinks } from "../ast/wikilink";
 import { decorationField } from "./decorationField";
 import type { EmbedResolver } from "./embedResolver";
 import { renderEmbedBody, type EmbedFileRenderer } from "./embedRender";
+import { updateSubscriptionExtension } from "./updateSubscription";
 import { renderGuarded } from "./widgetGuard";
 
 export const embedResolverFacet = Facet.define<
@@ -173,3 +174,14 @@ export const embedBaseTheme = EditorView.baseTheme({
 });
 
 export const embedExtension: Extension = [embedBlockField, embedBaseTheme];
+
+export function embedExtensionFor(
+  resolver: EmbedResolver | null,
+  openNotePath: string | null,
+): Extension {
+  return [
+    embedResolverFacet.of(resolver),
+    openNotePathFacet.of(openNotePath),
+    updateSubscriptionExtension(resolver, embedResolverUpdated),
+  ];
+}

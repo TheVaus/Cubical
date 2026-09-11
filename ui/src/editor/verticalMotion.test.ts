@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { EditorState } from "@codemirror/state";
 
-import { correctedVerticalHead } from "./embedNav";
+import { correctedVerticalHead } from "./verticalMotion";
 
 const DOC = "aaa\nbbb\nccc\nddd\neee\n";
 const state = EditorState.create({ doc: DOC });

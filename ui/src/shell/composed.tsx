@@ -1,6 +1,11 @@
-import { splitProps, type Component } from "solid-js";
+import { createMemo, splitProps, type Component } from "solid-js";
 
+import { autocompleteExtensionFor } from "../editor/autocomplete";
+import type { AutocompleteProvider } from "../editor/autocompleteProvider";
+import { dataviewExtensionFor, type DataviewRunner } from "../editor/dataview";
 import BaseEditor, { type EditorProps } from "../editor/Editor";
+import { embedExtensionFor } from "../editor/embed";
+import type { EmbedResolver } from "../editor/embedResolver";
 import BaseExplorerPanel, {
   type ExplorerPanelProps,
   type ExplorerSearchSlot,
@@ -11,9 +16,38 @@ import { createSearchState } from "../search/searchState";
 import { hasViewer } from "../viewer";
 import { editorBlocks } from "./editorBlocks";
 
-export const Editor: Component<EditorProps> = (props) => (
-  <BaseEditor {...props} previewBlocks={editorBlocks} />
-);
+export interface ComposedEditorProps
+  extends Omit<EditorProps, "previewBlocks" | "blockExtensions"> {
+  embedResolver?: EmbedResolver | null;
+  openNotePath?: string | null;
+  dataviewRunner?: DataviewRunner | null;
+  autocompleteProvider?: AutocompleteProvider | null;
+}
+
+export const Editor: Component<ComposedEditorProps> = (props) => {
+  const [own, base] = splitProps(props, [
+    "embedResolver",
+    "openNotePath",
+    "dataviewRunner",
+    "autocompleteProvider",
+  ]);
+  const embeds = createMemo(() =>
+    embedExtensionFor(own.embedResolver ?? null, own.openNotePath ?? null),
+  );
+  const dataview = createMemo(() =>
+    dataviewExtensionFor(own.dataviewRunner ?? null),
+  );
+  const autocomplete = createMemo(() =>
+    autocompleteExtensionFor(own.autocompleteProvider),
+  );
+  return (
+    <BaseEditor
+      {...base}
+      previewBlocks={editorBlocks}
+      blockExtensions={[embeds(), dataview(), autocomplete()]}
+    />
+  );
+};
 
 export interface ComposedExplorerProps
   extends Omit<ExplorerPanelProps, "search" | "canView"> {

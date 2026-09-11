@@ -462,8 +462,20 @@ compartments rather than rebuilding the view:
 | Live Preview decorations | raw-source toggles (swapped for a no-op) |
 | Raw-source coloring | raw source **and** the colorize setting are both on |
 | CM6 chrome theme | the resolved theme flips |
-| Autocomplete | a different vault opens (`null` provider ⇒ no-op) |
+| One per block extension | that block's inputs change — a new embed resolver or open note, a new dataview runner, a new autocomplete provider |
 | Keymap | a shortcut is remapped in Settings |
+
+**The editor core names no block.** Embeds, dataview and autocomplete each
+export an `…ExtensionFor(inputs)` builder that installs everything the block
+needs — its facet value, its resolver's update subscription, its own DOM
+handlers (dataview's link and frame clicks) — and the shell's composed `Editor`
+(`shell/composed.tsx`) builds one per block and passes them as
+`blockExtensions`. The core gives each entry its own compartment and
+reconfigures only the entry whose identity changed, so switching tabs swaps the
+embed facet without rebuilding autocompletion. A new block joins by writing a
+builder and adding it in the shell; `Editor.tsx` does not change. Vertical
+cursor motion past block widgets is core behaviour, not the embed block's, so
+it stays in the core keymap (`verticalMotion.ts`) ahead of the default keys.
 
 Decorations and raw-source coloring are **mutually exclusive by construction**
 (one is gated on raw source, the other on its negation), and neither references

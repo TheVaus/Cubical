@@ -133,20 +133,5 @@
     "viewer":     { "class": "block", "domain": "viewer" }
   },
 
-  "ui_allowed": {
-    "editor -> editor/embed": {
-      "issue": 289,
-      "reason": ["Editor.tsx installs the embed resolver facet, its update",
-                 "effect and embed line navigation by name."]
-    },
-    "editor -> editor/dataview": {
-      "issue": 289,
-      "reason": ["Editor.tsx installs the dataview runner facet and",
-                 "intercepts dataview frame and link clicks by name."]
-    },
-    "editor -> editor/autocomplete": {
-      "issue": 289,
-      "reason": ["Editor.tsx builds the autocomplete extension by name."]
-    }
-  }
+  "ui_allowed": {}
 }

@@ -30,10 +30,10 @@
       "note": "The substrate IPC surface: vault and file operations, links, tags, rename, settings and the vault events, plus the Setting union, which is the only registry of setting keys and so stays in one piece. Was 1208 as the whole surface; each block's wire contract moved to its own module beside it (api/search.ts, api/graph.ts, api/terminal.ts and the rest) and the timed invoke to api/transport.ts, so a new block command no longer costs lines here. A new substrate command or setting key does."
     },
     "ui/src/editor/Editor.tsx": {
-      "max_lines": 666,
+      "max_lines": 579,
       "kind": "debt",
       "issue": 86,
-      "note": "CodeMirror host: extension assembly, the imperative EditorApi, and the anchor-scroll queue. Ratcheted 730 -> 721 when equations landed: math, equations and property-refs are all live-preview plugin flags, so livePreviewFor takes them as one LivePreviewPlugins record and the separate propertyRefsEnabled compartment and its reconfigure effect are gone. Ratcheted 721 -> 666 when the four hand-rolled resolver subscribe blocks collapsed into editor/updateSubscription.ts: the slot registers its own onCleanup, so a fifth resolver cannot repeat the leak the dataview copy had."
+      "note": "CodeMirror host: extension assembly, the imperative EditorApi, and the anchor-scroll queue. Ratcheted 730 -> 721 when equations landed: math, equations and property-refs are all live-preview plugin flags, so livePreviewFor takes them as one LivePreviewPlugins record and the separate propertyRefsEnabled compartment and its reconfigure effect are gone. Ratcheted 721 -> 666 when the four hand-rolled resolver subscribe blocks collapsed into editor/updateSubscription.ts: the slot registers its own onCleanup, so a fifth resolver cannot repeat the leak the dataview copy had. Ratcheted 666 -> 579 when the editor core stopped naming embeds, dataview and autocomplete (#289): each block builds its own extension, facet, update subscription and DOM handler, and the core installs whatever list the shell passes, one compartment per entry."
     },
     "ui/src/properties/Properties.tsx": {
       "max_lines": 709,

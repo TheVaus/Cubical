@@ -1,6 +1,6 @@
 import { onCleanup } from "solid-js";
-import type { StateEffectType } from "@codemirror/state";
-import type { EditorView } from "@codemirror/view";
+import type { Extension, StateEffectType } from "@codemirror/state";
+import { ViewPlugin, type EditorView } from "@codemirror/view";
 
 export interface UpdateSource {
   onUpdate(handler: () => void): () => void;
@@ -30,4 +30,17 @@ export function createUpdateSubscriber(
           })
         : undefined;
   };
+}
+
+export function updateSubscriptionExtension(
+  source: UpdateSource | null | undefined,
+  effect: StateEffectType<null>,
+): Extension {
+  if (!source) return [];
+  return ViewPlugin.define((view) => {
+    const unsub = source.onUpdate(() => {
+      view.dispatch({ effects: effect.of(null) });
+    });
+    return { destroy: unsub };
+  });
 }
