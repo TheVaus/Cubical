@@ -4,7 +4,7 @@ import Button from "@ds/components/forms/Button/Button";
 import Popover from "@ds/components/overlay/Popover/Popover";
 
 import { RecentVaultList } from "./RecentVaultList";
-import type { RecentVault } from "./api/ipc";
+import type { RecentVault } from "../api/ipc";
 
 export interface VaultSwitcherProps {
   currentPath: string | null;

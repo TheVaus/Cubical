@@ -8,7 +8,7 @@ import {
   type Component,
 } from "solid-js";
 import { EditorView, keymap } from "@codemirror/view";
-import Minimap from "./editor/minimap/Minimap";
+import Minimap from "./minimap/Minimap";
 import { Compartment, EditorState } from "@codemirror/state";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
@@ -17,62 +17,62 @@ import {
   toCmBindings,
   type Command,
   type KeyBinding,
-} from "./core/commands";
+} from "../core/commands";
 import { syntaxTree } from "@codemirror/language";
 
-import { normalize } from "./ast/normalize";
-import { scanWikilinks } from "./ast/wikilink";
-import type { CanonicalDocument } from "./ast/types";
+import { normalize } from "../ast/normalize";
+import { scanWikilinks } from "../ast/wikilink";
+import type { CanonicalDocument } from "../ast/types";
 import {
   wikilinkResolverFacet,
   wikilinkResolverUpdated,
   type WikiLinkResolverFacetValue,
-} from "./editor/decorations";
-import { tagExtension } from "./editor/tag";
+} from "./decorations";
+import { tagExtension } from "./tag";
 import {
   closestTagSpan,
   maybeInterceptTagMousedown,
   tagPathFromSlice,
-} from "./editor/tagMousedown";
-import { wikilinkExtension } from "./editor/wikilink";
-import { handleWikiLinkClick } from "./editor/wikilinkClick";
+} from "./tagMousedown";
+import { wikilinkExtension } from "./wikilink";
+import { handleWikiLinkClick } from "./wikilinkClick";
 import {
   findBlockDefinitionOffset,
   findHeadingOffset,
-} from "./editor/anchorScroll";
+} from "./anchorScroll";
 import {
   closestWikiLinkSpan,
   maybeInterceptWikiLinkMousedown,
-} from "./editor/wikilinkMousedown";
-import type { WikiLinkResolver } from "./editor/wikilinkResolver";
-import type { EmbedResolver } from "./editor/embedResolver";
+} from "./wikilinkMousedown";
+import type { WikiLinkResolver } from "./wikilinkResolver";
+import type { EmbedResolver } from "./embedResolver";
 import {
   embedResolverFacet,
   embedResolverUpdated,
   openNotePathFacet,
-} from "./editor/embed";
+} from "./embed";
 import {
   propertyResolverFacet,
   propertyResolverUpdated,
   type PropertyResolver,
-} from "./editor/propertySlot";
-import { dataviewRunnerFacet, dataviewRunnerUpdated, type DataviewRunner } from "./editor/dataview";
+} from "./propertySlot";
+import { dataviewRunnerFacet, dataviewRunnerUpdated, type DataviewRunner } from "./dataview";
 import {
   closestDataviewFrame,
   closestDataviewLink,
   maybeInterceptDataviewMousedown,
-} from "./editor/dataviewMousedown";
-import { livePreviewFor, type PreviewBlocks } from "./editor/livePreview";
-import { colorSourceHighlight } from "./editor/colorSource";
-import { createUpdateSubscriber } from "./editor/updateSubscription";
-import { verticalDocLineMotion } from "./editor/embedNav";
-import { autoCloseExtension } from "./editor/autoClose";
-import { autocompleteExtensionFor } from "./editor/autocomplete";
-import type { AutocompleteProvider } from "./editor/autocompleteProvider";
-import { byteOffsetOf } from "./editor/blockRef";
-import { buildCmTheme } from "./editor/cm-theme";
-import type { ResolvedAnchor } from "./api/ipc";
-import type { ResolvedTheme } from "./styles/theme";
+} from "./dataviewMousedown";
+import { livePreviewFor, type PreviewBlocks } from "./livePreview";
+import { colorSourceHighlight } from "./colorSource";
+import { createUpdateSubscriber } from "./updateSubscription";
+import { verticalDocLineMotion } from "./embedNav";
+import { autoCloseExtension } from "./autoClose";
+import { autocompleteExtensionFor } from "./autocomplete";
+import type { AutocompleteProvider } from "./autocompleteProvider";
+import { byteOffsetOf } from "./blockRef";
+import { buildCmTheme } from "./cm-theme";
+import type { ResolvedAnchor } from "../api/ipc";
+import type { ResolvedTheme } from "../styles/theme";
 
 declare global {
   interface Window {

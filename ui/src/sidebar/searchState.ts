@@ -10,7 +10,7 @@ import {
 } from "../api/ipc";
 import { debounce } from "./debounce";
 import { buildSearchQuery, type ScopeKind } from "./searchQuery";
-import { errorMessage } from "../errorMessage";
+import { errorMessage } from "../core/errorMessage";
 
 const DEBOUNCE_MS = 200;
 const STATUS_POLL_MS = 500;

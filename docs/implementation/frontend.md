@@ -101,7 +101,7 @@ invalidate.
 **Anchors:** TabStrip
 
 The active-document model lives in an immutable `TabSet` (`tabs/tabModel.ts`),
-in the style of `navHistory.ts` — `App` holds one `tabs` signal and derives the
+in the style of `core/navHistory.ts` — `App` holds one `tabs` signal and derives the
 old `view()` / `selectedPath()` accessors from it, so every existing read site
 kept working untouched.
 
@@ -844,7 +844,7 @@ switch.
 
 **Anchors:** resolveAutoDismissMs · showErrorToast · enqueueToast
 
-`ui/src/toastState.ts` is a queue, not a slot, and the auto-dismiss window is a
+`ui/src/toast/toastState.ts` is a queue, not a slot, and the auto-dismiss window is a
 function of tone: an `error` toast has no window at all and stays until it is
 dismissed, everything else gets the default one, and an explicit `durationMs`
 from the caller beats both.

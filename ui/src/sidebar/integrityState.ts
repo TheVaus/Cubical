@@ -3,7 +3,7 @@ import type {
   RepairCandidate,
   RepairCandidateRank,
 } from "../api/ipc";
-import { stabilizeByKey } from "../listStability";
+import { stabilizeByKey } from "../core/listStability";
 
 export type IntegrityViewState =
   | { kind: "idle" }

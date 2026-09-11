@@ -77,7 +77,7 @@ One surface is bespoke by construction rather than by backlog: the **graph hover
 
 **`ui/src/App.tsx` is a composition shell.** It holds vault identity, the tab set, the global keydown table and the JSX that arranges features — and nothing a feature could own. State lives with the feature that reads it, in a folder under `ui/src/`: `explorer/`, `workspace/`, `settings/`, `sidebar/`, `statusbar/`, `omnibar/`, `tabs/`, `terminal/`, `viewer/`, `editor/`. A feature folder holds its own markup, its own state factory, and the pure logic beside them as a unit-testable `.ts`.
 
-Two shapes are already the convention and stay it: pure logic is a `.ts` next to its `.tsx` with its own test (`tabs/tabModel.ts`, `omnibar/ranker.ts`, `navHistory.ts`, `virtualList.ts`), and stateful wiring is a `create*` factory (`core/vaultSession.ts`, `terminal/wiring.ts`, `settings/settingsState.ts`).
+Two shapes are already the convention and stay it: pure logic is a `.ts` next to its `.tsx` with its own test (`tabs/tabModel.ts`, `omnibar/ranker.ts`, `core/navHistory.ts`, `core/virtualList.ts`), and stateful wiring is a `create*` factory (`core/vaultSession.ts`, `terminal/wiring.ts`, `settings/settingsState.ts`).
 
 **The shell may not call IPC.** Features do. This is what keeps the rule from decaying into a line count — a feature can be added to `App.tsx` in fewer lines than any cap would notice, but not without an IPC call.
 

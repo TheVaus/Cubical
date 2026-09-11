@@ -1,5 +1,5 @@
 import type { Mention } from "../api/ipc";
-import { stabilizeByKey } from "../listStability";
+import { stabilizeByKey } from "../core/listStability";
 
 export function mentionKey(m: Mention): string {
   return `${m.source_path}@${m.position}`;

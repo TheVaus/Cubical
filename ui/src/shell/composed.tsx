@@ -1,6 +1,6 @@
 import { splitProps, type Component } from "solid-js";
 
-import BaseEditor, { type EditorProps } from "../Editor";
+import BaseEditor, { type EditorProps } from "../editor/Editor";
 import BaseExplorerPanel, {
   type ExplorerPanelProps,
   type ExplorerSearchSlot,

@@ -1,6 +1,6 @@
 import { onCleanup } from "solid-js";
 
-import { isOverlayOpen } from "../overlayState";
+import { isOverlayOpen } from "./overlayState";
 import { resolveGlobal, type Command, type KeyBinding } from "./commands";
 
 export function handleGlobalKey(

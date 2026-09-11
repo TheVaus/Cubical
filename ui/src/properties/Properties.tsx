@@ -15,30 +15,30 @@ import Link from "@ds/components/forms/Link/Link";
 import TextInput from "@ds/components/forms/TextInput/TextInput";
 import Icon from "@ds/components/graphics/Icon/Icon";
 
-import type { Frontmatter, FrontmatterEntry } from "./ast/types";
-import { splitFrontmatter } from "./ast/frontmatter";
-import { coerceValue } from "./properties/coerce";
+import type { Frontmatter, FrontmatterEntry } from "../ast/types";
+import { splitFrontmatter } from "../ast/frontmatter";
+import { coerceValue } from "./coerce";
 import {
   hasUnmodelableYaml,
   serializeFrontmatter,
-} from "./properties/serializeFrontmatter";
-import StringCell from "./properties/StringCell";
-import NumberCell from "./properties/NumberCell";
-import BooleanCell from "./properties/BooleanCell";
-import DateCell from "./properties/DateCell";
-import StringListCell from "./properties/StringListCell";
-import RawCell from "./properties/RawCell";
-import CurrencyCell from "./properties/CurrencyCell";
-import EnumCell from "./properties/EnumCell";
-import { convertDate } from "./properties/dateFormats";
-import { DATE_FORMAT_TOKENS } from "./settings/propertyFormats";
-import { parseTypeComments, type PropertyType } from "./properties/typeComments";
+} from "./serializeFrontmatter";
+import StringCell from "./StringCell";
+import NumberCell from "./NumberCell";
+import BooleanCell from "./BooleanCell";
+import DateCell from "./DateCell";
+import StringListCell from "./StringListCell";
+import RawCell from "./RawCell";
+import CurrencyCell from "./CurrencyCell";
+import EnumCell from "./EnumCell";
+import { convertDate } from "./dateFormats";
+import { DATE_FORMAT_TOKENS } from "../settings/propertyFormats";
+import { parseTypeComments, type PropertyType } from "./typeComments";
 import {
   buildAnnotations,
   effectiveCurrency,
   effectiveFormat,
   resolveType,
-} from "./properties/propertiesLogic";
+} from "./propertiesLogic";
 
 interface TypeLeaf {
   type: PropertyType;

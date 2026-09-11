@@ -11,7 +11,7 @@ import {
   type DanglingLinkGroup,
   type RepairCandidate,
 } from "../api/ipc";
-import { errorMessage } from "../errorMessage";
+import { errorMessage } from "../core/errorMessage";
 import {
   candidateKey,
   candidateRankLabel,

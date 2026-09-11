@@ -9,8 +9,8 @@ import {
 
 import Button from "@ds/components/forms/Button/Button";
 
-import { queryTagPage, type TagPageFile } from "./api/ipc";
-import { errorMessage } from "./errorMessage";
+import { queryTagPage, type TagPageFile } from "../api/ipc";
+import { errorMessage } from "../core/errorMessage";
 
 type TagPageState =
   | { phase: "idle" }

@@ -1,5 +1,5 @@
 import type { SearchHit } from "../api/ipc";
-import { stabilizeByKey } from "../listStability";
+import { stabilizeByKey } from "../core/listStability";
 import { parseHighlights, type HighlightSegment } from "./snippet";
 
 const CARD_ORDER = ["body", "headings", "code", "frontmatter", "title"];

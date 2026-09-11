@@ -7,10 +7,10 @@ vi.mock("../api/ipc", () => ({
   deleteFile: vi.fn(() => Promise.resolve({})),
 }));
 
-vi.mock("../toastState", () => ({ showErrorToast: vi.fn() }));
+vi.mock("../toast/toastState", () => ({ showErrorToast: vi.fn() }));
 
 import { createFile, createFolder, deleteFile } from "../api/ipc";
-import { showErrorToast } from "../toastState";
+import { showErrorToast } from "../toast/toastState";
 import { createFileActions, type FileActionsDeps } from "./fileActions";
 
 const created = createFile as unknown as ReturnType<typeof vi.fn>;

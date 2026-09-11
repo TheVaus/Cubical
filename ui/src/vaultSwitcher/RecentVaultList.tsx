@@ -3,7 +3,7 @@ import { For, Show } from "solid-js";
 import Button from "@ds/components/forms/Button/Button";
 import IconButton from "@ds/components/forms/IconButton/IconButton";
 
-import type { RecentVault } from "./api/ipc";
+import type { RecentVault } from "../api/ipc";
 
 export interface RecentVaultListProps {
   vaults: RecentVault[];

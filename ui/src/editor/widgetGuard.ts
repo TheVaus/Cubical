@@ -1,6 +1,6 @@
 import { EditorView } from "@codemirror/view";
 
-import { errorMessage } from "../errorMessage";
+import { errorMessage } from "../core/errorMessage";
 
 export const RENDER_FAILED_CLASS = "cm-render-failed";
 

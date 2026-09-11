@@ -1,5 +1,5 @@
 import type { Backlink } from "../api/ipc";
-import { stabilizeByKey } from "../listStability";
+import { stabilizeByKey } from "../core/listStability";
 
 export function backlinkKey(b: Backlink): string {
   return `${b.source_path}@${b.position}`;

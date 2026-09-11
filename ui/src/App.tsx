@@ -22,7 +22,7 @@ import TextInput from "@ds/components/forms/TextInput/TextInput";
 import Icon from "@ds/components/graphics/Icon/Icon";
 import ConfirmDialog from "@ds/components/overlay/ConfirmDialog/ConfirmDialog";
 
-import type { EditorApi } from "./Editor";
+import type { EditorApi } from "./editor/Editor";
 import {
   TERMINAL_COMMAND_ID,
   TerminalButton,
@@ -33,8 +33,8 @@ import {
   isTerminalView,
 } from "./terminal";
 import { GRAPH_COMMAND_ID, GraphButton, GraphTabPane, createGraphWiring, isGraphView } from "./graph";
-import Properties from "./Properties";
-import { RecentVaultList } from "./RecentVaultList";
+import Properties from "./properties/Properties";
+import { RecentVaultList } from "./vaultSwitcher/RecentVaultList";
 import SettingsModal from "./settings/SettingsModal";
 import { createSettingsState } from "./settings/settingsState";
 import type { CanonicalDocument, Frontmatter } from "./ast/types";
@@ -102,7 +102,7 @@ import { pruneContents, remapContentKeys } from "./tabs/contentCache";
 import { resetResolvers, revalidateResolvers } from "./shell/resolverRefresh";
 import type { ResolverGroup } from "./shell/resolverRefresh";
 
-import { errorMessage } from "./errorMessage";
+import { errorMessage } from "./core/errorMessage";
 import {
   createWikiLinkResolver,
   type WikiLinkResolver,
@@ -136,24 +136,24 @@ import {
   BLOCK_COUNT_SEGMENT,
 } from "./statusbar/segments";
 import { leadingSeparators } from "./statusbar/separators";
-import { ToastHost } from "./ToastHost";
-import { dismissAllToasts, showErrorToast, showToast } from "./toastState";
+import { ToastHost } from "./toast/ToastHost";
+import { dismissAllToasts, showErrorToast, showToast } from "./toast/toastState";
 import {
   renameTarget,
   reprefixNestedPath,
   validateRenameTarget,
-} from "./fileRename";
+} from "./vault/fileRename";
 import { noteTitle } from "./vault/noteName";
 import { watchSystemTheme } from "./styles/theme";
 import Backlinks from "./sidebar/Backlinks";
 import UnlinkedMentions from "./sidebar/UnlinkedMentions";
 import IntegrityPanel from "./sidebar/IntegrityPanel";
-import TagPage from "./TagPage";
+import TagPage from "./tags/TagPage";
 import OmniBar from "./omnibar/OmniBar";
 import { type OmniItem, type RankedItem } from "./omnibar/ranker";
 import { OMNI_COMMANDS } from "./omnibar/commands";
 import { corePluginActive } from "./settings/corePlugins";
-import { VaultSwitcher } from "./VaultSwitcher";
+import { VaultSwitcher } from "./vaultSwitcher/VaultSwitcher";
 
 const AUTOSAVE_DEBOUNCE_MS = 300;
 

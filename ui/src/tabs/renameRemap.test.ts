@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { reprefixNestedPath } from "../fileRename";
+import { reprefixNestedPath } from "../vault/fileRename";
 import { dropMissingTabs, emptyTabs, openTab, remapTabPaths } from "./tabModel";
 
 const remapFor =

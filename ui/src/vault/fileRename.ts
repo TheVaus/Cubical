@@ -3,7 +3,7 @@ import {
   isValidNoteName,
   noteNameError,
   parentPrefix,
-} from "./vault/noteName";
+} from "./noteName";
 
 export type RenameValidationError =
   | { code: "empty"; message: string }

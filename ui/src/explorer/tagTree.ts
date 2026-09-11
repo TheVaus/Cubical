@@ -1,4 +1,4 @@
-import { stabilizeByKey } from "../listStability";
+import { stabilizeByKey } from "../core/listStability";
 import type { FileLeaf } from "./fileTree";
 
 export const UNTAGGED_ID = "\u0000untagged";

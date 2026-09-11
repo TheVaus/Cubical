@@ -15,7 +15,7 @@ import {
   type Mention,
 } from "../api/ipc";
 import { noteTitle } from "../vault/noteName";
-import { errorMessage } from "../errorMessage";
+import { errorMessage } from "../core/errorMessage";
 import {
   mentionKey,
   reduceMentionsState,

@@ -8,7 +8,7 @@ import {
 } from "solid-js";
 
 import { getBacklinks, type Backlink } from "../api/ipc";
-import { errorMessage } from "../errorMessage";
+import { errorMessage } from "../core/errorMessage";
 import {
   backlinkKey,
   reduceBacklinksState,

@@ -1,8 +1,8 @@
 import { createSignal } from "solid-js";
 
 import { readFileText, writeFileText } from "../api/ipc";
-import { errorMessage } from "../errorMessage";
-import { isOwnWriteEcho } from "../ownWrite";
+import { errorMessage } from "./errorMessage";
+import { isOwnWriteEcho } from "./ownWrite";
 import { createDebounced } from "./debounce";
 
 export interface DocumentEditor {
