@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach } from "vitest";
 import { render } from "solid-js/web";
-import DatePicker from "@ds/components/forms/DatePicker/DatePicker";
+import DatePicker from "./DatePicker";
 
 let dispose: (() => void) | undefined;
 afterEach(() => { dispose?.(); dispose = undefined; });

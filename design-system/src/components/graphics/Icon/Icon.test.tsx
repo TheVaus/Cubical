@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach } from "vitest";
 import { render } from "solid-js/web";
-import Icon from "@ds/components/graphics/Icon/Icon";
+import Icon from "./Icon";
 
 let dispose: (() => void) | undefined;
 afterEach(() => { dispose?.(); dispose = undefined; });

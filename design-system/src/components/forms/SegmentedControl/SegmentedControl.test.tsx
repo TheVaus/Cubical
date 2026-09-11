@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach } from "vitest";
 import { render } from "solid-js/web";
-import SegmentedControl from "@ds/components/forms/SegmentedControl/SegmentedControl";
+import SegmentedControl from "./SegmentedControl";
 
 let dispose: (() => void) | undefined;
 afterEach(() => { dispose?.(); dispose = undefined; });

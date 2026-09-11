@@ -2,7 +2,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render } from "solid-js/web";
 import { createSignal } from "solid-js";
-import TwoPaneModal from "@ds/components/overlay/TwoPaneModal/TwoPaneModal";
+import TwoPaneModal from "./TwoPaneModal";
 
 let dispose: (() => void) | undefined;
 afterEach(() => {

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach } from "vitest";
 import { render } from "solid-js/web";
-import Tag from "@ds/components/data/Tag/Tag";
+import Tag from "./Tag";
 
 let dispose: (() => void) | undefined;
 afterEach(() => { dispose?.(); dispose = undefined; });

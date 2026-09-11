@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ICONS, type IconName } from "@ds/components/graphics/Icon/icons";
+import { ICONS, type IconName } from "./icons";
 
 const EXPECTED: IconName[] = [
   "plus", "folder-plus", "info", "chevron-right", "chevron-down",

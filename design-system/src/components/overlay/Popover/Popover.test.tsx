@@ -2,7 +2,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render } from "solid-js/web";
 import { createSignal } from "solid-js";
-import Popover from "@ds/components/overlay/Popover/Popover";
+import Popover from "./Popover";
 
 let dispose: (() => void) | undefined;
 afterEach(() => {

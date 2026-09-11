@@ -33,6 +33,7 @@ echo "==> docs";                python3 scripts/check_docs.py
 echo "==> tsc";          ( cd ui && npx tsc --noEmit )
 echo "==> tsc (design-system)"; ( cd design-system && npx tsc --noEmit )
 echo "==> vitest";       ( cd ui && npx vitest run )
+echo "==> vitest (design-system)"; ( cd design-system && npx vitest run )
 echo "==> build";        ( cd ui && npm run build )
 
 echo "==> cargo fmt";    cargo fmt --all --check
