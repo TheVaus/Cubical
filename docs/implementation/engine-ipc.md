@@ -20,10 +20,8 @@ reason — they survive a shell migration unchanged.
 
 `api/types.rs` holds the substrate's request and response types — vault, files,
 links, tags, rename, settings. Each block's types live in its own command
-module (`commands::search`, `commands::graph`, `commands::dataview`,
-`commands::integrity`, `commands::embeds`, `commands::property_ref`,
-`commands::autocomplete`, `commands::blocks`), and the shell crates import them
-from there.
+module — which modules are blocks is the `engine_modules` table in
+`scripts/domain-boundaries.json` — and the shell crates import them from there.
 
 While every type sat in `api/types.rs`, that file re-exported `cubical_graph`
 and `cubical_search` and converted from `cubical_query`, so every substrate

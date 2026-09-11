@@ -16,9 +16,8 @@ leave a misleading name.
 
 **A block's wire contract lives in its own file.** `ipc.ts` holds the
 substrate surface — vault and file operations, links, tags, rename, settings
-and the vault events — and each block owns one module beside it (`search.ts`,
-`graph.ts`, `terminal.ts`, `dataview.ts`, `integrity.ts`, `embeds.ts`,
-`propertyRef.ts`, `autocomplete.ts`, `blocks.ts`) that the domain census
+and the vault events — and each block owns one module beside it, which the
+domain census (`scripts/domain-boundaries.json`, the `api/<block>` keys)
 classes as part of that block. While every contract sat in one substrate file,
 a block importing another block's wire type was invisible to the domain gate —
 splitting it surfaced two such edges, the editor core's property slot and the

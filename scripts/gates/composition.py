@@ -108,27 +108,27 @@ def check_shell(gate: Gate, cfg: dict) -> None:
     waived = shell.get("waived_imports", {})
     sources = import_sources(text)
     for forbidden in shell["forbidden_imports"]:
-        hits = {s for s in sources
-                if s == forbidden
-                or (forbidden.endswith("/") and s.startswith(forbidden))}
-        if not hits:
-            if forbidden in waived:
+        hits = sorted(s for s in sources
+                      if s == forbidden
+                      or (forbidden.endswith("/") and s.startswith(forbidden)))
+        for hit in hits:
+            entry = waived.get(hit)
+            if entry is None:
+                gate.fail(
+                    f"{r}: imports {hit}. The shell wires features together; "
+                    f"features call IPC. Move the call into the feature that "
+                    f"needs it, or waive that exact module deliberately in "
+                    f"scripts/component-budgets.json with an issue.")
+            else:
                 gate.warn(
-                    f"{r} no longer imports {forbidden} — drop it from "
-                    f"waived_imports in scripts/component-budgets.json so the "
-                    f"ban starts being enforced.")
-            continue
-        entry = waived.get(forbidden)
-        if entry is None:
-            gate.fail(
-                f"{r}: imports {forbidden}. The shell wires features together; "
-                f"features call IPC. Move the call into the feature that needs "
-                f"it, or waive it deliberately in "
-                f"scripts/component-budgets.json with an issue.")
-        else:
+                    f"{r}: still imports {hit} (waived, issue "
+                    f"#{entry['issue']}). {entry['note']}")
+    for key in waived:
+        if key not in sources:
             gate.warn(
-                f"{r}: still imports {forbidden} (waived, issue "
-                f"#{entry['issue']}). {entry['note']}")
+                f"{r} no longer imports {key} — drop it from waived_imports "
+                f"in scripts/component-budgets.json so the ban starts being "
+                f"enforced.")
 
 
 def run() -> int:

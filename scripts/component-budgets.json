@@ -87,10 +87,15 @@
       "./api/"
     ],
     "waived_imports": {
-      "./api/": {
+      "./api/ipc": {
         "kind": "debt",
         "issue": 86,
-        "note": "App still owns vault boot, the watcher listeners and the block-ref calls (api/blocks.ts), which are the remaining direct IPC callers; the document session moved to core/documentSession.ts. The ban covers every module under api/, so a block's own module is no way round it. The waiver goes away with the three; do not add a second waiver to keep an IPC call in the shell."
+        "note": "App still owns vault boot and the watcher listeners, which are the remaining direct IPC callers; the document session moved to core/documentSession.ts. The ban covers every module under api/ and a waiver names one exact module, so a block's own module is no way round it. The waiver goes away with vault boot and the watchers; do not add a second waiver to keep an IPC call in the shell."
+      },
+      "./api/blocks": {
+        "kind": "debt",
+        "issue": 86,
+        "note": "App calls createBlockRef and getBrokenBlockRefs directly for the copy-block-ref command and the statusbar's broken-ref count. They belong in a block-refs feature the shell composes, as the other extractions under this issue did."
       }
     }
   }

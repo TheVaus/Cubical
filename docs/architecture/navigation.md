@@ -71,7 +71,7 @@ means the §15.1 semantics.
 | Omni-Bar note result | `omnibar/OmniBar.tsx` | `handleNavigateWikilink(path, null)` | Open-or-focus, then the bar closes |
 | Omni-Bar tag result | `omnibar/OmniBar.tsx` | `handleNavigateTag` | Tag tab |
 | Omni-Bar command result | `omnibar/OmniBar.tsx` | `handleRunCommand` | Not navigation — the omni-bar command set is one entry (`omnibar/commands.ts`), separate from the keymap registry |
-| Dataview result link | `editor/Editor.tsx` → the runner's `open` | `handleNavigateWikilink(path, null)` | Open-or-focus |
+| Dataview result link | the dataview mousedown plugin (`editor/dataview.ts`) → the runner's `open` | `handleNavigateWikilink(path, null)` | Open-or-focus |
 | Create from unresolved link | the create-offer dialog | `createFileAtPath` then `handleNavigateWikilink` | Creates the file, then opens it. The fresh content hash is threaded through so the watcher's created-echo is not read as an external edit |
 | New note (`Mod-N`, the `+` button) | left file panel, keymap | `createFile` then `handleNavigateWikilink` | Same shape |
 | Tab-strip click | `tabs/TabStrip.tsx` | `activateTabById` | Focus. Also pushes history when the target is a file tab |
