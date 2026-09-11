@@ -102,7 +102,8 @@ pub async fn open_vault(
         state.vaults_arc(),
         vault_id.clone(),
         vault.clone(),
-        search.clone(),
+        search.scan_sink(),
+        crate::search_handle::settle_after_scan,
         cancel,
     );
 
@@ -111,7 +112,7 @@ pub async fn open_vault(
         vault_id.clone(),
         WatchedVault {
             vault: vault.clone(),
-            search,
+            changes: Arc::new(search),
         },
         watch_rx,
         flush_own_writes.clone(),

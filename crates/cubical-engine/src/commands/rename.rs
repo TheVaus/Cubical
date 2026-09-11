@@ -1,4 +1,4 @@
-use cubical_ast::{note_title, strip_markdown_extension, Document};
+use cubical_ast::{note_title, strip_markdown_extension};
 use cubical_core::unix_now_secs;
 use std::collections::HashSet;
 
@@ -6,6 +6,7 @@ use cubical_core::vault::pending::apply_pending;
 use cubical_core::{
     atomic_write, parse_off_executor, refresh_block_refs_for_file, refresh_blocks,
     refresh_frontmatter_with_doc, refresh_links_with_doc, refresh_tags_with_doc, sha256_bytes_hex,
+    ChangeSink,
 };
 use cubical_index::{
     delete_pending_for_target, delete_rename_op, list_recent_rename_ops as list_ops,
@@ -33,24 +34,11 @@ use crate::events::{
 };
 use crate::state::AppState;
 
-pub trait RenameSink: Send {
-    fn moved(
-        &mut self,
-        from: &str,
-        to: &str,
-        doc: Option<&Document>,
-        mtime_secs: i64,
-        size_bytes: u64,
-    );
-
-    fn finish(&mut self);
-}
-
-async fn rename_sink_for(
+async fn change_sink_for(
     state: &AppState,
     vault_id: &str,
-) -> Result<Box<dyn RenameSink>, CubicalError> {
-    with_open_vault(state, vault_id, crate::state::OpenVault::rename_sink).await
+) -> Result<std::sync::Arc<dyn ChangeSink>, CubicalError> {
+    with_open_vault(state, vault_id, crate::state::OpenVault::change_sink).await
 }
 
 fn file_stamp(path: &std::path::Path, fallback_len: u64) -> (i64, u64) {
@@ -309,7 +297,7 @@ async fn enqueue_referrers_in_tx(
 
 struct RenameCommitInput<'a> {
     vault: &'a cubical_core::Vault,
-    sink: &'a mut dyn RenameSink,
+    sink: &'a dyn ChangeSink,
     flush_own_writes: &'a FlushOwnWrites,
     vault_id: &'a str,
     from_path: &'a str,
@@ -384,15 +372,16 @@ async fn commit_rename(
         let _ = refresh_block_refs_for_file(vault, to_path).await;
 
         let (mtime_secs, size_bytes) = file_stamp(&to_abs, byte_len);
-        sink.moved(from_path, to_path, Some(&doc), mtime_secs, size_bytes);
+        sink.removed(from_path);
+        sink.changed(to_path, &doc, mtime_secs, size_bytes);
     } else {
         tracing::debug!(
             path = %to_path,
             "rename: destination is not valid UTF-8; skipping content re-extraction",
         );
-        sink.moved(from_path, to_path, None, 0, byte_len);
+        sink.removed(from_path);
     }
-    sink.finish();
+    sink.flush();
 
     enforce_fifty_per_file_fuse(vault, flush_own_writes, &fuse_targets).await?;
 
@@ -418,7 +407,7 @@ pub async fn rename_file(
 ) -> Result<RenameFileResponse, CubicalError> {
     let (vault, flush_own_writes, _flush_in_progress) =
         clone_vault_with_flush_state(state, &req.vault_id).await?;
-    let mut sink = rename_sink_for(state, &req.vault_id).await?;
+    let sink = change_sink_for(state, &req.vault_id).await?;
     let conn = vault.index().connection();
 
     let (from_path, from_abs) = paths::vault_file(&vault, &req.from_path)?;
@@ -454,7 +443,7 @@ pub async fn rename_file(
         app,
         RenameCommitInput {
             vault: &vault,
-            sink: sink.as_mut(),
+            sink: sink.as_ref(),
             flush_own_writes: &flush_own_writes,
             vault_id: &req.vault_id,
             from_path: &from_path,
@@ -473,7 +462,7 @@ pub async fn rename_file(
 
 pub(crate) struct AdoptExternalRenameInput<'a> {
     pub vault: &'a cubical_core::Vault,
-    pub sink: &'a mut dyn RenameSink,
+    pub sink: &'a dyn ChangeSink,
     pub flush_own_writes: &'a FlushOwnWrites,
     pub vault_id: &'a str,
     pub from_path: &'a str,
@@ -535,7 +524,7 @@ pub async fn rename_folder(
 ) -> Result<RenameFolderResponse, CubicalError> {
     let (vault, flush_own_writes, _flush_in_progress) =
         clone_vault_with_flush_state(state, &req.vault_id).await?;
-    let mut sink = rename_sink_for(state, &req.vault_id).await?;
+    let sink = change_sink_for(state, &req.vault_id).await?;
     let conn = vault.index().connection();
 
     let (from_path, from_abs) = paths::vault_file(&vault, &req.from_path)?;
@@ -684,7 +673,7 @@ pub async fn rename_folder(
         {
             Ok(Ok(content)) => content,
             _ => {
-                sink.moved(from, to, None, 0, 0);
+                sink.removed(from);
                 continue;
             }
         };
@@ -696,9 +685,10 @@ pub async fn rename_folder(
         let _ = refresh_block_refs_for_file(&vault, to).await;
 
         let (mtime_secs, size_bytes) = file_stamp(&to_abs_file, on_disk.len() as u64);
-        sink.moved(from, to, Some(&doc), mtime_secs, size_bytes);
+        sink.removed(from);
+        sink.changed(to, &doc, mtime_secs, size_bytes);
     }
-    sink.finish();
+    sink.flush();
 
     enforce_fifty_per_file_fuse(&vault, &flush_own_writes, &fuse_targets).await?;
 

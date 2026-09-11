@@ -31,7 +31,7 @@ registries (tests, headless tooling) may omit it and accept `None`.
 
 ## Scan
 
-**Anchors:** scan · open_vault · last_seen · ScanSink · NoScanSink
+**Anchors:** scan · open_vault · last_seen · ScanSink · NoScanSink · ChangeSink · NoChangeSink
 
 - **Batched commits.** Autocommitting per file means one `fsync` per file —
   tens of thousands on a large vault, the difference between seconds and
@@ -61,6 +61,11 @@ registries (tests, headless tooling) may omit it and accept `None`.
   nothing" for the same reason the stale sweep is skipped — an incomplete walk
   makes live entries look orphaned. A caller with no derived index to feed
   passes `NoScanSink`.
+- **Live changes use the same seam.** After the scan, the watcher and rename
+  report each file they change or drop to a `ChangeSink` (`changed`, `removed`,
+  then one `flush` per batch). It is a separate trait because it has no walk to
+  complete, so it has no reconcile, and it takes `&self` so one sink can be
+  shared across watcher batches. `NoChangeSink` is the no-op.
 - Per-file I/O or hash failures are logged and skipped, never fatal. The
   progress channel is best-effort — a dropped receiver silently discards
   updates rather than failing the scan.

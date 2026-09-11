@@ -3,15 +3,14 @@ use std::path::Path;
 use std::sync::Arc;
 
 use cubical_ast::Document;
-use cubical_core::{unix_now_secs, ScanSink, Vault};
+use cubical_core::{unix_now_secs, ChangeSink, ScanSink, Vault};
 use cubical_index::{append_audit, AuditLevel};
-use cubical_search::{SearchError, SearchIndex};
+use cubical_search::{IndexState, SearchError, SearchIndex};
 
 use crate::commands::open::with_open_vault;
-use crate::commands::rename::RenameSink;
 use crate::error::CubicalError;
 use crate::events::record_vault_warning;
-use crate::state::AppState;
+use crate::state::{AppState, OpenVault};
 
 pub const SEARCH_REBUILT: &str = "search_rebuilt";
 
@@ -110,13 +109,6 @@ impl SearchHandle {
     }
 
     #[must_use]
-    pub fn rename_sink(&self) -> SearchRenameSink {
-        SearchRenameSink {
-            search: self.clone(),
-        }
-    }
-
-    #[must_use]
     pub fn scan_sink(&self) -> SearchScanSink {
         SearchScanSink {
             search: self.clone(),
@@ -194,34 +186,34 @@ impl ScanSink for SearchScanSink {
     }
 }
 
-pub struct SearchRenameSink {
-    search: SearchHandle,
-}
-
-impl RenameSink for SearchRenameSink {
-    fn moved(
-        &mut self,
-        from: &str,
-        to: &str,
-        doc: Option<&Document>,
-        mtime_secs: i64,
-        size_bytes: u64,
-    ) {
-        if let Err(e) = self.search.delete(from) {
-            tracing::warn!(path = from, error = %e, "rename: search delete of the old path failed");
-        }
-        let Some(doc) = doc else {
-            return;
-        };
-        if let Err(e) = self.search.upsert_doc(to, doc, mtime_secs, size_bytes) {
-            tracing::warn!(path = to, error = %e, "rename: search upsert of the new path failed");
+impl ChangeSink for SearchHandle {
+    fn changed(&self, path: &str, doc: &Document, mtime_unix: i64, size_bytes: u64) {
+        if let Err(e) = self.upsert_doc(path, doc, mtime_unix, size_bytes) {
+            tracing::warn!(path, error = %e, "search index refresh failed");
         }
     }
 
-    fn finish(&mut self) {
-        if let Err(e) = self.search.commit() {
-            tracing::warn!(error = %e, "rename: search commit failed");
+    fn removed(&self, path: &str) {
+        if let Err(e) = self.delete(path) {
+            tracing::warn!(path, error = %e, "search index delete failed");
         }
+    }
+
+    fn flush(&self) {
+        if let Err(e) = self.commit() {
+            tracing::warn!(error = %e, "search index commit failed");
+        }
+    }
+}
+
+pub fn settle_after_scan(open: &OpenVault, completed: bool) {
+    let settled = if completed && open.search.is_available() {
+        IndexState::Ready
+    } else {
+        IndexState::Error
+    };
+    if let Ok(mut cell) = open.search_state.lock() {
+        cell.state = settled;
     }
 }
 
