@@ -39,7 +39,10 @@ UI_IMPORT = re.compile(
     r"""(?:^\s*(?:import|export)\s[^;]*?from\s+|^\s*import\s+|\bimport\s*\(\s*)"""
     r"""["'](\.[^"']+)["']""", re.M)
 ENGINE_USE = re.compile(r"\bcrate::commands::([a-z_]+)")
+ENGINE_USE_GROUP = re.compile(r"\bcrate::commands::\{([^}]*)\}")
 ENGINE_SUPPORT_USE = re.compile(r"\bcrate::([a-z_]+)")
+ENGINE_SUPPORT_GROUP = re.compile(r"\buse\s+crate::\{([^}]*)\}")
+GROUP_HEAD = re.compile(r"^\s*([a-z_]+)")
 
 
 def production_lines(text: str) -> list[tuple[int, str]]:
@@ -59,19 +62,63 @@ def production_lines(text: str) -> list[tuple[int, str]]:
     out: list[tuple[int, str]] = []
     depth = 0
     skip_from: int | None = None
+    opened = False
     for n, line in enumerate(text.splitlines(), 1):
         if skip_from is None and line.strip().startswith("#[cfg(test)]"):
             skip_from = depth
+            opened = "{" in line
             depth += line.count("{") - line.count("}")
+            item = line.strip()[len("#[cfg(test)]"):]
+            if not opened and ";" in item:
+                skip_from = None
             continue
         closed = line.count("}")
         depth += line.count("{") - closed
         if skip_from is not None:
-            if depth <= skip_from and closed:
+            opened = opened or "{" in line
+            if opened and depth <= skip_from and closed:
+                skip_from = None
+            elif not opened and ";" in line and depth <= skip_from:
                 skip_from = None
             continue
         out.append((n, line))
     return out
+
+
+def production_text(text: str) -> str:
+    """The file with every test-only line blanked, line count preserved.
+
+    Matching the whole text rather than line by line is what lets a `use`
+    group that spans several lines be seen at all.
+    """
+    keep = dict(production_lines(text))
+    return "\n".join(keep.get(n, "")
+                     for n in range(1, len(text.splitlines()) + 1))
+
+
+def engine_edges(text: str) -> list[tuple[int, str]]:
+    """(line, module) for every `crate::commands::x` or `crate::x` it names."""
+    prod = production_text(text)
+    found: list[tuple[int, str]] = []
+
+    def line_of(pos: int) -> int:
+        return prod.count("\n", 0, pos) + 1
+
+    for m in ENGINE_USE.finditer(prod):
+        found.append((line_of(m.start()), "commands::" + m.group(1)))
+    for m in ENGINE_USE_GROUP.finditer(prod):
+        for part in m.group(1).split(","):
+            head = GROUP_HEAD.match(part)
+            if head and head.group(1) != "self":
+                found.append((line_of(m.start()), "commands::" + head.group(1)))
+    for m in ENGINE_SUPPORT_USE.finditer(prod):
+        found.append((line_of(m.start()), m.group(1)))
+    for m in ENGINE_SUPPORT_GROUP.finditer(prod):
+        for part in m.group(1).split(","):
+            head = GROUP_HEAD.match(part)
+            if head:
+                found.append((line_of(m.start()), head.group(1)))
+    return found
 
 
 def classify(cfg_table: dict, name: str) -> tuple[str, str]:
@@ -142,13 +189,22 @@ def test_only_modules(files: list[Path]) -> set[Path]:
 
 
 def check_engine_modules(gate: Gate, cfg: dict) -> None:
+    """Commands and the domain-owned modules beside them, as sources and targets.
+
+    A module outside `commands/` that belongs to one domain is listed in
+    `engine_support`; it is checked as a source too, because the watcher and
+    the scan dispatcher live there and are substrate, and a support module that
+    is only ever a target is one whose own edges nobody reads.
+    """
     table = cfg["engine_modules"]
     allowed = cfg["engine_allowed"]
     support = {k: v for k, v in cfg.get("engine_support", {}).items()
                if k != "_"}
-    prefix = "crates/cubical-engine/src/commands/"
+    root = "crates/cubical-engine/src/"
+    prefix = root + "commands/"
     files = tracked(prefix, suffixes=(".rs",))
     test_only = test_only_modules(files)
+    sources: list[tuple[Path, str, tuple[str, str]]] = []
     for f in files:
         if f in test_only:
             continue
@@ -156,18 +212,28 @@ def check_engine_modules(gate: Gate, cfg: dict) -> None:
         src_name = parts[0] if len(parts) > 1 else parts[0][:-len(".rs")]
         if src_name == "mod":
             continue
-        src = classify(table, src_name)
+        sources.append((f, src_name, classify(table, src_name)))
+    for f in tracked(root, suffixes=(".rs",)):
+        parts = rel(f)[len(root):].split("/")
+        name = parts[0] if len(parts) > 1 else parts[0][:-len(".rs")]
+        if name in support:
+            sources.append((f, name, classify(support, name)))
+    for f, src_name, src in sources:
         text = f.read_text(encoding="utf-8", errors="replace")
-        for n, line in production_lines(text):
-            dsts = [(d, classify(table, d)) for d in ENGINE_USE.findall(line)]
-            dsts += [(d, classify(support, d))
-                     for d in ENGINE_SUPPORT_USE.findall(line) if d in support]
-            for dst_name, dst in dsts:
-                if dst_name == src_name:
-                    continue
-                why = verdict(src, dst)
-                if why and f"{src_name} -> {dst_name}" not in allowed:
-                    gate.fail(f"{rel(f)}:{n}: {why}.")
+        for n, target in engine_edges(text):
+            if target.startswith("commands::"):
+                dst_name = target[len("commands::"):]
+                dst = classify(table, dst_name)
+            elif target in support:
+                dst_name = target
+                dst = classify(support, target)
+            else:
+                continue
+            if dst_name == src_name:
+                continue
+            why = verdict(src, dst)
+            if why and f"{src_name} -> {dst_name}" not in allowed:
+                gate.fail(f"{rel(f)}:{n}: {why}.")
 
 
 def ui_domain(path: str) -> str | None:

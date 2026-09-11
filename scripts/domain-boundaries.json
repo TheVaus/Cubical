@@ -63,9 +63,14 @@
   "engine_support": {
     "_": [
       "crates/cubical-engine/src/* modules outside commands/ that belong to",
-      "one domain. The engine crate is shell, so without this a block's",
-      "handle moved beside commands/ would make every edge to it invisible."
+      "one domain, checked both as sources and as targets. The engine crate",
+      "is shell, so without this a block's handle moved beside commands/, or",
+      "substrate such as the watcher living in events.rs, would be invisible.",
+      "Anything unlisted here (state, compose, plugins, api, error) is shell."
     ],
+    "events":        { "class": "substrate", "domain": "vault" },
+    "rename_pairing": { "class": "substrate", "domain": "rename" },
+    "vault_lock":    { "class": "substrate", "domain": "vault" },
     "search_handle": { "class": "block", "domain": "search" }
   },
 
