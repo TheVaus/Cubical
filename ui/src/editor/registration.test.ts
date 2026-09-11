@@ -6,11 +6,9 @@ import {
   missingRequirements,
   registerCorePlugins,
 } from "../settings/corePlugins";
-import {
-  EQUATIONS_PLUGIN,
-  MATH_PLUGIN,
-  PROPERTY_REFS_PLUGIN,
-} from "./registration";
+import { EQUATIONS_PLUGIN } from "./equationRegistration";
+import { MATH_PLUGIN } from "./mathRegistration";
+import { PROPERTY_REFS_PLUGIN } from "./propertyRefRegistration";
 
 registerCorePlugins([PROPERTY_REFS_PLUGIN, MATH_PLUGIN, EQUATIONS_PLUGIN]);
 

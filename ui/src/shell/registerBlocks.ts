@@ -1,9 +1,7 @@
 import { QUERY_PLUGIN } from "../dataview/registration";
-import {
-  EQUATIONS_PLUGIN,
-  MATH_PLUGIN,
-  PROPERTY_REFS_PLUGIN,
-} from "../editor/registration";
+import { EQUATIONS_PLUGIN } from "../editor/equationRegistration";
+import { MATH_PLUGIN } from "../editor/mathRegistration";
+import { PROPERTY_REFS_PLUGIN } from "../editor/propertyRefRegistration";
 import { GRAPH_PLUGIN } from "../graph/registration";
 import { registerCorePlugins } from "../settings/corePlugins";
 import { registerStatusbarSegments } from "../settings/statusbarSettings";

@@ -1,7 +1,7 @@
-import type { DataviewRunner } from "./dataview";
-import type { EmbedResolver } from "./embedResolver";
-import type { PropertyResolver } from "./propertyResolver";
-import type { WikiLinkResolver } from "./wikilinkResolver";
+import type { DataviewRunner } from "../editor/dataview";
+import type { EmbedResolver } from "../editor/embedResolver";
+import type { PropertyResolver } from "../editor/propertyResolver";
+import type { WikiLinkResolver } from "../editor/wikilinkResolver";
 
 export interface ResolverGroup {
   wikilink: WikiLinkResolver | null;

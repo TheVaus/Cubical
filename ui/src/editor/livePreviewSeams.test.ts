@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
-import { EditorState, type Extension } from "@codemirror/state";
+import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { markdown } from "@codemirror/lang-markdown";
 
 import type { DataviewResult } from "../api/ipc";
 import { editorBlocks } from "../shell/editorBlocks";
 import { dataviewRunnerFacet, type DataviewRunner } from "./dataview";
-import { livePreviewFor } from "./livePreview";
+import { livePreviewFor, type PreviewBlocks } from "./livePreview";
 
 const PLUGINS = { math: true, equations: true, propertyRefs: true };
 const DOC =
@@ -30,7 +30,7 @@ afterEach(() => {
   view = undefined;
 });
 
-function mount(blocks?: Extension): HTMLElement {
+function mount(blocks?: PreviewBlocks): HTMLElement {
   view = new EditorView({
     state: EditorState.create({
       doc: DOC,

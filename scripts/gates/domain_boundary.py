@@ -236,19 +236,27 @@ def check_engine_modules(gate: Gate, cfg: dict) -> None:
                 gate.fail(f"{rel(f)}:{n}: {why}.")
 
 
-def ui_domain(path: str) -> str | None:
-    """Domain of a ui/src path. A directory is a domain; so is a bare file.
+def ui_domain(path: str, table: dict | None = None) -> str | None:
+    """Census key of a ui/src path.
+
+    A directory is a domain; so is a bare file. A census key containing a
+    slash names a path prefix inside a directory (`editor/math` covers
+    `editor/math.ts` and `editor/mathDollar.ts`), and the longest such prefix
+    wins, so one directory can hold several domains without moving files.
 
     posixpath, not Path: these are repo-relative keys with forward slashes,
     and Path would resolve them against the filesystem root on Windows.
     """
     if not path.startswith("ui/src/"):
         return None
-    head = path[len("ui/src/"):].split("/")[0]
+    inner = path[len("ui/src/"):]
     for suffix in (".tsx", ".ts"):
-        if head.endswith(suffix):
-            return head[: -len(suffix)]
-    return head
+        if inner.endswith(suffix):
+            inner = inner[: -len(suffix)]
+    prefixes = [k for k in (table or {}) if "/" in k and inner.startswith(k)]
+    if prefixes:
+        return max(prefixes, key=len)
+    return inner.split("/")[0]
 
 
 def check_ui(gate: Gate, cfg: dict) -> None:
@@ -258,7 +266,7 @@ def check_ui(gate: Gate, cfg: dict) -> None:
         r = rel(f)
         if ".test." in r:
             continue
-        src_name = ui_domain(r)
+        src_name = ui_domain(r, table)
         src = classify(table, src_name)
         text = f.read_text(encoding="utf-8", errors="replace")
         # Whole text, not line by line: a braced import puts `from` several
@@ -267,7 +275,7 @@ def check_ui(gate: Gate, cfg: dict) -> None:
         for m in UI_IMPORT.finditer(text):
             target = posixpath.normpath(
                 posixpath.join(posixpath.dirname(r), m.group(1)))
-            dst_name = ui_domain(target)
+            dst_name = ui_domain(target, table)
             if dst_name is None or dst_name == src_name:
                 continue
             why = verdict(src, classify(table, dst_name))

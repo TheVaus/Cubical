@@ -19,12 +19,19 @@ import {
   renderEquation,
   type EquationRenderState,
 } from "./equationRender";
+import { splitFrontmatter, parseFrontmatterYaml } from "../ast/frontmatter";
 import {
-  frontmatterEntries,
   propertyResolverFacet,
   propertyResolverUpdated,
-} from "./propertyRef";
-import type { PropertyResolver } from "./propertyResolver";
+  type PropertyResolver,
+} from "./propertySlot";
+
+function frontmatterEntries(docText: string): Map<string, unknown> {
+  const split = splitFrontmatter(docText);
+  if (split.yaml === null || split.span === null) return new Map();
+  const fm = parseFrontmatterYaml(split.yaml, split.span);
+  return new Map(fm?.entries ?? []);
+}
 
 export const equationsEnabledFacet = Facet.define<boolean, boolean>({
   combine: (values) => values[0] ?? true,

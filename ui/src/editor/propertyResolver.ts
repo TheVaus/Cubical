@@ -4,6 +4,9 @@ import {
   type GetPropertyResponse,
 } from "../api/ipc";
 import { createKeyedResolver } from "./keyedResolver";
+import type { PropertyResolver } from "./propertySlot";
+
+export type { PropertyResolver } from "./propertySlot";
 
 const UNRESOLVED: GetPropertyResponse = { kind: "note_unresolved", value: null };
 
@@ -12,15 +15,6 @@ interface PropertyKey {
   property: string;
 }
 
-export interface PropertyResolver {
-  get(note: string, property: string): GetPropertyResponse | undefined;
-  fetch(note: string, property: string): void;
-  resolve(note: string, property: string): Promise<GetPropertyResponse>;
-  invalidate(): void;
-  markStale(): void;
-  onUpdate(handler: () => void): () => void;
-  version(): number;
-}
 
 export function createPropertyResolver(
   vaultId: string,

@@ -99,8 +99,8 @@ import { fromTabSessionDto, toTabSessionDto } from "./tabs/session";
 import { activateWithFlush, type ActivationDeps } from "./tabs/activation";
 import { liveFileIds, touch } from "./tabs/lru";
 import { pruneContents, remapContentKeys } from "./tabs/contentCache";
-import { resetResolvers, revalidateResolvers } from "./editor/resolverRefresh";
-import type { ResolverGroup } from "./editor/resolverRefresh";
+import { resetResolvers, revalidateResolvers } from "./shell/resolverRefresh";
+import type { ResolverGroup } from "./shell/resolverRefresh";
 
 import { errorMessage } from "./errorMessage";
 import {

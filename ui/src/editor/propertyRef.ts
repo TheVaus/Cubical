@@ -6,7 +6,6 @@ import {
 } from "@codemirror/view";
 import {
   Facet,
-  StateEffect,
   type EditorState,
   type Extension,
   type Range,
@@ -16,24 +15,21 @@ import { syntaxTree } from "@codemirror/language";
 import { scanWikilinks } from "../ast/wikilink";
 import { splitFrontmatter, parseFrontmatterYaml } from "../ast/frontmatter";
 import { decorationField } from "./decorationField";
-import type { PropertyResolver } from "./propertyResolver";
+import {
+  propertyResolverFacet,
+  propertyResolverUpdated,
+  type PropertyResolver,
+} from "./propertySlot";
 import {
   renderPropertyRef,
   type PropertyRefRenderState,
 } from "./propertyRefRender";
 
-export const propertyResolverFacet = Facet.define<
-  PropertyResolver | null,
-  PropertyResolver | null
->({
-  combine: (values) => values[0] ?? null,
-});
-
 export const propertyRefsEnabledFacet = Facet.define<boolean, boolean>({
   combine: (values) => values[0] ?? true,
 });
 
-export const propertyResolverUpdated = StateEffect.define<null>();
+export { propertyResolverFacet, propertyResolverUpdated };
 
 function scalarToDisplay(value: unknown): string | null {
   if (typeof value === "string") return value;

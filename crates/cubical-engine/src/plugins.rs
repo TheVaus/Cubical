@@ -185,16 +185,28 @@ mod tests {
             .join("..")
             .join("ui")
             .join("src");
-        let mut sources: Vec<std::path::PathBuf> = std::fs::read_dir(&root)
-            .unwrap_or_else(|e| panic!("read {}: {e}", root.display()))
-            .filter_map(|entry| entry.ok())
-            .map(|entry| entry.path().join("registration.ts"))
-            .filter(|path| path.is_file())
-            .collect();
+        fn registrations(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            let entries =
+                std::fs::read_dir(dir).unwrap_or_else(|e| panic!("read {}: {e}", dir.display()));
+            for entry in entries.filter_map(|entry| entry.ok()) {
+                let path = entry.path();
+                if path.is_dir() {
+                    registrations(&path, out);
+                } else if path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n == "registration.ts" || n.ends_with("Registration.ts"))
+                {
+                    out.push(path);
+                }
+            }
+        }
+        let mut sources: Vec<std::path::PathBuf> = Vec::new();
+        registrations(&root, &mut sources);
         sources.sort();
         assert!(
             !sources.is_empty(),
-            "no ui/src/<domain>/registration.ts found under {}",
+            "no registration.ts or *Registration.ts found under {}",
             root.display()
         );
         let mut frontend: Vec<(String, bool)> = Vec::new();
@@ -224,7 +236,7 @@ mod tests {
 
         assert_eq!(
             backend, frontend,
-            "every ui/src/<domain>/registration.ts and Feature must agree on every key and default"
+            "every frontend registration file and Feature must agree on every key and default"
         );
     }
 
