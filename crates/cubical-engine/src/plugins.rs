@@ -185,11 +185,18 @@ mod tests {
             .join("..")
             .join("ui")
             .join("src");
-        let sources = [
-            root.join("settings").join("corePlugins.ts"),
-            root.join("terminal").join("registration.ts"),
-            root.join("graph").join("registration.ts"),
-        ];
+        let mut sources: Vec<std::path::PathBuf> = std::fs::read_dir(&root)
+            .unwrap_or_else(|e| panic!("read {}: {e}", root.display()))
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path().join("registration.ts"))
+            .filter(|path| path.is_file())
+            .collect();
+        sources.sort();
+        assert!(
+            !sources.is_empty(),
+            "no ui/src/<domain>/registration.ts found under {}",
+            root.display()
+        );
         let mut frontend: Vec<(String, bool)> = Vec::new();
         for path in &sources {
             let text = std::fs::read_to_string(path)
@@ -217,7 +224,7 @@ mod tests {
 
         assert_eq!(
             backend, frontend,
-            "ui/src/settings/corePlugins.ts and Feature must agree on every key and default"
+            "every ui/src/<domain>/registration.ts and Feature must agree on every key and default"
         );
     }
 
