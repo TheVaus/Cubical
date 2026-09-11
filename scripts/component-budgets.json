@@ -51,11 +51,11 @@
       "kind": "bespoke",
       "note": "Mirrors the Rust normalizer. Divergence is a correctness bug, so it stays one file that can be diffed against its counterpart."
     },
-    "ui/src/sidebar/IntegrityPanel.tsx": {
+    "ui/src/integrity/IntegrityPanel.tsx": {
       "max_lines": 386,
       "kind": "debt",
       "issue": 86,
-      "note": "Vault-health rows and their fetch effect. Raised 386 -> 388 for the refresh-is-not-a-load fix: one import and one tracker declaration. The cold/warm decision itself is shared in sidebar/refreshTarget.ts rather than inlined here, so this is the whole per-panel cost."
+      "note": "Vault-health rows and their fetch effect. Raised 386 -> 388 for the refresh-is-not-a-load fix: one import and one tracker declaration. The cold/warm decision itself is shared in core/refreshTarget.ts rather than inlined here, so this is the whole per-panel cost."
     },
     "ui/src/settings/settingsState.ts": {
       "max_lines": 423,
@@ -68,7 +68,7 @@
       "issue": 86,
       "note": "The pending-rewrites popover and its per-row apply."
     },
-    "ui/src/sidebar/UnlinkedMentions.tsx": {
+    "ui/src/backlinks/UnlinkedMentions.tsx": {
       "max_lines": 278,
       "kind": "debt",
       "issue": 86,

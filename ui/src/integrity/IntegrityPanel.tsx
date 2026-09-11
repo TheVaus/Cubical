@@ -20,7 +20,7 @@ import {
   reduceIntegrityState,
   type IntegrityViewState,
 } from "./integrityState";
-import { createTargetTracker } from "./refreshTarget";
+import { createTargetTracker } from "../core/refreshTarget";
 
 export interface IntegrityPanelProps {
   vaultId: string | null;

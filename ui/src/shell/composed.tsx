@@ -5,9 +5,9 @@ import BaseExplorerPanel, {
   type ExplorerPanelProps,
   type ExplorerSearchSlot,
 } from "../explorer/ExplorerPanel";
-import SearchBar from "../sidebar/SearchBar";
-import SearchResults from "../sidebar/SearchResults";
-import { createSearchState } from "../sidebar/searchState";
+import SearchBar from "../search/SearchBar";
+import SearchResults from "../search/SearchResults";
+import { createSearchState } from "../search/searchState";
 import { hasViewer } from "../viewer";
 import { editorBlocks } from "./editorBlocks";
 

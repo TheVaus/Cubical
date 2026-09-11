@@ -312,7 +312,7 @@ now: `createSearchState` holds the query, the filters and the polled index
 status; `SearchBar` draws the chrome; `SearchResults` draws the overlay. The
 shell (`shell/composed.tsx`) creates the state and hands the explorer an
 `ExplorerSearchSlot` — bar, results and an `active` accessor — because search
-is the sidebar block's and a block may not import another. The explorer renders
+is its own block (`search/`) and a block may not import another. The explorer renders
 bar, tree and results as **siblings** inside one positioned container, each in
 its own boundary, so a failure in any one of the three leaves the other two on
 screen. With no slot the explorer draws the tree alone.
@@ -967,6 +967,9 @@ point:
   rows land and Solid sees no state change at all.
 
 The component picks between them by remembering the target it last fetched.
+That tracker is substrate (`core/refreshTarget.ts`) rather than a copy per
+panel: backlinks, mentions and integrity are separate blocks, and the rule is
+one fact about how every panel refreshes, not three panels' similar code.
 Dispatching `fetch:start` on every tick is not a subtle degradation: it replaces
 the list with a one-line "Loading…" placeholder and rebuilds it a moment later,
 so the sidebar visibly collapses and re-expands on every pause in typing.

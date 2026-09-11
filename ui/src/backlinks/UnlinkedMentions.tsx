@@ -21,7 +21,7 @@ import {
   reduceMentionsState,
   type MentionsViewState,
 } from "./unlinkedMentionsState";
-import { createTargetTracker } from "./refreshTarget";
+import { createTargetTracker } from "../core/refreshTarget";
 
 export interface UnlinkedMentionsProps {
   vaultId: string | null;

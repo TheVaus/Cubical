@@ -15,7 +15,7 @@ import {
   type BacklinksViewState,
 } from "./backlinksState";
 import { noteTitle } from "../vault/noteName";
-import { createTargetTracker } from "./refreshTarget";
+import { createTargetTracker } from "../core/refreshTarget";
 
 export interface BacklinksProps {
   vaultId: string | null;

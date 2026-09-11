@@ -145,9 +145,9 @@ import {
 } from "./vault/fileRename";
 import { noteTitle } from "./vault/noteName";
 import { watchSystemTheme } from "./styles/theme";
-import Backlinks from "./sidebar/Backlinks";
-import UnlinkedMentions from "./sidebar/UnlinkedMentions";
-import IntegrityPanel from "./sidebar/IntegrityPanel";
+import Backlinks from "./backlinks/Backlinks";
+import UnlinkedMentions from "./backlinks/UnlinkedMentions";
+import IntegrityPanel from "./integrity/IntegrityPanel";
 import TagPage from "./tags/TagPage";
 import OmniBar from "./omnibar/OmniBar";
 import { type OmniItem, type RankedItem } from "./omnibar/ranker";

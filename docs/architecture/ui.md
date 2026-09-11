@@ -75,7 +75,7 @@ One surface is bespoke by construction rather than by backlog: the **graph hover
 
 §11.6 governs where a *primitive* comes from. This section governs what `ui/src` is made of.
 
-**`ui/src/App.tsx` is a composition shell.** It holds vault identity, the tab set, the global keydown table and the JSX that arranges features — and nothing a feature could own. State lives with the feature that reads it, in a folder under `ui/src/`: `explorer/`, `workspace/`, `settings/`, `sidebar/`, `statusbar/`, `omnibar/`, `tabs/`, `terminal/`, `viewer/`, `editor/`. A feature folder holds its own markup, its own state factory, and the pure logic beside them as a unit-testable `.ts`.
+**`ui/src/App.tsx` is a composition shell.** It holds vault identity, the tab set, the global keydown table and the JSX that arranges features — and nothing a feature could own. State lives with the feature that reads it, in a folder under `ui/src/` named for the feature, not for where it renders: search draws in the left sidebar and backlinks in the right, and they are still `search/` and `backlinks/`, because a folder named for a screen region collects unrelated features that then fail and change together. Which folders exist, and whether each is substrate, a block or the shell, is the census in `scripts/domain-boundaries.json`. A feature folder holds its own markup, its own state factory, and the pure logic beside them as a unit-testable `.ts`.
 
 Two shapes are already the convention and stay it: pure logic is a `.ts` next to its `.tsx` with its own test (`tabs/tabModel.ts`, `omnibar/ranker.ts`, `core/navHistory.ts`, `core/virtualList.ts`), and stateful wiring is a `create*` factory (`core/vaultSession.ts`, `terminal/wiring.ts`, `settings/settingsState.ts`).
 

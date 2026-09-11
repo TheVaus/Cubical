@@ -62,12 +62,12 @@ means the §15.1 semantics.
 | Embed (`![[…]]`) | — | — | **Not a navigation entry point.** The embed widget has no click handler and no `data-path` (`editor/embed.ts`, `editor/embedRender.ts`); a click just places the caret. Embeds render content in place, they do not go anywhere |
 | Tag click in the editor | `editor/Editor.tsx` | `handleNavigateTag` | Open-or-focus a `tag` tab |
 | Tag chip in the Properties table | `properties/Properties.tsx` | `handleNavigateTag` | Same |
-| Backlink row | `sidebar/Backlinks.tsx` | `handleNavigateWikilink(path, null)` | Open-or-focus, no anchor |
-| Unlinked-mention row | `sidebar/UnlinkedMentions.tsx` | same | Same |
-| Integrity-panel row | `sidebar/IntegrityPanel.tsx` | same | Same |
+| Backlink row | `backlinks/Backlinks.tsx` | `handleNavigateWikilink(path, null)` | Open-or-focus, no anchor |
+| Unlinked-mention row | `backlinks/UnlinkedMentions.tsx` | same | Same |
+| Integrity-panel row | `integrity/IntegrityPanel.tsx` | same | Same |
 | Tag-page file row | `tags/TagPage.tsx` | same | Same |
 | Tag-page Back button | `tags/TagPage.tsx` | `handleExitTagView` | Activates the tab named by the *current history entry*, then closes the tag tab. If there is no such open tab it just closes the tag tab |
-| Search-panel result | `sidebar/SearchResults.tsx` | `handleNavigateWikilink(path, null)` | Opens the **file**, not the hit. Results are grouped per file and the group header is the only open affordance; there is no jump-to-match |
+| Search-panel result | `search/SearchResults.tsx` | `handleNavigateWikilink(path, null)` | Opens the **file**, not the hit. Results are grouped per file and the group header is the only open affordance; there is no jump-to-match |
 | Omni-Bar note result | `omnibar/OmniBar.tsx` | `handleNavigateWikilink(path, null)` | Open-or-focus, then the bar closes |
 | Omni-Bar tag result | `omnibar/OmniBar.tsx` | `handleNavigateTag` | Tag tab |
 | Omni-Bar command result | `omnibar/OmniBar.tsx` | `handleRunCommand` | Not navigation — the omni-bar command set is one entry (`omnibar/commands.ts`), separate from the keymap registry |
@@ -252,7 +252,7 @@ them visible.
    remains for those. Whether link resolution can ever *return* such a target
    was still not determined from the frontend alone.
 4. **Open question — search results do not jump to the match.** The panel groups
-   hits per file and opens the file only (`sidebar/SearchResults.tsx`). Nothing
+   hits per file and opens the file only (`search/SearchResults.tsx`). Nothing
    in the code or the specs says whether jump-to-hit was cut or simply never
    built.
 
