@@ -491,13 +491,15 @@ every transformation inside it.
 **Every preview-only extension MUST go through `livePreviewFor`.** Adding one to
 the editor's base extension list, or to a separate compartment, is a bug: raw
 source will not kill it. The editor core contributes `livePreviewBundle` — the
-decoration plugin, the block-renderer field and the render-failure theme — and
-names no feature. Everything a feature adds (the embed block field; the math,
+decoration plugin and the block-renderer field — plus the render-failure theme,
+which `livePreviewFor` installs last, and names no feature. Everything a feature adds (the embed block field; the math,
 calc, query and csv renderers; the display-math, property-ref and equation
 fields, each with its base theme; and each feature's enable facet) is assembled
 by `editorBlocks(plugins)` in `shell/editorBlocks.ts`, which the shell hands
 every `Editor` as `blocks` through the seams below, so features die with raw
-source exactly like the core does. Settings that only
+source exactly like the core does. Renderer order is visible: fence completion
+lists languages in registration order, so `editorBlocks` registers query, csv,
+math, calc. Settings that only
 gate a preview extension belong in that record, so they ride inside the
 compartment raw source already kills, instead of earning a compartment and a
 reconfigure effect of their own in `Editor.tsx`. The record exists because the

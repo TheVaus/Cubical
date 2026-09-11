@@ -32,14 +32,14 @@ export function renderEmbeddedFile(file: EmbeddedFile): Node {
 }
 
 const previewFeatures: Extension = [
-  embedBlockField,
-  embedBaseTheme,
   blockRenderers(
-    mathBlockRenderer,
-    calcBlockRenderer,
     dataviewBlockRenderer(renderDataview),
     csvBlockRenderer(renderDelimitedTable),
+    mathBlockRenderer,
+    calcBlockRenderer,
   ),
+  embedBlockField,
+  embedBaseTheme,
   dataviewBaseTheme,
   mathBaseTheme,
   displayMathField,

@@ -8,7 +8,6 @@ export const livePreviewBundle: Extension = [
   livePreviewDecorations,
   blockRenderersField,
   blockRenderersBaseTheme,
-  renderFailureBaseTheme,
 ];
 
 export interface LivePreviewPlugins {
@@ -24,5 +23,7 @@ export function livePreviewFor(
   plugins: LivePreviewPlugins,
   blocks?: PreviewBlocks,
 ): Extension {
-  return rawSource ? [] : [livePreviewBundle, blocks ? blocks(plugins) : []];
+  return rawSource
+    ? []
+    : [livePreviewBundle, blocks ? blocks(plugins) : [], renderFailureBaseTheme];
 }
