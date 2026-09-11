@@ -1,4 +1,4 @@
-import type { GraphSnapshot } from "../api/ipc";
+import type { GraphSnapshot } from "../api/graph";
 import {
   buildEdgeInstances,
   buildNodeInstances,

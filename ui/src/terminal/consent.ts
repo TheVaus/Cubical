@@ -1,4 +1,4 @@
-import type { AgentInstructionsStatus } from "../api/ipc";
+import type { AgentInstructionsStatus } from "../api/terminal";
 
 export interface ConsentGate {
   claim: (vaultId: string, status: AgentInstructionsStatus) => boolean;

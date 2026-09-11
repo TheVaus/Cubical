@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
 import { invoke } from "@tauri-apps/api/core";
-import { getProperty, type GetPropertyRequest } from "./ipc";
+import { getProperty, type GetPropertyRequest } from "./propertyRef";
 
 const mockInvoke = invoke as unknown as ReturnType<typeof vi.fn>;
 

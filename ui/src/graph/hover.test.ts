@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { GraphEdge } from "../api/ipc";
+import type { GraphEdge } from "../api/graph";
 import { FLAG_DIMMED, FLAG_FOCUSED, FLAG_HIDDEN } from "./gpu/instances";
 import { buildAdjacency } from "./graphModel";
 import { edgeFlags, nodeFlags } from "./hover";

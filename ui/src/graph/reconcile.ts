@@ -1,4 +1,4 @@
-import type { GraphSnapshot } from "../api/ipc";
+import type { GraphSnapshot } from "../api/graph";
 import { buildAdjacency, neighboursOf } from "./graphModel";
 
 export const NEW_NODE_SPREAD = 30;

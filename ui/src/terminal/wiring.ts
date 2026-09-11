@@ -7,7 +7,7 @@ import {
   terminalBusy,
   terminalReapAll,
   type AgentInstructionsStatus,
-} from "../api/ipc";
+} from "../api/terminal";
 import type { Command } from "../core/commands";
 import { corePluginActive } from "../settings/corePlugins";
 import { canOpenTab, openTab, type TabSet } from "../tabs/tabModel";

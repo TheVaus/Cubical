@@ -5,7 +5,7 @@ import {
   dataviewQuery as defaultDataviewQuery,
   type DataviewQueryRequest,
   type DataviewResult,
-} from "../api/ipc";
+} from "../api/dataview";
 import { createKeyedResolver } from "./keyedResolver";
 import type { BlockRenderer } from "./blockRenderers";
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { GraphEdge, GraphNode } from "../api/ipc";
+import type { GraphEdge, GraphNode } from "../api/graph";
 import {
   DEFAULT_FILTER,
   buildAdjacency,

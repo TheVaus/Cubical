@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createEmbedResolver } from "./embedResolver";
-import type { GetEmbedRequest, GetEmbedResponse } from "../api/ipc";
+import type { GetEmbedRequest, GetEmbedResponse } from "../api/embeds";
 
 function deferred<T>(): {
   promise: Promise<T>;

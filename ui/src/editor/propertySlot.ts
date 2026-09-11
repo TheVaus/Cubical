@@ -1,11 +1,14 @@
 import { Facet, StateEffect } from "@codemirror/state";
 
-import type { GetPropertyResponse } from "../api/ipc";
+export interface PropertyLookup {
+  kind: "resolved" | "note_unresolved" | "property_missing";
+  value: unknown;
+}
 
 export interface PropertyResolver {
-  get(note: string, property: string): GetPropertyResponse | undefined;
+  get(note: string, property: string): PropertyLookup | undefined;
   fetch(note: string, property: string): void;
-  resolve(note: string, property: string): Promise<GetPropertyResponse>;
+  resolve(note: string, property: string): Promise<PropertyLookup>;
   invalidate(): void;
   markStale(): void;
   onUpdate(handler: () => void): () => void;

@@ -1,4 +1,4 @@
-import type { GraphEdge, GraphNode, GraphSnapshot } from "../api/ipc";
+import type { GraphEdge, GraphNode, GraphSnapshot } from "../api/graph";
 
 export interface Adjacency {
   offsets: Uint32Array;

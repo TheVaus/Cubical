@@ -10,7 +10,7 @@ import {
   repairDanglingLink,
   type DanglingLinkGroup,
   type RepairCandidate,
-} from "../api/ipc";
+} from "../api/integrity";
 import { errorMessage } from "../core/errorMessage";
 import {
   candidateKey,

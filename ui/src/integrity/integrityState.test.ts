@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import type { DanglingLinkGroup } from "../api/ipc";
+import type { DanglingLinkGroup } from "../api/integrity";
 import {
   candidateKey,
   candidateRankLabel,

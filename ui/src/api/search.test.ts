@@ -5,15 +5,15 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 import { invoke } from "@tauri-apps/api/core";
+import { listTags } from "./ipc";
 import {
   search,
   searchIndexStatus,
   searchRebuildIndex,
   searchGetHealth,
-  listTags,
   type SearchRequest,
   type SearchVaultRequest,
-} from "./ipc";
+} from "./search";
 
 const mockInvoke = invoke as unknown as ReturnType<typeof vi.fn>;
 

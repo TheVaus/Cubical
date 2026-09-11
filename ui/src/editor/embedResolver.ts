@@ -2,7 +2,7 @@ import {
   getEmbed as defaultGetEmbed,
   type GetEmbedRequest,
   type GetEmbedResponse,
-} from "../api/ipc";
+} from "../api/embeds";
 import { createKeyedResolver, type KeyedResolver } from "./keyedResolver";
 
 export type { ResolverDebugState, ResolverEvent } from "./keyedResolver";

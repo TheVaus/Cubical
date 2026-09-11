@@ -9,10 +9,10 @@ import { livePreviewFor } from "./livePreview";
 import { editorBlocks } from "../shell/editorBlocks";
 import { propertyResolverFacet } from "./propertyRef";
 import type { PropertyResolver } from "./propertyResolver";
-import type { GetPropertyResponse } from "../api/ipc";
+import type { PropertyLookup } from "./propertySlot";
 
 function stubResolver(
-  entries: Record<string, GetPropertyResponse>,
+  entries: Record<string, PropertyLookup>,
 ): PropertyResolver {
   return {
     get: (note, property) => entries[`${note} ${property}`],

@@ -9,7 +9,7 @@ import {
 
 import Callout from "@ds/components/feedback/Callout/Callout";
 
-import type { GraphSnapshot } from "../api/ipc";
+import type { GraphSnapshot } from "../api/graph";
 import { createGraphRenderLoop } from "./renderLoop";
 
 export function GraphCanvas(props: {

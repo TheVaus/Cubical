@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { MatchedField, SearchHit } from "../api/ipc";
+import type { MatchedField, SearchHit } from "../api/search";
 import { buildFileGroups, buildStableFileGroups } from "./resultGroups";
 
 const hit = (

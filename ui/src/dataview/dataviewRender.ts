@@ -1,4 +1,4 @@
-import type { DataviewResult, NoteRef } from "../api/ipc";
+import type { DataviewResult, NoteRef } from "../api/dataview";
 
 function noteLink(note: NoteRef): HTMLAnchorElement {
   const a = document.createElement("a");

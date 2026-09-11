@@ -1,4 +1,8 @@
-import type { BrokenBlockRef } from "../api/ipc";
+export interface BrokenRef {
+  source_file_path: string;
+  target_file_path: string;
+  target_block_id: string;
+}
 
 export interface BrokenRefsDisplay {
   label: string;
@@ -6,7 +10,7 @@ export interface BrokenRefsDisplay {
 }
 
 export function formatBrokenBlockRefs(
-  refs: BrokenBlockRef[],
+  refs: BrokenRef[],
 ): BrokenRefsDisplay | null {
   if (refs.length === 0) return null;
   const noun = refs.length === 1 ? "broken block ref" : "broken block refs";

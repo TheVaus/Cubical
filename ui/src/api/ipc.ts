@@ -1,11 +1,7 @@
-import { Channel, invoke as invokeCommand } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import type { CanonicalDocument } from "../ast/types";
-import { measurePerfAsync } from "../core/perf";
-
-const invoke = <T,>(cmd: string, args?: Record<string, unknown>): Promise<T> =>
-  measurePerfAsync(`ipc:${cmd}`, () => invokeCommand<T>(cmd, args));
+import { invoke } from "./transport";
 
 export type ScanStatus = "in_progress" | "complete" | "cancelled";
 
@@ -216,29 +212,6 @@ export interface TagPageFile {
 
 export interface QueryTagPageResponse {
   files: TagPageFile[];
-}
-
-export interface LinkAutocompleteRequest {
-  vault_id: string;
-  query: string;
-}
-
-export interface LinkCandidate {
-  path: string;
-  title: string;
-}
-
-export interface LinkAutocompleteResponse {
-  candidates: LinkCandidate[];
-}
-
-export interface TagAutocompleteRequest {
-  vault_id: string;
-  query: string;
-}
-
-export interface TagAutocompleteResponse {
-  candidates: string[];
 }
 
 export type Setting =
@@ -523,21 +496,10 @@ export function queryTagPage(
   return invoke("query_tag_page", { req });
 }
 
-export function linkAutocomplete(
-  req: LinkAutocompleteRequest,
-): Promise<LinkAutocompleteResponse> {
-  return invoke("link_autocomplete", { req });
-}
-
-export function tagAutocomplete(
-  req: TagAutocompleteRequest,
-): Promise<TagAutocompleteResponse> {
-  return invoke("tag_autocomplete", { req });
-}
-
 export interface ListTagsRequest {
   vault_id: string;
 }
+
 export interface ListTagsResponse {
   tags: string[];
 }
@@ -549,10 +511,12 @@ export function listTags(req: ListTagsRequest): Promise<ListTagsResponse> {
 export interface ListTagAssignmentsRequest {
   vault_id: string;
 }
+
 export interface TagAssignmentDto {
   tag_path: string;
   file_path: string;
 }
+
 export interface ListTagAssignmentsResponse {
   assignments: TagAssignmentDto[];
 }
@@ -561,101 +525,6 @@ export function listTagAssignments(
   req: ListTagAssignmentsRequest,
 ): Promise<ListTagAssignmentsResponse> {
   return invoke("list_tag_assignments", { req });
-}
-
-export interface BlockIdAutocompleteRequest {
-  vault_id: string;
-  target_raw: string;
-}
-
-export interface BlockIdAutocompleteResponse {
-  candidates: string[];
-}
-
-export function blockIdAutocomplete(
-  req: BlockIdAutocompleteRequest,
-): Promise<BlockIdAutocompleteResponse> {
-  return invoke("block_id_autocomplete", { req });
-}
-
-export interface CreateBlockRefRequest {
-  vault_id: string;
-  target_path: string;
-  position: number;
-}
-
-export interface CreateBlockRefResponse {
-  block_id: string;
-}
-
-export interface GetBrokenBlockRefsRequest {
-  vault_id: string;
-}
-
-export interface BrokenBlockRef {
-  source_file_path: string;
-  target_file_path: string;
-  target_block_id: string;
-}
-
-export interface GetBrokenBlockRefsResponse {
-  refs: BrokenBlockRef[];
-}
-
-export function createBlockRef(
-  req: CreateBlockRefRequest,
-): Promise<CreateBlockRefResponse> {
-  return invoke("create_block_ref", { req });
-}
-
-export function getBrokenBlockRefs(
-  req: GetBrokenBlockRefsRequest,
-): Promise<GetBrokenBlockRefsResponse> {
-  return invoke("get_broken_block_refs", { req });
-}
-
-export interface GetEmbedRequest {
-  vault_id: string;
-  target_raw: string;
-}
-
-export type EmbedKind =
-  | "note"
-  | "section"
-  | "block"
-  | "file"
-  | "unresolved"
-  | "missing-anchor";
-
-export interface GetEmbedResponse {
-  kind: EmbedKind;
-  target_path: string | null;
-  content: string | null;
-  mime?: string | null;
-}
-
-export function getEmbed(req: GetEmbedRequest): Promise<GetEmbedResponse> {
-  return invoke("get_embed", { req });
-}
-
-export interface GetPropertyRequest {
-  vault_id: string;
-  note_raw: string;
-  property: string;
-}
-
-export type PropertyRefKind =
-  "resolved" | "note_unresolved" | "property_missing";
-
-export interface GetPropertyResponse {
-  kind: PropertyRefKind;
-  value: unknown;
-}
-
-export function getProperty(
-  req: GetPropertyRequest,
-): Promise<GetPropertyResponse> {
-  return invoke("get_property", { req });
 }
 
 export interface GetUnlinkedMentionsRequest {
@@ -715,159 +584,6 @@ export function setSetting<K extends Setting["key"]>(
   value: SettingValue<K>,
 ): Promise<void> {
   return invoke("set_setting", { req: { vault_id: vaultId, key, value } });
-}
-
-export interface TerminalExit {
-  code: number | null;
-  signal: string | null;
-}
-
-export interface TerminalChunk {
-  base64: string;
-  exit?: TerminalExit | null;
-}
-
-export interface TerminalOpenResponse {
-  terminal_id: string;
-}
-
-export function terminalOpen(
-  vaultId: string,
-  cols: number,
-  rows: number,
-  onOutput: (chunk: TerminalChunk) => void,
-): Promise<TerminalOpenResponse> {
-  const channel = new Channel<TerminalChunk>();
-  channel.onmessage = onOutput;
-  return invoke<TerminalOpenResponse>("terminal_open", {
-    vaultId,
-    cols,
-    rows,
-    onOutput: channel,
-  });
-}
-
-export function terminalWrite(terminalId: string, data: string): Promise<void> {
-  return invoke("terminal_write", { terminalId, data });
-}
-
-export function terminalResize(
-  terminalId: string,
-  cols: number,
-  rows: number,
-): Promise<void> {
-  return invoke("terminal_resize", { terminalId, cols, rows });
-}
-
-export function terminalBusy(terminalId: string): Promise<boolean> {
-  return invoke<boolean>("terminal_busy", { terminalId });
-}
-
-export function terminalClose(terminalId: string): Promise<void> {
-  return invoke("terminal_close", { terminalId });
-}
-
-export function terminalReapAll(): Promise<void> {
-  return invoke("terminal_reap_all", {});
-}
-
-export type GraphNodeKind = "note" | "attachment" | "ghost" | "tag";
-export type GraphEdgeKind = "link" | "embed" | "ghost" | "tag";
-
-export interface GraphNode {
-  id: number;
-  kind: GraphNodeKind;
-  key: string;
-  label: string;
-}
-
-export interface GraphEdge {
-  source: number;
-  target: number;
-  kind: GraphEdgeKind;
-}
-
-export interface GraphSnapshot {
-  nodes: GraphNode[];
-  edges: GraphEdge[];
-}
-
-export interface GraphFilter {
-  kinds?: GraphNodeKind[];
-  pathPrefix?: string;
-}
-
-export interface LayoutFrame {
-  iteration: number;
-  positions: number[];
-}
-
-export interface LayoutComplete {
-  iterations: number;
-  positions: number[];
-}
-
-export function graphSnapshot(
-  vaultId: string,
-  filter: GraphFilter = {},
-): Promise<GraphSnapshot> {
-  return invoke<GraphSnapshot>("graph_snapshot", {
-    req: { vaultId, filter },
-  });
-}
-
-export function graphLayout(
-  vaultId: string,
-  snapshot: GraphSnapshot,
-  onFrame: (frame: LayoutFrame) => void,
-  opts: { seed?: number; iterations?: number } = {},
-): Promise<LayoutComplete> {
-  const channel = new Channel<LayoutFrame>();
-  channel.onmessage = onFrame;
-  return invoke<LayoutComplete>("graph_layout", {
-    req: {
-      vaultId,
-      snapshot,
-      seed: opts.seed ?? null,
-      iterations: opts.iterations ?? null,
-    },
-    onFrame: channel,
-  });
-}
-
-export function graphLayoutCancel(vaultId: string): Promise<void> {
-  return invoke("graph_layout_cancel", { req: { vaultId } });
-}
-
-export interface AgentInstructionsStatus {
-  offered: boolean;
-  canonical_path: string;
-  existing_pointers: string[];
-}
-
-export interface AgentInstructionsAccepted {
-  created: string[];
-  skipped: string[];
-}
-
-export function agentInstructionsStatus(
-  vaultId: string,
-): Promise<AgentInstructionsStatus> {
-  return invoke<AgentInstructionsStatus>("agent_instructions_status", {
-    req: { vault_id: vaultId },
-  });
-}
-
-export function agentInstructionsAccept(
-  vaultId: string,
-): Promise<AgentInstructionsAccepted> {
-  return invoke<AgentInstructionsAccepted>("agent_instructions_accept", {
-    req: { vault_id: vaultId },
-  });
-}
-
-export function agentInstructionsDecline(vaultId: string): Promise<void> {
-  return invoke("agent_instructions_decline", { req: { vault_id: vaultId } });
 }
 
 export interface VaultScanProgress {
@@ -987,65 +703,6 @@ export function undoRename(
   return invoke("undo_rename", { req });
 }
 
-export interface ListDanglingLinksRequest {
-  vault_id: string;
-  limit?: number;
-}
-
-export type RepairCandidateRank =
-  | "exact_path"
-  | "exact_basename"
-  | "case_insensitive_path"
-  | "case_insensitive_basename"
-  | "frontmatter_title";
-
-export interface RepairCandidate {
-  path: string;
-  rank: RepairCandidateRank;
-}
-
-export interface DanglingLinkOccurrence {
-  source_path: string;
-  count: number;
-}
-
-export interface DanglingLinkGroup {
-  target_raw: string;
-  missing_path: string | null;
-  total: number;
-  occurrences: DanglingLinkOccurrence[];
-  candidates: RepairCandidate[];
-}
-
-export interface ListDanglingLinksResponse {
-  groups: DanglingLinkGroup[];
-  truncated: boolean;
-}
-
-export interface RepairDanglingLinkRequest {
-  vault_id: string;
-  target_raw: string;
-  to_path: string;
-}
-
-export interface RepairDanglingLinkResponse {
-  files_rewritten: number;
-  refs_updated: number;
-  pending_count: number;
-}
-
-export function listDanglingLinks(
-  req: ListDanglingLinksRequest,
-): Promise<ListDanglingLinksResponse> {
-  return invoke("list_dangling_links", { req });
-}
-
-export function repairDanglingLink(
-  req: RepairDanglingLinkRequest,
-): Promise<RepairDanglingLinkResponse> {
-  return invoke("repair_dangling_link", { req });
-}
-
 export interface VaultPendingRewritesChanged {
   vault_id: string;
   count: number;
@@ -1086,123 +743,4 @@ export function onVaultSettingChanged(
   return listen<VaultSettingChanged>("vault:setting-changed", (e) =>
     handler(e.payload),
   );
-}
-
-export type FieldScope =
-  | { kind: "default" }
-  | { kind: "headings_only" }
-  | { kind: "body_only" }
-  | { kind: "code_only" }
-  | { kind: "tags"; tags: string[] };
-
-export type SortMode = "relevance" | "recency_desc";
-
-export interface SearchQuery {
-  text: string;
-  limit: number;
-  offset: number;
-  fields: FieldScope;
-  fuzzy: boolean;
-  sort: SortMode;
-}
-
-export interface MatchedField {
-  field: string;
-  snippet: string;
-}
-
-export interface SearchHit {
-  path: string;
-  title: string;
-  score: number;
-  mtime_secs: number;
-  matched_fields: MatchedField[];
-  tags: string[];
-}
-
-export interface SearchResponse {
-  hits: SearchHit[];
-  total_estimated: number;
-  took_ms: number;
-  still_indexing: boolean;
-}
-
-export interface SearchRequest {
-  vault_id: string;
-  query: SearchQuery;
-}
-
-export interface SearchVaultRequest {
-  vault_id: string;
-}
-
-export type IndexState = "building" | "ready" | "error";
-
-export interface IndexStatus {
-  state: IndexState;
-  indexed_files: number;
-  total_files: number;
-  last_commit_secs: number | null;
-}
-
-export interface IndexHealth {
-  schema_version: number;
-  segments: number;
-  doc_count: number;
-  disk_bytes: number;
-}
-
-export function search(req: SearchRequest): Promise<SearchResponse> {
-  return invoke("search", { req });
-}
-
-export function searchIndexStatus(
-  req: SearchVaultRequest,
-): Promise<IndexStatus> {
-  return invoke("search_index_status", { req });
-}
-
-export function searchRebuildIndex(req: SearchVaultRequest): Promise<void> {
-  return invoke("search_rebuild_index", { req });
-}
-
-export function searchGetHealth(req: SearchVaultRequest): Promise<IndexHealth> {
-  return invoke("search_get_health", { req });
-}
-
-export interface NoteRef {
-  path: string;
-  title: string;
-}
-
-export interface DataviewRow {
-  note: NoteRef | null;
-  cells: string[];
-}
-
-export interface DataviewListItem {
-  text: string;
-  note: NoteRef | null;
-}
-
-export type DataviewResult =
-  | { kind: "list"; items: DataviewListItem[] }
-  | {
-      kind: "table";
-      columns: string[];
-      rows: DataviewRow[];
-      row_label: string | null;
-    }
-  | { kind: "count"; count: number }
-  | { kind: "error"; message: string };
-
-export interface DataviewQueryRequest {
-  vault_id: string;
-  source: string;
-}
-
-export function dataviewQuery(
-  req: DataviewQueryRequest,
-): Promise<DataviewResult> {
-  return invoke("dataview_query", { req });
 }

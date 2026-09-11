@@ -1,14 +1,14 @@
 import { createSignal, onCleanup } from "solid-js";
 
+import { onVaultFileChanged } from "../api/ipc";
 import {
   graphLayout,
   graphLayoutCancel,
   graphSnapshot,
-  onVaultFileChanged,
   type GraphSnapshot,
   type LayoutComplete,
   type LayoutFrame,
-} from "../api/ipc";
+} from "../api/graph";
 import { positionsByKey, reconcilePositions } from "./reconcile";
 
 export type GraphStatus =

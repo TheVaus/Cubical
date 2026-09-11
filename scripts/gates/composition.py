@@ -108,7 +108,10 @@ def check_shell(gate: Gate, cfg: dict) -> None:
     waived = shell.get("waived_imports", {})
     sources = import_sources(text)
     for forbidden in shell["forbidden_imports"]:
-        if forbidden not in sources:
+        hits = {s for s in sources
+                if s == forbidden
+                or (forbidden.endswith("/") and s.startswith(forbidden))}
+        if not hits:
             if forbidden in waived:
                 gate.warn(
                     f"{r} no longer imports {forbidden} — drop it from "

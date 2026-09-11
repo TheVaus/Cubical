@@ -2,7 +2,7 @@ import type {
   DanglingLinkGroup,
   RepairCandidate,
   RepairCandidateRank,
-} from "../api/ipc";
+} from "../api/integrity";
 import { stabilizeByKey } from "../core/listStability";
 
 export type IntegrityViewState =

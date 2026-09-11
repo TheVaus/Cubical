@@ -7,7 +7,7 @@ import {
   type IndexStatus,
   type SearchHit,
   type SortMode,
-} from "../api/ipc";
+} from "../api/search";
 import { debounce } from "./debounce";
 import { buildSearchQuery, type ScopeKind } from "./searchQuery";
 import { errorMessage } from "../core/errorMessage";

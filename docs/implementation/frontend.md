@@ -7,10 +7,24 @@ rules live there (§11.6); this file records frontend implementation invariants.
 
 **Anchors:** invoke · Channel · UnlistenFn
 
-Components call typed functions from `ui/src/api/ipc.ts` — **never raw
-`invoke()`, never `@tauri-apps/api/*` directly.** The module is named `ipc.ts`
-rather than `tauri.ts` so a transport swap doesn't leave a misleading filename;
-a growing API surface is then a one-file change.
+Components call typed functions from `ui/src/api/` — **never raw `invoke()`,
+never `@tauri-apps/api/*` directly.** The chokepoint is the directory, not one
+file: `transport.ts` holds the one `invoke` every command goes through, so a
+transport swap or a cross-cutting concern such as timing is a one-file change.
+The directory is named `api/` rather than `tauri/` so a transport swap doesn't
+leave a misleading name.
+
+**A block's wire contract lives in its own file.** `ipc.ts` holds the
+substrate surface — vault and file operations, links, tags, rename, settings
+and the vault events — and each block owns one module beside it (`search.ts`,
+`graph.ts`, `terminal.ts`, `dataview.ts`, `integrity.ts`, `embeds.ts`,
+`propertyRef.ts`, `autocomplete.ts`, `blocks.ts`) that the domain census
+classes as part of that block. While every contract sat in one substrate file,
+a block importing another block's wire type was invisible to the domain gate —
+splitting it surfaced two such edges, the editor core's property slot and the
+statusbar, and both now declare the shape they consume instead. The Rust side
+keeps the same split for the same reason: a block's request and response types
+live with its command module, not in the engine's shared `api/types.rs`.
 
 Every command passes its arguments under a single `req` key, matching the Rust
 handlers' parameter name. Small tests pin that on-wire envelope deliberately —
@@ -749,9 +763,9 @@ that blew a frame. It is on in dev and off in a shipped build until the
 `cubical:perf` key is set in `localStorage`, so a slow build in front of a user
 can be asked what it is spending without a special binary.
 
-Two seams cover most of it. `ui/src/api/ipc.ts` is already the one chokepoint
-every command goes through, so a local `invoke` wrapper times all of them for
-the cost of four lines rather than an edit per command; and `buildFor` in the
+Two seams cover most of it. Every command goes through the one `invoke` in
+`ui/src/api/transport.ts`, so timing it there times all of them for the cost of
+four lines rather than an edit per command; and `buildFor` in the
 Live Preview plugin wraps the single Lezer walk, which is the largest
 synchronous cost the editor pays per update.
 

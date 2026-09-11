@@ -9,7 +9,7 @@ import {
   type DataviewRunner,
 } from "./dataview";
 import { blockRenderers, blockRenderersField } from "./blockRenderers";
-import type { DataviewResult } from "../api/ipc";
+import type { DataviewResult } from "../api/dataview";
 import { renderDataview } from "../dataview/dataviewRender";
 
 const flush = () => new Promise((r) => setTimeout(r, 0));

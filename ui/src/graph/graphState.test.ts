@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createRoot, createSignal } from "solid-js";
 
-import type { GraphSnapshot, LayoutComplete, LayoutFrame } from "../api/ipc";
+import type { GraphSnapshot, LayoutComplete, LayoutFrame } from "../api/graph";
 import { createGraphState, type GraphState } from "./graphState";
 
 const flush = () => new Promise((r) => setTimeout(r, 0));

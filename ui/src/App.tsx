@@ -39,9 +39,7 @@ import SettingsModal from "./settings/SettingsModal";
 import { createSettingsState } from "./settings/settingsState";
 import type { CanonicalDocument, Frontmatter } from "./ast/types";
 import {
-  createBlockRef,
   createFileAtPath,
-  getBrokenBlockRefs,
   listFiles,
   listRecentVaults,
   listTags,
@@ -59,11 +57,11 @@ import {
   removeRecentVault,
   renameFile,
   renameFolder,
-  type BrokenBlockRef,
   type FileEntry,
   type RecentVault,
   type ResolvedAnchor,
 } from "./api/ipc";
+import { createBlockRef, getBrokenBlockRefs, type BrokenBlockRef } from "./api/blocks";
 import { createVaultSession } from "./core/vaultSession";
 import { type Command } from "./core/commands";
 import { attachGlobalKeys } from "./core/globalKeys";

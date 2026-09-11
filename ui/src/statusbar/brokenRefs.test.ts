@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { BrokenBlockRef } from "../api/ipc";
+import type { BrokenBlockRef } from "../api/blocks";
 import { formatBrokenBlockRefs } from "./brokenRefs";
 
 const ref = (

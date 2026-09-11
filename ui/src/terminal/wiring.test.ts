@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createRoot, createSignal } from "solid-js";
 
-vi.mock("../api/ipc", () => ({
+vi.mock("../api/terminal", () => ({
   agentInstructionsStatus: vi.fn(async () => ({
     offered: false,
     canonical_path: "/vault/.cubical/agent-instructions.md",
@@ -19,7 +19,7 @@ import {
   agentInstructionsStatus,
   terminalBusy,
   terminalReapAll,
-} from "../api/ipc";
+} from "../api/terminal";
 import { closeTab, emptyTabs, type TabSet } from "../tabs/tabModel";
 import { createTerminalWiring, type TerminalWiring } from "./wiring";
 

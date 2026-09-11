@@ -3,12 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 
-import type { DanglingLinkGroup } from "../api/ipc";
+import type { DanglingLinkGroup } from "../api/integrity";
 
 const listDanglingLinks = vi.fn();
 const repairDanglingLink = vi.fn();
 
-vi.mock("../api/ipc", () => ({
+vi.mock("../api/integrity", () => ({
   listDanglingLinks: (...args: unknown[]) => listDanglingLinks(...args),
   repairDanglingLink: (...args: unknown[]) => repairDanglingLink(...args),
 }));

@@ -1,4 +1,4 @@
-import type { FieldScope, SearchQuery, SortMode } from "../api/ipc";
+import type { FieldScope, SearchQuery, SortMode } from "../api/search";
 
 export type ScopeKind = FieldScope["kind"];
 

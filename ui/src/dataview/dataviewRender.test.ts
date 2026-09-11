@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from "vitest";
 import { renderDataview } from "./dataviewRender";
-import type { DataviewResult } from "../api/ipc";
+import type { DataviewResult } from "../api/dataview";
 
 function mount(result: DataviewResult) {
   const host = document.createElement("div");

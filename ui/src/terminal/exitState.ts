@@ -1,4 +1,4 @@
-import type { TerminalExit } from "../api/ipc";
+import type { TerminalExit } from "../api/terminal";
 
 export type TerminalPhase = "opening" | "running" | "exited" | "failed";
 

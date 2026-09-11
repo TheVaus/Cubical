@@ -9,7 +9,7 @@ import {
   type LinkCandidate,
   type TagAutocompleteRequest,
   type TagAutocompleteResponse,
-} from "../api/ipc";
+} from "../api/autocomplete";
 
 export interface AutocompleteProvider {
   links: (query: string) => Promise<LinkCandidate[]>;

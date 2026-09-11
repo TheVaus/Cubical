@@ -1,4 +1,4 @@
-import type { SearchHit } from "../api/ipc";
+import type { SearchHit } from "../api/search";
 import { stabilizeByKey } from "../core/listStability";
 import { parseHighlights, type HighlightSegment } from "./snippet";
 
