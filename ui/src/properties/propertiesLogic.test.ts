@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import type { PropertyType } from "./typeComments";
 import {
-  buildAnnotations,
   effectiveCurrency,
   effectiveFormat,
   resolveType,
@@ -41,27 +40,5 @@ describe("effectiveCurrency", () => {
     expect(effectiveCurrency({ kind: "currency", currency: "xyz" }, "bad")).toBe(
       "usd",
     );
-  });
-});
-
-describe("buildAnnotations", () => {
-  const base = new Map<string, PropertyType>([
-    ["a", { kind: "currency" }],
-    ["b", { kind: "date" }],
-  ]);
-
-  it("copies unchanged when no override is given", () => {
-    const out = buildAnnotations(base);
-    expect(out).toEqual(base);
-    expect(out).not.toBe(base);
-  });
-  it("sets an overridden key", () => {
-    const out = buildAnnotations(base, "a", { kind: "int" });
-    expect(out.get("a")).toEqual({ kind: "int" });
-    expect(out.get("b")).toEqual({ kind: "date" });
-  });
-  it("removes a key when override is null", () => {
-    const out = buildAnnotations(base, "a", null);
-    expect(out.has("a")).toBe(false);
   });
 });

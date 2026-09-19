@@ -1,4 +1,4 @@
-import { isMap, isScalar, isSeq, parseDocument } from "yaml";
+import { isMap, isScalar, isSeq, parseDocument, type Pair } from "yaml";
 
 import { isKnownDateFormat } from "./dateFormats";
 import type { CellKind } from "./inferType";
@@ -92,19 +92,23 @@ export function parseTypeComments(yaml: string): Map<string, PropertyType> {
   if (doc.errors.length > 0 || !isMap(doc.contents)) return out;
   for (const pair of doc.contents.items) {
     if (!isScalar(pair.key)) continue;
-    const key = String(pair.key.value);
-    const value = pair.value as {
-      comment?: string | null;
-      commentBefore?: string | null;
-    } | null;
-    const keyComment = (pair.key as { comment?: string | null }).comment;
-    const type =
-      parseTypeToken(value?.comment) ??
-      parseTypeToken(value?.commentBefore) ??
-      parseTypeToken(keyComment);
-    if (type) out.set(key, type);
+    const type = pairType(pair);
+    if (type) out.set(String(pair.key.value), type);
   }
   return out;
+}
+
+export function pairType(pair: Pair): PropertyType | undefined {
+  const value = pair.value as {
+    comment?: string | null;
+    commentBefore?: string | null;
+  } | null;
+  const keyComment = (pair.key as { comment?: string | null } | null)?.comment;
+  return (
+    parseTypeToken(value?.comment) ??
+    parseTypeToken(value?.commentBefore) ??
+    parseTypeToken(keyComment)
+  );
 }
 
 export { isMap, isScalar, isSeq };

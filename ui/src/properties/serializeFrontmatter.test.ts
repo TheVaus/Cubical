@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   hasUnmodelableYaml,
+  planPropertyEdit,
+  type PropertyEdit,
   serializeFrontmatter,
   spliceFrontmatter,
 } from "./serializeFrontmatter";
@@ -152,6 +154,11 @@ describe("hasUnmodelableYaml", () => {
 
   it("returns false for empty YAML", () => {
     expect(hasUnmodelableYaml("")).toBe(false);
+  });
+
+  it("returns true for a layout an edit cannot be placed in", () => {
+    expect(hasUnmodelableYaml("{title: foo, n: 1}\n")).toBe(true);
+    expect(hasUnmodelableYaml("? title\n: foo\n")).toBe(true);
   });
 });
 
@@ -330,5 +337,168 @@ describe("hasUnmodelableYaml — comments allowed, anchors/aliases not", () => {
   it("still flags anchors and aliases", () => {
     expect(hasUnmodelableYaml("a: &x 1\nb: *x\n")).toBe(true);
     expect(hasUnmodelableYaml("a: &anchor 1\n")).toBe(true);
+  });
+});
+
+const LONG = "word ".repeat(24).trim();
+const UNTOUCHED = [
+  "big: 12345678901234567890",
+  `long: ${LONG}`,
+  "list:",
+  "- a",
+  "- b",
+  "hex: 0x1F",
+  "sci: 1e3",
+  "",
+].join("\n");
+
+describe("serializeFrontmatter leaves untouched pairs byte-identical", () => {
+  it("keeps big ints, long scalars, list indent and number spelling when another key changes", () => {
+    const existing = `title: Hi\n${UNTOUCHED}`;
+    const out = serializeFrontmatter(
+      [
+        ["title", "Bye"],
+        ["big", 12345678901234567890],
+        ["long", LONG],
+        ["list", ["a", "b"]],
+        ["hex", 31],
+        ["sci", 1000],
+      ],
+      undefined,
+      "usd",
+      existing,
+    );
+    expect(out).toBe(`---\ntitle: Bye\n${UNTOUCHED}---\n`);
+  });
+
+  it("does not rewrite type comments of keys whose type is unchanged", () => {
+    const existing = "a: 1 #type:int\nb: x\n";
+    const out = serializeFrontmatter(
+      [
+        ["a", 1],
+        ["b", "y"],
+      ],
+      new Map<string, PropertyType>([["a", { kind: "int" }]]),
+      "usd",
+      existing,
+    );
+    expect(out).toBe("---\na: 1 #type:int\nb: y\n---\n");
+  });
+
+  it("does not fold a long value it writes", () => {
+    const out = serializeFrontmatter([["long", LONG]], undefined, "usd", "long: x\n");
+    expect(out).toBe(`---\nlong: ${LONG}\n---\n`);
+  });
+
+  it("writes a changed list in the file's own sequence indentation", () => {
+    const out = serializeFrontmatter(
+      [
+        ["list", ["a"]],
+        ["tags", ["x", "y"]],
+      ],
+      undefined,
+      "usd",
+      "list:\n- a\ntags:\n- x\n",
+    );
+    expect(out).toBe("---\nlist:\n- a\ntags:\n- x\n- y\n---\n");
+  });
+});
+
+function applyPlan(source: string, edit: PropertyEdit): string {
+  const plan = planPropertyEdit(source, edit, "usd");
+  if (!plan) return source;
+  return source.slice(0, plan.from) + plan.text + source.slice(plan.to);
+}
+
+describe("planPropertyEdit", () => {
+  const source = `---\ntitle: Hi # keep\n${UNTOUCHED}---\n\nbody\n`;
+
+  it("changes only the edited pair", () => {
+    expect(applyPlan(source, { op: "set", key: "title", value: "Bye" })).toBe(
+      `---\ntitle: Bye # keep\n${UNTOUCHED}---\n\nbody\n`,
+    );
+  });
+
+  it("returns a range confined to the edited pair", () => {
+    const plan = planPropertyEdit(source, { op: "set", key: "title", value: "Bye" }, "usd");
+    expect(plan).toEqual({ from: 11, to: 13, text: "Bye" });
+  });
+
+  it("treats a precision-lossy number equal to the big int it came from as no change", () => {
+    expect(
+      planPropertyEdit(source, { op: "set", key: "big", value: 12345678901234567890 }, "usd"),
+    ).toBeNull();
+  });
+
+  it("builds from the live source, so a prior edit to another key survives", () => {
+    const live = "---\nx: edited\ndone: false\n---\n";
+    expect(applyPlan(live, { op: "set", key: "done", value: true })).toBe(
+      "---\nx: edited\ndone: true\n---\n",
+    );
+  });
+
+  it("keeps an existing type comment when only the value changes", () => {
+    const live = "---\nn: 1 # type:int\n---\n";
+    expect(applyPlan(live, { op: "set", key: "n", value: 2 })).toBe(
+      "---\nn: 2 # type:int\n---\n",
+    );
+  });
+
+  it("keeps a block list's key-line type comment when its items change", () => {
+    const live = "---\npeople: # type:list\n- Ann\nz: 1\n---\n";
+    expect(
+      applyPlan(live, { op: "set", key: "people", value: ["Ann", "Bob"] }),
+    ).toBe("---\npeople: # type:list\n- Ann\n- Bob\nz: 1\n---\n");
+  });
+
+  it("sets and clears a type annotation on just that key", () => {
+    const live = "---\na: 1 # type:int\nn: 1\n---\n";
+    const typed = applyPlan(live, {
+      op: "set",
+      key: "n",
+      value: 1,
+      type: { kind: "float" },
+    });
+    expect(typed).toBe("---\na: 1 # type:int\nn: 1 # type:float\n---\n");
+    expect(applyPlan(typed, { op: "set", key: "n", value: 1, type: null })).toBe(
+      "---\na: 1 # type:int\nn: 1\n---\n",
+    );
+  });
+
+  it("appends a new key after the last pair, before trailing comments", () => {
+    const live = "---\na: 1\n# tail\n---\n";
+    expect(applyPlan(live, { op: "set", key: "b", value: "" })).toBe(
+      '---\na: 1\nb: ""\n# tail\n---\n',
+    );
+  });
+
+  it("creates a block when the note has no frontmatter", () => {
+    expect(applyPlan("body\n", { op: "set", key: "a", value: 1 })).toBe(
+      "---\na: 1\n---\nbody\n",
+    );
+  });
+
+  it("renames a key without touching its value or its type comment", () => {
+    const live = "---\nold: 0x1F # type:int\nz: 1\n---\n";
+    expect(applyPlan(live, { op: "rename", from: "old", to: "new" })).toBe(
+      "---\nnew: 0x1F # type:int\nz: 1\n---\n",
+    );
+  });
+
+  it("refuses a rename onto an existing key", () => {
+    const live = "---\na: 1\nb: 2\n---\n";
+    expect(planPropertyEdit(live, { op: "rename", from: "a", to: "b" }, "usd")).toBeNull();
+  });
+
+  it("refuses to edit frontmatter it cannot model", () => {
+    const live = "---\na: &x 1\nb: *x\n---\n";
+    expect(planPropertyEdit(live, { op: "set", key: "a", value: 2 }, "usd")).toBeNull();
+  });
+
+  it("preserves CRLF line endings", () => {
+    const live = "---\r\na: 1\r\nb: 2\r\n---\r\n";
+    expect(applyPlan(live, { op: "set", key: "b", value: [3] })).toBe(
+      "---\r\na: 1\r\nb:\r\n  - 3\r\n---\r\n",
+    );
   });
 });

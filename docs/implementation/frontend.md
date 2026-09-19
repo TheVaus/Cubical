@@ -1024,10 +1024,24 @@ reconciliation to have anything to reuse.
 
 ## Frontmatter serialization
 
-The serializer edits the **existing block in place**, reusing the parsed node of
-every unchanged key. That is what lets foreign comments and blank lines survive
-an edit to some *other* property — a naive re-emit would silently reformat the
-user's file, which the source-of-truth rule forbids.
+The serializer edits the **existing block in place**: every unchanged
+top-level pair is copied by its byte range, and only the changed pair is
+re-rendered. Reusing parsed nodes was not enough — re-emitting the whole
+document still re-folded long scalars at 80 columns, re-indented block lists and
+re-spelled numbers (`0x1F`, `1e3`) in keys nobody touched, which the
+source-of-truth rule forbids.
+
+- **A commit is one keyed edit planned against the live source.** The panel's
+  frontmatter comes from the debounced AST, so a snapshot can be 150 ms old;
+  rebuilding every key from it wrote a just-committed value straight back.
+  `planPropertyEdit` reads the editor's source at commit time, touches one key
+  (`set` or `rename`), and hands the editor only the bytes that changed.
+- A re-rendered pair uses no line folding and the file's own list indentation
+  and line endings. Integers parse as BigInt, and a rounded Number equal to one
+  counts as unchanged, so an exact large integer is never overwritten by the
+  rounded copy the UI holds.
+- Rename replaces only the key's text, so the value, its spelling and its
+  `# type:` comment stay byte-identical.
 
 - Types are stored as a trailing `# type:<token>` comment on the key's line.
   The token may contain spaces (date formats) and parentheses (enums), and a
@@ -1035,7 +1049,9 @@ user's file, which the source-of-truth rule forbids.
   kind — otherwise it's an ordinary comment and is left alone.
 - **Anchors and aliases remain unmodelable.** Editing a value shared by
   reference is genuinely ambiguous, so the Properties UI renders read-only
-  rather than guessing.
+  rather than guessing. So does a block whose pairs cannot be located — a
+  flow-style top-level map, keys at different indents, explicit `? key` — so
+  the panel is never editable where an edit would be dropped.
 - Date formats that share a regex are disambiguated by **range validation**, so
   `17/06/2026` falls through to day-first rather than parsing as month 17.
   Cross-format conversion is best-effort and flags lossy narrowing.
