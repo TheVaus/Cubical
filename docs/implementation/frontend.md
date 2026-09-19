@@ -637,10 +637,12 @@ supplying `{ get, fetch }` and an effect dispatched back to trigger rebuilds.
 `invalidate()` runs from the file-changed listener so newly-resolvable targets
 re-render without a reload.
 
-Three invariants worth keeping:
+Four invariants worth keeping:
 
 - **Widget identity folds in the resolver's `version()`**, a counter bumped on
-  every cache mutation anywhere. Keying identity on only a widget's *own* cache
+  every cache mutation anywhere, and by `markStale()`. A stale entry that kept
+  its version would keep its widget, and `toDOM` — the only caller of `get()`
+  that starts the refetch — would never run again. Keying identity on only a widget's *own* cache
   entry leaves **nested** placeholders frozen forever — a parent's entry never
   changes when a descendant resolves. The version is stable across unrelated
   edits, so plain keystrokes don't tear widgets down.
@@ -649,7 +651,13 @@ Three invariants worth keeping:
 - **Invalidate races the settle.** If `invalidate()` lands between a fetch's
   cache-write and the subscriber waking, the subscriber sees an empty cache
   *and* no in-flight fetch — it must re-kick, or that pending resolution hangs
-  forever.
+  forever. The reverse race is closed by a generation: a clear-mode
+  `invalidate()` drops the requests in flight, so an answer that started before
+  it never refills the cleared cache, and refetch mode re-runs a key that was
+  invalidated while its request was running rather than skipping it.
+- **A widget's revision covers every input it reads.** A calc block reads
+  `[[.prop]]` from the open note's own frontmatter, not through the resolver,
+  so its revision folds in the frontmatter text as well as `version()`.
 
 Embed bodies render as **plain text** (no markdown parsing) up to a depth
 ceiling owned by [`../architecture/document-model.md`](../architecture/document-model.md);

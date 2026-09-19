@@ -1,5 +1,5 @@
 import { EditorView } from "@codemirror/view";
-import type { EditorState } from "@codemirror/state";
+import type { EditorState, Text } from "@codemirror/state";
 
 import type { BlockRenderer } from "./blockRenderers";
 import { equationsEnabledFacet, makeRefResolver } from "./equation";
@@ -62,6 +62,24 @@ export function renderCalcBlock(
   return host;
 }
 
+const frontmatterOf = new WeakMap<Text, string>();
+
+function frontmatterText(doc: Text): string {
+  const hit = frontmatterOf.get(doc);
+  if (hit !== undefined) return hit;
+  let text = "";
+  if (doc.lines > 1 && doc.line(1).text === "---") {
+    for (let ln = 2; ln <= doc.lines; ln++) {
+      const line = doc.line(ln);
+      if (line.text !== "---") continue;
+      text = doc.sliceString(0, line.to);
+      break;
+    }
+  }
+  frontmatterOf.set(doc, text);
+  return text;
+}
+
 export const calcBlockRenderer: BlockRenderer = {
   id: "calc",
   languages: ["calc"],
@@ -69,7 +87,8 @@ export const calcBlockRenderer: BlockRenderer = {
   estimatedHeight: 48,
   completions: [{ language: "calc", detail: "Calculation" }],
   active: (state) => state.facet(equationsEnabledFacet),
-  revision: (state) => state.facet(propertyResolverFacet)?.version(),
+  revision: (state) =>
+    `${state.facet(propertyResolverFacet)?.version() ?? ""}\n${frontmatterText(state.doc)}`,
   render: (source, ctx) => renderCalcBlock(source, ctx.state),
 };
 

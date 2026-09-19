@@ -14,8 +14,13 @@ import {
   embedResolverFacet,
   openNotePathFacet,
   embedResolverUpdated,
+  embedExtensionFor,
 } from "./embed";
-import type { EmbedResolver, EmbedResolution } from "./embedResolver";
+import {
+  createEmbedResolver,
+  type EmbedResolver,
+  type EmbedResolution,
+} from "./embedResolver";
 import { renderEmbeddedFile } from "../shell/editorBlocks";
 
 function makeStubResolver(resp: EmbedResolution): EmbedResolver {
@@ -542,5 +547,42 @@ describe("embeds of non-markdown files", () => {
     const cells = view.contentDOM.querySelectorAll("table.viewer__table th");
     expect([...cells].map((c) => c.textContent)).toEqual(["a", "b"]);
     view.destroy();
+  });
+});
+
+describe("embed freshness", () => {
+  it("re-renders an embedded note's new content after markStale", async () => {
+    let body = "first body";
+    const resolver = createEmbedResolver("v", () =>
+      Promise.resolve({ kind: "note", target_path: "B.md", content: body }),
+    );
+    const host = document.createElement("div");
+    const view = new EditorView({
+      parent: host,
+      state: EditorState.create({
+        doc: "host\n\n![[B]]\n\n",
+        selection: { anchor: 0 },
+        extensions: [
+          markdown({ extensions: [wikilinkExtension] }),
+          embedExtensionFor(resolver, "A.md"),
+          embedExtension,
+        ],
+      }),
+    });
+    const text = () =>
+      view.contentDOM.querySelector(".cm-md-embed-frame")?.textContent ?? "";
+    const flush = () => new Promise((r) => setTimeout(r, 0));
+
+    await flush();
+    expect(text()).toContain("first body");
+
+    body = "second body";
+    resolver.markStale();
+    await flush();
+    await flush();
+    const after = text();
+    view.destroy();
+
+    expect(after).toContain("second body");
   });
 });
