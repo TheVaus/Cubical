@@ -42,7 +42,7 @@ const Select = (props: SelectProps) => {
         onChange={(e) => props.onChange(e.currentTarget.value)}
       >
         <Show when={!listed()}>
-          <option value={props.value} hidden>
+          <option value={props.value} hidden disabled>
             {props.value}
           </option>
         </Show>
