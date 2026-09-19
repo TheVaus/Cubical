@@ -141,6 +141,28 @@ mod tests {
     }
 
     #[test]
+    fn grammar_matches_the_shared_fixture() {
+        #[derive(serde::Deserialize)]
+        struct Case {
+            id: String,
+            valid: bool,
+        }
+        let cases: Vec<Case> =
+            serde_json::from_str(include_str!("../../tests/fixtures/block_ids.json"))
+                .expect("fixture parses");
+        for c in cases {
+            assert_eq!(is_valid_block_id(&c.id), c.valid, "grammar on {:?}", c.id);
+            let src = format!("text ^{}\n", c.id);
+            assert_eq!(
+                !extract_block_ids(&src).is_empty(),
+                c.valid,
+                "extraction on {:?}",
+                c.id
+            );
+        }
+    }
+
+    #[test]
     fn rejects_mid_line_and_invalid_starts() {
         assert!(extract_block_ids("text ^mid more\n").is_empty());
         assert!(extract_block_ids("text ^1bad\n").is_empty());

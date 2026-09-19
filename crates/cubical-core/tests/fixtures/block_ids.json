@@ -1,0 +1,13 @@
+[
+  { "id": "intro", "valid": true },
+  { "id": "_private", "valid": true },
+  { "id": "a1-b_2", "valid": true },
+  { "id": "Z", "valid": true },
+  { "id": "1abc", "valid": false },
+  { "id": "-lead", "valid": false },
+  { "id": "café", "valid": false },
+  { "id": "日本", "valid": false },
+  { "id": "a.b", "valid": false },
+  { "id": "a b", "valid": false },
+  { "id": "", "valid": false }
+]
