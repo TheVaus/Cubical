@@ -25,5 +25,10 @@ export function createEmbedResolver(
     cacheKey: (targetRaw) => targetRaw,
     load: (targetRaw) => ipc({ vault_id: vaultId, target_raw: targetRaw }),
     onFailure: () => UNRESOLVED,
+    same: (a, b) =>
+      a.kind === b.kind &&
+      a.target_path === b.target_path &&
+      a.content === b.content &&
+      (a.mime ?? null) === (b.mime ?? null),
   });
 }

@@ -644,7 +644,11 @@ Four invariants worth keeping:
 - **Widget identity folds in the resolver's `version()`**, a counter bumped on
   every cache mutation anywhere, and by `markStale()`. A stale entry that kept
   its version would keep its widget, and `toDOM` — the only caller of `get()`
-  that starts the refetch — would never run again. Keying identity on only a widget's *own* cache
+  that starts the refetch — would never run again. Because every file change marks
+  stale, an embed widget reuses its DOM in `updateDOM` while its target's
+  cached value is still the one it rendered, and a refetch that returns an
+  equal value (`spec.same`) keeps the cached reference and the version, so an
+  autosave re-renders no embed whose content did not change. Keying identity on only a widget's *own* cache
   entry leaves **nested** placeholders frozen forever — a parent's entry never
   changes when a descendant resolves. The version is stable across unrelated
   edits, so plain keystrokes don't tear widgets down.

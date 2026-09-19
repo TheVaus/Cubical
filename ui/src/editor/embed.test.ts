@@ -585,4 +585,37 @@ describe("embed freshness", () => {
 
     expect(after).toContain("second body");
   });
+
+  it("keeps the rendered embed when a stale mark refetches identical content", async () => {
+    const resolver = createEmbedResolver("v", () =>
+      Promise.resolve({ kind: "note", target_path: "B.md", content: "same" }),
+    );
+    const host = document.createElement("div");
+    const view = new EditorView({
+      parent: host,
+      state: EditorState.create({
+        doc: "host\n\n![[B]]\n\n",
+        selection: { anchor: 0 },
+        extensions: [
+          markdown({ extensions: [wikilinkExtension] }),
+          embedExtensionFor(resolver, "A.md"),
+          embedExtension,
+        ],
+      }),
+    });
+    const frame = () => view.contentDOM.querySelector(".cm-md-embed-frame");
+    const flush = () => new Promise((r) => setTimeout(r, 0));
+
+    await flush();
+    const before = frame();
+    expect(before?.textContent).toContain("same");
+
+    resolver.markStale();
+    await flush();
+    await flush();
+    const after = frame();
+    view.destroy();
+
+    expect(after).toBe(before);
+  });
 });

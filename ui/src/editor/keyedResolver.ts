@@ -78,9 +78,10 @@ export function createKeyedResolver<K, V>(
     const prev = cache.get(k);
     const changed =
       force || prev === undefined || !spec.same || !spec.same(prev, value);
+    if (!changed) return false;
     cache.set(k, value);
-    if (changed) cacheVersion++;
-    return changed;
+    cacheVersion++;
+    return true;
   };
 
   const run = (key: K, force: boolean) => {
