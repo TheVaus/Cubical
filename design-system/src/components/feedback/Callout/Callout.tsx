@@ -6,13 +6,12 @@ export type Tone = 'neutral' | 'success' | 'warning' | 'error';
 export interface CalloutProps {
   tone?: Tone;
   title?: string;
-  role?: 'alert' | 'status';
   children: JSX.Element;
 }
 
 const Callout = (props: CalloutProps) => {
   return (
-    <div class="callout" role={props.role} classList={{ [props.tone ?? 'neutral']: true }}>
+    <div class="callout" classList={{ [props.tone ?? 'neutral']: true }}>
       <Show when={props.title}>
         <div class="callout-title">{props.title}</div>
       </Show>

@@ -72,7 +72,6 @@ import { createDocumentSession } from "./core/documentSession";
 import { switchVault } from "./core/vaultOpen";
 import { createListenerGroup } from "./core/listenerGroup";
 import FeatureBoundary from "./core/FeatureBoundary";
-import Callout from "@ds/components/feedback/Callout/Callout";
 import TabStrip from "./tabs/TabStrip";
 import {
   FileViewer,
@@ -1146,7 +1145,19 @@ const App: Component = () => {
       </header>
 
       <Show when={surfaceErrors.banner()}>
-        {(message) => <Callout tone="error" role="alert">{message()}</Callout>}
+        {(message) => (
+          <div
+            role="alert"
+            style={{
+              color: "var(--c-error)",
+              "font-size": "var(--text-sm)",
+              "border-left": "var(--space-1) solid var(--c-error)",
+              "padding-left": "var(--space-3)",
+            }}
+          >
+            {message()}
+          </div>
+        )}
       </Show>
 
       <Show
