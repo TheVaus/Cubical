@@ -664,8 +664,10 @@ so the three callers cannot drift apart.
 parameter, threaded into `vault_lock::acquire`/`write_payload`) rather than a
 fixed location, because the path is keyed by the app's own pid
 (`cubical-<pid>.sock`) — the same machine-local reasoning that keeps the
-lockfile itself out of `.cubical/`, above. The server is a
-`.setup()`-spawned, **sequential** accept loop (not one task per connection):
+lockfile itself out of `.cubical/`, above. The server is
+`cubical_ipc::serve`, which `cubical-app` spawns from `.setup()` with its state
+and sink — the transport owns binding and accepting, the app only wires them. It
+is a **sequential** accept loop (not one task per connection):
 `handle_connection` borrows `&AppState`, and `AppState`'s own locks already
 serialize mutations (see Lock discipline above), so a second concurrency
 layer here would be redundant. A transient `accept` error backs off and
