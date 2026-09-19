@@ -66,11 +66,13 @@ import { createVaultSession } from "./core/vaultSession";
 import { type Command } from "./core/commands";
 import { attachGlobalKeys } from "./core/globalKeys";
 import { createNavSession } from "./core/navSession";
+import { createSurfaceErrors } from "./core/surfaceErrors";
 import { createDebounced } from "./core/debounce";
 import { createDocumentSession } from "./core/documentSession";
 import { switchVault } from "./core/vaultOpen";
 import { createListenerGroup } from "./core/listenerGroup";
 import FeatureBoundary from "./core/FeatureBoundary";
+import Callout from "@ds/components/feedback/Callout/Callout";
 import TabStrip from "./tabs/TabStrip";
 import {
   FileViewer,
@@ -178,7 +180,6 @@ const App: Component = () => {
   const pluginOn = (id: string) => corePluginActive(settings.corePlugins(), id);
   const [files, setFiles] = createSignal<FileEntry[]>([]);
   const [folders, setFolders] = createSignal<string[]>([]);
-  const [error, setError] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal(false);
   const [booting, setBooting] = createSignal(true);
   const [recentVaults, setRecentVaults] = createSignal<RecentVault[]>([]);
@@ -196,12 +197,12 @@ const App: Component = () => {
     const id = tabs().activeId;
     return id === null ? null : (contents[id] ?? null);
   };
-  const setSelectedContent = (value: string | null) => {
-    const id = tabs().activeId;
-    if (id === null) return;
-    if (value === null) setContents(produce((c) => delete c[id]));
-    else setContents(id, value);
+  const setTabContent = (id: string, value: string | null) => {
+    if (value === null) return setContents(produce((c) => delete c[id]));
+    setContents(id, value);
+    surfaceErrors.tabLoaded(id);
   };
+  const surfaceErrors = createSurfaceErrors(() => tabs().activeId);
   interface DocSummary {
     frontmatter: Frontmatter | null;
     blocks: number;
@@ -435,7 +436,10 @@ const App: Component = () => {
     autosaveDebounceMs: AUTOSAVE_DEBOUNCE_MS,
     reportError: showErrorToast,
     onWritten: () => searchRefresh.schedule(),
-    onContentReplaced: (content) => setSelectedContent(content),
+    onContentReplaced: (content) => {
+      const id = tabs().activeId;
+      if (id !== null) setTabContent(id, content);
+    },
   });
   const flushAutosave = () => doc.flush();
 
@@ -649,17 +653,23 @@ const App: Component = () => {
     if (id === "statusbar.toggle") settings.toggleStatusbar();
   };
 
+  const stillOpen = (vault: string, tabId: string) =>
+    vaultId() === vault && tabs().tabs.some((t) => t.id === tabId);
+
   const loadActiveTabContent = async () => {
     const id = vaultId();
     const path = selectedPath();
-    if (!id || path === null) return;
+    const tabId = tabs().activeId;
+    if (!id || path === null || tabId === null) return;
     if (!isEditablePath(path)) return;
     try {
       const resp = await readFileText({ vault_id: id, path });
-      setSelectedContent(resp.content);
+      if (!stillOpen(id, tabId)) return;
+      setTabContent(tabId, resp.content);
     } catch (e) {
-      setError(errorMessage(e));
-      setSelectedContent(null);
+      if (!stillOpen(id, tabId)) return;
+      surfaceErrors.tabFailed(tabId, errorMessage(e));
+      setTabContent(tabId, null);
     }
   };
 
@@ -671,7 +681,6 @@ const App: Component = () => {
   });
 
   const resetDocState = () => {
-    setError(null);
     settings.setRawOverride(null);
     doc.reset();
   };
@@ -1036,11 +1045,12 @@ const App: Component = () => {
     fileActions.reset();
     setTagRefreshTick(0);
     dismissAllToasts();
+    surfaceErrors.clear();
     settings.resetForVaultSwitch();
   };
 
   const openVaultByPath = async (path: string) => {
-    setError(null);
+    surfaceErrors.vaultOpened();
     setBusy(true);
     try {
       const resp = await switchVault({
@@ -1062,7 +1072,7 @@ const App: Component = () => {
       await restoreTabs(path);
       void refreshRecentVaults();
     } catch (e) {
-      setError(errorMessage(e));
+      surfaceErrors.vaultFailed(errorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -1150,18 +1160,8 @@ const App: Component = () => {
         </div>
       </header>
 
-      <Show when={error()}>
-        <div
-          role="alert"
-          style={{
-            color: "var(--c-error)",
-            "font-size": "var(--text-sm)",
-            "border-left": "var(--space-1) solid var(--c-error)",
-            "padding-left": "var(--space-3)",
-          }}
-        >
-          {error()}
-        </div>
+      <Show when={surfaceErrors.banner()}>
+        {(message) => <Callout tone="error" role="alert">{message()}</Callout>}
       </Show>
 
       <Show

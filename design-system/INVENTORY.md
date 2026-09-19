@@ -179,6 +179,7 @@ import Callout from "@ds/components/feedback/Callout/Callout";
 |---|---|---|
 | `tone` | `Tone` | no |
 | `title` | `string` | no |
+| `role` | `'alert' \| 'status'` | no |
 | `children` | `JSX.Element` | yes |
 
 Also exports:
