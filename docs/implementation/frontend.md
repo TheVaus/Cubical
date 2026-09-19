@@ -88,10 +88,12 @@ in favour of the local buffer. Quitting with a conflict open therefore drops the
 unsaved buffer rather than overwriting the copy on disk — the disk copy is the
 one that cannot be recovered afterwards.
 
-**A write is disowned if the document changed while it was in flight.** `reset`
-bumps a generation counter that `performWrite` captures before awaiting, so a
-response arriving after a vault or file switch cannot repopulate `seenHash`,
-`lastWrittenHash` or `dirty` from the outgoing document.
+**A write or read is disowned if the document changed while it was in
+flight.** `reset` bumps a generation counter that `performWrite`, `takeDisk`,
+`refreshFromDisk` and the silent external-change reload capture before
+awaiting, so a response arriving after a vault or file switch cannot repopulate
+`seenHash`, `lastWrittenHash` or `dirty` from the outgoing document, nor pour
+its text into the incoming one's editor.
 
 **Seed both hashes when the caller already knows the on-disk hash** (e.g. a
 file it just created). Otherwise the watcher's created-echo arrives as an
@@ -864,14 +866,16 @@ Nothing documented the split, because there was none to document; it was drift.
 
 The shell now injects `showErrorToast` as the `reportError` of both the file
 actions and the document session, so a per-action failure has one surface
-wherever it was triggered from. `setError` keeps only the two callers that
-match the rule.
+wherever it was triggered from. Only the two writers that match the rule stay
+on the banner.
 
-The banner also has no lifecycle: nothing clears it when the operation that set
-it later succeeds, so a transient autosave failure could outlive its own
-condition until the tab or vault changed. Routing those writers to the toast
-gives them one — a toast can be dismissed, and the queue drains on a vault
-switch.
+The banner derives from the surface that failed rather than latching a message
+(`core/surfaceErrors.ts`): a vault that would not open, or a tab whose content
+would not read, keyed by that tab. Any later content for the tab clears its
+failure — including a watcher-driven reload — a vault that opens clears the
+vault failure, and releasing the vault clears both. A tab's failure shows only
+while that tab is active. A latched signal cleared on tab or vault switch left a
+resolved failure on screen until the user happened to navigate away.
 
 ## A toast an error can survive
 
