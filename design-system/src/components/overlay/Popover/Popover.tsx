@@ -1,4 +1,5 @@
-import { createEffect, onCleanup, Show, type JSX } from 'solid-js';
+import { Show, type JSX } from 'solid-js';
+import { closeOnEscape } from '../escapeStack';
 import './Popover.css';
 
 export type PopoverPlacement = 'bottom-start' | 'bottom-end' | 'top-start' | 'top-end';
@@ -13,16 +14,7 @@ export interface PopoverProps {
 }
 
 const Popover = (props: PopoverProps) => {
-  const onKey = (e: KeyboardEvent) => {
-    if (e.key === 'Escape') props.onClose();
-  };
-  createEffect(() => {
-    if (!props.open) return;
-    document.addEventListener('keydown', onKey);
-    onCleanup(() => {
-      document.removeEventListener('keydown', onKey);
-    });
-  });
+  closeOnEscape(() => props.open, () => props.onClose());
 
   const placement = () => props.placement ?? 'bottom-start';
   const panelClass = () =>

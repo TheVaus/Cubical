@@ -1,7 +1,8 @@
-import { createEffect, For, onCleanup, Show, type JSX } from 'solid-js';
+import { For, Show, type JSX } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import Icon, { type IconName } from '../../graphics/Icon/Icon';
 import IconButton from '../../forms/IconButton/IconButton';
+import { closeOnEscape } from '../escapeStack';
 import './TwoPaneModal.css';
 
 export interface TwoPaneNavItem {
@@ -22,15 +23,7 @@ export interface TwoPaneModalProps {
 }
 
 const TwoPaneModal = (props: TwoPaneModalProps) => {
-  const handleKey = (e: KeyboardEvent) => {
-    if (e.key === 'Escape') props.onClose();
-  };
-
-  createEffect(() => {
-    if (!props.open) return;
-    document.addEventListener('keydown', handleKey);
-    onCleanup(() => document.removeEventListener('keydown', handleKey));
-  });
+  closeOnEscape(() => props.open, () => props.onClose());
 
   return (
     <Show when={props.open}>

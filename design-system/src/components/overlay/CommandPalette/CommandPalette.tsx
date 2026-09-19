@@ -53,7 +53,7 @@ const MatchedLabel = (props: { text: string; indices?: number[] | undefined }) =
 const CommandPalette = (props: CommandPaletteProps) => {
   const [internalQuery, setInternalQuery] = createSignal('');
   const optionPrefix = createUniqueId();
-  let inputEl: HTMLInputElement | undefined;
+  const [inputEl, setInputEl] = createSignal<HTMLInputElement>();
   let listEl: HTMLDivElement | undefined;
   let restoreFocusTo: HTMLElement | null = null;
 
@@ -96,6 +96,7 @@ const CommandPalette = (props: CommandPaletteProps) => {
   const onKeyDown = (e: KeyboardEvent) => {
     if (!selectable()) return;
     const list = rows();
+    if (list.length === 0) return;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       props.onSelectedIndexChange?.(Math.min(selectedIndex() + 1, list.length - 1));
@@ -116,7 +117,7 @@ const CommandPalette = (props: CommandPaletteProps) => {
         if (!props.autoFocus) return;
         if (open) {
           restoreFocusTo = document.activeElement as HTMLElement | null;
-          queueMicrotask(() => inputEl?.focus());
+          queueMicrotask(() => inputEl()?.focus());
         } else {
           restoreFocusTo?.focus?.();
           restoreFocusTo = null;
@@ -127,9 +128,10 @@ const CommandPalette = (props: CommandPaletteProps) => {
 
   createEffect(() => {
     const id = activeOptionId();
-    if (!inputEl) return;
-    if (id) inputEl.setAttribute('aria-activedescendant', id);
-    else inputEl.removeAttribute('aria-activedescendant');
+    const el = inputEl();
+    if (!el) return;
+    if (id) el.setAttribute('aria-activedescendant', id);
+    else el.removeAttribute('aria-activedescendant');
   });
 
   createEffect(() => {
@@ -143,7 +145,7 @@ const CommandPalette = (props: CommandPaletteProps) => {
     <Modal open={props.open} onClose={props.onClose} {...modalLabel()}>
       <div class="command-palette">
         <TextInput
-          ref={(el) => (inputEl = el)}
+          ref={setInputEl}
           value={query()}
           onInput={setQuery}
           onKeyDown={onKeyDown}

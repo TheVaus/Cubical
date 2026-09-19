@@ -923,6 +923,14 @@ backdrop and the trigger — this **structurally** prevents the close-then-reope
 race a document-level listener causes. Escape is an additional affordance, not
 a replacement.
 
+Every DS overlay takes Escape through one stack,
+`design-system/src/components/overlay/escapeStack.ts`: only the most recently
+opened overlay that is still open handles it, and a closed one handles nothing.
+Separate document listeners let one Escape close a popover and the Settings
+modal behind it together, and let a mounted-but-closed modal fire `onClose`. A
+consumer that must see Escape before any overlay — the shortcut recorder —
+listens on `window` in the capture phase and stops propagation there.
+
 ## List identity and Solid reconciliation
 
 Solid's `<For>` reconciles **by object reference**. Handing it a freshly
