@@ -840,77 +840,6 @@ const App: Component = () => {
   };
 
   onMount(async () => {
-    await vaultListeners.attach("vault:scan-progress", () =>
-      onVaultScanProgress((p) => {
-        if (p.vault_id !== vaultId()) return;
-        setFilesProcessed(p.files_processed);
-        setFilesTotalEstimate(p.files_total_estimate);
-        scheduleRefresh();
-      }),
-    );
-    await vaultListeners.attach("vault:scan-complete", () =>
-      onVaultScanComplete((p) => {
-        if (p.vault_id !== vaultId()) return;
-        setFilesProcessed(p.file_count);
-        setFilesTotalEstimate(p.file_count);
-        setScanStatus("complete");
-        void refreshFileList();
-        void refreshBrokenBlockRefs();
-      }),
-    );
-    await vaultListeners.attach("vault:scan-cancelled", () =>
-      onVaultScanCancelled((p) => {
-        if (p.vault_id !== vaultId()) return;
-        setScanStatus("cancelled");
-      }),
-    );
-    await vaultListeners.attach("vault:file-changed", () =>
-      onVaultFileChanged((p) => {
-        if (p.vault_id !== vaultId()) return;
-        scheduleRefresh();
-
-        revalidateResolvers(resolvers());
-
-        rightSidebarRefresh.schedule();
-
-        searchRefresh.schedule();
-
-        brokenBlockRefsRefresh.schedule();
-
-        if (view().kind === "tag") {
-          setTagRefreshTick((n) => n + 1);
-        }
-
-        doc.applyExternalChange(p.path, p.new_content_hash);
-      }),
-    );
-
-    await vaultListeners.attach("vault:pending-rewrites-changed", () =>
-      onVaultPendingRewritesChanged((p) => {
-        if (p.vault_id !== vaultId()) return;
-        setPendingRewritesCount(p.count);
-        void doc.refreshFromDisk();
-      }),
-    );
-    await vaultListeners.attach("vault:flush-complete", () =>
-      onVaultFlushComplete((p) => {
-        if (p.vault_id !== vaultId()) return;
-        if (p.files_rewritten === 0 && p.refs_updated === 0) return;
-        const refs = p.refs_updated;
-        const files = p.files_rewritten;
-        showToast(
-          `Applied ${refs} reference update${refs === 1 ? "" : "s"} across ` +
-            `${files} file${files === 1 ? "" : "s"}.`,
-        );
-      }),
-    );
-    await vaultListeners.attach("vault:setting-changed", () =>
-      onVaultSettingChanged((p) => {
-        if (p.vault_id !== vaultId()) return;
-        void settings.hydrate(p.vault_id);
-      }),
-    );
-
     const onBeforeUnload = () => doc.writeBeforeUnload();
     window.addEventListener("beforeunload", onBeforeUnload);
     onCleanup(() => window.removeEventListener("beforeunload", onBeforeUnload));
@@ -985,6 +914,77 @@ const App: Component = () => {
       settings.reapplySystemTheme();
     });
     onCleanup(unwatchTheme);
+
+    await vaultListeners.attach("vault:scan-progress", () =>
+      onVaultScanProgress((p) => {
+        if (p.vault_id !== vaultId()) return;
+        setFilesProcessed(p.files_processed);
+        setFilesTotalEstimate(p.files_total_estimate);
+        scheduleRefresh();
+      }),
+    );
+    await vaultListeners.attach("vault:scan-complete", () =>
+      onVaultScanComplete((p) => {
+        if (p.vault_id !== vaultId()) return;
+        setFilesProcessed(p.file_count);
+        setFilesTotalEstimate(p.file_count);
+        setScanStatus("complete");
+        void refreshFileList();
+        void refreshBrokenBlockRefs();
+      }),
+    );
+    await vaultListeners.attach("vault:scan-cancelled", () =>
+      onVaultScanCancelled((p) => {
+        if (p.vault_id !== vaultId()) return;
+        setScanStatus("cancelled");
+      }),
+    );
+    await vaultListeners.attach("vault:file-changed", () =>
+      onVaultFileChanged((p) => {
+        if (p.vault_id !== vaultId()) return;
+        scheduleRefresh();
+
+        revalidateResolvers(resolvers());
+
+        rightSidebarRefresh.schedule();
+
+        searchRefresh.schedule();
+
+        brokenBlockRefsRefresh.schedule();
+
+        if (view().kind === "tag") {
+          setTagRefreshTick((n) => n + 1);
+        }
+
+        doc.applyExternalChange(p.path, p.new_content_hash);
+      }),
+    );
+
+    await vaultListeners.attach("vault:pending-rewrites-changed", () =>
+      onVaultPendingRewritesChanged((p) => {
+        if (p.vault_id !== vaultId()) return;
+        setPendingRewritesCount(p.count);
+        void doc.refreshFromDisk();
+      }),
+    );
+    await vaultListeners.attach("vault:flush-complete", () =>
+      onVaultFlushComplete((p) => {
+        if (p.vault_id !== vaultId()) return;
+        if (p.files_rewritten === 0 && p.refs_updated === 0) return;
+        const refs = p.refs_updated;
+        const files = p.files_rewritten;
+        showToast(
+          `Applied ${refs} reference update${refs === 1 ? "" : "s"} across ` +
+            `${files} file${files === 1 ? "" : "s"}.`,
+        );
+      }),
+    );
+    await vaultListeners.attach("vault:setting-changed", () =>
+      onVaultSettingChanged((p) => {
+        if (p.vault_id !== vaultId()) return;
+        void settings.hydrate(p.vault_id);
+      }),
+    );
 
     try {
       await refreshRecentVaults();
