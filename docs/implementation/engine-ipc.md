@@ -384,7 +384,9 @@ which is the cost of having exactly one spelling of a token.
 `FrontmatterTitle` is the one rank with no reattachment twin. It is
 **candidate-only**: offered to the user, never used by any automatic rewrite. That asymmetry is the
 whole boundary — confident matching stays narrow, consented matching can afford
-to be generous.
+to be generous. Generosity stops at *which* key is the title: it is
+`cubical_ast::FRONTMATTER_TITLE_KEY`, matched exactly as search matches it, so a
+`Title:` note is not offered under a title the rest of the app never shows.
 
 **What counts as dangling.** A link row whose `target_path` no longer names a
 tracked file. Two shapes reach that state: a stale non-null path (the watcher's

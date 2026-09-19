@@ -119,8 +119,8 @@ async fn frontmatter_titles(
 ) -> Result<Vec<(String, String)>, CubicalError> {
     let mut rows = conn
         .query(
-            "SELECT file_path, value FROM frontmatter WHERE LOWER(key) = ?1 ORDER BY file_path",
-            params!["title"],
+            "SELECT file_path, value FROM frontmatter WHERE key = ?1 ORDER BY file_path",
+            params![cubical_ast::FRONTMATTER_TITLE_KEY],
         )
         .await?;
     let mut out = Vec::new();
@@ -245,6 +245,21 @@ mod tests {
         assert_eq!(g.target_raw, "plan");
         assert_eq!(g.missing_path.as_deref(), Some("notes/plan.md"));
         assert_eq!(shape(g), vec![("archive/roadmap.md", "frontmatter_title")]);
+    }
+
+    #[tokio::test]
+    async fn a_differently_cased_title_key_is_not_the_title() {
+        let (dir, vault, state) = vault_with(&[
+            ("src.md", "see [[plan]]\n"),
+            ("notes/plan.md", "one\n"),
+            ("archive/roadmap.md", "---\nTitle: plan\n---\ntwo\n"),
+        ])
+        .await;
+        drop_file_as_watcher_would(&dir, &vault, "notes/plan.md").await;
+
+        let resp = list(&state).await;
+        assert_eq!(resp.groups.len(), 1);
+        assert!(shape(&resp.groups[0]).is_empty());
     }
 
     #[tokio::test]
