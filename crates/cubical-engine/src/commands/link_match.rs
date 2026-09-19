@@ -185,9 +185,8 @@ mod tests {
                 .unwrap();
             }
 
-            let (basename, path_no_md) = link_name_forms(candidate);
             let tx = conn.transaction().await.unwrap();
-            reconnect_broken_links_to(&tx, "reattached.md", &basename, &path_no_md)
+            reconnect_broken_links_to(&tx, candidate, "reattached.md")
                 .await
                 .unwrap();
             tx.commit().await.unwrap();

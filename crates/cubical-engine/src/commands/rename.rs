@@ -11,7 +11,7 @@ use cubical_core::{
 use cubical_index::{
     delete_pending_for_target, delete_rename_op, list_recent_rename_ops as list_ops,
     names_eq_folded, pending_count_breakdown, pending_count_total, pending_for_target,
-    pending_targets, DANGLING_LINK_PREDICATE,
+    pending_targets,
 };
 use libsql::params;
 
@@ -223,9 +223,7 @@ async fn collect_referrers(
         out
     };
     if rewrite_broken {
-        let (old_basename, old_path_no_md) = link_name_forms(from_path);
-        referrers
-            .extend(select_broken_referrers_naming(conn, &old_basename, &old_path_no_md).await?);
+        referrers.extend(select_broken_referrers_naming(conn, from_path).await?);
     }
     Ok(referrers)
 }
@@ -263,8 +261,7 @@ async fn rekey_file_in_tx(
     )
     .await?;
     if rewrite_broken {
-        let (old_basename, old_path_no_md) = link_name_forms(from_path);
-        reconnect_broken_links_to(tx, to_path, &old_basename, &old_path_no_md).await?;
+        reconnect_broken_links_to(tx, from_path, to_path).await?;
     }
     Ok(())
 }
@@ -1340,20 +1337,21 @@ async fn any_pending_named(
     Ok(false)
 }
 
+const REATTACHABLE_LINK: &str = "(target_path IS NULL OR target_path = ?1)";
+
 async fn select_broken_referrers_naming(
     conn: &libsql::Connection,
-    old_basename: &str,
-    old_path_no_md: &str,
+    from_path: &str,
 ) -> Result<Vec<(String, String)>, CubicalError> {
-    let sql = format!(
-        "SELECT DISTINCT source_path, target_raw FROM links WHERE {DANGLING_LINK_PREDICATE}"
-    );
-    let mut rows = conn.query(&sql, ()).await?;
+    let (old_basename, old_path_no_md) = link_name_forms(from_path);
+    let sql =
+        format!("SELECT DISTINCT source_path, target_raw FROM links WHERE {REATTACHABLE_LINK}");
+    let mut rows = conn.query(&sql, params![from_path]).await?;
     let mut out = Vec::new();
     while let Some(row) = rows.next().await? {
         let source_path: String = row.get(0)?;
         let target_raw: String = row.get(1)?;
-        if token_names_file(&target_raw, old_basename, old_path_no_md) {
+        if token_names_file(&target_raw, &old_basename, &old_path_no_md) {
             out.push((source_path, target_raw));
         }
     }
@@ -1362,26 +1360,26 @@ async fn select_broken_referrers_naming(
 
 pub(super) async fn reconnect_broken_links_to(
     tx: &libsql::Transaction,
+    from_path: &str,
     to_path: &str,
-    old_basename: &str,
-    old_path_no_md: &str,
 ) -> Result<(), CubicalError> {
+    let (old_basename, old_path_no_md) = link_name_forms(from_path);
     let mut matched: Vec<String> = Vec::new();
     {
-        let sql = format!("SELECT DISTINCT target_raw FROM links WHERE {DANGLING_LINK_PREDICATE}");
-        let mut rows = tx.query(&sql, ()).await?;
+        let sql = format!("SELECT DISTINCT target_raw FROM links WHERE {REATTACHABLE_LINK}");
+        let mut rows = tx.query(&sql, params![from_path]).await?;
         while let Some(row) = rows.next().await? {
             let target_raw: String = row.get(0)?;
-            if token_names_file(&target_raw, old_basename, old_path_no_md) {
+            if token_names_file(&target_raw, &old_basename, &old_path_no_md) {
                 matched.push(target_raw);
             }
         }
     }
-    let sql = format!(
-        "UPDATE links SET target_path = ?1 WHERE target_raw = ?2 AND {DANGLING_LINK_PREDICATE}"
-    );
+    let sql =
+        format!("UPDATE links SET target_path = ?2 WHERE target_raw = ?3 AND {REATTACHABLE_LINK}");
     for target_raw in matched {
-        tx.execute(&sql, params![to_path, target_raw]).await?;
+        tx.execute(&sql, params![from_path, to_path, target_raw])
+            .await?;
     }
     Ok(())
 }
@@ -1455,9 +1453,7 @@ async fn replay_rename_journal_inner(
             continue;
         }
 
-        let (old_basename, old_path_no_md) = link_name_forms(&e.from);
-        let referrers =
-            select_broken_referrers_naming(conn, &old_basename, &old_path_no_md).await?;
+        let referrers = select_broken_referrers_naming(conn, &e.from).await?;
         if referrers.is_empty() {
             continue;
         }
@@ -1465,7 +1461,7 @@ async fn replay_rename_journal_inner(
         let op = mint_rename_op_id(vault).await?;
         let now = unix_now_secs();
         let tx = conn.transaction().await?;
-        reconnect_broken_links_to(&tx, &e.to, &old_basename, &old_path_no_md).await?;
+        reconnect_broken_links_to(&tx, &e.from, &e.to).await?;
         for (source_path, target_raw) in &referrers {
             let new_token = derive_wikilink_new_token(target_raw, &e.from, &e.to);
             enqueue_coalesced(
@@ -1883,6 +1879,52 @@ mod tests {
         assert_eq!(p.len(), 1, "a rewrite is queued for the reconnected link");
         assert_eq!(p[0].old_token, "a");
         assert_eq!(p[0].new_token, "b");
+    }
+
+    #[tokio::test]
+    async fn rename_leaves_a_link_stale_on_some_other_deleted_file_alone() {
+        let (_d, vault, state) = fresh("v1").await;
+        seed_file(&vault, "a/plan.md", "markdown").await;
+        seed_file(&vault, "b/plan.md", "markdown").await;
+        seed_file(&vault, "R.md", "markdown").await;
+        replace_links_for_file(
+            vault.index(),
+            "R.md",
+            &[LinkRow {
+                target_raw: "plan".into(),
+                target_path: Some("c/plan.md".into()),
+                anchor_kind: None,
+                anchor_value: None,
+                display_text: None,
+                is_embed: false,
+                position: 4,
+            }],
+        )
+        .await
+        .unwrap();
+        std::fs::create_dir_all(vault.root().join("a")).unwrap();
+        std::fs::create_dir_all(vault.root().join("b")).unwrap();
+        std::fs::write(vault.root().join("a/plan.md"), "body\n").unwrap();
+        std::fs::write(vault.root().join("b/plan.md"), "body\n").unwrap();
+        std::fs::write(vault.root().join("R.md"), "see [[plan]]\n").unwrap();
+
+        rename_file(
+            &state,
+            &NoopEventSink,
+            RenameFileRequest {
+                vault_id: "v1".into(),
+                from_path: "a/plan.md".into(),
+                to_path: "a/plan-v2.md".into(),
+            },
+        )
+        .await
+        .expect("rename");
+
+        let p = pending_for_target(vault.index(), "R.md").await.unwrap();
+        assert!(
+            p.is_empty(),
+            "a link stale on c/plan.md is not the renamed file's"
+        );
     }
 
     #[tokio::test]
