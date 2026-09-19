@@ -16,7 +16,7 @@ use crate::events::{
 };
 use crate::state::AppState;
 
-use super::DANGLING_PREDICATE;
+use cubical_index::DANGLING_LINK_PREDICATE as DANGLING_PREDICATE;
 
 pub async fn repair_dangling_link(
     state: &AppState,

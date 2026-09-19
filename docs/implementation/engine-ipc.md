@@ -389,7 +389,12 @@ to be generous.
 **What counts as dangling.** A link row whose `target_path` no longer names a
 tracked file. Two shapes reach that state: a stale non-null path (the watcher's
 `Removed` arm deletes the `files` row and leaves referring link rows pointing at
-it — that *is* the rot), and a null path that never resolved. A null path with no
+it — that *is* the rot), and a null path that never resolved. The predicate is
+`cubical_index::DANGLING_LINK_PREDICATE`, and every reader of "broken" uses it:
+the integrity panel, its repair, and rename's `reconnect_broken_links_to` and
+journal replay. Replay depends on the stale shape — a crash between the move and
+the rekey leaves the scan sweep to drop the `files` row while referrers keep
+naming it, and a null-only test would strand them. A null path with no
 repair candidate is dropped from the report: in a PKM, `[[a note I have not
 written yet]]` is normal authoring, and a panel that lists it is a panel nobody
 reads. Groups are keyed by exact `target_raw`, which is also what

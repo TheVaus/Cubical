@@ -11,7 +11,7 @@ use cubical_core::{
 use cubical_index::{
     delete_pending_for_target, delete_rename_op, list_recent_rename_ops as list_ops,
     names_eq_folded, pending_count_breakdown, pending_count_total, pending_for_target,
-    pending_targets,
+    pending_targets, DANGLING_LINK_PREDICATE,
 };
 use libsql::params;
 
@@ -257,15 +257,15 @@ async fn rekey_file_in_tx(
         params![to_path.to_string(), from_path.to_string()],
     )
     .await?;
-    if rewrite_broken {
-        let (old_basename, old_path_no_md) = link_name_forms(from_path);
-        reconnect_broken_links_to(tx, to_path, &old_basename, &old_path_no_md).await?;
-    }
     tx.execute(
         "UPDATE files SET path = ?1 WHERE path = ?2",
         params![to_path.to_string(), from_path.to_string()],
     )
     .await?;
+    if rewrite_broken {
+        let (old_basename, old_path_no_md) = link_name_forms(from_path);
+        reconnect_broken_links_to(tx, to_path, &old_basename, &old_path_no_md).await?;
+    }
     Ok(())
 }
 
@@ -1345,12 +1345,10 @@ async fn select_broken_referrers_naming(
     old_basename: &str,
     old_path_no_md: &str,
 ) -> Result<Vec<(String, String)>, CubicalError> {
-    let mut rows = conn
-        .query(
-            "SELECT DISTINCT source_path, target_raw FROM links WHERE target_path IS NULL",
-            (),
-        )
-        .await?;
+    let sql = format!(
+        "SELECT DISTINCT source_path, target_raw FROM links WHERE {DANGLING_LINK_PREDICATE}"
+    );
+    let mut rows = conn.query(&sql, ()).await?;
     let mut out = Vec::new();
     while let Some(row) = rows.next().await? {
         let source_path: String = row.get(0)?;
@@ -1370,12 +1368,8 @@ pub(super) async fn reconnect_broken_links_to(
 ) -> Result<(), CubicalError> {
     let mut matched: Vec<String> = Vec::new();
     {
-        let mut rows = tx
-            .query(
-                "SELECT DISTINCT target_raw FROM links WHERE target_path IS NULL",
-                (),
-            )
-            .await?;
+        let sql = format!("SELECT DISTINCT target_raw FROM links WHERE {DANGLING_LINK_PREDICATE}");
+        let mut rows = tx.query(&sql, ()).await?;
         while let Some(row) = rows.next().await? {
             let target_raw: String = row.get(0)?;
             if token_names_file(&target_raw, old_basename, old_path_no_md) {
@@ -1383,13 +1377,11 @@ pub(super) async fn reconnect_broken_links_to(
             }
         }
     }
+    let sql = format!(
+        "UPDATE links SET target_path = ?1 WHERE target_raw = ?2 AND {DANGLING_LINK_PREDICATE}"
+    );
     for target_raw in matched {
-        tx.execute(
-            "UPDATE links SET target_path = ?1 \
-             WHERE target_path IS NULL AND target_raw = ?2",
-            params![to_path, target_raw],
-        )
-        .await?;
+        tx.execute(&sql, params![to_path, target_raw]).await?;
     }
     Ok(())
 }
@@ -2018,6 +2010,53 @@ mod tests {
             1,
             "the journal entry survives until the rewrite is flushed",
         );
+    }
+
+    #[tokio::test]
+    async fn replay_rename_journal_reconnects_a_stale_referrer_left_by_the_sweep() {
+        use cubical_core::vault::rename_journal::{append_entry, RenameJournalEntry};
+        use cubical_index::backlinks_for;
+        let (_d, vault, _state) = fresh("v1").await;
+        seed_file(&vault, "b.md", "markdown").await;
+        seed_file(&vault, "Referrer.md", "markdown").await;
+        replace_links_for_file(
+            vault.index(),
+            "Referrer.md",
+            &[LinkRow {
+                target_raw: "a".into(),
+                target_path: Some("a.md".into()),
+                anchor_kind: None,
+                anchor_value: None,
+                display_text: None,
+                is_embed: false,
+                position: 4,
+            }],
+        )
+        .await
+        .unwrap();
+        append_entry(
+            vault.root(),
+            &RenameJournalEntry {
+                op_id: 1,
+                kind: "file".into(),
+                from: "a.md".into(),
+                to: "b.md".into(),
+                at: 0,
+            },
+        )
+        .unwrap();
+
+        replay_rename_journal(&vault, &NoopEventSink, "v1").await;
+
+        let bl = backlinks_for(vault.index(), "b.md").await.unwrap();
+        assert!(
+            bl.iter().any(|r| r.source_path == "Referrer.md"),
+            "a link row still naming the swept path is dangling, so replay reconnects it",
+        );
+        let p = pending_for_target(vault.index(), "Referrer.md")
+            .await
+            .unwrap();
+        assert_eq!(p.len(), 1, "replay re-queues the deferred text rewrite");
     }
 
     #[tokio::test]
