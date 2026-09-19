@@ -14,6 +14,8 @@ import {
   type CommandScope,
 } from "../core/commands";
 
+const MODIFIER_KEYS = new Set(["Meta", "Control", "Shift", "Alt", "AltGraph"]);
+
 export interface ShortcutsPanelProps {
   overrides: Record<string, string>;
   onChange: (next: Record<string, string>) => void;
@@ -44,6 +46,7 @@ const ShortcutsPanel: Component<ShortcutsPanelProps> = (props) => {
     const handler = (e: KeyboardEvent) => {
       e.preventDefault();
       e.stopPropagation();
+      if (MODIFIER_KEYS.has(e.key)) return;
       const bare = !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
       if (bare && e.key === "Escape") {
         setListeningId(null);
