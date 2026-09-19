@@ -198,6 +198,25 @@ describe("IntegrityPanel — a refresh must not blank the list", () => {
     expect(host.textContent).toContain("plan");
   });
 
+  it("shows the new groups after a refresh that changed them", async () => {
+    const [tick, setTick] = createSignal(0);
+    const host = mount(() => (
+      <IntegrityPanel vaultId="v1" refreshSignal={tick()} onRowClick={noop} />
+    ));
+    await flush();
+    expect(host.textContent).toContain("[[plan]]");
+
+    listDanglingLinks.mockResolvedValue({
+      groups: [{ ...GROUP, target_raw: "roadmap", missing_path: "roadmap.md" }],
+      truncated: false,
+    });
+    setTick(1);
+    await flush();
+
+    expect(host.textContent).toContain("[[roadmap]]");
+    expect(host.textContent).not.toContain("[[plan]]");
+  });
+
   it("reuses the row DOM node across a refresh that changed nothing", async () => {
     const [tick, setTick] = createSignal(0);
     const host = mount(() => (

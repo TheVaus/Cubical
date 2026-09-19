@@ -23,6 +23,7 @@ import {
 } from "./pendingRewritesState";
 import { formatPendingRewrites } from "./pendingRewritesLabel";
 import { errorMessage } from "../core/errorMessage";
+import { whenKind } from "../core/whenKind";
 
 export interface PendingRewritesProps {
   vaultId: string | null;
@@ -36,6 +37,8 @@ const PendingRewrites: Component<PendingRewritesProps> = (props) => {
   const [state, setState] = createSignal<PendingRewritesPopoverState>({
     kind: "closed",
   });
+  const error = whenKind(state, "error");
+  const loaded = whenKind(state, "loaded");
   const [flushing, setFlushing] = createSignal(false);
   const [pendingUndoId, setPendingUndoId] = createSignal<number | null>(null);
 
@@ -154,10 +157,8 @@ const PendingRewrites: Component<PendingRewritesProps> = (props) => {
                   Loading…
                 </p>
               </Show>
-              <Show when={state().kind === "error"}>
-                {(_) => {
-                  const s = state();
-                  if (s.kind !== "error") return null;
+              <Show when={error()}>
+                {(s) => {
                   return (
                     <p
                       role="alert"
@@ -167,15 +168,13 @@ const PendingRewrites: Component<PendingRewritesProps> = (props) => {
                         "font-size": "var(--text-xs)",
                       }}
                     >
-                      {s.message}
+                      {s().message}
                     </p>
                   );
                 }}
               </Show>
-              <Show when={state().kind === "loaded"}>
-                {(_) => {
-                  const s = state();
-                  if (s.kind !== "loaded") return null;
+              <Show when={loaded()}>
+                {(s) => {
                   return (
                     <>
                       <section
@@ -187,7 +186,7 @@ const PendingRewrites: Component<PendingRewritesProps> = (props) => {
                         }}
                       >
                         <Show
-                          when={s.breakdown.length > 0}
+                          when={s().breakdown.length > 0}
                           fallback={
                             <p
                               style={{
@@ -211,7 +210,7 @@ const PendingRewrites: Component<PendingRewritesProps> = (props) => {
                               gap: "var(--space-1)",
                             }}
                           >
-                            <For each={s.breakdown}>
+                            <For each={s().breakdown}>
                               {(b) => (
                                 <li
                                   data-key={breakdownKey(b)}
@@ -248,7 +247,7 @@ const PendingRewrites: Component<PendingRewritesProps> = (props) => {
                         size="sm"
                         fullWidth
                         onClick={() => void handleFlushAll()}
-                        disabled={flushing() || s.breakdown.length === 0}
+                        disabled={flushing() || s().breakdown.length === 0}
                       >
                         {flushing() ? "Saving…" : "Save all pending changes"}
                       </Button>
@@ -271,7 +270,7 @@ const PendingRewrites: Component<PendingRewritesProps> = (props) => {
                           Recent renames
                         </header>
                         <Show
-                          when={s.ops.length > 0}
+                          when={s().ops.length > 0}
                           fallback={
                             <p
                               style={{
@@ -295,7 +294,7 @@ const PendingRewrites: Component<PendingRewritesProps> = (props) => {
                               gap: "var(--space-1)",
                             }}
                           >
-                            <For each={s.ops}>
+                            <For each={s().ops}>
                               {(op) => {
                                 const isPending = () =>
                                   pendingUndoId() === op.rename_op_id;

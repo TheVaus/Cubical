@@ -21,6 +21,7 @@ import {
   type IntegrityViewState,
 } from "./integrityState";
 import { createTargetTracker } from "../core/refreshTarget";
+import { whenKind } from "../core/whenKind";
 
 export interface IntegrityPanelProps {
   vaultId: string | null;
@@ -31,6 +32,8 @@ export interface IntegrityPanelProps {
 
 const IntegrityPanel: Component<IntegrityPanelProps> = (props) => {
   const [state, setState] = createSignal<IntegrityViewState>({ kind: "idle" });
+  const error = whenKind(state, "error");
+  const loaded = whenKind(state, "loaded");
   const [openGroup, setOpenGroup] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal<string | null>(null);
 
@@ -134,10 +137,8 @@ const IntegrityPanel: Component<IntegrityPanelProps> = (props) => {
       <Show when={state().kind === "empty"}>
         <Muted>No dangling links.</Muted>
       </Show>
-      <Show when={state().kind === "error"}>
-        {(_) => {
-          const s = state();
-          if (s.kind !== "error") return null;
+      <Show when={error()}>
+        {(s) => {
           return (
             <p
               role="alert"
@@ -147,19 +148,17 @@ const IntegrityPanel: Component<IntegrityPanelProps> = (props) => {
                 "font-size": "var(--text-xs)",
               }}
             >
-              {s.message}
+              {s().message}
             </p>
           );
         }}
       </Show>
 
-      <Show when={state().kind === "loaded"}>
-        {(_) => {
-          const s = state();
-          if (s.kind !== "loaded") return null;
+      <Show when={loaded()}>
+        {(s) => {
           return (
             <>
-              <Show when={s.truncated}>
+              <Show when={s().truncated}>
                 <Muted>Showing the most-referenced groups only.</Muted>
               </Show>
               <ul
@@ -173,7 +172,7 @@ const IntegrityPanel: Component<IntegrityPanelProps> = (props) => {
                   gap: "var(--space-2)",
                 }}
               >
-                <For each={s.groups}>
+                <For each={s().groups}>
                   {(group) => (
                     <GroupCard
                       group={group}
