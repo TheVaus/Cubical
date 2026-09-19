@@ -19,7 +19,7 @@ import { type SyntaxNode, type Tree } from "@lezer/common";
 
 import { measurePerf } from "../core/perf";
 import { scanWikilinks, type TokenizedRun } from "../ast/wikilink";
-import { BLOCK_ID_SOURCE } from "./blockId";
+import { TRAILING_BLOCK_ID } from "./blockId";
 import type { WikiLinkResolution } from "./wikilinkResolver";
 import { withinLines } from "./withinLines";
 
@@ -98,8 +98,6 @@ export function findFrontmatter(
   }
   return null;
 }
-
-const TRAILING_BLOCK_ID = new RegExp(`(^|\\s)\\^(${BLOCK_ID_SOURCE})\\s*$`);
 
 function isInsideCode(tree: Tree, pos: number): boolean {
   let node: SyntaxNode | null = tree.resolveInner(pos, -1);

@@ -3,6 +3,8 @@ export const BLOCK_ID_SOURCE = `[A-Za-z_][${BLOCK_ID_CHAR}]*`;
 
 const BLOCK_ID = new RegExp(`^${BLOCK_ID_SOURCE}$`);
 
+export const TRAILING_BLOCK_ID = new RegExp(`(^|\\s)\\^(${BLOCK_ID_SOURCE})\\s*$`);
+
 export function isBlockId(id: string): boolean {
   return BLOCK_ID.test(id);
 }
