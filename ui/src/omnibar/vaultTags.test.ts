@@ -49,6 +49,13 @@ describe("vault tags", () => {
     expect(tags.tags()).toEqual([]);
   });
 
+  it("keeps offering the current tags while an invalidation waits for a reload", async () => {
+    const { tags } = build();
+    await tags.ensureLoaded();
+    tags.invalidate();
+    expect(tags.tags()).toEqual(["a-tag"]);
+  });
+
   it("reloads after an invalidation", async () => {
     const { tags } = build();
     await tags.ensureLoaded();
