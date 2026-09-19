@@ -75,11 +75,14 @@ pub fn plan(q: &Query, source_tags: &[String]) -> Plan {
     match &q.source {
         Some(Source::Tag(_)) if source_tags.is_empty() => wheres.push("0".to_string()),
         Some(Source::Tag(_)) => {
-            let placeholders = vec!["?"; source_tags.len()].join(", ");
-            wheres.push(format!(
-                "files.path IN (SELECT file_path FROM tags WHERE tag_path IN ({placeholders}))"
+            wheres.push(
+                "files.path IN (SELECT file_path FROM tags \
+                 WHERE tag_path IN (SELECT value FROM json_each(?)))"
+                    .to_string(),
+            );
+            params.push(SqlParam::Text(
+                serde_json::to_string(source_tags).unwrap_or_default(),
             ));
-            params.extend(source_tags.iter().cloned().map(SqlParam::Text));
         }
         Some(Source::Path(f)) => {
             wheres.push("files.path LIKE ? ESCAPE '\\'".to_string());
@@ -182,13 +185,10 @@ mod tests {
         let p = plan(&q, &["Project".into(), "project/a".into()]);
         assert!(p
             .sql
-            .contains("files.path IN (SELECT file_path FROM tags WHERE tag_path IN (?, ?))"));
+            .contains("tag_path IN (SELECT value FROM json_each(?))"));
         assert_eq!(
             p.params,
-            vec![
-                SqlParam::Text("Project".into()),
-                SqlParam::Text("project/a".into()),
-            ]
+            vec![SqlParam::Text(r#"["Project","project/a"]"#.into())]
         );
     }
 

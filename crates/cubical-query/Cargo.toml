@@ -13,6 +13,7 @@ cubical-table = { path = "../cubical-table" }
 libsql.workspace = true
 serde = { workspace = true, features = ["derive"] }
 thiserror.workspace = true
+serde_json = { workspace = true }
 
 [dev-dependencies]
 tokio.workspace = true

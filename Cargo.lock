@@ -922,6 +922,7 @@ name = "cubical-index"
 version = "0.1.0"
 dependencies = [
  "libsql",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.20",
  "tokio",
@@ -954,6 +955,7 @@ dependencies = [
  "cubical-table",
  "libsql",
  "serde",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.20",
  "tokio",

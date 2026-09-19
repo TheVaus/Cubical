@@ -1,5 +1,3 @@
-use std::collections::BTreeSet;
-
 use libsql::params;
 
 use crate::error::IndexError;
@@ -47,8 +45,6 @@ pub async fn replace_tags_for_file(
     Ok(())
 }
 
-const TAG_IN_CHUNK: usize = 500;
-
 pub async fn tag_paths_under(conn: &IndexConn, tag_path: &str) -> Result<Vec<String>, IndexError> {
     let needle = fold_name(tag_path);
     let descendant = format!("{needle}/");
@@ -67,19 +63,20 @@ pub async fn files_for_tag_prefix(
     tag_path: &str,
 ) -> Result<Vec<String>, IndexError> {
     let matched = tag_paths_under(conn, tag_path).await?;
-    let mut out = BTreeSet::new();
-    for chunk in matched.chunks(TAG_IN_CHUNK) {
-        let placeholders = vec!["?"; chunk.len()].join(", ");
-        let sql = format!("SELECT DISTINCT file_path FROM tags WHERE tag_path IN ({placeholders})");
-        let mut rows = conn
-            .connection()
-            .query(&sql, libsql::params_from_iter(chunk.to_vec()))
-            .await?;
-        while let Some(row) = rows.next().await? {
-            out.insert(row.get::<String>(0)?);
-        }
+    let mut rows = conn
+        .connection()
+        .query(
+            "SELECT DISTINCT file_path FROM tags \
+             WHERE tag_path IN (SELECT value FROM json_each(?1)) \
+             ORDER BY file_path",
+            params![serde_json::to_string(&matched).unwrap_or_default()],
+        )
+        .await?;
+    let mut out = Vec::new();
+    while let Some(row) = rows.next().await? {
+        out.push(row.get::<String>(0)?);
     }
-    Ok(out.into_iter().collect())
+    Ok(out)
 }
 
 pub async fn tag_paths_for_prefix(
