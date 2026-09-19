@@ -1,10 +1,10 @@
 import { createEffect, on, onCleanup, onMount, type Component } from "solid-js";
-import { EditorView } from "@codemirror/view";
-import { StateEffect } from "@codemirror/state";
+import type { EditorView } from "@codemirror/view";
 import type { ResolvedTheme } from "../../styles/theme";
 import type { MinimapColors } from "./types";
 import { layoutDocument } from "./pretextLayout";
 import { drawMinimap } from "./minimapRender";
+import { attachUpdateListener } from "./listenerSlot";
 import {
   fractionFromClientY,
   indicatorRect,
@@ -120,11 +120,10 @@ const Minimap: Component<{
   const onScroll = () => schedulePaint();
 
   onMount(() => {
-    const listener = EditorView.updateListener.of((u) => {
+    const detachListener = attachUpdateListener(props.view, (u) => {
       if (disposed) return;
       if (u.docChanged) scheduleRelayout();
     });
-    props.view.dispatch({ effects: StateEffect.appendConfig.of(listener) });
 
     scrollEl = scrollViewportOf(props.view.scrollDOM);
     scrollEl.addEventListener("scroll", onScroll, { passive: true });
@@ -135,6 +134,7 @@ const Minimap: Component<{
 
     onCleanup(() => {
       disposed = true;
+      detachListener();
       scrollEl.removeEventListener("scroll", onScroll);
       ro.disconnect();
       if (relayoutTimer !== undefined) clearTimeout(relayoutTimer);
