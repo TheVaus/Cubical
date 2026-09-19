@@ -70,12 +70,14 @@ export function createSearchState(deps: SearchStateDeps): SearchState {
   const filtersActive = () => sort() !== "relevance" || scope() !== "default";
 
   let statusTimer: ReturnType<typeof setInterval> | undefined;
+  let latest = 0;
 
   const pollStatus = async () => {
     const id = deps.vaultId();
     if (!id) return;
     try {
       const s = await readStatus({ vault_id: id });
+      if (deps.vaultId() !== id) return;
       setStatus(s);
       if (s.state !== "building" && statusTimer !== undefined) {
         clearInterval(statusTimer);
@@ -99,6 +101,7 @@ export function createSearchState(deps: SearchStateDeps): SearchState {
   };
 
   const runQuery = async () => {
+    const mine = ++latest;
     const id = deps.vaultId();
     const text = queryText().trim();
     if (!id) return;
@@ -117,12 +120,13 @@ export function createSearchState(deps: SearchStateDeps): SearchState {
           offset: 0,
         }),
       });
+      if (mine !== latest) return;
       setHits(resp.hits);
       setTotal(resp.total_estimated);
       setError(null);
       if (resp.still_indexing) ensurePolling();
     } catch (e) {
-      setError(errorMessage(e));
+      if (mine === latest) setError(errorMessage(e));
     }
   };
 
@@ -134,12 +138,24 @@ export function createSearchState(deps: SearchStateDeps): SearchState {
     }, { defer: true }),
   );
 
-  onMount(() => {
-    if (deps.vaultId()) {
-      void pollStatus();
-      ensurePolling();
-    }
-  });
+  const startPolling = () => {
+    if (!deps.vaultId()) return;
+    void pollStatus();
+    ensurePolling();
+  };
+
+  onMount(startPolling);
+
+  createEffect(
+    on(deps.vaultId, () => {
+      debouncedQuery.cancel();
+      latest += 1;
+      reset();
+      setStatus(null);
+      if (isSearching()) void runQuery();
+      startPolling();
+    }, { defer: true }),
+  );
 
   onCleanup(() => {
     debouncedQuery.cancel();
@@ -162,6 +178,7 @@ export function createSearchState(deps: SearchStateDeps): SearchState {
     },
     clear() {
       debouncedQuery.cancel();
+      latest += 1;
       setQueryText("");
       reset();
     },
