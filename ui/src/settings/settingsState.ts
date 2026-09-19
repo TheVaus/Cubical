@@ -263,11 +263,11 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
 
   const hydrate = async (vaultId: string) => {
     try {
-      const stored = await getSetting(vaultId, "appearance.theme_mode");
-      if (stored !== null) {
-        setThemeMode(stored);
-        setResolvedTheme(applyTheme(stored));
-      }
+      const mode =
+        (await getSetting(vaultId, "appearance.theme_mode")) ??
+        SETTINGS_DEFAULTS.themeMode;
+      setThemeMode(mode);
+      setResolvedTheme(applyTheme(mode));
     } catch (e) {
       console.error("loading theme_mode failed", e);
     }

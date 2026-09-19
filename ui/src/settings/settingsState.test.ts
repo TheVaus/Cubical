@@ -119,6 +119,20 @@ describe("hydrate", () => {
     expect(s.tagsKeyAsTags()).toBe(true);
   });
 
+  it("does not carry the previous vault's theme into one that stores none", async () => {
+    stored.mockImplementation((v: string, key: string) =>
+      Promise.resolve(v === "v1" && key === "appearance.theme_mode" ? "dark" : null),
+    );
+    const s = build();
+    await s.hydrate("v1");
+    expect(s.themeMode()).toBe("dark");
+
+    s.resetForVaultSwitch();
+    await s.hydrate("v2");
+    expect(s.themeMode()).toBe("system");
+    expect(s.resolvedTheme()).toBe("light");
+  });
+
   it("survives a rejected read and keeps the default", async () => {
     stored.mockRejectedValue(new Error("index unavailable"));
     const s = build();
