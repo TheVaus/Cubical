@@ -103,8 +103,10 @@ export function createDocumentSession(
     const path = deps.path();
     const editor = deps.editor();
     if (!id || !path || !editor) return;
+    const readingFor = generation;
     try {
       const resp = await readFileText({ vault_id: id, path });
+      if (readingFor !== generation) return;
       editor.replaceContent(resp.content);
       deps.onContentReplaced(resp.content);
       seenHash = conflictHash();
@@ -112,6 +114,7 @@ export function createDocumentSession(
       dirty = false;
       setConflictHash(null);
     } catch (e) {
+      if (readingFor !== generation) return;
       deps.reportError(errorMessage(e));
     }
   };
@@ -122,13 +125,16 @@ export function createDocumentSession(
     const path = deps.path();
     const editor = deps.editor();
     if (!id || !path || !editor) return;
+    const readingFor = generation;
     try {
       const resp = await readFileText({ vault_id: id, path });
+      if (readingFor !== generation) return;
       if (resp.content === editor.getContent()) return;
       editor.replaceContent(resp.content);
       deps.onContentReplaced(resp.content);
       dirty = false;
     } catch (e) {
+      if (readingFor !== generation) return;
       deps.reportError(errorMessage(e));
     }
   };
@@ -150,8 +156,10 @@ export function createDocumentSession(
     const id = deps.vaultId();
     const path = deps.path();
     if (!id || !path) return;
+    const readingFor = generation;
     readFileText({ vault_id: id, path })
       .then((resp) => {
+        if (readingFor !== generation) return;
         deps.editor()?.replaceContent(resp.content);
         deps.onContentReplaced(resp.content);
         seenHash = incomingHash;
