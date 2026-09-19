@@ -73,4 +73,8 @@ describe("wikilinkExtension", () => {
     const ranges = wikilinkRanges("[[a]] and [[b]]");
     expect(ranges.map((r) => r.text)).toEqual(["[[a]]", "[[b]]"]);
   });
+
+  it("does not form a wiki-link across a line break", () => {
+    expect(wikilinkRanges("[[a\nb]]")).toEqual([]);
+  });
 });

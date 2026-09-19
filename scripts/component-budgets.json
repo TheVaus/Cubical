@@ -42,9 +42,9 @@
       "note": "The frontmatter table and its per-type cell dispatch. Raised 710 -> 711 for the data-overlay tag on the hand-rolled type menu, which is what stops a global shortcut firing through it. Self-liquidating: the menu is on the DS-migration tail (#34) and the tag leaves with it when the DS Menu takes over. Ratcheted 711 -> 709 when the date-format vocabulary moved to settings/propertyFormats.ts: the extra import it cost was paid for by folding the typeComments import onto one line."
     },
     "ui/src/editor/decorations.ts": {
-      "max_lines": 648,
+      "max_lines": 650,
       "kind": "bespoke",
-      "note": "One Lezer tree walk producing every Live Preview decoration. Splitting by mark type would mean several walks, against the measured-performance bar. Raised 643 -> 648 when buildFor split into a timed wrapper over buildDecorations, so the walk this file exists to keep single is also the walk the perf console can see."
+      "note": "One Lezer tree walk producing every Live Preview decoration. Splitting by mark type would mean several walks, against the measured-performance bar. Raised 643 -> 648 when buildFor split into a timed wrapper over buildDecorations, so the walk this file exists to keep single is also the walk the perf console can see. Raised 648 -> 650 when a multi-line link title crashed Live Preview: CodeMirror refuses a plugin replace that crosses a line break, so every hidden range now goes through editor/withinLines.ts; the split lives there and costs this file one import and one chained call."
     },
     "ui/src/ast/normalize.ts": {
       "max_lines": 551,
