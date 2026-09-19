@@ -83,7 +83,7 @@ pub fn extract_block_ids(source: &str) -> Vec<BlockIdOccurrence> {
     out
 }
 
-fn block_id_at_line_end(line: &str) -> Option<String> {
+pub fn block_id_at_line_end(line: &str) -> Option<String> {
     let line = line.trim_end();
     let caret = line.rfind('^')?;
     let id = &line[caret + 1..];

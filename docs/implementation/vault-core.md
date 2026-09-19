@@ -214,7 +214,8 @@ release-build on an M1 Pro.
 `refresh_blocks` deliberately stays source-only: block IDs are a line scan, not
 an AST walk, so it has no `Document` to share.
 
-The block-ID grammar belongs to `extract_block_ids`: an ASCII letter or `_`,
+The block-ID grammar belongs to `block_id_at_line_end`, which `extract_block_ids`
+and block-ref creation both call: an ASCII letter or `_`,
 then ASCII letters, digits, `_` and `-`. The editor mirrors it once, in
 `ui/src/editor/blockId.ts`, which decoration, anchor scrolling and completion
 all import. `crates/cubical-core/tests/fixtures/block_ids.json` is the contract:

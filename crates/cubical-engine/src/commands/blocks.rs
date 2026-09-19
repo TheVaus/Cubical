@@ -70,7 +70,7 @@ fn mint_block_id(source: &str, position: u64, path: &str) -> (String, String) {
     let line = &source[line_start..line_end];
     let line_trimmed = line.trim_end();
 
-    if let Some(existing) = trailing_block_id(line_trimmed) {
+    if let Some(existing) = cubical_core::vault::block_id_at_line_end(line_trimmed) {
         return (source.to_string(), existing);
     }
 
@@ -85,32 +85,11 @@ fn mint_block_id(source: &str, position: u64, path: &str) -> (String, String) {
     (new_source, id)
 }
 
-fn trailing_block_id(line: &str) -> Option<String> {
-    let caret = line.rfind('^')?;
-    let id = &line[caret + 1..];
-    let before_ok = caret == 0
-        || line[..caret]
-            .chars()
-            .next_back()
-            .is_some_and(char::is_whitespace);
-    if before_ok && is_valid_id(id) {
-        Some(id.to_string())
-    } else {
-        None
-    }
-}
-
 fn existing_block_ids(source: &str) -> Vec<String> {
     source
         .lines()
-        .filter_map(|l| trailing_block_id(l.trim_end()))
+        .filter_map(cubical_core::vault::block_id_at_line_end)
         .collect()
-}
-
-fn is_valid_id(id: &str) -> bool {
-    let mut c = id.chars();
-    matches!(c.next(), Some(ch) if ch.is_ascii_alphabetic() || ch == '_')
-        && c.all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
 }
 
 fn unique_id(path: &str, position: u64, existing: &[String]) -> String {
