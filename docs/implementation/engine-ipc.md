@@ -347,15 +347,15 @@ runs the real `UPDATE` against a real index and asserts the matched set equals
 `classify_candidate`'s. Two notions of token matching is precisely the drift this
 layer exists to prevent — extend `link_match`, never re-derive.
 
-**Case-insensitive means one function, everywhere.**
-"Case-insensitive" above is `cubical_index::names_eq_folded`, and
-`PathResolver`, wikilink autocomplete, the graph's ghost interning and every tag
-match all fold through the same `fold_name`. Tags resolve once, in
-`cubical_index::tag_paths_under`: the tag page, tag autocomplete and dataview's
-`FROM #tag` plan all start from that set of stored spellings. It cannot be SQL: `LOWER()` in libSQL is ASCII-only
-under the core-only pin ([`Cargo.toml`](../../Cargo.toml)), so a SQL-side fold
-would resolve `[[CAFÉ]]` to `café.md` when rendering and then fail to reattach
-that referrer on rename — a stale link produced by the fold, not by a missing
+**Case-insensitive means one function, everywhere.** "Case-insensitive" above is
+`cubical_index::names_eq_folded`, and `PathResolver`, wikilink autocomplete, the
+graph's ghost interning and every tag match all fold through the same
+`fold_name`. Tags resolve once, in `cubical_index::tag_paths_under`: the tag
+page, tag autocomplete and dataview's `FROM #tag` plan all start from that set
+of stored spellings. It cannot be SQL: `LOWER()` in libSQL is ASCII-only under
+the core-only pin ([`Cargo.toml`](../../Cargo.toml)), so a SQL-side fold would
+resolve `[[CAFÉ]]` to `café.md` when rendering and then fail to reattach that
+referrer on rename — a stale link produced by the fold, not by a missing
 rewrite. Every query that folds therefore reads its candidates and folds them in
 Rust. `classification_folds_the_way_path_resolution_folds` is what holds the two
 sides together.
@@ -402,8 +402,8 @@ needs — a crash between the move and the rekey lets the scan sweep drop the
 `files` row while referrers keep naming it. Rows stale on some *other* removed
 file stay out: a `[[plan]]` whose `c/plan.md` was deleted may belong to a
 surviving `b/plan.md`, and only the consented repair path may guess. Both halves
-are indexed equality lookups, which the broad predicate is not. A null path with no
-repair candidate is dropped from the report: in a PKM, `[[a note I have not
+are indexed equality lookups, which the broad predicate is not. A null path with
+no repair candidate is dropped from the report: in a PKM, `[[a note I have not
 written yet]]` is normal authoring, and a panel that lists it is a panel nobody
 reads. Groups are keyed by exact `target_raw`, which is also what
 `apply_pending`'s rewrite matches on, so a group is exactly one repairable unit.

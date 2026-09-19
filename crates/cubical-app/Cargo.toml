@@ -15,9 +15,7 @@ tauri-build = { version = "2", features = [] }
 # The frontend-agnostic engine — handlers, state, events, IPC types.
 cubical-engine = { path = "../cubical-engine" }
 cubical-ipc = { path = "../cubical-ipc" }
-# App-shell JSON (recent vaults, tab sessions) is written through the vault's
-# atomic write, so there is one durable write path. The graph integration test
-# also drives a real scan through it.
+# The one durable write path (app-shell JSON) and the graph test's real scan.
 cubical-core = { path = "../cubical-core" }
 tokio = { workspace = true }
 
