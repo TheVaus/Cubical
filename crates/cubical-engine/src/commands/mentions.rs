@@ -135,6 +135,13 @@ pub async fn link_mention(
             "mention span no longer contains a word".into(),
         ));
     }
+    if let Some(needle) = req.needle.as_deref() {
+        if matched.to_lowercase() != needle.trim().to_lowercase() {
+            return Err(CubicalError::InvalidRequest(
+                "mention has moved (the span no longer spells the mention)".into(),
+            ));
+        }
+    }
     let prev_ok = matched_neighbor_ok(&source, start, true);
     let next_ok = matched_neighbor_ok(&source, end, false);
     if !prev_ok || !next_ok {
@@ -536,6 +543,7 @@ mod tests {
                 position: pos,
                 byte_len: 5,
                 target_title: "Daily".into(),
+                needle: None,
             },
         )
         .await
@@ -547,6 +555,33 @@ mod tests {
             resp.new_hash,
             cubical_core::sha256_bytes_hex(on_disk.as_bytes())
         );
+    }
+
+    #[tokio::test]
+    async fn link_mention_refuses_a_span_that_no_longer_spells_the_needle() {
+        let (_dir, vault, state) = fresh("v1").await;
+        seed_md(&vault, "Foo.md", "body").await;
+        let fetched = "Foo here and Foo there.\n";
+        let body = "[[Foo]] here and Foo there.\n";
+        seed_md(&vault, "Project.md", body).await;
+
+        let err = link_mention(
+            &state,
+            LinkMentionRequest {
+                vault_id: "v1".into(),
+                source_path: "Project.md".into(),
+                position: fetched.rfind("Foo").unwrap() as u64,
+                byte_len: 3,
+                target_title: "Foo".into(),
+                needle: Some("Foo".into()),
+            },
+        )
+        .await
+        .expect_err("a stale span must not be rewritten");
+
+        assert!(matches!(err, CubicalError::InvalidRequest(_)), "{err:?}");
+        let on_disk = std::fs::read_to_string(vault.root().join("Project.md")).unwrap();
+        assert_eq!(on_disk, body);
     }
 
     #[tokio::test]
@@ -565,6 +600,7 @@ mod tests {
                 position: pos,
                 byte_len: 7,
                 target_title: "Daily".into(),
+                needle: None,
             },
         )
         .await
@@ -589,6 +625,7 @@ mod tests {
                 position: pos,
                 byte_len: 5,
                 target_title: "Daily".into(),
+                needle: None,
             },
         )
         .await
@@ -612,6 +649,7 @@ mod tests {
                 position: pos,
                 byte_len: "café".len() as u64,
                 target_title: "CAFÉ".into(),
+                needle: None,
             },
         )
         .await
@@ -634,6 +672,7 @@ mod tests {
                 position: 0,
                 byte_len: 5,
                 target_title: "Daily".into(),
+                needle: None,
             },
         )
         .await
@@ -655,6 +694,7 @@ mod tests {
                 position: 999,
                 byte_len: 5,
                 target_title: "Daily".into(),
+                needle: None,
             },
         )
         .await
@@ -694,6 +734,7 @@ mod tests {
                 position: pos as u64,
                 byte_len: 5,
                 target_title: "Daily".into(),
+                needle: None,
             },
         )
         .await
@@ -718,6 +759,7 @@ mod tests {
                 position: 0,
                 byte_len: 5,
                 target_title: "Daily".into(),
+                needle: None,
             },
         )
         .await

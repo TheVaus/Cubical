@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { Mention } from "../api/ipc";
+import type { Mention } from "../api/mentions";
 import {
   mentionKey,
   reduceMentionsState,
@@ -64,18 +64,29 @@ describe("reduceMentionsState", () => {
 
   it("removes the linked mention from a loaded state via mention:linked", () => {
     const a: Mention = { ...sample, position: 16 };
-    const b: Mention = { ...sample, position: 80 };
+    const b: Mention = { ...sample, source_path: "other.md", position: 80 };
     const next = reduceMentionsState(
       { kind: "loaded", mentions: [a, b] },
-      { type: "mention:linked", key: mentionKey(a) },
+      { type: "mention:linked", mention: a },
     );
     expect(next).toEqual({ kind: "loaded", mentions: [b] });
+  });
+
+  it("drops later mentions in the same file, whose offsets the link just moved", () => {
+    const before: Mention = { ...sample, position: 4 };
+    const linked: Mention = { ...sample, position: 16 };
+    const after: Mention = { ...sample, position: 80 };
+    const next = reduceMentionsState(
+      { kind: "loaded", mentions: [before, linked, after] },
+      { type: "mention:linked", mention: linked },
+    );
+    expect(next).toEqual({ kind: "loaded", mentions: [before] });
   });
 
   it("drops to 'empty' when the last mention is linked away", () => {
     const next = reduceMentionsState(
       { kind: "loaded", mentions: [sample] },
-      { type: "mention:linked", key: mentionKey(sample) },
+      { type: "mention:linked", mention: sample },
     );
     expect(next).toEqual({ kind: "empty" });
   });

@@ -312,6 +312,8 @@ pub struct LinkMentionRequest {
     pub position: u64,
     pub byte_len: u64,
     pub target_title: String,
+    #[serde(default)]
+    pub needle: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -9,11 +9,7 @@ import {
 
 import Button from "@ds/components/forms/Button/Button";
 
-import {
-  getUnlinkedMentions,
-  linkMention,
-  type Mention,
-} from "../api/ipc";
+import { getUnlinkedMentions, linkMention, type Mention } from "../api/mentions";
 import { noteTitle } from "../vault/noteName";
 import { errorMessage } from "../core/errorMessage";
 import {
@@ -88,9 +84,10 @@ const UnlinkedMentions: Component<UnlinkedMentionsProps> = (props) => {
         position: m.position,
         byte_len: m.byte_len,
         target_title: noteTitle(openPath),
+        needle: m.needle,
       });
       setState(
-        reduceMentionsState(untrack(state), { type: "mention:linked", key: k }),
+        reduceMentionsState(untrack(state), { type: "mention:linked", mention: m }),
       );
     } catch (e) {
       const message = errorMessage(e);

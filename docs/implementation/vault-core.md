@@ -369,3 +369,13 @@ then match needles whole-word and case-insensitively. Matching operates on a
 lowercased copy and maps back through the original's `char_indices`, so
 casefolding that changes byte length stays correct. One linear scan per needle
 — the needle set is small (a title plus a few aliases).
+
+A mention's `position` is a byte offset into the file as it was fetched, so it
+goes stale the moment anything earlier in the file changes — including linking
+another mention above it, which grows that span by at least four bytes. Linking
+therefore re-checks the span before rewriting it: it must still be a whole word
+and, when the caller sends the `needle` it was offered, must still spell that
+needle case-insensitively. Without the second check a short needle shifted onto
+a neighbouring word (`Foo` onto `and`) rewrites the wrong text. The panel also
+drops the linked row's later siblings in the same file until the refetch
+returns them with fresh offsets.

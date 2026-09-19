@@ -92,6 +92,7 @@
     "api/embeds": { "class": "block", "domain": "embeds" },
     "api/graph": { "class": "block", "domain": "graph" },
     "api/integrity": { "class": "block", "domain": "integrity" },
+    "api/mentions": { "class": "block", "domain": "backlinks" },
     "api/propertyRef": { "class": "block", "domain": "property-refs" },
     "api/search": { "class": "block", "domain": "search" },
     "api/terminal": { "class": "block", "domain": "terminal" },
