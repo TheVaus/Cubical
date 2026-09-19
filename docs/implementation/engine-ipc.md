@@ -349,8 +349,10 @@ layer exists to prevent — extend `link_match`, never re-derive.
 
 **Case-insensitive means one function, everywhere.**
 "Case-insensitive" above is `cubical_index::names_eq_folded`, and
-`PathResolver`, wikilink autocomplete and the graph's ghost interning all fold
-through the same `fold_name`. It cannot be SQL: `LOWER()` in libSQL is ASCII-only
+`PathResolver`, wikilink autocomplete, the graph's ghost interning and every tag
+match all fold through the same `fold_name`. Tags resolve once, in
+`cubical_index::tag_paths_under`: the tag page, tag autocomplete and dataview's
+`FROM #tag` plan all start from that set of stored spellings. It cannot be SQL: `LOWER()` in libSQL is ASCII-only
 under the core-only pin ([`Cargo.toml`](../../Cargo.toml)), so a SQL-side fold
 would resolve `[[CAFÉ]]` to `café.md` when rendering and then fail to reattach
 that referrer on rename — a stale link produced by the fold, not by a missing
