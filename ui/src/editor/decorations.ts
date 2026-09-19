@@ -20,6 +20,7 @@ import { type SyntaxNode, type Tree } from "@lezer/common";
 import { measurePerf } from "../core/perf";
 import { scanWikilinks, type TokenizedRun } from "../ast/wikilink";
 import type { WikiLinkResolution } from "./wikilinkResolver";
+import { withinLines } from "./withinLines";
 
 export type DecoKind =
   | "line-h1"
@@ -399,8 +400,9 @@ export function collectDecorations(
     }
   }
 
-  out.sort((a, b) => a.from - b.from || a.to - b.to);
-  return out;
+  return out
+    .flatMap((e) => (e.kind === "hide" ? withinLines(doc, e) : [e]))
+    .sort((a, b) => a.from - b.from || a.to - b.to);
 }
 
 class BulletWidget extends WidgetType {

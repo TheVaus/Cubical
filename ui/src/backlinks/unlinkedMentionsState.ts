@@ -1,4 +1,4 @@
-import type { Mention } from "../api/ipc";
+import type { Mention } from "../api/mentions";
 import { stabilizeByKey } from "../core/listStability";
 
 export function mentionKey(m: Mention): string {
@@ -18,7 +18,7 @@ export type MentionsAction =
   | { type: "fetch:success"; mentions: Mention[] }
   | { type: "fetch:error"; message: string }
   | { type: "file:cleared" }
-  | { type: "mention:linked"; key: string };
+  | { type: "mention:linked"; mention: Mention };
 
 export function reduceMentionsState(
   state: MentionsViewState,
@@ -49,7 +49,11 @@ export function reduceMentionsState(
       return { kind: "idle" };
     case "mention:linked": {
       if (state.kind !== "loaded") return state;
-      const next = state.mentions.filter((m) => mentionKey(m) !== action.key);
+      const linked = action.mention;
+      const next = state.mentions.filter(
+        (m) =>
+          m.source_path !== linked.source_path || m.position < linked.position,
+      );
       return next.length === 0
         ? { kind: "empty" }
         : { kind: "loaded", mentions: next };

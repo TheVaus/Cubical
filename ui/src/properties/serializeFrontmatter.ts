@@ -1,21 +1,22 @@
-import {
-  Document,
-  isAlias,
-  parseDocument,
-  visit,
-  type Pair,
-  type YAMLMap,
-} from "yaml";
+import { Document, isAlias, isScalar, parseDocument, visit } from "yaml";
 
 import { splitFrontmatter } from "../ast/frontmatter";
 import type { FrontmatterEntry } from "../ast/types";
 import {
-  isMap,
-  isScalar,
-  isSeq,
-  type PropertyType,
-  typeToToken,
-} from "./typeComments";
+  FORMAT,
+  layoutOf,
+  narrowEdit,
+  renderPair,
+  unchanged,
+  type Layout,
+  type TextEdit,
+  type TypeDirective,
+} from "./frontmatterLayout";
+import type { PropertyType } from "./typeComments";
+
+export type PropertyEdit =
+  | { op: "set"; key: string; value: unknown; type?: PropertyType | null }
+  | { op: "rename"; from: string; to: string };
 
 export function serializeFrontmatter(
   entries: FrontmatterEntry[],
@@ -24,95 +25,118 @@ export function serializeFrontmatter(
   existing?: string,
 ): string {
   if (entries.length === 0) return "---\n---\n";
-
-  const doc = buildDoc(entries, existing);
-  if (types && isMap(doc.contents)) {
-    applyTypeComments(doc.contents, types, currencyDefault);
-  }
-  return `---\n${String(doc)}---\n`;
+  const parsed = layoutOf(existing ?? "");
+  const yaml = parsed ? (existing ?? "") : "";
+  const layout = parsed ?? layoutOf("")!;
+  return `---\n${rebuild(yaml, layout, entries, types, currencyDefault)}---\n`;
 }
 
-function buildDoc(entries: FrontmatterEntry[], existing?: string): Document {
-  if (existing !== undefined && existing.trim() !== "") {
-    const doc = parseDocument(existing);
-    if (doc.errors.length === 0 && isMap(doc.contents)) {
-      syncMap(doc, doc.contents, entries);
-      return doc;
-    }
-  }
-  const obj: Record<string, unknown> = {};
-  for (const [key, value] of entries) obj[key] = value;
-  return new Document(obj);
-}
-
-function syncMap(
-  doc: Document,
-  map: YAMLMap,
-  entries: FrontmatterEntry[],
-): void {
-  const byKey = new Map<string, Pair>();
-  for (const pair of map.items) {
-    if (isScalar(pair.key)) byKey.set(String(pair.key.value), pair);
-  }
-
-  const next: Pair[] = [];
-  for (const [key, value] of entries) {
-    const prior = byKey.get(key);
-    if (prior) {
-      const current =
-        prior.value == null
-          ? null
-          : ((prior.value as { toJSON?: () => unknown }).toJSON?.() ?? null);
-      if (!valueEqual(current, value)) {
-        prior.value = doc.createNode(value);
-      }
-      next.push(prior);
-    } else {
-      next.push(doc.createPair(key, value));
-    }
-  }
-  map.items = next;
-}
-
-function valueEqual(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (Array.isArray(a) && Array.isArray(b)) {
-    return a.length === b.length && a.every((x, i) => valueEqual(x, b[i]));
-  }
-  if (a && b && typeof a === "object" && typeof b === "object") {
-    const ak = Object.keys(a as object);
-    const bk = Object.keys(b as object);
-    return (
-      ak.length === bk.length &&
-      ak.every((k) =>
-        valueEqual(
-          (a as Record<string, unknown>)[k],
-          (b as Record<string, unknown>)[k],
-        ),
-      )
+export function planPropertyEdit(
+  source: string,
+  edit: PropertyEdit,
+  currencyDefault = "usd",
+): TextEdit | null {
+  const split = splitFrontmatter(source);
+  if (split.yaml === null) {
+    if (edit.op !== "set") return null;
+    const types = edit.type ? new Map([[edit.key, edit.type]]) : undefined;
+    const block = serializeFrontmatter(
+      [[edit.key, edit.value]],
+      types,
+      currencyDefault,
     );
+    return { from: 0, to: 0, text: block };
   }
-  return false;
+  const yaml = split.yaml;
+  if (hasUnmodelableYaml(yaml)) return null;
+  const layout = layoutOf(yaml);
+  if (!layout) return null;
+  const next =
+    edit.op === "rename"
+      ? renameIn(yaml, layout, edit.from, edit.to)
+      : setIn(yaml, layout, edit, currencyDefault);
+  if (next === null || next === yaml) return null;
+  return narrowEdit(yaml, next, source.indexOf("\n") + 1);
 }
 
-function applyTypeComments(
-  map: YAMLMap,
-  types: Map<string, PropertyType>,
+function rebuild(
+  yaml: string,
+  layout: Layout,
+  entries: FrontmatterEntry[],
+  types: Map<string, PropertyType> | undefined,
   currencyDefault: string,
-): void {
-  for (const pair of map.items) {
-    if (!isScalar(pair.key)) continue;
-    const type = types.get(String(pair.key.value));
-    if (!type) continue;
-    const token = typeToToken(type, currencyDefault);
-    if (!token) continue;
-    const comment = ` type:${token}`;
-    if (pair.value && !isSeq(pair.value)) {
-      (pair.value as { comment?: string | null }).comment = comment;
-    } else {
-      (pair.key as { comment?: string | null }).comment = comment;
+): string {
+  const { pairs, eol } = layout;
+  const byKey = new Map(pairs.map((p, i) => [p.key, i]));
+  const head = pairs.length > 0 ? yaml.slice(0, pairs[0]!.lineStart) : yaml;
+  const tail = pairs.length > 0 ? yaml.slice(pairs.at(-1)!.end) : "";
+
+  let out = head === "" || head.endsWith("\n") ? head : head + eol;
+  for (const [key, value] of entries) {
+    const directive: TypeDirective = types?.get(key) ?? "keep";
+    const i = byKey.get(key);
+    if (i === undefined) {
+      out += renderPair(
+        layout,
+        key,
+        value,
+        undefined,
+        directive,
+        currencyDefault,
+      );
+      continue;
     }
+    const at = pairs[i]!;
+    const leadStart = i === 0 ? at.lineStart : pairs[i - 1]!.end;
+    const lead = yaml.slice(leadStart, at.lineStart);
+    const own = unchanged(layout, at, value, directive, currencyDefault)
+      ? yaml.slice(at.lineStart, at.end)
+      : renderPair(layout, key, value, at.pair, directive, currencyDefault);
+    out += lead + (own.endsWith("\n") ? own : own + eol);
   }
+  return out + tail;
+}
+
+function setIn(
+  yaml: string,
+  layout: Layout,
+  edit: Extract<PropertyEdit, { op: "set" }>,
+  currencyDefault: string,
+): string {
+  const directive: TypeDirective =
+    edit.type === undefined ? "keep" : edit.type;
+  const at = layout.pairs.find((p) => p.key === edit.key);
+  if (at && unchanged(layout, at, edit.value, directive, currencyDefault)) {
+    return yaml;
+  }
+  const pair = renderPair(
+    layout,
+    edit.key,
+    edit.value,
+    at?.pair,
+    directive,
+    currencyDefault,
+  );
+  if (at) return yaml.slice(0, at.lineStart) + pair + yaml.slice(at.end);
+  const insertAt = layout.pairs.at(-1)?.end ?? yaml.length;
+  const before = yaml.slice(0, insertAt);
+  const sep = before === "" || before.endsWith("\n") ? "" : layout.eol;
+  return before + sep + pair + yaml.slice(insertAt);
+}
+
+function renameIn(
+  yaml: string,
+  layout: Layout,
+  from: string,
+  to: string,
+): string | null {
+  if (layout.pairs.some((p) => p.key === to)) return null;
+  const key = layout.pairs.find((p) => p.key === from)?.pair.key;
+  if (!isScalar(key) || !key.range) return null;
+  const range = key.range;
+  const text = new Document(to).toString(FORMAT).replace(/\n$/, "");
+  if (text.includes("\n")) return null;
+  return yaml.slice(0, range[0]) + text + yaml.slice(range[1]);
 }
 
 export function spliceFrontmatter(source: string, block: string): string {
@@ -143,5 +167,5 @@ export function hasUnmodelableYaml(yamlText: string): boolean {
     }
     return undefined;
   });
-  return flagged;
+  return flagged || layoutOf(yamlText) === null;
 }

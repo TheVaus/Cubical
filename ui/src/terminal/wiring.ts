@@ -85,9 +85,9 @@ export function createTerminalWiring(deps: TerminalWiringDeps): TerminalWiring {
     if (vaultId === null || !enabled()) return;
     const view = terminalView(String(nextKey + 1));
     if (!canOpenTab(deps.tabs(), view)) return;
+    nextKey += 1;
     void (async () => {
       await deps.flushAutosave();
-      nextKey += 1;
       deps.setTabs((s) => openTab(s, view));
       await offerConsent(vaultId);
     })();

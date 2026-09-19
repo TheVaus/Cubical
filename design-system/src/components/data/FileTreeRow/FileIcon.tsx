@@ -9,17 +9,17 @@ export interface FileIconProps {
   kind: FileKind;
 }
 
-const FileIcon = (props: FileIconProps) => {
+function iconFor(kind: FileKind) {
   const common = { width: 16, height: 16, viewBox: '0 0 16 16', 'stroke-width': 1.3, ...SVG_INVARIANTS };
 
-  if (props.kind === 'folder') {
+  if (kind === 'folder') {
     return (
       <svg {...common}>
         <path d="M1.5 3.5h4l1.2 1.5h7.3v7.5a1 1 0 0 1-1 1h-10.5a1 1 0 0 1-1-1v-9z" />
       </svg>
     );
   }
-  if (props.kind === 'folder-open') {
+  if (kind === 'folder-open') {
     return (
       <svg {...common}>
         <path d="M1.5 5.5v-2a1 1 0 0 1 1-1h3l1.2 1.5h6.3a1 1 0 0 1 1 1v.5" />
@@ -27,7 +27,7 @@ const FileIcon = (props: FileIconProps) => {
       </svg>
     );
   }
-  if (props.kind === 'md') {
+  if (kind === 'md') {
     return (
       <svg {...common}>
         <path d={DOC} />
@@ -37,7 +37,7 @@ const FileIcon = (props: FileIconProps) => {
       </svg>
     );
   }
-  if (props.kind === 'txt') {
+  if (kind === 'txt') {
     return (
       <svg {...common}>
         <path d={DOC} />
@@ -46,7 +46,7 @@ const FileIcon = (props: FileIconProps) => {
       </svg>
     );
   }
-  if (props.kind === 'png') {
+  if (kind === 'png') {
     return (
       <svg {...common}>
         <path d={DOC} />
@@ -56,7 +56,7 @@ const FileIcon = (props: FileIconProps) => {
       </svg>
     );
   }
-  if (props.kind === 'svg') {
+  if (kind === 'svg') {
     return (
       <svg {...common}>
         <path d={DOC} />
@@ -65,7 +65,7 @@ const FileIcon = (props: FileIconProps) => {
       </svg>
     );
   }
-  if (props.kind === 'pdf') {
+  if (kind === 'pdf') {
     return (
       <svg {...common}>
         <path d={DOC} />
@@ -76,7 +76,7 @@ const FileIcon = (props: FileIconProps) => {
       </svg>
     );
   }
-  if (props.kind === 'code') {
+  if (kind === 'code') {
     return (
       <svg {...common}>
         <path d={DOC} />
@@ -85,7 +85,7 @@ const FileIcon = (props: FileIconProps) => {
       </svg>
     );
   }
-  if (props.kind === 'canvas') {
+  if (kind === 'canvas') {
     return (
       <svg {...common}>
         <path d={DOC} />
@@ -102,6 +102,8 @@ const FileIcon = (props: FileIconProps) => {
       <path d="M6 8.5v1.4l1-.7 1 1.4-1 .7v1.2" />
     </svg>
   );
-};
+}
+
+const FileIcon = (props: FileIconProps) => <>{iconFor(props.kind)}</>;
 
 export default FileIcon;

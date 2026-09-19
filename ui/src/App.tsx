@@ -42,7 +42,6 @@ import {
   createFileAtPath,
   listFiles,
   listRecentVaults,
-  listTags,
   loadTabSession,
   saveTabSession,
   onVaultFileChanged,
@@ -66,6 +65,8 @@ import { createVaultSession } from "./core/vaultSession";
 import { type Command } from "./core/commands";
 import { attachGlobalKeys } from "./core/globalKeys";
 import { createNavSession } from "./core/navSession";
+import { createVaultTags } from "./omnibar/vaultTags";
+import { createSurfaceErrors } from "./core/surfaceErrors";
 import { createDebounced } from "./core/debounce";
 import { createDocumentSession } from "./core/documentSession";
 import { switchVault } from "./core/vaultOpen";
@@ -178,7 +179,6 @@ const App: Component = () => {
   const pluginOn = (id: string) => corePluginActive(settings.corePlugins(), id);
   const [files, setFiles] = createSignal<FileEntry[]>([]);
   const [folders, setFolders] = createSignal<string[]>([]);
-  const [error, setError] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal(false);
   const [booting, setBooting] = createSignal(true);
   const [recentVaults, setRecentVaults] = createSignal<RecentVault[]>([]);
@@ -196,12 +196,12 @@ const App: Component = () => {
     const id = tabs().activeId;
     return id === null ? null : (contents[id] ?? null);
   };
-  const setSelectedContent = (value: string | null) => {
-    const id = tabs().activeId;
-    if (id === null) return;
-    if (value === null) setContents(produce((c) => delete c[id]));
-    else setContents(id, value);
+  const setTabContent = (id: string, value: string | null) => {
+    if (value === null) return setContents(produce((c) => delete c[id]));
+    setContents(id, value);
+    surfaceErrors.tabLoaded(id);
   };
+  const surfaceErrors = createSurfaceErrors(() => tabs().activeId);
   interface DocSummary {
     frontmatter: Frontmatter | null;
     blocks: number;
@@ -270,27 +270,12 @@ const App: Component = () => {
   );
 
   const [omniOpen, setOmniOpen] = createSignal(false);
-  const [vaultTags, setVaultTags] = createSignal<string[]>([]);
-  const [tagsLoaded, setTagsLoaded] = createSignal(false);
-
-  const ensureTagsLoaded = async () => {
-    const id = vaultId();
-    if (!id || tagsLoaded()) return;
-    try {
-      const resp = await listTags({ vault_id: id });
-      setVaultTags(resp.tags);
-    } catch (e) {
-      console.error("list_tags failed; Omni-Bar runs notes-only", e);
-      setVaultTags([]);
-    } finally {
-      setTagsLoaded(true);
-    }
-  };
+  const vaultTags = createVaultTags(vaultId);
   createEffect(
     on(
       () => searchRefreshTick(),
       () => {
-        setTagsLoaded(false);
+        vaultTags.invalidate();
         dataviewRunner()?.invalidate();
       },
       { defer: true },
@@ -301,7 +286,7 @@ const App: Component = () => {
     const notes: OmniItem[] = files()
       .filter((f) => f.type_id === "markdown")
       .map((f) => ({ kind: "note", title: noteTitle(f.path), path: f.path }));
-    const tags: OmniItem[] = vaultTags().map((t) => ({ kind: "tag", tag: t }));
+    const tags: OmniItem[] = vaultTags.tags().map((t) => ({ kind: "tag", tag: t }));
     const commands: OmniItem[] = OMNI_COMMANDS.map((c) => ({
       kind: "command",
       id: c.id,
@@ -435,7 +420,10 @@ const App: Component = () => {
     autosaveDebounceMs: AUTOSAVE_DEBOUNCE_MS,
     reportError: showErrorToast,
     onWritten: () => searchRefresh.schedule(),
-    onContentReplaced: (content) => setSelectedContent(content),
+    onContentReplaced: (content) => {
+      const id = tabs().activeId;
+      if (id !== null) setTabContent(id, content);
+    },
   });
   const flushAutosave = () => doc.flush();
 
@@ -649,17 +637,23 @@ const App: Component = () => {
     if (id === "statusbar.toggle") settings.toggleStatusbar();
   };
 
+  const stillOpen = (vault: string, tabId: string) =>
+    vaultId() === vault && tabs().tabs.some((t) => t.id === tabId);
+
   const loadActiveTabContent = async () => {
     const id = vaultId();
     const path = selectedPath();
-    if (!id || path === null) return;
+    const tabId = tabs().activeId;
+    if (!id || path === null || tabId === null) return;
     if (!isEditablePath(path)) return;
     try {
       const resp = await readFileText({ vault_id: id, path });
-      setSelectedContent(resp.content);
+      if (!stillOpen(id, tabId)) return;
+      setTabContent(tabId, resp.content);
     } catch (e) {
-      setError(errorMessage(e));
-      setSelectedContent(null);
+      if (!stillOpen(id, tabId)) return;
+      surfaceErrors.tabFailed(tabId, errorMessage(e));
+      setTabContent(tabId, null);
     }
   };
 
@@ -671,7 +665,6 @@ const App: Component = () => {
   });
 
   const resetDocState = () => {
-    setError(null);
     settings.setRawOverride(null);
     doc.reset();
   };
@@ -846,6 +839,81 @@ const App: Component = () => {
   };
 
   onMount(async () => {
+    const onBeforeUnload = () => doc.writeBeforeUnload();
+    window.addEventListener("beforeunload", onBeforeUnload);
+    onCleanup(() => window.removeEventListener("beforeunload", onBeforeUnload));
+
+    const globalCommands: Record<string, Command> = {
+      "omnibar.toggle": {
+        id: "omnibar.toggle",
+        title: "Toggle Omni-Bar",
+        when: () => vaultId() !== null,
+        run: () => {
+          void vaultTags.ensureLoaded();
+          setOmniOpen((v) => !v);
+        },
+      },
+      "view.toggleSidebar": {
+        id: "view.toggleSidebar",
+        title: "Toggle left sidebar",
+        when: () => vaultId() !== null,
+        run: () => toggleLeftSidebar(),
+      },
+      "file.new": {
+        id: "file.new",
+        title: "New note",
+        when: () => vaultId() !== null,
+        run: () => void fileActions.newFile(""),
+      },
+      "nav.back": {
+        id: "nav.back",
+        title: "Navigate back",
+        when: () => nav.canBack(),
+        run: () => goBack(),
+      },
+      "nav.forward": {
+        id: "nav.forward",
+        title: "Navigate forward",
+        when: () => nav.canForward(),
+        run: () => goForward(),
+      },
+      "view.nextTab": {
+        id: "view.nextTab",
+        title: "Next tab",
+        when: () => tabs().tabs.length > 1,
+        run: () => {
+          const id = nextTab(tabs()).activeId;
+          if (id !== null) void activateTabById(id);
+        },
+      },
+      "view.prevTab": {
+        id: "view.prevTab",
+        title: "Previous tab",
+        when: () => tabs().tabs.length > 1,
+        run: () => {
+          const id = prevTab(tabs()).activeId;
+          if (id !== null) void activateTabById(id);
+        },
+      },
+      "view.closeTab": {
+        id: "view.closeTab",
+        title: "Close tab",
+        when: () => tabs().activeId !== null,
+        run: () => {
+          const id = tabs().activeId;
+          if (id !== null) void closeTabById(id);
+        },
+      },
+      [TERMINAL_COMMAND_ID]: terminalTab.command,
+      [GRAPH_COMMAND_ID]: graphTab.command,
+    };
+    attachGlobalKeys(() => settings.effectiveBindings(), globalCommands);
+
+    const unwatchTheme = watchSystemTheme(() => {
+      settings.reapplySystemTheme();
+    });
+    onCleanup(unwatchTheme);
+
     await vaultListeners.attach("vault:scan-progress", () =>
       onVaultScanProgress((p) => {
         if (p.vault_id !== vaultId()) return;
@@ -917,81 +985,6 @@ const App: Component = () => {
       }),
     );
 
-    const onBeforeUnload = () => doc.writeBeforeUnload();
-    window.addEventListener("beforeunload", onBeforeUnload);
-    onCleanup(() => window.removeEventListener("beforeunload", onBeforeUnload));
-
-    const globalCommands: Record<string, Command> = {
-      "omnibar.toggle": {
-        id: "omnibar.toggle",
-        title: "Toggle Omni-Bar",
-        when: () => vaultId() !== null,
-        run: () => {
-          void ensureTagsLoaded();
-          setOmniOpen((v) => !v);
-        },
-      },
-      "view.toggleSidebar": {
-        id: "view.toggleSidebar",
-        title: "Toggle left sidebar",
-        when: () => vaultId() !== null,
-        run: () => toggleLeftSidebar(),
-      },
-      "file.new": {
-        id: "file.new",
-        title: "New note",
-        when: () => vaultId() !== null,
-        run: () => void fileActions.newFile(""),
-      },
-      "nav.back": {
-        id: "nav.back",
-        title: "Navigate back",
-        when: () => nav.canBack(),
-        run: () => goBack(),
-      },
-      "nav.forward": {
-        id: "nav.forward",
-        title: "Navigate forward",
-        when: () => nav.canForward(),
-        run: () => goForward(),
-      },
-      "view.nextTab": {
-        id: "view.nextTab",
-        title: "Next tab",
-        when: () => tabs().tabs.length > 1,
-        run: () => {
-          const id = nextTab(tabs()).activeId;
-          if (id !== null) void activateTabById(id);
-        },
-      },
-      "view.prevTab": {
-        id: "view.prevTab",
-        title: "Previous tab",
-        when: () => tabs().tabs.length > 1,
-        run: () => {
-          const id = prevTab(tabs()).activeId;
-          if (id !== null) void activateTabById(id);
-        },
-      },
-      "view.closeTab": {
-        id: "view.closeTab",
-        title: "Close tab",
-        when: () => tabs().activeId !== null,
-        run: () => {
-          const id = tabs().activeId;
-          if (id !== null) void closeTabById(id);
-        },
-      },
-      [TERMINAL_COMMAND_ID]: terminalTab.command,
-      [GRAPH_COMMAND_ID]: graphTab.command,
-    };
-    attachGlobalKeys(() => settings.effectiveBindings(), globalCommands);
-
-    const unwatchTheme = watchSystemTheme(() => {
-      settings.reapplySystemTheme();
-    });
-    onCleanup(unwatchTheme);
-
     try {
       await refreshRecentVaults();
       const top = recentVaults()[0];
@@ -1036,11 +1029,12 @@ const App: Component = () => {
     fileActions.reset();
     setTagRefreshTick(0);
     dismissAllToasts();
+    surfaceErrors.clear();
     settings.resetForVaultSwitch();
   };
 
   const openVaultByPath = async (path: string) => {
-    setError(null);
+    surfaceErrors.vaultOpened();
     setBusy(true);
     try {
       const resp = await switchVault({
@@ -1062,7 +1056,7 @@ const App: Component = () => {
       await restoreTabs(path);
       void refreshRecentVaults();
     } catch (e) {
-      setError(errorMessage(e));
+      surfaceErrors.vaultFailed(errorMessage(e));
     } finally {
       setBusy(false);
     }
@@ -1150,18 +1144,20 @@ const App: Component = () => {
         </div>
       </header>
 
-      <Show when={error()}>
-        <div
-          role="alert"
-          style={{
-            color: "var(--c-error)",
-            "font-size": "var(--text-sm)",
-            "border-left": "var(--space-1) solid var(--c-error)",
-            "padding-left": "var(--space-3)",
-          }}
-        >
-          {error()}
-        </div>
+      <Show when={surfaceErrors.banner()}>
+        {(message) => (
+          <div
+            role="alert"
+            style={{
+              color: "var(--c-error)",
+              "font-size": "var(--text-sm)",
+              "border-left": "var(--space-1) solid var(--c-error)",
+              "padding-left": "var(--space-3)",
+            }}
+          >
+            {message()}
+          </div>
+        )}
       </Show>
 
       <Show

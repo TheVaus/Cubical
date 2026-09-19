@@ -16,6 +16,7 @@ import {
 } from "./backlinksState";
 import { noteTitle } from "../vault/noteName";
 import { createTargetTracker } from "../core/refreshTarget";
+import { whenKind } from "../core/whenKind";
 
 export interface BacklinksProps {
   vaultId: string | null;
@@ -26,6 +27,8 @@ export interface BacklinksProps {
 
 const Backlinks: Component<BacklinksProps> = (props) => {
   const [state, setState] = createSignal<BacklinksViewState>({ kind: "idle" });
+  const error = whenKind(state, "error");
+  const loaded = whenKind(state, "loaded");
 
   let token = 0;
   const tracker = createTargetTracker();
@@ -120,10 +123,8 @@ const Backlinks: Component<BacklinksProps> = (props) => {
             No backlinks yet.
           </p>
         </Show>
-        <Show when={state().kind === "error"}>
-          {(_) => {
-            const s = state();
-            if (s.kind !== "error") return null;
+        <Show when={error()}>
+          {(s) => {
             return (
               <p
                 role="alert"
@@ -133,15 +134,13 @@ const Backlinks: Component<BacklinksProps> = (props) => {
                   "font-size": "var(--text-xs)",
                 }}
               >
-                {s.message}
+                {s().message}
               </p>
             );
           }}
         </Show>
-        <Show when={state().kind === "loaded"}>
-          {(_) => {
-            const s = state();
-            if (s.kind !== "loaded") return null;
+        <Show when={loaded()}>
+          {(s) => {
             return (
               <ul
                 role="list"
@@ -154,7 +153,7 @@ const Backlinks: Component<BacklinksProps> = (props) => {
                   gap: "var(--space-2)",
                 }}
               >
-                <For each={s.backlinks}>
+                <For each={s().backlinks}>
                   {(b: Backlink) => (
                     <li
                       role="listitem"

@@ -15,7 +15,7 @@ import { syntaxTree } from "@codemirror/language";
 
 import { scanWikilinks } from "../ast/wikilink";
 import { decorationField } from "./decorationField";
-import type { EmbedResolver } from "./embedResolver";
+import type { EmbedResolution, EmbedResolver } from "./embedResolver";
 import { renderEmbedBody, type EmbedFileRenderer } from "./embedRender";
 import { updateSubscriptionExtension } from "./updateSubscription";
 import { renderGuarded } from "./widgetGuard";
@@ -48,6 +48,8 @@ function targetRawOf(
   return `${tok.target}${prefix}${tok.anchor.value}`;
 }
 
+const renderedFrom = new WeakMap<HTMLElement, EmbedWidget>();
+
 class EmbedWidget extends WidgetType {
   constructor(
     private readonly resolver: EmbedResolver,
@@ -59,8 +61,12 @@ class EmbedWidget extends WidgetType {
     super();
   }
 
+  private rendered: EmbedResolution | undefined;
+
   override toDOM(): HTMLElement {
+    this.rendered = this.resolver.get(this.targetRaw);
     const frame = document.createElement("div");
+    renderedFrom.set(frame, this);
     frame.className = "cm-md-embed-frame";
     const seedChain = this.openNotePath === null ? [] : [this.openNotePath];
     frame.appendChild(
@@ -74,6 +80,18 @@ class EmbedWidget extends WidgetType {
       ),
     );
     return frame;
+  }
+
+  override updateDOM(dom: HTMLElement): boolean {
+    const from = renderedFrom.get(dom);
+    if (!from || from.targetRaw !== this.targetRaw) return false;
+    if (from.openNotePath !== this.openNotePath) return false;
+    if (from.renderFile !== this.renderFile) return false;
+    const now = this.resolver.get(this.targetRaw);
+    if (now === undefined || now !== from.rendered) return false;
+    this.rendered = now;
+    renderedFrom.set(dom, this);
+    return true;
   }
 
   override eq(other: EmbedWidget): boolean {

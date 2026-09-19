@@ -25,16 +25,3 @@ export function effectiveCurrency(
   if (isKnownCurrency(vaultDefault)) return vaultDefault!.toLowerCase();
   return DEFAULT_CURRENCY;
 }
-
-export function buildAnnotations(
-  current: Map<string, PropertyType>,
-  key?: string,
-  type?: PropertyType | null,
-): Map<string, PropertyType> {
-  const next = new Map(current);
-  if (key !== undefined) {
-    if (type == null) next.delete(key);
-    else next.set(key, type);
-  }
-  return next;
-}

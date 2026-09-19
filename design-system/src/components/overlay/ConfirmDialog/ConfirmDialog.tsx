@@ -1,4 +1,4 @@
-import { createEffect, onCleanup, Show, type JSX } from 'solid-js';
+import { Show, type JSX } from 'solid-js';
 import Button from '../../forms/Button/Button';
 import Modal from '../Modal/Modal';
 import './ConfirmDialog.css';
@@ -18,16 +18,6 @@ export interface ConfirmDialogProps {
 
 const ConfirmDialog = (props: ConfirmDialogProps) => {
   const busy = () => props.busy ?? false;
-  createEffect(() => {
-    if (!props.open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      e.stopPropagation();
-      if (!busy()) props.onCancel();
-    };
-    window.addEventListener('keydown', handler, { capture: true });
-    onCleanup(() => window.removeEventListener('keydown', handler, { capture: true }));
-  });
 
   return (
     <Modal

@@ -183,7 +183,7 @@ describe("createWikiLinkResolver", () => {
     resolveIpc({ target_path: "note.md", anchor: null });
     const got = await pending;
     expect(got).toEqual({ target_path: "note.md", anchor: null });
-    expect(calls).toBe(1);
+    expect(calls).toBe(2);
   });
 });
 

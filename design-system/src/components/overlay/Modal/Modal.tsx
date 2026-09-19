@@ -1,5 +1,6 @@
-import { type JSX, Show, createUniqueId, onCleanup, onMount } from 'solid-js';
+import { type JSX, Show, createUniqueId } from 'solid-js';
 import { Portal } from 'solid-js/web';
+import { closeOnEscape } from '../escapeStack';
 import './Modal.css';
 
 export interface ModalProps {
@@ -15,12 +16,7 @@ export interface ModalProps {
 const Modal = (props: ModalProps) => {
   const titleId = createUniqueId();
 
-  const handleKey = (e: KeyboardEvent) => {
-    if (e.key === 'Escape') props.onClose();
-  };
-
-  onMount(() => document.addEventListener('keydown', handleKey));
-  onCleanup(() => document.removeEventListener('keydown', handleKey));
+  closeOnEscape(() => props.open, () => props.onClose());
 
   return (
     <Show when={props.open}>

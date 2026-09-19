@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach } from "vitest";
 import { render } from "solid-js/web";
+import { createSignal } from "solid-js";
 import Select from "./Select";
 
 let dispose: (() => void) | undefined;
@@ -55,5 +56,22 @@ describe("Select", () => {
       />
     ));
     expect(select.disabled).toBe(true);
+  });
+
+  it("keeps showing its value when the options are replaced", () => {
+    const [options, setOptions] = createSignal([{ value: "a" }, { value: "b" }]);
+    const select = mount(() => (
+      <Select options={options()} value="b" onChange={() => {}} />
+    ));
+    setOptions([{ value: "a" }, { value: "b" }]);
+    expect(select.value).toBe("b");
+  });
+
+  it("shows a value missing from the options rather than the first option", () => {
+    const select = mount(() => (
+      <Select options={[{ value: "a" }, { value: "b" }]} value="legacy" onChange={() => {}} />
+    ));
+    expect(select.value).toBe("legacy");
+    expect(select.selectedOptions[0]?.textContent).toBe("legacy");
   });
 });

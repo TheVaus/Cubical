@@ -16,11 +16,12 @@ import TextInput from "@ds/components/forms/TextInput/TextInput";
 import Icon from "@ds/components/graphics/Icon/Icon";
 
 import type { Frontmatter, FrontmatterEntry } from "../ast/types";
-import { splitFrontmatter } from "../ast/frontmatter";
+import { parseFrontmatterYaml, splitFrontmatter } from "../ast/frontmatter";
 import { coerceValue } from "./coerce";
 import {
   hasUnmodelableYaml,
-  serializeFrontmatter,
+  planPropertyEdit,
+  type PropertyEdit,
 } from "./serializeFrontmatter";
 import StringCell from "./StringCell";
 import NumberCell from "./NumberCell";
@@ -34,7 +35,6 @@ import { convertDate } from "./dateFormats";
 import { DATE_FORMAT_TOKENS } from "../settings/propertyFormats";
 import { parseTypeComments, type PropertyType } from "./typeComments";
 import {
-  buildAnnotations,
   effectiveCurrency,
   effectiveFormat,
   resolveType,
@@ -471,25 +471,21 @@ const Properties: Component<PropertiesProps> = (props) => {
     return split.yaml === null || !hasUnmodelableYaml(split.yaml);
   });
 
-  const commit = (
-    nextEntries: FrontmatterEntry[],
-    types: Map<string, PropertyType> = typeMap(),
-  ) => {
+  const commit = (edit: PropertyEdit) => {
     const source = props.getSource();
-    const split = splitFrontmatter(source);
-    const block = serializeFrontmatter(
-      nextEntries,
-      types,
-      props.currencyDefault,
-      split.yaml ?? undefined,
-    );
-    const span = split.span;
-    if (span) {
-      props.applyEdit(span.start, span.end, block);
-    } else {
-      props.applyEdit(0, 0, block);
-    }
+    const plan = planPropertyEdit(source, edit, props.currencyDefault);
+    if (plan) props.applyEdit(plan.from, plan.to, plan.text);
   };
+
+  const liveEntries = (): FrontmatterEntry[] => {
+    const split = splitFrontmatter(props.getSource());
+    if (split.yaml === null || split.span === null) return [];
+    return parseFrontmatterYaml(split.yaml, split.span)?.entries ?? [];
+  };
+  const liveValue = (key: string): unknown =>
+    liveEntries().find(([k]) => k === key)?.[1];
+  const liveHas = (key: string): boolean =>
+    liveEntries().some(([k]) => k === key);
 
   const updateMap = <V,>(
     setter: (m: Map<string, V>) => void,
@@ -505,27 +501,19 @@ const Properties: Component<PropertiesProps> = (props) => {
 
   const commitValue = (key: string, value: unknown) => {
     updateMap(setLossy, lossy(), key, undefined);
-    commit(
-      entries().map(([k, v]): FrontmatterEntry =>
-        k === key ? [k, value] : [k, v],
-      ),
-    );
+    commit({ op: "set", key, value });
   };
 
   const renameKey = (oldKey: string, newKey: string): boolean => {
     const trimmed = newKey.trim();
     if (trimmed === "" || trimmed === oldKey) return false;
-    if (keys().includes(trimmed)) return false;
-    commit(
-      entries().map(([k, v]): FrontmatterEntry =>
-        k === oldKey ? [trimmed, v] : [k, v],
-      ),
-    );
+    if (keys().includes(trimmed) || liveHas(trimmed)) return false;
+    commit({ op: "rename", from: oldKey, to: trimmed });
     return true;
   };
 
   const changeType = (key: string, type: PropertyType) => {
-    const current = entryMap().get(key);
+    const current = liveValue(key);
     const result =
       type.kind === "date"
         ? convertDate(current, effectiveFormat(type))
@@ -540,16 +528,11 @@ const Properties: Component<PropertiesProps> = (props) => {
     );
     setMenuKey(null);
     setOpenFamily(null);
-    commit(
-      entries().map(([k, v]): FrontmatterEntry =>
-        k === key ? [k, result.value] : [k, v],
-      ),
-      buildAnnotations(typeMap(), key, type),
-    );
+    commit({ op: "set", key, value: result.value, type });
   };
 
   const setEnumValues = (key: string, values: string[]) => {
-    const current = entryMap().get(key);
+    const current = liveValue(key);
     const inSet = values.includes(String(current));
     const nextValue = inSet
       ? current
@@ -558,32 +541,23 @@ const Properties: Component<PropertiesProps> = (props) => {
           ? Number(values[0])
           : values[0]
         : current;
-    commit(
-      entries().map(([k, v]): FrontmatterEntry =>
-        k === key ? [k, nextValue] : [k, v],
-      ),
-      buildAnnotations(typeMap(), key, { kind: "enum", values }),
-    );
+    const type: PropertyType = { kind: "enum", values };
+    commit({ op: "set", key, value: nextValue, type });
   };
 
   const revertLossy = (key: string) => {
     const entry = lossy().get(key);
     if (!entry) return;
     updateMap(setLossy, lossy(), key, undefined);
-    commit(
-      entries().map(([k, v]): FrontmatterEntry =>
-        k === key ? [k, entry.value] : [k, v],
-      ),
-      buildAnnotations(typeMap(), key, null),
-    );
+    commit({ op: "set", key, value: entry.value, type: null });
   };
 
   const addProperty = () => {
     let key = "property";
     let n = 2;
-    while (keys().includes(key)) key = `property-${n++}`;
+    while (keys().includes(key) || liveHas(key)) key = `property-${n++}`;
     setPendingFocusKey(key);
-    commit([...entries(), [key, ""]]);
+    commit({ op: "set", key, value: "" });
   };
 
   const resolvedType = (key: string): PropertyType =>

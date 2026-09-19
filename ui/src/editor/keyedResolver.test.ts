@@ -117,3 +117,108 @@ describe("re-fetch invalidation policy", () => {
     expect(r.version()).toBe(version);
   });
 });
+
+function deferredLoader() {
+  const pending: { key: string; settle: (v: string) => void }[] = [];
+  const load = vi.fn(
+    (key: string) =>
+      new Promise<string>((settle) => pending.push({ key, settle })),
+  );
+  return { pending, load };
+}
+
+describe("staleness and in-flight races", () => {
+  it("bumps the version on markStale so version-keyed widgets re-render", async () => {
+    const r = stringResolver();
+    r.fetch("a");
+    await flush();
+    const before = r.version();
+
+    r.markStale();
+
+    expect(r.version()).toBeGreaterThan(before);
+  });
+
+  it("does not let a pre-invalidate answer fill a cleared cache", async () => {
+    const { pending, load } = deferredLoader();
+    const r = createKeyedResolver<string, string>({
+      cacheKey: (k) => k,
+      load,
+      onFailure: () => "failed",
+    });
+
+    r.fetch("a");
+    r.invalidate();
+    pending[0]!.settle("old");
+    await flush();
+
+    expect(r.get("a")).toBeUndefined();
+  });
+
+  it("starts a fresh request after a clear invalidate and keeps its answer", async () => {
+    const { pending, load } = deferredLoader();
+    const r = createKeyedResolver<string, string>({
+      cacheKey: (k) => k,
+      load,
+      onFailure: () => "failed",
+    });
+
+    r.fetch("a");
+    r.invalidate();
+    r.fetch("a");
+    expect(load).toHaveBeenCalledTimes(2);
+
+    pending[0]!.settle("old");
+    await flush();
+    expect(r.debug().inFlight).toEqual(["a"]);
+
+    pending[1]!.settle("new");
+    await flush();
+    expect(r.get("a")).toBe("new");
+  });
+
+  it("re-runs a refetch-mode key invalidated while its request was in flight", async () => {
+    const { pending, load } = deferredLoader();
+    const r = createKeyedResolver<string, string>({
+      cacheKey: (k) => k,
+      load,
+      onFailure: () => "failed",
+      invalidation: "refetch",
+      same: (a, b) => a === b,
+    });
+
+    r.fetch("q");
+    pending[0]!.settle("first");
+    await flush();
+
+    r.invalidate();
+    r.invalidate();
+    expect(load).toHaveBeenCalledTimes(2);
+
+    pending[1]!.settle("mid");
+    await flush();
+    expect(load).toHaveBeenCalledTimes(3);
+
+    pending[2]!.settle("latest");
+    await flush();
+    expect(r.get("q")).toBe("latest");
+    expect(r.debug().inFlight).toEqual([]);
+  });
+
+  it("refetches after settle when markStale lands during a request", async () => {
+    const { pending, load } = deferredLoader();
+    const r = createKeyedResolver<string, string>({
+      cacheKey: (k) => k,
+      load,
+      onFailure: () => "failed",
+    });
+
+    r.fetch("a");
+    r.markStale();
+    pending[0]!.settle("old");
+    await flush();
+
+    r.get("a");
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+});

@@ -111,6 +111,16 @@ describe("opening", () => {
     expect(h.tabs().tabs.map((t) => t.id)).toEqual(["terminal:1", "terminal:2"]);
   });
 
+  it("opens two tabs for two requests made before the first one lands", async () => {
+    const h = harness();
+
+    h.wiring.open();
+    h.wiring.open();
+    await flush();
+
+    expect(h.tabs().tabs.map((t) => t.id)).toEqual(["terminal:1", "terminal:2"]);
+  });
+
   it("opens nothing while the plugin is off", async () => {
     const h = harness({ enabled: false });
 

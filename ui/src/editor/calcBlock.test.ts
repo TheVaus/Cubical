@@ -103,4 +103,31 @@ describe("calcBlockRenderer", () => {
   it("renders nothing when the plugin is off", () => {
     expect(frames("intro\n\n```calc\n5-3\n```\n", false)).toHaveLength(0);
   });
+
+  it("re-renders when an own-note property the block reads changes", () => {
+    const doc = "---\nprice: 2\n---\n\n```calc\n[[.price]] * 2\n```\n";
+    const view = new EditorView({
+      state: EditorState.create({
+        doc,
+        selection: { anchor: 0 },
+        extensions: [
+          markdown(),
+          equationsEnabledFacet.of(true),
+          propertyResolverFacet.of(null),
+          blockRenderersField,
+          blockRenderers(calcBlockRenderer),
+        ],
+      }),
+    });
+    const at = (): string[] =>
+      results(view.dom.querySelector(".cm-calc") as HTMLElement);
+    expect(at()).toEqual(["4"]);
+
+    const pos = doc.indexOf("2");
+    view.dispatch({ changes: { from: pos, to: pos + 1, insert: "5" } });
+    const after = at();
+    view.destroy();
+
+    expect(after).toEqual(["10"]);
+  });
 });

@@ -53,7 +53,10 @@ export function createKeyedResolver<K, V>(
   const cache = new Map<string, V>();
   const stale = new Set<string>();
   const sources = new Map<string, K>();
-  const inFlight = new Map<string, { aborted: boolean }>();
+  const inFlight = new Map<
+    string,
+    { aborted: boolean; generation: number; rerun: boolean }
+  >();
   const subscribers = new Set<() => void>();
   const eventSubscribers = new Set<(e: ResolverEvent) => void>();
   const lastFetchAt = new Map<string, number>();
@@ -61,6 +64,7 @@ export function createKeyedResolver<K, V>(
   const lastError = new Map<string, string>();
   const refetches = spec.invalidation === "refetch";
   let cacheVersion = 0;
+  let generation = 0;
 
   const notify = () => {
     for (const fn of [...subscribers]) isolated(fn);
@@ -74,14 +78,19 @@ export function createKeyedResolver<K, V>(
     const prev = cache.get(k);
     const changed =
       force || prev === undefined || !spec.same || !spec.same(prev, value);
+    if (!changed) return false;
     cache.set(k, value);
-    if (changed) cacheVersion++;
-    return changed;
+    cacheVersion++;
+    return true;
   };
 
   const run = (key: K, force: boolean) => {
     const k = spec.cacheKey(key);
-    const handle = { aborted: false };
+    const handle = { aborted: false, generation, rerun: false };
+    const current = () =>
+      !handle.aborted &&
+      handle.generation === generation &&
+      inFlight.get(k) === handle;
     inFlight.set(k, handle);
     sources.set(k, key);
     const startedAt = Date.now();
@@ -91,7 +100,7 @@ export function createKeyedResolver<K, V>(
     spec
       .load(key)
       .then((value) => {
-        if (handle.aborted) return;
+        if (!current()) return;
         changed = store(k, value, force);
         lastError.delete(k);
         const at = Date.now();
@@ -99,7 +108,7 @@ export function createKeyedResolver<K, V>(
         emit({ kind: "fetch-settled", key: k, at });
       })
       .catch((err: unknown) => {
-        if (handle.aborted) return;
+        if (!current()) return;
         changed = store(k, spec.onFailure(err), force);
         const message = err instanceof Error ? err.message : String(err);
         lastError.set(k, message);
@@ -108,8 +117,10 @@ export function createKeyedResolver<K, V>(
         emit({ kind: "fetch-errored", key: k, error: message, at });
       })
       .finally(() => {
-        inFlight.delete(k);
-        if (!handle.aborted && changed) notify();
+        const live = current();
+        if (inFlight.get(k) === handle) inFlight.delete(k);
+        if (live && handle.rerun) run(key, false);
+        if (live && changed) notify();
       });
   };
 
@@ -148,11 +159,14 @@ export function createKeyedResolver<K, V>(
       stale.clear();
       if (refetches) {
         for (const [k, key] of [...sources]) {
-          if (inFlight.has(k) || !cache.has(k)) continue;
-          run(key, false);
+          const pending = inFlight.get(k);
+          if (pending) pending.rerun = true;
+          else if (cache.has(k)) run(key, false);
         }
         return;
       }
+      generation++;
+      inFlight.clear();
       cache.clear();
       sources.clear();
       lastError.clear();
@@ -160,8 +174,10 @@ export function createKeyedResolver<K, V>(
       notify();
     },
     markStale() {
-      if (cache.size === 0) return;
+      if (cache.size === 0 && inFlight.size === 0) return;
       for (const k of cache.keys()) stale.add(k);
+      for (const k of inFlight.keys()) stale.add(k);
+      cacheVersion++;
       notify();
     },
     onUpdate(handler) {

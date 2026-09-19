@@ -4,6 +4,8 @@ import { tags as t, styleTags } from "@lezer/highlight";
 const CH_BANG = 33;
 const CH_OPEN = 91;
 const CH_CLOSE = 93;
+const CH_LF = 10;
+const CH_CR = 13;
 
 function parseWikiLink(cx: InlineContext, next: number, pos: number): number {
   let contentStart: number;
@@ -22,6 +24,7 @@ function parseWikiLink(cx: InlineContext, next: number, pos: number): number {
   let close = -1;
   for (let p = contentStart; p + 1 < cx.end; p++) {
     const c = cx.char(p);
+    if (c === CH_LF || c === CH_CR) return -1;
     if (c === CH_OPEN && cx.char(p + 1) === CH_OPEN) return -1;
     if (c === CH_CLOSE && cx.char(p + 1) === CH_CLOSE) {
       close = p;

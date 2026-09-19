@@ -9,11 +9,7 @@ import {
 
 import Button from "@ds/components/forms/Button/Button";
 
-import {
-  getUnlinkedMentions,
-  linkMention,
-  type Mention,
-} from "../api/ipc";
+import { getUnlinkedMentions, linkMention, type Mention } from "../api/mentions";
 import { noteTitle } from "../vault/noteName";
 import { errorMessage } from "../core/errorMessage";
 import {
@@ -22,6 +18,7 @@ import {
   type MentionsViewState,
 } from "./unlinkedMentionsState";
 import { createTargetTracker } from "../core/refreshTarget";
+import { whenKind } from "../core/whenKind";
 
 export interface UnlinkedMentionsProps {
   vaultId: string | null;
@@ -32,6 +29,8 @@ export interface UnlinkedMentionsProps {
 
 const UnlinkedMentions: Component<UnlinkedMentionsProps> = (props) => {
   const [state, setState] = createSignal<MentionsViewState>({ kind: "idle" });
+  const error = whenKind(state, "error");
+  const loaded = whenKind(state, "loaded");
   const [pending, setPending] = createSignal<string | null>(null);
   const [linkError, setLinkError] = createSignal<{
     key: string;
@@ -85,9 +84,10 @@ const UnlinkedMentions: Component<UnlinkedMentionsProps> = (props) => {
         position: m.position,
         byte_len: m.byte_len,
         target_title: noteTitle(openPath),
+        needle: m.needle,
       });
       setState(
-        reduceMentionsState(untrack(state), { type: "mention:linked", key: k }),
+        reduceMentionsState(untrack(state), { type: "mention:linked", mention: m }),
       );
     } catch (e) {
       const message = errorMessage(e);
@@ -157,10 +157,8 @@ const UnlinkedMentions: Component<UnlinkedMentionsProps> = (props) => {
             No unlinked mentions.
           </p>
         </Show>
-        <Show when={state().kind === "error"}>
-          {(_) => {
-            const s = state();
-            if (s.kind !== "error") return null;
+        <Show when={error()}>
+          {(s) => {
             return (
               <p
                 role="alert"
@@ -170,15 +168,13 @@ const UnlinkedMentions: Component<UnlinkedMentionsProps> = (props) => {
                   "font-size": "var(--text-xs)",
                 }}
               >
-                {s.message}
+                {s().message}
               </p>
             );
           }}
         </Show>
-        <Show when={state().kind === "loaded"}>
-          {(_) => {
-            const s = state();
-            if (s.kind !== "loaded") return null;
+        <Show when={loaded()}>
+          {(s) => {
             return (
               <ul
                 role="list"
@@ -191,7 +187,7 @@ const UnlinkedMentions: Component<UnlinkedMentionsProps> = (props) => {
                   gap: "var(--space-2)",
                 }}
               >
-                <For each={s.mentions}>
+                <For each={s().mentions}>
                   {(m) => {
                     const k = mentionKey(m);
                     const isPending = () => pending() === k;

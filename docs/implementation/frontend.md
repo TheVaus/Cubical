@@ -88,10 +88,12 @@ in favour of the local buffer. Quitting with a conflict open therefore drops the
 unsaved buffer rather than overwriting the copy on disk — the disk copy is the
 one that cannot be recovered afterwards.
 
-**A write is disowned if the document changed while it was in flight.** `reset`
-bumps a generation counter that `performWrite` captures before awaiting, so a
-response arriving after a vault or file switch cannot repopulate `seenHash`,
-`lastWrittenHash` or `dirty` from the outgoing document.
+**A write or read is disowned if the document changed while it was in
+flight.** `reset` bumps a generation counter that `performWrite`, `takeDisk`,
+`refreshFromDisk` and the silent external-change reload capture before
+awaiting, so a response arriving after a vault or file switch cannot repopulate
+`seenHash`, `lastWrittenHash` or `dirty` from the outgoing document, nor pour
+its text into the incoming one's editor.
 
 **Seed both hashes when the caller already knows the on-disk hash** (e.g. a
 file it just created). Otherwise the watcher's created-echo arrives as an
@@ -637,10 +639,16 @@ supplying `{ get, fetch }` and an effect dispatched back to trigger rebuilds.
 `invalidate()` runs from the file-changed listener so newly-resolvable targets
 re-render without a reload.
 
-Three invariants worth keeping:
+Four invariants worth keeping:
 
 - **Widget identity folds in the resolver's `version()`**, a counter bumped on
-  every cache mutation anywhere. Keying identity on only a widget's *own* cache
+  every cache mutation anywhere, and by `markStale()`. A stale entry that kept
+  its version would keep its widget, and `toDOM` — the only caller of `get()`
+  that starts the refetch — would never run again. Because every file change marks
+  stale, an embed widget reuses its DOM in `updateDOM` while its target's
+  cached value is still the one it rendered, and a refetch that returns an
+  equal value (`spec.same`) keeps the cached reference and the version, so an
+  autosave re-renders no embed whose content did not change. Keying identity on only a widget's *own* cache
   entry leaves **nested** placeholders frozen forever — a parent's entry never
   changes when a descendant resolves. The version is stable across unrelated
   edits, so plain keystrokes don't tear widgets down.
@@ -649,7 +657,13 @@ Three invariants worth keeping:
 - **Invalidate races the settle.** If `invalidate()` lands between a fetch's
   cache-write and the subscriber waking, the subscriber sees an empty cache
   *and* no in-flight fetch — it must re-kick, or that pending resolution hangs
-  forever.
+  forever. The reverse race is closed by a generation: a clear-mode
+  `invalidate()` drops the requests in flight, so an answer that started before
+  it never refills the cleared cache, and refetch mode re-runs a key that was
+  invalidated while its request was running rather than skipping it.
+- **A widget's revision covers every input it reads.** A calc block reads
+  `[[.prop]]` from the open note's own frontmatter, not through the resolver,
+  so its revision folds in the frontmatter text as well as `version()`.
 
 Embed bodies render as **plain text** (no markdown parsing) up to a depth
 ceiling owned by [`../architecture/document-model.md`](../architecture/document-model.md);
@@ -856,14 +870,16 @@ Nothing documented the split, because there was none to document; it was drift.
 
 The shell now injects `showErrorToast` as the `reportError` of both the file
 actions and the document session, so a per-action failure has one surface
-wherever it was triggered from. `setError` keeps only the two callers that
-match the rule.
+wherever it was triggered from. Only the two writers that match the rule stay
+on the banner.
 
-The banner also has no lifecycle: nothing clears it when the operation that set
-it later succeeds, so a transient autosave failure could outlive its own
-condition until the tab or vault changed. Routing those writers to the toast
-gives them one — a toast can be dismissed, and the queue drains on a vault
-switch.
+The banner derives from the surface that failed rather than latching a message
+(`core/surfaceErrors.ts`): a vault that would not open, or a tab whose content
+would not read, keyed by that tab. Any later content for the tab clears its
+failure — including a watcher-driven reload — a vault that opens clears the
+vault failure, and releasing the vault clears both. A tab's failure shows only
+while that tab is active. A latched signal cleared on tab or vault switch left a
+resolved failure on screen until the user happened to navigate away.
 
 ## A toast an error can survive
 
@@ -922,6 +938,14 @@ Because the backdrop intercepts the click, one click can never reach both the
 backdrop and the trigger — this **structurally** prevents the close-then-reopen
 race a document-level listener causes. Escape is an additional affordance, not
 a replacement.
+
+Every DS overlay takes Escape through one stack,
+`design-system/src/components/overlay/escapeStack.ts`: only the most recently
+opened overlay that is still open handles it, and a closed one handles nothing.
+Separate document listeners let one Escape close a popover and the Settings
+modal behind it together, and let a mounted-but-closed modal fire `onClose`. A
+consumer that must see Escape before any overlay — the shortcut recorder —
+listens on `window` in the capture phase and stops propagation there.
 
 ## List identity and Solid reconciliation
 
@@ -1008,10 +1032,24 @@ reconciliation to have anything to reuse.
 
 ## Frontmatter serialization
 
-The serializer edits the **existing block in place**, reusing the parsed node of
-every unchanged key. That is what lets foreign comments and blank lines survive
-an edit to some *other* property — a naive re-emit would silently reformat the
-user's file, which the source-of-truth rule forbids.
+The serializer edits the **existing block in place**: every unchanged
+top-level pair is copied by its byte range, and only the changed pair is
+re-rendered. Reusing parsed nodes was not enough — re-emitting the whole
+document still re-folded long scalars at 80 columns, re-indented block lists and
+re-spelled numbers (`0x1F`, `1e3`) in keys nobody touched, which the
+source-of-truth rule forbids.
+
+- **A commit is one keyed edit planned against the live source.** The panel's
+  frontmatter comes from the debounced AST, so a snapshot can be 150 ms old;
+  rebuilding every key from it wrote a just-committed value straight back.
+  `planPropertyEdit` reads the editor's source at commit time, touches one key
+  (`set` or `rename`), and hands the editor only the bytes that changed.
+- A re-rendered pair uses no line folding and the file's own list indentation
+  and line endings. Integers parse as BigInt, and a rounded Number equal to one
+  counts as unchanged, so an exact large integer is never overwritten by the
+  rounded copy the UI holds.
+- Rename replaces only the key's text, so the value, its spelling and its
+  `# type:` comment stay byte-identical.
 
 - Types are stored as a trailing `# type:<token>` comment on the key's line.
   The token may contain spaces (date formats) and parentheses (enums), and a
@@ -1019,7 +1057,9 @@ user's file, which the source-of-truth rule forbids.
   kind — otherwise it's an ordinary comment and is left alone.
 - **Anchors and aliases remain unmodelable.** Editing a value shared by
   reference is genuinely ambiguous, so the Properties UI renders read-only
-  rather than guessing.
+  rather than guessing. So does a block whose pairs cannot be located — a
+  flow-style top-level map, keys at different indents, explicit `? key` — so
+  the panel is never editable where an edit would be dropped.
 - Date formats that share a regex are disambiguated by **range validation**, so
   `17/06/2026` falls through to day-first rather than parsing as month 17.
   Cross-format conversion is best-effort and flags lossy narrowing.

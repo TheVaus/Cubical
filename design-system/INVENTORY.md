@@ -621,3 +621,4 @@ Files under `components/` that export no component.
 | `data/FileTreeRow/rowGeometry.ts` | `@ds/components/data/FileTreeRow/rowGeometry` |
 | `graphics/Icon/icons.ts` | `@ds/components/graphics/Icon/icons` |
 | `graphics/svg.ts` | `@ds/components/graphics/svg` |
+| `overlay/escapeStack.ts` | `@ds/components/overlay/escapeStack` |

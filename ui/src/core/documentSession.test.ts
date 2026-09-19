@@ -617,3 +617,69 @@ describe("refreshFromDisk", () => {
     expect(h.reportError).toHaveBeenCalled();
   });
 });
+
+describe("a read that lands after the document switched", () => {
+  const deferredRead = () => {
+    let resolve!: (v: { content: string }) => void;
+    read.mockReturnValueOnce(
+      new Promise((r) => {
+        resolve = r;
+      }),
+    );
+    return (content: string) => resolve({ content });
+  };
+
+  it("does not pour a silent reload into the next document", async () => {
+    const { session, editor, onContentReplaced } = build();
+    const land = deferredRead();
+    session.applyExternalChange("note.md", "h-external");
+
+    session.reset();
+    land("outgoing document");
+    await settle();
+
+    expect(editor.replaceContent).not.toHaveBeenCalled();
+    expect(onContentReplaced).not.toHaveBeenCalled();
+  });
+
+  it("does not adopt the outgoing document's hash from a silent reload", async () => {
+    const { session } = build();
+    const land = deferredRead();
+    session.applyExternalChange("note.md", "h-external");
+
+    session.reset();
+    session.adopt("h-next");
+    land("outgoing document");
+    await settle();
+    session.markDirty();
+    await session.flush();
+
+    expect(seenHashOfLastWrite()).toBe("h-next");
+  });
+
+  it("does not pour take-disk into the next document", async () => {
+    const { session, editor, onContentReplaced } = build();
+    const land = deferredRead();
+    const taking = session.takeDisk();
+
+    session.reset();
+    land("outgoing document");
+    await taking;
+
+    expect(editor.replaceContent).not.toHaveBeenCalled();
+    expect(onContentReplaced).not.toHaveBeenCalled();
+  });
+
+  it("does not pour refreshFromDisk into the next document", async () => {
+    const { session, editor, onContentReplaced } = build();
+    const land = deferredRead();
+    const refreshing = session.refreshFromDisk();
+
+    session.reset();
+    land("outgoing document");
+    await refreshing;
+
+    expect(editor.replaceContent).not.toHaveBeenCalled();
+    expect(onContentReplaced).not.toHaveBeenCalled();
+  });
+});
