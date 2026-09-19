@@ -42,7 +42,6 @@ import {
   createFileAtPath,
   listFiles,
   listRecentVaults,
-  listTags,
   loadTabSession,
   saveTabSession,
   onVaultFileChanged,
@@ -66,6 +65,7 @@ import { createVaultSession } from "./core/vaultSession";
 import { type Command } from "./core/commands";
 import { attachGlobalKeys } from "./core/globalKeys";
 import { createNavSession } from "./core/navSession";
+import { createVaultTags } from "./omnibar/vaultTags";
 import { createSurfaceErrors } from "./core/surfaceErrors";
 import { createDebounced } from "./core/debounce";
 import { createDocumentSession } from "./core/documentSession";
@@ -271,27 +271,12 @@ const App: Component = () => {
   );
 
   const [omniOpen, setOmniOpen] = createSignal(false);
-  const [vaultTags, setVaultTags] = createSignal<string[]>([]);
-  const [tagsLoaded, setTagsLoaded] = createSignal(false);
-
-  const ensureTagsLoaded = async () => {
-    const id = vaultId();
-    if (!id || tagsLoaded()) return;
-    try {
-      const resp = await listTags({ vault_id: id });
-      setVaultTags(resp.tags);
-    } catch (e) {
-      console.error("list_tags failed; Omni-Bar runs notes-only", e);
-      setVaultTags([]);
-    } finally {
-      setTagsLoaded(true);
-    }
-  };
+  const vaultTags = createVaultTags(vaultId);
   createEffect(
     on(
       () => searchRefreshTick(),
       () => {
-        setTagsLoaded(false);
+        vaultTags.invalidate();
         dataviewRunner()?.invalidate();
       },
       { defer: true },
@@ -302,7 +287,7 @@ const App: Component = () => {
     const notes: OmniItem[] = files()
       .filter((f) => f.type_id === "markdown")
       .map((f) => ({ kind: "note", title: noteTitle(f.path), path: f.path }));
-    const tags: OmniItem[] = vaultTags().map((t) => ({ kind: "tag", tag: t }));
+    const tags: OmniItem[] = vaultTags.tags().map((t) => ({ kind: "tag", tag: t }));
     const commands: OmniItem[] = OMNI_COMMANDS.map((c) => ({
       kind: "command",
       id: c.id,
@@ -936,7 +921,7 @@ const App: Component = () => {
         title: "Toggle Omni-Bar",
         when: () => vaultId() !== null,
         run: () => {
-          void ensureTagsLoaded();
+          void vaultTags.ensureLoaded();
           setOmniOpen((v) => !v);
         },
       },
