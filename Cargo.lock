@@ -820,7 +820,6 @@ dependencies = [
  "cubical-core",
  "cubical-engine",
  "cubical-ipc",
- "futures-util",
  "nix 0.31.3",
  "portable-pty",
  "serde",
@@ -937,11 +936,13 @@ dependencies = [
  "clap",
  "cubical-core",
  "cubical-engine",
+ "futures-util",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
  "tokio-util",
+ "tracing",
 ]
 
 [[package]]

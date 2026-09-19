@@ -2,12 +2,16 @@
 
 pub mod agent_instructions;
 mod dispatch;
+#[cfg(unix)]
+mod listener;
 pub mod parse;
 mod protocol;
 mod render;
 mod transport;
 
 pub use dispatch::dispatch;
+#[cfg(unix)]
+pub use listener::{bind_socket, serve};
 pub use protocol::{Command, Outcome, Request, Response};
 pub use render::{render, render_to};
 #[cfg(unix)]

@@ -157,3 +157,32 @@ async fn socket_declines_while_the_vault_is_still_scanning() {
     server.await.unwrap();
     assert_eq!(resp, Response::Err("vault is still scanning".to_string()));
 }
+
+#[tokio::test]
+async fn serve_answers_one_client_after_another_on_an_owner_only_socket() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let rt = tempfile::tempdir().unwrap();
+    let sock = rt.path().join("nested").join("app.sock");
+    let listener = cubical_ipc::bind_socket(&sock).unwrap();
+    let mode = std::fs::metadata(&sock).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600);
+
+    let server = tokio::spawn(async move {
+        let state = AppState::new();
+        cubical_ipc::serve(listener, &state, &NoopEventSink).await;
+    });
+    for _ in 0..2 {
+        let resp = client_send(
+            &sock,
+            &Request {
+                vault_path: rt.path().to_path_buf(),
+                command: Command::List,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(resp, Response::Err("vault not open".to_string()));
+    }
+    server.abort();
+}

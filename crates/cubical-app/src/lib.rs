@@ -76,12 +76,14 @@ pub fn run() {
             {
                 let handle = _app.handle().clone();
                 let sock = cubical_ipc::app_socket_path(std::process::id());
-                match bind_socket(&sock) {
+                match cubical_ipc::bind_socket(&sock) {
                     Ok(listener) => {
                         let _ = BOUND_SOCKET.set(sock.clone());
                         tracing::info!("cubical-ipc socket listening at {}", sock.display());
                         tauri::async_runtime::spawn(async move {
-                            serve_socket(handle, listener).await;
+                            let sink = crate::tauri_sink::TauriEventSink::new(handle.clone());
+                            let state = handle.state::<AppState>();
+                            cubical_ipc::serve(listener, state.inner(), &sink).await;
                         });
                     }
                     Err(e) => {
@@ -193,65 +195,6 @@ fn remove_bound_socket() {
             if e.kind() != std::io::ErrorKind::NotFound {
                 tracing::warn!("could not remove {}: {e}", sock.display());
             }
-        }
-    }
-}
-
-#[cfg(unix)]
-fn bind_socket(sock: &std::path::Path) -> std::io::Result<std::os::unix::net::UnixListener> {
-    use std::os::unix::fs::PermissionsExt;
-
-    if let Some(parent) = sock.parent() {
-        std::fs::create_dir_all(parent)?;
-        if let Err(e) = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700)) {
-            tracing::warn!("could not restrict {}: {e}", parent.display());
-        }
-    }
-    if let Err(e) = std::fs::remove_file(sock) {
-        if e.kind() != std::io::ErrorKind::NotFound {
-            tracing::warn!("could not clear stale socket {}: {e}", sock.display());
-        }
-    }
-    let listener = std::os::unix::net::UnixListener::bind(sock)?;
-    std::fs::set_permissions(sock, std::fs::Permissions::from_mode(0o600))?;
-    listener.set_nonblocking(true)?;
-    Ok(listener)
-}
-
-#[cfg(unix)]
-const ACCEPT_ERROR_BACKOFF: std::time::Duration = std::time::Duration::from_millis(100);
-
-#[cfg(unix)]
-async fn serve_socket(app: tauri::AppHandle, listener: std::os::unix::net::UnixListener) {
-    use tauri::Manager;
-
-    let listener = match tokio::net::UnixListener::from_std(listener) {
-        Ok(l) => l,
-        Err(e) => {
-            tracing::warn!("cubical-ipc socket could not join the runtime: {e}");
-            return;
-        }
-    };
-    loop {
-        let stream = match listener.accept().await {
-            Ok((stream, _)) => stream,
-            Err(e) => {
-                tracing::warn!("cubical-ipc accept failed: {e}");
-                tokio::time::sleep(ACCEPT_ERROR_BACKOFF).await;
-                continue;
-            }
-        };
-        let state = app.state::<AppState>();
-        let sink = crate::tauri_sink::TauriEventSink::new(app.clone());
-        let served = std::panic::AssertUnwindSafe(cubical_ipc::handle_connection(
-            stream,
-            state.inner(),
-            &sink,
-        ));
-        match futures_util::FutureExt::catch_unwind(served).await {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => tracing::warn!("cubical-ipc connection error: {e}"),
-            Err(_) => tracing::error!("cubical-ipc connection handler panicked"),
         }
     }
 }
