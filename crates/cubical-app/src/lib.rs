@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod agent_instructions;
+mod app_store;
 mod graph;
 mod recent_vaults;
 mod tab_sessions;

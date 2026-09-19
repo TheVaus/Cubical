@@ -45,7 +45,7 @@ pub fn record(store: &Path, vault_path: &str, now_unix: i64) {
         },
     );
     entries.truncate(CAP);
-    let _ = atomic_write(store, &entries);
+    crate::app_store::write_json(store, &entries);
 }
 
 pub fn remove(store: &Path, vault_path: &str) {
@@ -53,7 +53,7 @@ pub fn remove(store: &Path, vault_path: &str) {
     let before = entries.len();
     entries.retain(|e| e.path != vault_path);
     if entries.len() != before {
-        let _ = atomic_write(store, &entries);
+        crate::app_store::write_json(store, &entries);
     }
 }
 
@@ -69,17 +69,6 @@ pub fn list_with_existence(store: &Path) -> Vec<RecentVault> {
             }
         })
         .collect()
-}
-
-fn atomic_write(store: &Path, entries: &[RecentVaultEntry]) -> std::io::Result<()> {
-    if let Some(parent) = store.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let json = serde_json::to_vec_pretty(entries)?;
-    let tmp = store.with_extension("json.tmp");
-    std::fs::write(&tmp, &json)?;
-    std::fs::rename(&tmp, store)?;
-    Ok(())
 }
 
 #[cfg(test)]
