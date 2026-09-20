@@ -253,17 +253,11 @@ mod tests {
         let dir = tempdir().expect("tmpdir");
         let vault = Vault::open(dir.path()).await.expect("open");
         let state = AppState::new();
-        state.vaults().write().await.insert(
-            vault_id.to_string(),
-            OpenVault::new(
-                vault.clone(),
-                crate::search_handle::SearchHandle::open(&vault).await,
-                CancellationToken::new(),
-                ScanStatusBackend::Complete,
-                None,
-                cubical_core::vault::settings::SettingsMap::new(),
-            ),
-        );
+        state
+            .vaults()
+            .write()
+            .await
+            .insert(vault_id.to_string(), OpenVault::for_test(&vault).await);
         (dir, vault, state)
     }
 
@@ -274,17 +268,11 @@ mod tests {
             let root = dir.path().join(id);
             std::fs::create_dir_all(&root).expect("mkdir");
             let vault = Vault::open(&root).await.expect("open");
-            state.vaults().write().await.insert(
-                (*id).to_string(),
-                OpenVault::new(
-                    vault.clone(),
-                    crate::search_handle::SearchHandle::open(&vault).await,
-                    CancellationToken::new(),
-                    ScanStatusBackend::Complete,
-                    None,
-                    cubical_core::vault::settings::SettingsMap::new(),
-                ),
-            );
+            state
+                .vaults()
+                .write()
+                .await
+                .insert((*id).to_string(), OpenVault::for_test(&vault).await);
         }
         (dir, Arc::new(state))
     }

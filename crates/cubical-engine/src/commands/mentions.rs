@@ -281,17 +281,11 @@ mod tests {
         let dir = tempdir().unwrap();
         let vault = Vault::open(dir.path()).await.expect("open");
         let state = AppState::new();
-        state.vaults().write().await.insert(
-            vault_id.into(),
-            OpenVault::new(
-                vault.clone(),
-                crate::search_handle::SearchHandle::open(&vault).await,
-                CancellationToken::new(),
-                ScanStatusBackend::Complete,
-                None,
-                cubical_core::vault::settings::SettingsMap::new(),
-            ),
-        );
+        state
+            .vaults()
+            .write()
+            .await
+            .insert(vault_id.into(), OpenVault::for_test(&vault).await);
         (dir, vault, state)
     }
 

@@ -1512,17 +1512,11 @@ mod tests {
         let dir = tempdir().unwrap();
         let vault = Vault::open(dir.path()).await.expect("open");
         let state = AppState::new();
-        state.vaults().write().await.insert(
-            vault_id.into(),
-            OpenVault::new(
-                vault.clone(),
-                crate::search_handle::SearchHandle::open(&vault).await,
-                CancellationToken::new(),
-                ScanStatusBackend::Complete,
-                None,
-                cubical_core::vault::settings::SettingsMap::new(),
-            ),
-        );
+        state
+            .vaults()
+            .write()
+            .await
+            .insert(vault_id.into(), OpenVault::for_test(&vault).await);
         (dir, vault, state)
     }
 
@@ -2110,17 +2104,11 @@ mod tests {
         {
             let vault = Vault::open(&root).await.expect("first open");
             let state = AppState::new();
-            state.vaults().write().await.insert(
-                "v1".into(),
-                OpenVault::new(
-                    vault.clone(),
-                    crate::search_handle::SearchHandle::open(&vault).await,
-                    CancellationToken::new(),
-                    ScanStatusBackend::Complete,
-                    None,
-                    cubical_core::vault::settings::SettingsMap::new(),
-                ),
-            );
+            state
+                .vaults()
+                .write()
+                .await
+                .insert("v1".into(), OpenVault::for_test(&vault).await);
             seed_one_referrer_to_daily(&vault).await;
 
             rename_file(
@@ -3761,17 +3749,11 @@ mod tests {
         .expect("rescan");
 
         let state = AppState::new();
-        state.vaults().write().await.insert(
-            "v1".to_string(),
-            OpenVault::new(
-                vault.clone(),
-                crate::search_handle::SearchHandle::open(&vault).await,
-                CancellationToken::new(),
-                ScanStatusBackend::Complete,
-                None,
-                cubical_core::vault::settings::SettingsMap::new(),
-            ),
-        );
+        state
+            .vaults()
+            .write()
+            .await
+            .insert("v1".to_string(), OpenVault::for_test(&vault).await);
         replay_rename_journal(&vault, &NoopEventSink, "v1").await;
 
         let mut rows = vault

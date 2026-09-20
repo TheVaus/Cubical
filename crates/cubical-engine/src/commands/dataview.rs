@@ -177,17 +177,11 @@ mod tests {
         let dir = tempdir().unwrap();
         let vault = Vault::open(dir.path()).await.expect("open");
         let state = AppState::new();
-        state.vaults().write().await.insert(
-            vault_id.to_string(),
-            OpenVault::new(
-                vault.clone(),
-                crate::search_handle::SearchHandle::open(&vault).await,
-                CancellationToken::new(),
-                ScanStatusBackend::Complete,
-                None,
-                cubical_core::vault::settings::SettingsMap::new(),
-            ),
-        );
+        state
+            .vaults()
+            .write()
+            .await
+            .insert(vault_id.to_string(), OpenVault::for_test(&vault).await);
         (dir, vault, state)
     }
 
@@ -209,17 +203,11 @@ mod tests {
         .expect("scan");
         drain.await.unwrap();
         let state = AppState::new();
-        state.vaults().write().await.insert(
-            vault_id.to_string(),
-            OpenVault::new(
-                vault.clone(),
-                crate::search_handle::SearchHandle::open(&vault).await,
-                CancellationToken::new(),
-                ScanStatusBackend::Complete,
-                None,
-                cubical_core::vault::settings::SettingsMap::new(),
-            ),
-        );
+        state
+            .vaults()
+            .write()
+            .await
+            .insert(vault_id.to_string(), OpenVault::for_test(&vault).await);
         (dir, state)
     }
 
@@ -237,17 +225,11 @@ mod tests {
         fs::write(&target, body).unwrap();
         let vault = Vault::open(dir.path()).await.expect("open");
         let state = AppState::new();
-        state.vaults().write().await.insert(
-            "v1".to_string(),
-            OpenVault::new(
-                vault.clone(),
-                crate::search_handle::SearchHandle::open(&vault).await,
-                CancellationToken::new(),
-                ScanStatusBackend::Complete,
-                None,
-                cubical_core::vault::settings::SettingsMap::new(),
-            ),
-        );
+        state
+            .vaults()
+            .write()
+            .await
+            .insert("v1".to_string(), OpenVault::for_test(&vault).await);
         (dir, state)
     }
 
@@ -342,17 +324,11 @@ mod tests {
         .expect("scan");
         drain.await.unwrap();
         let state = AppState::new();
-        state.vaults().write().await.insert(
-            "v1".to_string(),
-            OpenVault::new(
-                vault.clone(),
-                crate::search_handle::SearchHandle::open(&vault).await,
-                CancellationToken::new(),
-                ScanStatusBackend::Complete,
-                None,
-                cubical_core::vault::settings::SettingsMap::new(),
-            ),
-        );
+        state
+            .vaults()
+            .write()
+            .await
+            .insert("v1".to_string(), OpenVault::for_test(&vault).await);
 
         match run_query(&state, "v1", r#"LIST FROM "archive.csv""#).await {
             DataviewResult::List { items } => {
@@ -393,17 +369,11 @@ mod tests {
         fs::copy(&fixture, &target).expect("copy the workbook fixture");
         let vault = Vault::open(dir.path()).await.expect("open");
         let state = AppState::new();
-        state.vaults().write().await.insert(
-            "v1".to_string(),
-            OpenVault::new(
-                vault.clone(),
-                crate::search_handle::SearchHandle::open(&vault).await,
-                CancellationToken::new(),
-                ScanStatusBackend::Complete,
-                None,
-                cubical_core::vault::settings::SettingsMap::new(),
-            ),
-        );
+        state
+            .vaults()
+            .write()
+            .await
+            .insert("v1".to_string(), OpenVault::for_test(&vault).await);
         (dir, state)
     }
 

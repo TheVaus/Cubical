@@ -17,17 +17,11 @@ pub(super) async fn vault_with(files: &[(&str, &str)]) -> (TempDir, Vault, AppSt
     let vault = Vault::open(dir.path()).await.expect("open");
     scan(&vault).await;
     let state = AppState::new();
-    state.vaults().write().await.insert(
-        "v1".to_string(),
-        OpenVault::new(
-            vault.clone(),
-            crate::search_handle::SearchHandle::open(&vault).await,
-            CancellationToken::new(),
-            ScanStatusBackend::Complete,
-            None,
-            cubical_core::vault::settings::SettingsMap::new(),
-        ),
-    );
+    state
+        .vaults()
+        .write()
+        .await
+        .insert("v1".to_string(), OpenVault::for_test(&vault).await);
     (dir, vault, state)
 }
 

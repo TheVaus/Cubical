@@ -276,14 +276,7 @@ mod tests {
         let state = AppState::new();
         state.vaults().write().await.insert(
             vault_id.to_string(),
-            OpenVault::new(
-                vault.clone(),
-                crate::search_handle::SearchHandle::open(&vault).await,
-                tokio_util::sync::CancellationToken::new(),
-                ScanStatusBackend::Complete,
-                None,
-                settings,
-            ),
+            OpenVault::for_test_with(&vault, settings).await,
         );
         (dir, state)
     }

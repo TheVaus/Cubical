@@ -51,17 +51,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let vault = Vault::open(dir.path()).await.expect("open");
         let state = AppState::new();
-        state.vaults().write().await.insert(
-            vault_id.to_string(),
-            OpenVault::new(
-                vault.clone(),
-                crate::search_handle::SearchHandle::open(&vault).await,
-                CancellationToken::new(),
-                ScanStatusBackend::Complete,
-                None,
-                cubical_core::vault::settings::SettingsMap::new(),
-            ),
-        );
+        state
+            .vaults()
+            .write()
+            .await
+            .insert(vault_id.to_string(), OpenVault::for_test(&vault).await);
         (dir, state)
     }
 
@@ -78,17 +72,11 @@ mod tests {
     async fn the_read_guard_is_released_before_the_caller_resumes() {
         let (_dir, state) = state_with_vault("v1").await;
         let vault = open_vault_cloned(&state, "v1").await.expect("cloned");
-        state.vaults().write().await.insert(
-            "v2".into(),
-            OpenVault::new(
-                vault.clone(),
-                crate::search_handle::SearchHandle::open(&vault).await,
-                CancellationToken::new(),
-                ScanStatusBackend::Complete,
-                None,
-                cubical_core::vault::settings::SettingsMap::new(),
-            ),
-        );
+        state
+            .vaults()
+            .write()
+            .await
+            .insert("v2".into(), OpenVault::for_test(&vault).await);
         assert_eq!(state.vaults().read().await.len(), 2);
     }
 }

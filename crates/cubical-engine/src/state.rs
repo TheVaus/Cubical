@@ -145,3 +145,21 @@ impl AppState {
         format!("v{n}")
     }
 }
+
+#[cfg(test)]
+impl OpenVault {
+    pub(crate) async fn for_test(vault: &Vault) -> Self {
+        Self::for_test_with(vault, SettingsMap::new()).await
+    }
+
+    pub(crate) async fn for_test_with(vault: &Vault, settings: SettingsMap) -> Self {
+        Self::new(
+            vault.clone(),
+            SearchHandle::open(vault).await,
+            CancellationToken::new(),
+            ScanStatusBackend::Complete,
+            None,
+            settings,
+        )
+    }
+}

@@ -812,17 +812,11 @@ mod tests {
         let dir = tempdir().unwrap();
         let vault = Vault::open(dir.path()).await.expect("open");
         let state = AppState::new();
-        state.vaults().write().await.insert(
-            vault_id.to_string(),
-            OpenVault::new(
-                vault.clone(),
-                crate::search_handle::SearchHandle::open(&vault).await,
-                tokio_util::sync::CancellationToken::new(),
-                ScanStatusBackend::Complete,
-                None,
-                cubical_core::vault::settings::SettingsMap::new(),
-            ),
-        );
+        state
+            .vaults()
+            .write()
+            .await
+            .insert(vault_id.to_string(), OpenVault::for_test(&vault).await);
         (dir, vault, state)
     }
 
@@ -2253,17 +2247,11 @@ mod tests {
         {
             let vault = Vault::open(dir.path()).await.expect("first open");
             let state = AppState::new();
-            state.vaults().write().await.insert(
-                "v1".into(),
-                OpenVault::new(
-                    vault.clone(),
-                    crate::search_handle::SearchHandle::open(&vault).await,
-                    tokio_util::sync::CancellationToken::new(),
-                    ScanStatusBackend::Complete,
-                    None,
-                    cubical_core::vault::settings::SettingsMap::new(),
-                ),
-            );
+            state
+                .vaults()
+                .write()
+                .await
+                .insert("v1".into(), OpenVault::for_test(&vault).await);
             set_setting(
                 &state,
                 SetSettingRequest {
@@ -2281,14 +2269,7 @@ mod tests {
         let state = AppState::new();
         state.vaults().write().await.insert(
             "v1".into(),
-            OpenVault::new(
-                vault.clone(),
-                crate::search_handle::SearchHandle::open(&vault).await,
-                tokio_util::sync::CancellationToken::new(),
-                ScanStatusBackend::Complete,
-                None,
-                loaded_settings,
-            ),
+            OpenVault::for_test_with(&vault, loaded_settings).await,
         );
 
         let resp = get_setting(

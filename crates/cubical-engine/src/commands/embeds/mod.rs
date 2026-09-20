@@ -153,17 +153,11 @@ mod tests {
     async fn state_with_vault_at(dir: &std::path::Path, vault_id: &str) -> (Vault, AppState) {
         let vault = Vault::open(dir).await.expect("open");
         let state = AppState::new();
-        state.vaults().write().await.insert(
-            vault_id.to_string(),
-            OpenVault::new(
-                vault.clone(),
-                crate::search_handle::SearchHandle::open(&vault).await,
-                CancellationToken::new(),
-                ScanStatusBackend::Complete,
-                None,
-                cubical_core::vault::settings::SettingsMap::new(),
-            ),
-        );
+        state
+            .vaults()
+            .write()
+            .await
+            .insert(vault_id.to_string(), OpenVault::for_test(&vault).await);
         (vault, state)
     }
 
