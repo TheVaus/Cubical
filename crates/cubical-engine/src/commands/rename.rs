@@ -24,7 +24,7 @@ use crate::api::types::{
     RenameFileRequest, RenameFileResponse, RenameFolderRequest, RenameFolderResponse,
     RenameTagRequest, RenameTagResponse, UndoRenameRequest, UndoRenameResponse,
 };
-use crate::commands::link_match::link_name_forms;
+use crate::commands::link_match::{link_name_forms, UNRESOLVED_PREDICATE};
 use crate::commands::open::{open_vault_cloned, with_open_vault};
 use crate::commands::paths;
 use crate::error::CubicalError;
@@ -1347,7 +1347,9 @@ async fn select_broken_referrers_naming(
 ) -> Result<Vec<(String, String)>, CubicalError> {
     let mut rows = conn
         .query(
-            "SELECT DISTINCT source_path, target_raw FROM links WHERE target_path IS NULL",
+            &format!(
+                "SELECT DISTINCT source_path, target_raw FROM links WHERE {UNRESOLVED_PREDICATE}"
+            ),
             (),
         )
         .await?;
@@ -1372,7 +1374,7 @@ pub(super) async fn reconnect_broken_links_to(
     {
         let mut rows = tx
             .query(
-                "SELECT DISTINCT target_raw FROM links WHERE target_path IS NULL",
+                &format!("SELECT DISTINCT target_raw FROM links WHERE {UNRESOLVED_PREDICATE}"),
                 (),
             )
             .await?;
@@ -1385,8 +1387,10 @@ pub(super) async fn reconnect_broken_links_to(
     }
     for target_raw in matched {
         tx.execute(
-            "UPDATE links SET target_path = ?1 \
-             WHERE target_path IS NULL AND target_raw = ?2",
+            &format!(
+                "UPDATE links SET target_path = ?1 \
+                 WHERE {UNRESOLVED_PREDICATE} AND target_raw = ?2"
+            ),
             params![to_path, target_raw],
         )
         .await?;

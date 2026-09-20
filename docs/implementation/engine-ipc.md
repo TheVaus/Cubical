@@ -393,6 +393,16 @@ a title no other feature — search, autocomplete, dataview, graph — would giv
 it. Exact matching also restores `idx_frontmatter_key`: `LOWER(key) = ?` is a
 function of the column, so it scanned every frontmatter row in the vault.
 
+**Two predicates, on purpose.** `link_match` holds both, side by side, because
+the temptation is to make them one. `DANGLING_PREDICATE` is what integrity
+reports; `UNRESOLVED_PREDICATE` — `target_path IS NULL` — is the only thing a
+rename will silently reattach. The narrow one is a strict subset, so reusing the
+broad one for rename would not report more, it would *rewrite* more: a link
+whose target was deleted still names the path it resolved to, and repointing it
+at whatever file a later rename happens to give that basename is a silent edit
+nobody asked for. `a_stale_target_is_dangling_but_is_never_silently_reattached`
+pins the difference.
+
 **What counts as dangling.** A link row whose `target_path` no longer names a
 tracked file. Two shapes reach that state: a stale non-null path (the watcher's
 `Removed` arm deletes the `files` row and leaves referring link rows pointing at

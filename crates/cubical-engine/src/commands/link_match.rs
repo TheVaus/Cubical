@@ -1,6 +1,11 @@
 use cubical_ast::{note_title, strip_markdown_extension};
 use cubical_index::names_eq_folded;
 
+pub(crate) const DANGLING_PREDICATE: &str =
+    "(target_path IS NULL OR target_path NOT IN (SELECT path FROM files))";
+
+pub(crate) const UNRESOLVED_PREDICATE: &str = "target_path IS NULL";
+
 pub(crate) fn link_name_forms(path: &str) -> (String, String) {
     (
         note_title(path).to_string(),
@@ -158,6 +163,52 @@ mod tests {
         "notes/Straße",
         "  plan  ",
     ];
+
+    async fn count_matching(conn: &libsql::Connection, predicate: &str) -> i64 {
+        let sql = format!("SELECT COUNT(*) FROM links WHERE {predicate}");
+        let mut rows = conn.query(&sql, ()).await.unwrap();
+        rows.next().await.unwrap().unwrap().get(0).unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_stale_target_is_dangling_but_is_never_silently_reattached() {
+        let dir = tempdir().unwrap();
+        let vault = Vault::open(dir.path()).await.expect("open");
+        let conn = vault.index().connection();
+        conn.execute(
+            "INSERT INTO files (
+                 path, type_id, size_bytes, mtime_unix, content_hash,
+                 inode, last_seen, created_at, updated_at
+             ) VALUES ('src.md', 'markdown', 0, 0, '', NULL, 0, 0, 0)",
+            (),
+        )
+        .await
+        .unwrap();
+        conn.execute(
+            "INSERT INTO links \
+             (source_path, target_raw, target_path, is_embed, position) \
+             VALUES ('src.md', 'plan', 'notes/plan.md', 0, 0)",
+            (),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(count_matching(conn, DANGLING_PREDICATE).await, 1);
+        assert_eq!(count_matching(conn, UNRESOLVED_PREDICATE).await, 0);
+
+        let tx = conn.transaction().await.unwrap();
+        reconnect_broken_links_to(&tx, "reattached.md", "plan", "notes/plan")
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+
+        let mut rows = conn
+            .query("SELECT target_path FROM links", ())
+            .await
+            .unwrap();
+        let landed: String = rows.next().await.unwrap().unwrap().get(0).unwrap();
+        assert_eq!(landed, "notes/plan.md");
+    }
 
     #[tokio::test]
     async fn classification_agrees_with_the_reattachment_predicate() {

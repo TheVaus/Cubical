@@ -11,7 +11,7 @@ use crate::commands::open::open_vault_cloned;
 use crate::error::CubicalError;
 use crate::state::AppState;
 
-use super::DANGLING_PREDICATE;
+use crate::commands::link_match::DANGLING_PREDICATE;
 
 const DEFAULT_GROUP_LIMIT: usize = 200;
 const MAX_CANDIDATES: usize = 5;
