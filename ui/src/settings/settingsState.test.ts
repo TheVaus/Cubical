@@ -11,8 +11,20 @@ vi.mock("../styles/theme", () => ({
 }));
 
 import { getSetting, setSetting } from "../api/ipc";
+import { propertiesBlockSettings } from "../properties/formats";
+import { STATUSBAR_SEGMENTS, VAULT_PATH_SEGMENT } from "../statusbar/segments";
+import {
+  registerStatusbarSegments,
+  statusbarBlockSettings,
+} from "../statusbar/statusbarSettings";
+import { registerBlockSettings } from "./blockSettings";
 import { createSettingsState } from "./settingsState";
-import { VAULT_PATH_SEGMENT } from "../statusbar/segments";
+
+registerStatusbarSegments(STATUSBAR_SEGMENTS);
+registerBlockSettings([
+  ...statusbarBlockSettings(),
+  ...propertiesBlockSettings(),
+]);
 
 const stored = getSetting as unknown as ReturnType<typeof vi.fn>;
 const written = setSetting as unknown as ReturnType<typeof vi.fn>;
@@ -94,12 +106,12 @@ describe("persistence", () => {
   });
 });
 
-describe("statusbar", () => {
-  it("toggles the bar through the enabled key", () => {
+describe("block settings", () => {
+  it("toggles a registered boolean key without naming its block", () => {
     const s = build();
-    const before = s.statusbarEnabled();
-    s.toggleStatusbar();
-    expect(s.statusbarEnabled()).toBe(!before);
+    const before = s.value("statusbar.enabled");
+    s.toggle("statusbar.enabled");
+    expect(s.value("statusbar.enabled")).toBe(!before);
   });
 
   it("leaves plugin state alone when no vault is open", () => {
@@ -114,9 +126,9 @@ describe("hydrate", () => {
     stored.mockResolvedValue(null);
     const s = build();
     await s.hydrate("v1");
-    expect(s.dateDefault()).toBe("YYYY-MM-DD");
-    expect(s.currencyDefault()).toBe("usd");
-    expect(s.tagsKeyAsTags()).toBe(true);
+    expect(s.value("properties.date_format_default")).toBe("YYYY-MM-DD");
+    expect(s.value("properties.default_currency")).toBe("usd");
+    expect(s.value("properties.tags_key_as_tags")).toBe(true);
   });
 
   it("does not carry the previous vault's theme into one that stores none", async () => {
@@ -147,7 +159,7 @@ describe("hydrate", () => {
     );
     const s = build();
     await s.hydrate("v1");
-    expect(s.currencyDefault()).toBe("eur");
+    expect(s.value("properties.default_currency")).toBe("eur");
   });
 });
 
@@ -171,20 +183,19 @@ describe("resetForVaultSwitch", () => {
     expect(written).not.toHaveBeenCalled();
   });
 
-  it("drops the outgoing vault's plugin and statusbar toggles", () => {
+  it("drops the outgoing vault's plugin and block settings", () => {
     const s = build();
     s.setCorePlugin("dataview", "plugins.dataview_enabled", false);
-    s.setStatusbarSetting(VAULT_PATH_SEGMENT.settingKey, false);
-    s.toggleStatusbar();
+    s.setValue(VAULT_PATH_SEGMENT.settingKey, false);
+    s.toggle("statusbar.enabled");
     expect(s.corePlugins()).toEqual({ dataview: false });
-    expect(s.segVisible(VAULT_PATH_SEGMENT)).toBe(false);
-    expect(s.statusbarEnabled()).toBe(false);
+    expect(s.value(VAULT_PATH_SEGMENT.settingKey)).toBe(false);
+    expect(s.value("statusbar.enabled")).toBe(false);
 
     s.resetForVaultSwitch();
 
     expect(s.corePlugins()).toEqual({});
-    expect(s.statusbarConfig()).toEqual({});
-    expect(s.segVisible(VAULT_PATH_SEGMENT)).toBe(true);
-    expect(s.statusbarEnabled()).toBe(true);
+    expect(s.value(VAULT_PATH_SEGMENT.settingKey)).toBe(true);
+    expect(s.value("statusbar.enabled")).toBe(true);
   });
 });

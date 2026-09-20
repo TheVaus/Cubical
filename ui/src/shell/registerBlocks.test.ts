@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, test } from "vitest";
 
 import {
@@ -5,7 +6,7 @@ import {
   corePluginEnabled,
   registeredCorePlugins,
 } from "../settings/corePlugins";
-import { registeredStatusbarSegments } from "../settings/statusbarSettings";
+import { registeredStatusbarSegments } from "../statusbar/statusbarSettings";
 import { STATUSBAR_SEGMENTS } from "../statusbar/segments";
 import { registerBlocks } from "./registerBlocks";
 

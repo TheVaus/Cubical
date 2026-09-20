@@ -1,4 +1,5 @@
-import type { BooleanSettingKey } from "./corePlugins";
+import { blockSetting, type BlockSetting } from "../settings/blockSettings";
+import type { BooleanSettingKey } from "../settings/corePlugins";
 
 export const STATUSBAR_ENABLED_KEY = "statusbar.enabled" as const;
 
@@ -26,9 +27,9 @@ export function registeredStatusbarSegments(): readonly StatusbarSegment[] {
   return registry;
 }
 
-export function segmentVisible(
-  state: Record<string, boolean>,
-  seg: StatusbarSegment,
-): boolean {
-  return state[seg.settingKey] ?? seg.defaultVisible;
+export function statusbarBlockSettings(): BlockSetting[] {
+  return [
+    blockSetting(STATUSBAR_ENABLED_KEY, STATUSBAR_DEFAULT),
+    ...registry.map((seg) => blockSetting(seg.settingKey, seg.defaultVisible)),
+  ];
 }

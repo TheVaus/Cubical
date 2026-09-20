@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  STATUSBAR_DEFAULT,
   STATUSBAR_ENABLED_KEY,
-  segmentVisible,
-} from "../settings/statusbarSettings";
+  registerStatusbarSegments,
+  statusbarBlockSettings,
+} from "./statusbarSettings";
 import { STATUSBAR_SEGMENTS, VAULT_PATH_SEGMENT } from "./segments";
+
+registerStatusbarSegments(STATUSBAR_SEGMENTS);
 
 describe("statusbar segments", () => {
   it("exposes exactly the four configurable item segments", () => {
@@ -28,15 +32,22 @@ describe("statusbar segments", () => {
     );
   });
 
-  it("segmentVisible returns the stored value when present", () => {
-    const seg = VAULT_PATH_SEGMENT;
-    expect(segmentVisible({ [seg.settingKey]: false }, seg)).toBe(false);
-    expect(segmentVisible({ [seg.settingKey]: true }, seg)).toBe(true);
+  it("contributes the master key and every segment key, with its default", () => {
+    const declared = statusbarBlockSettings();
+    expect(declared[0]).toEqual({
+      key: STATUSBAR_ENABLED_KEY,
+      fallback: STATUSBAR_DEFAULT,
+    });
+    expect(declared.slice(1)).toEqual(
+      STATUSBAR_SEGMENTS.map((seg) => ({
+        key: seg.settingKey,
+        fallback: seg.defaultVisible,
+      })),
+    );
   });
 
-  it("segmentVisible falls back to the default (visible) when absent", () => {
-    const seg = VAULT_PATH_SEGMENT;
-    expect(segmentVisible({}, seg)).toBe(seg.defaultVisible);
-    expect(seg.defaultVisible).toBe(true);
+  it("ships every segment visible, so the bar is whole until configured", () => {
+    expect(VAULT_PATH_SEGMENT.defaultVisible).toBe(true);
+    expect(STATUSBAR_SEGMENTS.every((seg) => seg.defaultVisible)).toBe(true);
   });
 });

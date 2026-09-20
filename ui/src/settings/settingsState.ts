@@ -1,6 +1,6 @@
 import { createMemo, createSignal, type Accessor } from "solid-js";
 
-import { getSetting } from "../api/ipc";
+import { getSetting, type Setting, type SettingValue } from "../api/ipc";
 import { persistSetting, seedSetting } from "../core/settings";
 import { resolveBindings, type KeyBinding } from "../core/commands";
 import { clampLimit } from "../tabs/lru";
@@ -10,15 +10,13 @@ import {
   type ResolvedTheme,
   type ThemeMode,
 } from "../styles/theme";
+import {
+  fallbackFor,
+  registeredBlockSettings,
+  type SettingKey,
+} from "./blockSettings";
 import { registeredCorePlugins, type BooleanSettingKey } from "./corePlugins";
 import { SETTINGS_DEFAULTS } from "./defaults";
-import {
-  STATUSBAR_DEFAULT,
-  STATUSBAR_ENABLED_KEY,
-  registeredStatusbarSegments,
-  segmentVisible,
-  type StatusbarSegment,
-} from "./statusbarSettings";
 
 export type RightSidebarPanel = "backlinks" | "unlinked_mentions" | "integrity";
 export type LeftSidebarMode = "files" | "tags";
@@ -49,15 +47,6 @@ export interface SettingsState {
   rewriteBrokenLinks: Accessor<boolean>;
   setRewriteBrokenLinksValue: (value: boolean) => void;
 
-  typedProps: Accessor<boolean>;
-  setTypedPropsValue: (value: boolean) => void;
-  dateDefault: Accessor<string>;
-  setDateDefaultValue: (value: string) => void;
-  currencyDefault: Accessor<string>;
-  setCurrencyDefaultValue: (value: string) => void;
-  tagsKeyAsTags: Accessor<boolean>;
-  setTagsKeyAsTagsValue: (value: boolean) => void;
-
   corePlugins: Accessor<Record<string, boolean>>;
   setCorePlugin: (
     id: string,
@@ -65,11 +54,9 @@ export interface SettingsState {
     value: boolean,
   ) => void;
 
-  statusbarConfig: Accessor<Record<string, boolean>>;
-  statusbarEnabled: Accessor<boolean>;
-  segVisible: (segment: StatusbarSegment) => boolean;
-  setStatusbarSetting: (key: BooleanSettingKey, value: boolean) => void;
-  toggleStatusbar: () => void;
+  value: <K extends SettingKey>(key: K) => SettingValue<K>;
+  setValue: <K extends SettingKey>(key: K, value: SettingValue<K>) => void;
+  toggle: (key: BooleanSettingKey) => void;
 
   rightSidebarCollapsed: Accessor<boolean>;
   toggleRightSidebar: () => void;
@@ -110,21 +97,11 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
   const [rewriteBrokenLinks, setRewriteBrokenLinks] = createSignal(
     SETTINGS_DEFAULTS.rewriteBrokenLinks,
   );
-  const [typedProps, setTypedProps] = createSignal(SETTINGS_DEFAULTS.typedProps);
-  const [dateDefault, setDateDefault] = createSignal(
-    SETTINGS_DEFAULTS.dateDefault,
-  );
-  const [currencyDefault, setCurrencyDefault] = createSignal(
-    SETTINGS_DEFAULTS.currencyDefault,
-  );
-  const [tagsKeyAsTags, setTagsKeyAsTags] = createSignal(
-    SETTINGS_DEFAULTS.tagsKeyAsTags,
-  );
   const [corePlugins, setCorePlugins] = createSignal<Record<string, boolean>>(
     {},
   );
-  const [statusbarConfig, setStatusbarConfig] = createSignal<
-    Record<string, boolean>
+  const [blockValues, setBlockValues] = createSignal<
+    Record<string, Setting["value"]>
   >({});
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = createSignal(
     SETTINGS_DEFAULTS.rightSidebarCollapsed,
@@ -144,10 +121,8 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
   const effectiveBindings = createMemo(() =>
     resolveBindings(shortcutOverrides()),
   );
-  const statusbarEnabled = () =>
-    statusbarConfig()[STATUSBAR_ENABLED_KEY] ?? STATUSBAR_DEFAULT;
-  const segVisible = (seg: StatusbarSegment) =>
-    segmentVisible(statusbarConfig(), seg);
+  const value = <K extends SettingKey>(key: K): SettingValue<K> =>
+    (blockValues()[key] ?? fallbackFor(key)) as SettingValue<K>;
 
   const setTheme = (mode: ThemeMode) => {
     setThemeMode(mode);
@@ -186,26 +161,6 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
     persistSetting(vid(), "wikilinks.rewrite_broken_links_on_rename", value);
   };
 
-  const setTypedPropsValue = (value: boolean) => {
-    setTypedProps(value);
-    persistSetting(vid(), "properties.typed_enabled", value);
-  };
-
-  const setDateDefaultValue = (value: string) => {
-    setDateDefault(value);
-    persistSetting(vid(), "properties.date_format_default", value);
-  };
-
-  const setCurrencyDefaultValue = (value: string) => {
-    setCurrencyDefault(value);
-    persistSetting(vid(), "properties.default_currency", value);
-  };
-
-  const setTagsKeyAsTagsValue = (value: boolean) => {
-    setTagsKeyAsTags(value);
-    persistSetting(vid(), "properties.tags_key_as_tags", value);
-  };
-
   const setCorePlugin = (
     id: string,
     settingKey: BooleanSettingKey,
@@ -217,15 +172,12 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
     persistSetting(v, settingKey, value);
   };
 
-  const setStatusbarSetting = (key: BooleanSettingKey, value: boolean) => {
-    const v = vid();
-    if (!v) return;
-    setStatusbarConfig((prev) => ({ ...prev, [key]: value }));
-    persistSetting(v, key, value);
+  const setValue = <K extends SettingKey>(key: K, next: SettingValue<K>) => {
+    setBlockValues((prev) => ({ ...prev, [key]: next }));
+    persistSetting(vid(), key, next);
   };
 
-  const toggleStatusbar = () =>
-    setStatusbarSetting(STATUSBAR_ENABLED_KEY, !statusbarEnabled());
+  const toggle = (key: BooleanSettingKey) => setValue(key, !value(key));
 
   const toggleRightSidebar = () => {
     const next = !rightSidebarCollapsed();
@@ -258,7 +210,7 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
     setLeftSidebarMode("files");
     setShortcutOverrides({});
     setCorePlugins({});
-    setStatusbarConfig({});
+    setBlockValues({});
   };
 
   const hydrate = async (vaultId: string) => {
@@ -302,31 +254,6 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
       SETTINGS_DEFAULTS.rewriteBrokenLinks,
       setRewriteBrokenLinks,
     );
-    await seedSetting(
-      vaultId,
-      "properties.typed_enabled",
-      SETTINGS_DEFAULTS.typedProps,
-      setTypedProps,
-    );
-    await seedSetting(
-      vaultId,
-      "properties.date_format_default",
-      SETTINGS_DEFAULTS.dateDefault,
-      setDateDefault,
-    );
-    await seedSetting(
-      vaultId,
-      "properties.default_currency",
-      SETTINGS_DEFAULTS.currencyDefault,
-      setCurrencyDefault,
-    );
-    await seedSetting(
-      vaultId,
-      "properties.tags_key_as_tags",
-      SETTINGS_DEFAULTS.tagsKeyAsTags,
-      setTagsKeyAsTags,
-    );
-
     const enabled: Record<string, boolean> = {};
     for (const p of registeredCorePlugins()) {
       try {
@@ -339,20 +266,17 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
     }
     setCorePlugins(enabled);
 
-    const cfg: Record<string, boolean> = {};
-    const keys: BooleanSettingKey[] = [
-      STATUSBAR_ENABLED_KEY,
-      ...registeredStatusbarSegments().map((s) => s.settingKey),
-    ];
-    for (const k of keys) {
+    const stored: Record<string, Setting["value"]> = {};
+    for (const setting of registeredBlockSettings()) {
       try {
-        cfg[k] = (await getSetting(vaultId, k)) ?? STATUSBAR_DEFAULT;
+        stored[setting.key] =
+          (await getSetting(vaultId, setting.key)) ?? setting.fallback;
       } catch (e) {
-        console.error(`loading ${k} failed`, e);
-        cfg[k] = STATUSBAR_DEFAULT;
+        console.error(`loading ${setting.key} failed`, e);
+        stored[setting.key] = setting.fallback;
       }
     }
-    setStatusbarConfig(cfg);
+    setBlockValues(stored);
 
     await seedSetting(
       vaultId,
@@ -393,21 +317,11 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
     setLiveTabLimitValue,
     rewriteBrokenLinks,
     setRewriteBrokenLinksValue,
-    typedProps,
-    setTypedPropsValue,
-    dateDefault,
-    setDateDefaultValue,
-    currencyDefault,
-    setCurrencyDefaultValue,
-    tagsKeyAsTags,
-    setTagsKeyAsTagsValue,
     corePlugins,
     setCorePlugin,
-    statusbarConfig,
-    statusbarEnabled,
-    segVisible,
-    setStatusbarSetting,
-    toggleStatusbar,
+    value,
+    setValue,
+    toggle,
     rightSidebarCollapsed,
     toggleRightSidebar,
     rightSidebarPanel,

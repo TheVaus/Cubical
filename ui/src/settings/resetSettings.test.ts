@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { createRoot } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -12,14 +13,12 @@ vi.mock("../styles/theme", () => ({
 
 import { setSetting } from "../api/ipc";
 import { registerBlocks } from "../shell/registerBlocks";
+import { registeredStatusbarSegments } from "../statusbar/statusbarSettings";
+import { registeredBlockSettings } from "./blockSettings";
 import { registeredCorePlugins } from "./corePlugins";
 import { SETTINGS_DEFAULTS } from "./defaults";
 import { resetSettings } from "./resetSettings";
 import { createSettingsState } from "./settingsState";
-import {
-  STATUSBAR_DEFAULT,
-  registeredStatusbarSegments,
-} from "./statusbarSettings";
 
 registerBlocks();
 
@@ -43,10 +42,10 @@ describe("resetSettings", () => {
     s.setColorizeSourceValue(true);
     s.setLiveTabLimitValue(9);
     s.setRewriteBrokenLinksValue(false);
-    s.setTypedPropsValue(true);
-    s.setDateDefaultValue("DD/MM/YYYY");
-    s.setCurrencyDefaultValue("eur");
-    s.setTagsKeyAsTagsValue(false);
+    s.setValue("properties.typed_enabled", true);
+    s.setValue("properties.date_format_default", "DD/MM/YYYY");
+    s.setValue("properties.default_currency", "eur");
+    s.setValue("properties.tags_key_as_tags", false);
     s.setShortcutOverridesValue({ "file.new": "Mod-J" });
 
     resetSettings(s);
@@ -58,10 +57,9 @@ describe("resetSettings", () => {
     expect(s.colorizeSource()).toBe(SETTINGS_DEFAULTS.colorizeSource);
     expect(s.liveTabLimit()).toBe(SETTINGS_DEFAULTS.liveTabLimit);
     expect(s.rewriteBrokenLinks()).toBe(SETTINGS_DEFAULTS.rewriteBrokenLinks);
-    expect(s.typedProps()).toBe(SETTINGS_DEFAULTS.typedProps);
-    expect(s.dateDefault()).toBe(SETTINGS_DEFAULTS.dateDefault);
-    expect(s.currencyDefault()).toBe(SETTINGS_DEFAULTS.currencyDefault);
-    expect(s.tagsKeyAsTags()).toBe(SETTINGS_DEFAULTS.tagsKeyAsTags);
+    for (const setting of registeredBlockSettings()) {
+      expect(s.value(setting.key)).toBe(setting.fallback);
+    }
     expect(s.shortcutOverrides()).toEqual({});
   });
 
@@ -82,13 +80,23 @@ describe("resetSettings", () => {
     const s = build();
     const segments = registeredStatusbarSegments();
     expect(segments.length).toBeGreaterThan(0);
-    for (const seg of segments) s.setStatusbarSetting(seg.settingKey, false);
+    for (const seg of segments) s.setValue(seg.settingKey, false);
 
     resetSettings(s);
 
     for (const seg of segments) {
-      expect(s.statusbarConfig()[seg.settingKey]).toBe(STATUSBAR_DEFAULT);
+      expect(s.value(seg.settingKey)).toBe(seg.defaultVisible);
     }
+  });
+
+  it("restores a block's own setting without naming it", () => {
+    const s = build();
+    expect(registeredBlockSettings().length).toBeGreaterThan(0);
+    s.setValue("properties.default_currency", "eur");
+
+    resetSettings(s);
+
+    expect(s.value("properties.default_currency")).toBe("usd");
   });
 
   it("persists the defaults it restores", () => {

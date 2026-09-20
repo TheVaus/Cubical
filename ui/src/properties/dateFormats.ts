@@ -1,4 +1,4 @@
-import type { DateFormatToken } from "../settings/propertyFormats";
+import type { DateFormatToken } from "./formats";
 
 export const DEFAULT_DATE_FORMAT = "YYYY-MM-DD";
 

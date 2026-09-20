@@ -634,7 +634,7 @@ const App: Component = () => {
   };
 
   const handleRunCommand = (id: string) => {
-    if (id === "statusbar.toggle") settings.toggleStatusbar();
+    if (id === "statusbar.toggle") settings.toggle("statusbar.enabled");
   };
 
   const stillOpen = (vault: string, tabId: string) =>
@@ -1383,10 +1383,10 @@ const App: Component = () => {
                                 onNavigateTag={(tagPath) =>
                                   void handleNavigateTag(tagPath)
                                 }
-                                typedEnabled={settings.typedProps()}
-                                dateDefault={settings.dateDefault()}
-                                currencyDefault={settings.currencyDefault()}
-                                tagsKeyAsTags={settings.tagsKeyAsTags()}
+                                typedEnabled={settings.value("properties.typed_enabled")}
+                                dateDefault={settings.value("properties.date_format_default")}
+                                currencyDefault={settings.value("properties.default_currency")}
+                                tagsKeyAsTags={settings.value("properties.tags_key_as_tags")}
                               />
                             </FeatureBoundary>
                           </Show>
@@ -1574,11 +1574,11 @@ const App: Component = () => {
         </p>
       </ConfirmDialog>
 
-      <Show when={vaultId() && settings.statusbarEnabled()}>
+      <Show when={vaultId() && settings.value("statusbar.enabled")}>
         <FeatureBoundary feature="Status bar">
           <footer class="statusbar">
             {(() => {
-              const vaultVis = () => settings.segVisible(VAULT_PATH_SEGMENT);
+              const vaultVis = () => settings.value(VAULT_PATH_SEGMENT.settingKey);
               const scanVis = () => scanStatus() === "in_progress";
               const brokenVis = () => !!formatBrokenBlockRefs(brokenBlockRefs());
               const pendingVis = () =>
@@ -1634,8 +1634,8 @@ const App: Component = () => {
 
             <Show when={view().kind === "file" && !!selectedPath()}>
               {(() => {
-                const wordVis = () => settings.segVisible(WORD_COUNT_SEGMENT);
-                const blockVis = () => settings.segVisible(BLOCK_COUNT_SEGMENT);
+                const wordVis = () => settings.value(WORD_COUNT_SEGMENT.settingKey);
+                const blockVis = () => settings.value(BLOCK_COUNT_SEGMENT.settingKey);
                 const sep = () => leadingSeparators([wordVis(), blockVis()]);
                 return (
                   <span class="statusbar__group statusbar__mid">
@@ -1658,7 +1658,7 @@ const App: Component = () => {
                 when={
                   view().kind === "file" &&
                   selectedPath() &&
-                  settings.segVisible(FILE_PATH_SEGMENT)
+                  settings.value(FILE_PATH_SEGMENT.settingKey)
                 }
               >
                 <span class="statusbar__dir" title={selectedPath() ?? ""}>
