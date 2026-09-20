@@ -6,6 +6,7 @@ import {
   corePluginEnabled,
   registeredCorePlugins,
 } from "../settings/corePlugins";
+import { registeredSidebarPanels } from "../settings/sidebarPanels";
 import { registeredStatusbarSegments } from "../statusbar/statusbarSettings";
 import { STATUSBAR_SEGMENTS } from "../statusbar/segments";
 import { registerBlocks } from "./registerBlocks";
@@ -60,6 +61,14 @@ describe("registerBlocks", () => {
       "equations",
     ]);
     for (const plugin of documented) expect(typeof plugin.doc).toBe("function");
+  });
+
+  test("hands the right sidebar its panels in tab order, from three blocks", () => {
+    expect(registeredSidebarPanels().map((p) => p.id)).toEqual([
+      "backlinks",
+      "unlinked_mentions",
+      "integrity",
+    ]);
   });
 
   test("hands settings the statusbar's segments in bar order", () => {

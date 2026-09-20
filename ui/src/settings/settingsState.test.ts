@@ -18,8 +18,17 @@ import {
   statusbarBlockSettings,
 } from "../statusbar/statusbarSettings";
 import { registerBlockSettings } from "./blockSettings";
+import {
+  registerLeftSidebarModes,
+  registerSidebarPanels,
+} from "./sidebarPanels";
 import { createSettingsState } from "./settingsState";
 
+registerSidebarPanels([
+  { id: "first-panel", label: "First", order: 10, panel: () => null },
+  { id: "second-panel", label: "Second", order: 20, panel: () => null },
+]);
+registerLeftSidebarModes(["first-mode", "second-mode"]);
 registerStatusbarSegments(STATUSBAR_SEGMENTS);
 registerBlockSettings([
   ...statusbarBlockSettings(),
@@ -87,21 +96,25 @@ describe("persistence", () => {
   it("refuses an unknown right-sidebar panel", () => {
     const s = build();
     s.setRightSidebarPanelValue("nonsense");
-    expect(s.rightSidebarPanel()).toBe("backlinks");
+    expect(s.rightSidebarPanel()).toBe("first-panel");
     expect(written).not.toHaveBeenCalled();
   });
 
   it("persists the left-sidebar mode", () => {
     const s = build();
-    s.setLeftSidebarModeValue("tags");
-    expect(s.leftSidebarMode()).toBe("tags");
-    expect(written).toHaveBeenCalledWith("v1", "ui.left_sidebar_mode", "tags");
+    s.setLeftSidebarModeValue("second-mode");
+    expect(s.leftSidebarMode()).toBe("second-mode");
+    expect(written).toHaveBeenCalledWith(
+      "v1",
+      "ui.left_sidebar_mode",
+      "second-mode",
+    );
   });
 
   it("refuses an unknown left-sidebar mode", () => {
     const s = build();
     s.setLeftSidebarModeValue("nonsense");
-    expect(s.leftSidebarMode()).toBe("files");
+    expect(s.leftSidebarMode()).toBe("first-mode");
     expect(written).not.toHaveBeenCalled();
   });
 });
@@ -168,8 +181,8 @@ describe("resetForVaultSwitch", () => {
     const s = build();
     s.setRawOverride(true);
     s.toggleRightSidebar();
-    s.setRightSidebarPanelValue("integrity");
-    s.setLeftSidebarModeValue("tags");
+    s.setRightSidebarPanelValue("second-panel");
+    s.setLeftSidebarModeValue("second-mode");
     s.setShortcutOverridesValue({ "file.new": "Mod-J" });
     written.mockClear();
 
@@ -177,8 +190,8 @@ describe("resetForVaultSwitch", () => {
 
     expect(s.rawOverride()).toBe(null);
     expect(s.rightSidebarCollapsed()).toBe(false);
-    expect(s.rightSidebarPanel()).toBe("backlinks");
-    expect(s.leftSidebarMode()).toBe("files");
+    expect(s.rightSidebarPanel()).toBe("first-panel");
+    expect(s.leftSidebarMode()).toBe("first-mode");
     expect(s.shortcutOverrides()).toEqual({});
     expect(written).not.toHaveBeenCalled();
   });

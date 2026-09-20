@@ -12,7 +12,6 @@ import SegmentedControl from "@ds/components/forms/SegmentedControl/SegmentedCon
 import Icon from "@ds/components/graphics/Icon/Icon";
 
 import type { FileEntry } from "../api/ipc";
-import type { LeftSidebarMode } from "../settings/settingsState";
 import FeatureBoundary from "../core/FeatureBoundary";
 import { CanViewContext, cannotView, type CanView } from "./canView";
 import FileTreePanel from "./FileTreePanel";
@@ -30,7 +29,7 @@ export interface ExplorerPanelProps {
   folders: string[];
   vaultId: string | null;
   selectedPath: string | null;
-  mode: LeftSidebarMode;
+  mode: string;
   refreshSignal: number;
   actions: FileActions;
   onModeChange: (mode: string) => void;
@@ -45,6 +44,8 @@ const MODES = [
   { value: "files", label: "Files", icon: "file-text" as const },
   { value: "tags", label: "Tags", icon: "hash" as const },
 ];
+
+export const LEFT_SIDEBAR_MODES = MODES.map((m) => m.value);
 
 const ExplorerPanel: Component<ExplorerPanelProps> = (props) => {
   const [reloadToken, setReloadToken] = createSignal(0);

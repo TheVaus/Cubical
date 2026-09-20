@@ -1,6 +1,5 @@
 import { DEFAULT_LIVE_TAB_LIMIT } from "../tabs/lru";
 import type { ThemeMode } from "../styles/theme";
-import type { LeftSidebarMode, RightSidebarPanel } from "./settingsState";
 
 export const SETTINGS_DEFAULTS = {
   themeMode: "system" as ThemeMode,
@@ -10,6 +9,4 @@ export const SETTINGS_DEFAULTS = {
   liveTabLimit: DEFAULT_LIVE_TAB_LIMIT,
   rewriteBrokenLinks: true,
   rightSidebarCollapsed: false,
-  rightSidebarPanel: "backlinks" as RightSidebarPanel,
-  leftSidebarMode: "files" as LeftSidebarMode,
 };

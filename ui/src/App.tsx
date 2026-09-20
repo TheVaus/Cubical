@@ -6,9 +6,7 @@ import {
   on,
   onCleanup,
   onMount,
-  Match,
   Show,
-  Switch,
   untrack,
   type Component,
 } from "solid-js";
@@ -144,23 +142,15 @@ import {
 } from "./vault/fileRename";
 import { noteTitle } from "./vault/noteName";
 import { watchSystemTheme } from "./styles/theme";
-import Backlinks from "./backlinks/Backlinks";
-import UnlinkedMentions from "./backlinks/UnlinkedMentions";
-import IntegrityPanel from "./integrity/IntegrityPanel";
 import TagPage from "./tags/TagPage";
 import OmniBar from "./omnibar/OmniBar";
 import { type OmniItem, type RankedItem } from "./omnibar/ranker";
 import { OMNI_COMMANDS } from "./omnibar/commands";
 import { corePluginActive } from "./settings/corePlugins";
+import { registeredSidebarPanels } from "./settings/sidebarPanels";
 import { VaultSwitcher } from "./vaultSwitcher/VaultSwitcher";
 
 const AUTOSAVE_DEBOUNCE_MS = 300;
-
-const RIGHT_SIDEBAR_TABS = [
-  { label: "Backlinks", value: "backlinks" },
-  { label: "Mentions", value: "unlinked_mentions" },
-  { label: "Integrity", value: "integrity" },
-];
 
 const App: Component = () => {
   const {
@@ -1486,45 +1476,29 @@ const App: Component = () => {
                 variant="pill"
                 ariaLabel="Sidebar panels"
                 value={settings.rightSidebarPanel()}
-                options={RIGHT_SIDEBAR_TABS}
+                options={registeredSidebarPanels().map((p) => ({
+                  label: p.label,
+                  value: p.id,
+                }))}
                 onChange={(v) => settings.setRightSidebarPanelValue(v)}
               />
               <div class="rs-body">
                 <FeatureBoundary feature="Sidebar panel">
-                  <Switch>
-                    <Match when={settings.rightSidebarPanel() === "backlinks"}>
-                      <Backlinks
-                        vaultId={vaultId()}
-                        path={selectedPath()}
-                        refreshSignal={rightSidebarRefreshTick()}
-                        onRowClick={(path) =>
-                          void handleNavigateWikilink(path, null)
-                        }
-                      />
-                    </Match>
-                    <Match
-                      when={settings.rightSidebarPanel() === "unlinked_mentions"}
-                    >
-                      <UnlinkedMentions
-                        vaultId={vaultId()}
-                        path={selectedPath()}
-                        refreshSignal={rightSidebarRefreshTick()}
-                        onRowClick={(path) =>
-                          void handleNavigateWikilink(path, null)
-                        }
-                      />
-                    </Match>
-                    <Match when={settings.rightSidebarPanel() === "integrity"}>
-                      <IntegrityPanel
-                        vaultId={vaultId()}
-                        refreshSignal={rightSidebarRefreshTick()}
-                        onRowClick={(path) =>
-                          void handleNavigateWikilink(path, null)
-                        }
-                        onRepaired={() => rightSidebarRefresh.schedule()}
-                      />
-                    </Match>
-                  </Switch>
+                  <For each={registeredSidebarPanels()}>
+                    {(entry) => (
+                      <Show when={settings.rightSidebarPanel() === entry.id}>
+                        <entry.panel
+                          vaultId={vaultId()}
+                          path={selectedPath()}
+                          refreshSignal={rightSidebarRefreshTick()}
+                          onNavigate={(path) =>
+                            void handleNavigateWikilink(path, null)
+                          }
+                          onRefresh={() => rightSidebarRefresh.schedule()}
+                        />
+                      </Show>
+                    )}
+                  </For>
                 </FeatureBoundary>
               </div>
             </div>

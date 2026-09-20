@@ -17,9 +17,12 @@ import {
 } from "./blockSettings";
 import { registeredCorePlugins, type BooleanSettingKey } from "./corePlugins";
 import { SETTINGS_DEFAULTS } from "./defaults";
-
-export type RightSidebarPanel = "backlinks" | "unlinked_mentions" | "integrity";
-export type LeftSidebarMode = "files" | "tags";
+import {
+  defaultLeftSidebarMode,
+  defaultSidebarPanel,
+  isLeftSidebarMode,
+  isSidebarPanel,
+} from "./sidebarPanels";
 
 export interface SettingsStateDeps {
   vaultId: Accessor<string | null>;
@@ -60,9 +63,9 @@ export interface SettingsState {
 
   rightSidebarCollapsed: Accessor<boolean>;
   toggleRightSidebar: () => void;
-  rightSidebarPanel: Accessor<RightSidebarPanel>;
+  rightSidebarPanel: Accessor<string>;
   setRightSidebarPanelValue: (id: string) => void;
-  leftSidebarMode: Accessor<LeftSidebarMode>;
+  leftSidebarMode: Accessor<string>;
   setLeftSidebarModeValue: (id: string) => void;
 
   shortcutOverrides: Accessor<Record<string, string>>;
@@ -106,10 +109,11 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = createSignal(
     SETTINGS_DEFAULTS.rightSidebarCollapsed,
   );
-  const [rightSidebarPanel, setRightSidebarPanel] =
-    createSignal<RightSidebarPanel>(SETTINGS_DEFAULTS.rightSidebarPanel);
-  const [leftSidebarMode, setLeftSidebarMode] = createSignal<LeftSidebarMode>(
-    SETTINGS_DEFAULTS.leftSidebarMode,
+  const [rightSidebarPanel, setRightSidebarPanel] = createSignal<string>(
+    defaultSidebarPanel(),
+  );
+  const [leftSidebarMode, setLeftSidebarMode] = createSignal<string>(
+    defaultLeftSidebarMode(),
   );
   const [shortcutOverrides, setShortcutOverrides] = createSignal<
     Record<string, string>
@@ -186,14 +190,13 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
   };
 
   const setRightSidebarPanelValue = (id: string) => {
-    if (id !== "backlinks" && id !== "unlinked_mentions" && id !== "integrity")
-      return;
+    if (!isSidebarPanel(id)) return;
     setRightSidebarPanel(id);
     persistSetting(vid(), "ui.right_sidebar_panel", id);
   };
 
   const setLeftSidebarModeValue = (id: string) => {
-    if (id !== "files" && id !== "tags") return;
+    if (!isLeftSidebarMode(id)) return;
     setLeftSidebarMode(id);
     persistSetting(vid(), "ui.left_sidebar_mode", id);
   };
@@ -206,8 +209,8 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
   const resetForVaultSwitch = () => {
     setRawOverride(null);
     setRightSidebarCollapsed(false);
-    setRightSidebarPanel("backlinks");
-    setLeftSidebarMode("files");
+    setRightSidebarPanel(defaultSidebarPanel());
+    setLeftSidebarMode(defaultLeftSidebarMode());
     setShortcutOverrides({});
     setCorePlugins({});
     setBlockValues({});
@@ -287,14 +290,15 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
     await seedSetting(
       vaultId,
       "ui.right_sidebar_panel",
-      SETTINGS_DEFAULTS.rightSidebarPanel,
-      setRightSidebarPanel,
+      defaultSidebarPanel(),
+      (id) => setRightSidebarPanel(isSidebarPanel(id) ? id : defaultSidebarPanel()),
     );
     await seedSetting(
       vaultId,
       "ui.left_sidebar_mode",
-      SETTINGS_DEFAULTS.leftSidebarMode,
-      setLeftSidebarMode,
+      defaultLeftSidebarMode(),
+      (id) =>
+        setLeftSidebarMode(isLeftSidebarMode(id) ? id : defaultLeftSidebarMode()),
     );
     await seedSetting(vaultId, "shortcuts.overrides", {}, setShortcutOverrides);
   };

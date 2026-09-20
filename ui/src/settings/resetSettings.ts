@@ -2,6 +2,10 @@ import { registeredBlockSettings } from "./blockSettings";
 import { registeredCorePlugins } from "./corePlugins";
 import { SETTINGS_DEFAULTS } from "./defaults";
 import type { SettingsState } from "./settingsState";
+import {
+  defaultLeftSidebarMode,
+  defaultSidebarPanel,
+} from "./sidebarPanels";
 
 export function resetSettings(settings: SettingsState): void {
   settings.setTheme(SETTINGS_DEFAULTS.themeMode);
@@ -24,7 +28,7 @@ export function resetSettings(settings: SettingsState): void {
   if (collapsed !== SETTINGS_DEFAULTS.rightSidebarCollapsed) {
     settings.toggleRightSidebar();
   }
-  settings.setRightSidebarPanelValue(SETTINGS_DEFAULTS.rightSidebarPanel);
-  settings.setLeftSidebarModeValue(SETTINGS_DEFAULTS.leftSidebarMode);
+  settings.setRightSidebarPanelValue(defaultSidebarPanel());
+  settings.setLeftSidebarModeValue(defaultLeftSidebarMode());
   settings.setShortcutOverridesValue({});
 }
