@@ -28,6 +28,8 @@ use crate::search_handle::open_search_cloned;
 use crate::state::AppState;
 
 pub async fn search(state: &AppState, req: SearchRequest) -> Result<SearchResponse, CubicalError> {
+    crate::plugins::require(state, &req.vault_id, crate::plugins::Feature::Search).await?;
+
     let (search, search_state) = with_open_vault(state, &req.vault_id, |open| {
         (open.search.clone(), Arc::clone(&open.search_state))
     })
@@ -162,6 +164,18 @@ mod tests {
             ),
         );
         (dir, handle, state)
+    }
+
+    async fn switch(state: &AppState, vault_id: &str, key: &str, on: bool) {
+        let settings = crate::commands::open::with_open_vault(state, vault_id, |open| {
+            std::sync::Arc::clone(&open.settings)
+        })
+        .await
+        .expect("vault open");
+        settings
+            .write()
+            .await
+            .insert(key.to_string(), serde_json::json!(on));
     }
 
     async fn mark_ready(state: &AppState, vault_id: &str) {
@@ -366,5 +380,49 @@ mod tests {
             0,
             "delete_all + commit must clear the reader's view",
         );
+    }
+
+    #[tokio::test]
+    async fn a_query_is_refused_while_the_search_plugin_is_off() {
+        let (_dir, _handle, state) = fresh_state_with_vault("v1").await;
+        mark_ready(&state, "v1").await;
+        switch(&state, "v1", "plugins.search_enabled", false).await;
+
+        let err = search(
+            &state,
+            SearchRequest {
+                vault_id: "v1".into(),
+                query: SearchQuery {
+                    text: "anything".into(),
+                    limit: 10,
+                    offset: 0,
+                    fields: Default::default(),
+                    fuzzy: false,
+                    sort: Default::default(),
+                },
+            },
+        )
+        .await
+        .expect_err("a switched-off plugin must not be served");
+
+        assert!(matches!(err, CubicalError::FeatureDisabled(id) if id == "search"));
+    }
+
+    #[tokio::test]
+    async fn the_index_keeps_reporting_while_the_search_plugin_is_off() {
+        let (_dir, _handle, state) = fresh_state_with_vault("v1").await;
+        mark_ready(&state, "v1").await;
+        switch(&state, "v1", "plugins.search_enabled", false).await;
+
+        let status = search_index_status(
+            &state,
+            SearchVaultRequest {
+                vault_id: "v1".into(),
+            },
+        )
+        .await
+        .expect("the toggle gates the query, never the index behind it");
+
+        assert!(matches!(status.state, IndexState::Ready));
     }
 }

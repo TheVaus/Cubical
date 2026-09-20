@@ -1,13 +1,16 @@
 import { BACKLINKS_PANEL, MENTIONS_PANEL } from "../backlinks/sidebarPanels";
 import { QUERY_PLUGIN } from "../dataview/registration";
+import { AUTOCOMPLETE_PLUGIN } from "../editor/autocompleteRegistration";
 import { EQUATIONS_PLUGIN } from "../editor/equationRegistration";
 import { MATH_PLUGIN } from "../editor/mathRegistration";
 import { PROPERTY_REFS_PLUGIN } from "../editor/propertyRefRegistration";
 import { LEFT_SIDEBAR_MODES } from "../explorer/ExplorerPanel";
 import { GRAPH_PLUGIN } from "../graph/registration";
+import { INTEGRITY_PLUGIN } from "../integrity/registration";
 import { INTEGRITY_PANEL } from "../integrity/sidebarPanel";
 import PropertiesSettings from "../properties/PropertiesSettings";
 import { propertiesBlockSettings } from "../properties/formats";
+import { SEARCH_PLUGIN } from "../search/registration";
 import { registerBlockSettings } from "../settings/blockSettings";
 import { registerCorePlugins } from "../settings/corePlugins";
 import { registerPaneSlots } from "../settings/paneSlots";
@@ -32,6 +35,9 @@ export function registerBlocks(): void {
     EQUATIONS_PLUGIN,
     TERMINAL_PLUGIN,
     GRAPH_PLUGIN,
+    SEARCH_PLUGIN,
+    AUTOCOMPLETE_PLUGIN,
+    INTEGRITY_PLUGIN,
   ]);
   registerStatusbarSegments(STATUSBAR_SEGMENTS);
   registerSidebarPanels([BACKLINKS_PANEL, MENTIONS_PANEL, INTEGRITY_PANEL]);

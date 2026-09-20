@@ -222,6 +222,17 @@ all import. `crates/cubical-core/tests/fixtures/block_ids.json` is the contract:
 the Rust grammar test and `blockId.test.ts` both read it, so a change to either
 side fails until the fixture and the other side agree.
 
+Block-ID rows are **substrate**, which is why the census
+(`scripts/domain-boundaries.json`) classes the engine's `blocks` commands and
+`ui/src/api/blocks.ts` that way rather than as a removable block. `scan` and
+`refresh_watched_markdown` call `refresh_blocks` for every markdown file without
+consulting a setting, so no toggle could stop the rows being written, and
+[`composability`](../principles/composability.md) says a class that cannot be
+switched off is not a block. Its census *domain* stays `blocks` instead of
+folding into `document`: the census exempts same-domain edges, so folding would
+stop the gate from ever seeing an edge between block-ID code and the AST, which
+is a separate concern that happens to be substrate too.
+
 The `_with_doc` arms are the load-bearing ones; the source-taking wrappers exist
 for single-file callers that have no `Document` in hand. Both must stay
 behaviourally identical — `parse` and `parse_frontmatter` return the same

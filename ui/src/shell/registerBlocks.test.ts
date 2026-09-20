@@ -22,6 +22,9 @@ describe("registerBlocks", () => {
       "equations",
       "terminal",
       "graph-view",
+      "search",
+      "autocomplete",
+      "integrity",
     ]);
   });
 
@@ -69,6 +72,12 @@ describe("registerBlocks", () => {
       "unlinked_mentions",
       "integrity",
     ]);
+  });
+
+  test("ships search, autocomplete and integrity default-on", () => {
+    for (const id of ["search", "autocomplete", "integrity"]) {
+      expect(corePluginActive({}, id)).toBe(true);
+    }
   });
 
   test("hands settings the statusbar's segments in bar order", () => {

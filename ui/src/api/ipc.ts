@@ -230,6 +230,9 @@ export type Setting =
   | { key: "plugins.equations_enabled"; value: boolean }
   | { key: "plugins.terminal_enabled"; value: boolean }
   | { key: "plugins.graph_view_enabled"; value: boolean }
+  | { key: "plugins.search_enabled"; value: boolean }
+  | { key: "plugins.autocomplete_enabled"; value: boolean }
+  | { key: "plugins.integrity_enabled"; value: boolean }
   | { key: "properties.typed_enabled"; value: boolean }
   | { key: "properties.date_format_default"; value: string }
   | { key: "properties.default_currency"; value: string }

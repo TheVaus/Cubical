@@ -1,4 +1,7 @@
-use cubical_core::vault::embeds::{extract_block, extract_section, strip_frontmatter};
+mod extract;
+
+use extract::{extract_block, extract_section, strip_frontmatter};
+
 use cubical_core::vault::links::{read_source_off_executor, resolve_target};
 use cubical_core::vault::pending::materialize_on_read;
 use cubical_index::{all_file_paths, blocks_for_file};
