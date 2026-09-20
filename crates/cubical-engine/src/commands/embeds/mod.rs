@@ -144,7 +144,7 @@ pub async fn get_embed(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::{AppState, OpenVault, ScanStatusBackend};
+    use crate::state::{AppState, OpenVault};
     use cubical_core::Vault;
     use cubical_index::{replace_blocks_for_file, BlockRow};
     use tempfile::tempdir;

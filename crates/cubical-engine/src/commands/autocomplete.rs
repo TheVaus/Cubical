@@ -99,11 +99,10 @@ pub async fn block_id_autocomplete(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::{AppState, OpenVault, ScanStatusBackend};
+    use crate::state::{AppState, OpenVault};
     use cubical_core::Vault;
     use cubical_index::{replace_tags_for_file, TagRow, TagSource};
     use tempfile::{tempdir, TempDir};
-    use tokio_util::sync::CancellationToken;
 
     async fn fresh_state_with_vault(vault_id: &str) -> (TempDir, Vault, AppState) {
         let dir = tempdir().unwrap();

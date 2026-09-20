@@ -242,12 +242,11 @@ mod tests {
     const RUNAWAY: u32 = 50_000;
     use std::time::{Duration, Instant};
 
-    use crate::state::{OpenVault, ScanStatusBackend};
+    use crate::state::OpenVault;
     use cubical_core::Vault;
     use cubical_graph::{EdgeKind, NodeKind};
     use cubical_index::{replace_links_for_file, LinkRow};
     use tempfile::{tempdir, TempDir};
-    use tokio_util::sync::CancellationToken;
 
     async fn fresh_state_with_vault(vault_id: &str) -> (TempDir, Vault, AppState) {
         let dir = tempdir().expect("tmpdir");

@@ -78,7 +78,7 @@ pub async fn get_property(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::{AppState, OpenVault, ScanStatusBackend};
+    use crate::state::{AppState, OpenVault};
     use cubical_core::Vault;
     use serde_json::json;
     use tempfile::tempdir;

@@ -270,7 +270,7 @@ mod tests {
     }
 
     async fn state_with(vault_id: &str, settings: SettingsMap) -> (tempfile::TempDir, AppState) {
-        use crate::state::{OpenVault, ScanStatusBackend};
+        use crate::state::OpenVault;
         let dir = tempfile::tempdir().expect("tmpdir");
         let vault = cubical_core::Vault::open(dir.path()).await.expect("open");
         let state = AppState::new();

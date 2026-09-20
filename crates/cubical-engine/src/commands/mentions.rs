@@ -272,10 +272,9 @@ async fn list_markdown_candidates(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::{OpenVault, ScanStatusBackend};
+    use crate::state::OpenVault;
     use cubical_core::Vault;
     use tempfile::{tempdir, TempDir};
-    use tokio_util::sync::CancellationToken;
 
     async fn fresh(vault_id: &str) -> (TempDir, Vault, AppState) {
         let dir = tempdir().unwrap();

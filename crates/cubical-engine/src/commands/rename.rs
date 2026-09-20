@@ -1497,7 +1497,7 @@ async fn replay_rename_journal_inner(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::{OpenVault, ScanStatusBackend};
+    use crate::state::OpenVault;
     use cubical_core::Vault;
     use cubical_index::{
         backlinks_for, block_exists, enqueue_pending, pending_count_for_target,

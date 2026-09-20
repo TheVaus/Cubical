@@ -3,7 +3,7 @@ use libsql::params;
 use tempfile::{tempdir, TempDir};
 use tokio_util::sync::CancellationToken;
 
-use crate::state::{AppState, OpenVault, ScanStatusBackend};
+use crate::state::{AppState, OpenVault};
 
 pub(super) async fn vault_with(files: &[(&str, &str)]) -> (TempDir, Vault, AppState) {
     let dir = tempdir().unwrap();

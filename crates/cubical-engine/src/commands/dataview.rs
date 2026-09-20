@@ -166,7 +166,7 @@ pub async fn dataview_query(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::{AppState, OpenVault, ScanStatusBackend};
+    use crate::state::{AppState, OpenVault};
     use cubical_core::{scan, ScanProgress, Vault};
     use std::fs;
     use tempfile::{tempdir, TempDir};

@@ -90,10 +90,9 @@ mod tests {
         assert!(a.is_none());
     }
 
-    use crate::state::{OpenVault, ScanStatusBackend};
+    use crate::state::OpenVault;
     use cubical_core::Vault;
     use tempfile::{tempdir, TempDir};
-    use tokio_util::sync::CancellationToken;
 
     async fn fresh_state_with_vault(vault_id: &str) -> (TempDir, Vault, AppState) {
         let dir = tempdir().unwrap();

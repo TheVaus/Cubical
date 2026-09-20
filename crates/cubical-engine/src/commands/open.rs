@@ -44,8 +44,6 @@ pub(crate) async fn open_vault_cloned_for(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::ScanStatusBackend;
-    use tokio_util::sync::CancellationToken;
 
     async fn state_with_vault(vault_id: &str) -> (tempfile::TempDir, AppState) {
         let dir = tempfile::tempdir().unwrap();

@@ -53,11 +53,10 @@ mod tests {
 
     use crate::api::types::GetBacklinksRequest;
     use crate::error::CubicalError;
-    use crate::state::{AppState, OpenVault, ScanStatusBackend};
+    use crate::state::{AppState, OpenVault};
     use cubical_core::Vault;
     use cubical_index::{replace_links_for_file, LinkRow};
     use tempfile::{tempdir, TempDir};
-    use tokio_util::sync::CancellationToken;
 
     async fn fresh_state_with_vault(vault_id: &str) -> (TempDir, Vault, AppState) {
         let dir = tempdir().unwrap();
