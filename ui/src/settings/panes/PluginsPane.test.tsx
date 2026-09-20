@@ -62,6 +62,9 @@ describe("PluginsPane rows", () => {
       "Equations",
       "Terminal",
       "Graph view",
+      "Search",
+      "Autocomplete",
+      "Link integrity",
     ]);
   });
 });

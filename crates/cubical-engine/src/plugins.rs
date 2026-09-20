@@ -15,15 +15,21 @@ pub enum Feature {
     Equations,
     Terminal,
     GraphView,
+    Search,
+    Autocomplete,
+    Integrity,
 }
 
-pub const ALL_FEATURES: [Feature; 6] = [
+pub const ALL_FEATURES: [Feature; 9] = [
     Feature::Dataview,
     Feature::PropertyRefs,
     Feature::Math,
     Feature::Equations,
     Feature::Terminal,
     Feature::GraphView,
+    Feature::Search,
+    Feature::Autocomplete,
+    Feature::Integrity,
 ];
 
 impl Feature {
@@ -35,6 +41,9 @@ impl Feature {
             Self::Equations => "equations",
             Self::Terminal => "terminal",
             Self::GraphView => "graph-view",
+            Self::Search => "search",
+            Self::Autocomplete => "autocomplete",
+            Self::Integrity => "integrity",
         }
     }
 
@@ -46,6 +55,9 @@ impl Feature {
             Self::Equations => "plugins.equations_enabled",
             Self::Terminal => "plugins.terminal_enabled",
             Self::GraphView => "plugins.graph_view_enabled",
+            Self::Search => "plugins.search_enabled",
+            Self::Autocomplete => "plugins.autocomplete_enabled",
+            Self::Integrity => "plugins.integrity_enabled",
         }
     }
 
@@ -57,6 +69,9 @@ impl Feature {
             Self::Equations => true,
             Self::Terminal => false,
             Self::GraphView => true,
+            Self::Search => true,
+            Self::Autocomplete => true,
+            Self::Integrity => true,
         }
     }
 
@@ -128,6 +143,9 @@ mod tests {
         assert!(is_active(&empty, Feature::Math));
         assert!(is_active(&empty, Feature::Equations));
         assert!(is_active(&empty, Feature::GraphView));
+        assert!(is_active(&empty, Feature::Search));
+        assert!(is_active(&empty, Feature::Autocomplete));
+        assert!(is_active(&empty, Feature::Integrity));
         assert!(
             !is_active(&empty, Feature::Terminal),
             "the terminal is a capability gateway and must be off until asked for"
@@ -153,6 +171,17 @@ mod tests {
             &with(&[("plugins.dataview_enabled", false)]),
             Feature::Dataview
         ));
+    }
+
+    #[test]
+    fn search_autocomplete_and_integrity_default_on_because_they_already_shipped() {
+        for feature in [Feature::Search, Feature::Autocomplete, Feature::Integrity] {
+            assert!(
+                feature.default_enabled(),
+                "{} is existing always-on behaviour; a default-off toggle would                  remove it from the product rather than make it optional",
+                feature.id()
+            );
+        }
     }
 
     #[test]
@@ -275,6 +304,20 @@ mod tests {
         require(&state, "v1", Feature::Terminal)
             .await
             .expect("switched on");
+    }
+
+    #[tokio::test]
+    async fn require_refuses_each_newly_toggleable_feature_once_it_is_switched_off() {
+        for feature in [Feature::Search, Feature::Autocomplete, Feature::Integrity] {
+            let (_on_dir, on) = state_with("v1", SettingsMap::new()).await;
+            require(&on, "v1", feature).await.expect("on by default");
+
+            let (_off_dir, off) = state_with("v1", with(&[(feature.setting_key(), false)])).await;
+            let err = require(&off, "v1", feature)
+                .await
+                .expect_err("switched off");
+            assert!(matches!(err, CubicalError::FeatureDisabled(id) if id == feature.id()));
+        }
     }
 
     #[tokio::test]

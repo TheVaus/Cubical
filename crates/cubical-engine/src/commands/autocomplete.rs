@@ -4,8 +4,9 @@ use cubical_index::{all_file_paths, blocks_for_file, files_for_link_query, tag_p
 
 use serde::{Deserialize, Serialize};
 
-use crate::commands::open::open_vault_cloned;
+use crate::commands::open::open_vault_cloned_for;
 use crate::error::CubicalError;
+use crate::plugins::Feature;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct LinkAutocompleteRequest {
@@ -53,7 +54,7 @@ pub async fn link_autocomplete(
     state: &AppState,
     req: LinkAutocompleteRequest,
 ) -> Result<LinkAutocompleteResponse, CubicalError> {
-    let vault = open_vault_cloned(state, &req.vault_id).await?;
+    let vault = open_vault_cloned_for(state, &req.vault_id, Feature::Autocomplete).await?;
     let paths = files_for_link_query(vault.index(), &req.query, AUTOCOMPLETE_LIMIT).await?;
     let candidates = paths
         .into_iter()
@@ -69,7 +70,7 @@ pub async fn tag_autocomplete(
     state: &AppState,
     req: TagAutocompleteRequest,
 ) -> Result<TagAutocompleteResponse, CubicalError> {
-    let vault = open_vault_cloned(state, &req.vault_id).await?;
+    let vault = open_vault_cloned_for(state, &req.vault_id, Feature::Autocomplete).await?;
     let candidates = tag_paths_for_prefix(vault.index(), &req.query, AUTOCOMPLETE_LIMIT).await?;
     Ok(TagAutocompleteResponse { candidates })
 }
@@ -78,7 +79,7 @@ pub async fn block_id_autocomplete(
     state: &AppState,
     req: BlockIdAutocompleteRequest,
 ) -> Result<BlockIdAutocompleteResponse, CubicalError> {
-    let vault = open_vault_cloned(state, &req.vault_id).await?;
+    let vault = open_vault_cloned_for(state, &req.vault_id, Feature::Autocomplete).await?;
     let known = all_file_paths(vault.index()).await?;
 
     let target_path = match resolve_target(req.target_raw.trim(), &known) {
@@ -120,6 +121,18 @@ mod tests {
             ),
         );
         (dir, vault, state)
+    }
+
+    async fn switch(state: &AppState, vault_id: &str, key: &str, on: bool) {
+        let settings = crate::commands::open::with_open_vault(state, vault_id, |open| {
+            std::sync::Arc::clone(&open.settings)
+        })
+        .await
+        .expect("vault open");
+        settings
+            .write()
+            .await
+            .insert(key.to_string(), serde_json::json!(on));
     }
 
     async fn seed_file(vault: &Vault, rel: &str, type_id: &str) {
@@ -259,5 +272,45 @@ mod tests {
         .await
         .expect("ok");
         assert!(resp.candidates.is_empty());
+    }
+
+    #[tokio::test]
+    async fn every_completion_is_refused_while_the_autocomplete_plugin_is_off() {
+        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        seed_file(&vault, "a.md", "markdown").await;
+        switch(&state, "v1", "plugins.autocomplete_enabled", false).await;
+
+        let link = link_autocomplete(
+            &state,
+            LinkAutocompleteRequest {
+                vault_id: "v1".into(),
+                query: "a".into(),
+            },
+        )
+        .await
+        .expect_err("a switched-off plugin must not be served");
+        assert!(matches!(link, CubicalError::FeatureDisabled(id) if id == "autocomplete"));
+
+        let tag = tag_autocomplete(
+            &state,
+            TagAutocompleteRequest {
+                vault_id: "v1".into(),
+                query: "t".into(),
+            },
+        )
+        .await
+        .expect_err("a switched-off plugin must not be served");
+        assert!(matches!(tag, CubicalError::FeatureDisabled(id) if id == "autocomplete"));
+
+        let block = block_id_autocomplete(
+            &state,
+            BlockIdAutocompleteRequest {
+                vault_id: "v1".into(),
+                target_raw: "a".into(),
+            },
+        )
+        .await
+        .expect_err("a switched-off plugin must not be served");
+        assert!(matches!(block, CubicalError::FeatureDisabled(id) if id == "autocomplete"));
     }
 }

@@ -52,3 +52,15 @@ pub(super) async fn drop_file_as_watcher_would(dir: &TempDir, vault: &Vault, rel
         .await
         .unwrap();
 }
+
+pub(super) async fn switch(state: &AppState, key: &str, on: bool) {
+    let settings = crate::commands::open::with_open_vault(state, "v1", |open| {
+        std::sync::Arc::clone(&open.settings)
+    })
+    .await
+    .expect("vault open");
+    settings
+        .write()
+        .await
+        .insert(key.to_string(), serde_json::json!(on));
+}

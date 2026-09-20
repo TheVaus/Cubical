@@ -538,11 +538,20 @@ JSON is surfaced as an invalid-request error rather than panicking.
 
 ## Feature toggles gate commands, not derived state
 
-**Anchors:** Feature, open_vault_cloned_for
+**Anchors:** Feature · ALL_FEATURES · open_vault_cloned_for · require · search_index_status
 
 `plugins.*_enabled` keys decide whether the engine will **serve a command**, not
 whether it will **build derived state**. Those are different questions and the
 answers deliberately differ.
+
+A feature the census calls a block and the engine serves commands for has a
+`Feature` variant, so the census cannot claim a removability the code does not
+have. Search, autocomplete and link integrity each gained one: `search` refuses
+a query, the three `*_autocomplete` commands refuse a completion, and
+`list_dangling_links` / `repair_dangling_link` refuse a listing and a rewrite.
+All three default **on**, because each is behaviour the product already shipped
+always-on — a default-off toggle would remove a feature rather than make one
+optional, and only a capability gateway earns that default.
 
 Derived state stays warm. Property-ref link rows, the graph model and the search
 index are built whether or not their feature is on, because
@@ -550,6 +559,12 @@ index are built whether or not their feature is on, because
 off drops its derived state and rebuilds it if it comes back — so keeping it
 current costs a little work and makes the toggle instant, and skipping it would
 buy nothing a rescan does not already provide.
+
+Search is the sharpest case of that split, so it is pinned by a test: with
+`plugins.search_enabled` off the scan and the watcher still report through its
+`ScanSink` and `ChangeSink` and `search_index_status` still answers — only the
+query is refused. A toggle that stopped the indexing would put a plugin check
+inside substrate and turn switching the feature back on into a full rebuild.
 
 Commands are refused. `cubical_engine::plugins::Feature` maps a feature to its
 setting key, its default and what it requires, and `open_vault_cloned_for`
