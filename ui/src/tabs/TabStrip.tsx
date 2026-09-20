@@ -4,6 +4,7 @@ import IconButton from "@ds/components/forms/IconButton/IconButton";
 
 import type { Tab, TabSet } from "./tabModel";
 import { noteTitle } from "../vault/noteName";
+import "./tabs.css";
 
 export interface TabStripProps {
   tabs: TabSet;

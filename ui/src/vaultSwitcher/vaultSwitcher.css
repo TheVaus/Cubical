@@ -1,0 +1,94 @@
+.vault-btn.btn.ghost {
+  flex: 1;
+  min-width: 0;
+  height: auto;
+  justify-content: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  color: var(--c-fg-primary);
+  text-align: left;
+}
+
+.vault-btn.btn.ghost:hover:not(:disabled) {
+  background: var(--c-bg-tertiary);
+  border-color: var(--c-border-subtle);
+}
+
+.vault-btn__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.vault-btn__caret {
+  flex: 0 0 auto;
+  color: var(--c-fg-muted);
+}
+
+.vault-switcher-anchor {
+  position: relative;
+}
+
+.vault-switcher {
+  min-width: 12rem;
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.vault-switcher__label {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--c-fg-muted);
+}
+
+.vault-switcher__path {
+  font-weight: 600;
+}
+
+.vault-switcher__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.vault-switcher__empty {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--c-fg-muted);
+  line-height: 1.4;
+}
+
+.recent-vaults {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.recent-vaults__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.recent-vaults__switch {
+  flex: 1;
+}
+
+.recent-vaults__row--missing .recent-vaults__name {
+  color: var(--c-fg-muted);
+}
+
+.recent-vaults__hint {
+  font-size: var(--text-xs);
+  color: var(--c-fg-muted);
+}

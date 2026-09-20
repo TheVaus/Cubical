@@ -5,6 +5,7 @@ import Popover from "@ds/components/overlay/Popover/Popover";
 
 import { RecentVaultList } from "./RecentVaultList";
 import type { RecentVault } from "../api/ipc";
+import "./vaultSwitcher.css";
 
 export interface VaultSwitcherProps {
   currentPath: string | null;

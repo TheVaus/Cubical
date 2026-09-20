@@ -1,6 +1,8 @@
 import { EditorView } from "@codemirror/view";
 import { type Extension } from "@codemirror/state";
 
+import "./editor.css";
+
 const TOKENS = [
   "--c-bg-primary",
   "--c-fg-primary",
