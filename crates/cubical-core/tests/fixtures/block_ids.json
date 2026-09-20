@@ -1,13 +1,106 @@
-[
-  { "id": "intro", "valid": true },
-  { "id": "_private", "valid": true },
-  { "id": "a1-b_2", "valid": true },
-  { "id": "Z", "valid": true },
-  { "id": "1abc", "valid": false },
-  { "id": "-lead", "valid": false },
-  { "id": "café", "valid": false },
-  { "id": "日本", "valid": false },
-  { "id": "a.b", "valid": false },
-  { "id": "a b", "valid": false },
-  { "id": "", "valid": false }
-]
+{
+  "ids": [
+    {
+      "id": "intro",
+      "valid": true
+    },
+    {
+      "id": "_private",
+      "valid": true
+    },
+    {
+      "id": "a1-b_2",
+      "valid": true
+    },
+    {
+      "id": "Z",
+      "valid": true
+    },
+    {
+      "id": "1abc",
+      "valid": false
+    },
+    {
+      "id": "-lead",
+      "valid": false
+    },
+    {
+      "id": "café",
+      "valid": false
+    },
+    {
+      "id": "日本",
+      "valid": false
+    },
+    {
+      "id": "a.b",
+      "valid": false
+    },
+    {
+      "id": "a b",
+      "valid": false
+    },
+    {
+      "id": "",
+      "valid": false
+    }
+  ],
+  "lines": [
+    {
+      "line": "A paragraph line. ^intro",
+      "id": "intro"
+    },
+    {
+      "line": "^solo",
+      "id": "solo"
+    },
+    {
+      "line": "text ^id  ",
+      "id": "id"
+    },
+    {
+      "line": "text ^id\r",
+      "id": "id"
+    },
+    {
+      "line": "text\t^id",
+      "id": "id"
+    },
+    {
+      "line": "a ^one ^two",
+      "id": "two"
+    },
+    {
+      "line": "text^id",
+      "id": null
+    },
+    {
+      "line": "a ^one^two",
+      "id": null
+    },
+    {
+      "line": "text ^mid more",
+      "id": null
+    },
+    {
+      "line": "text ^",
+      "id": null
+    },
+    {
+      "line": "text ^1bad",
+      "id": null
+    },
+    {
+      "line": "text ^café",
+      "id": null
+    },
+    {
+      "line": "",
+      "id": null
+    },
+    {
+      "line": "plain text",
+      "id": null
+    }
+  ]
+}
