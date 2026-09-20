@@ -83,7 +83,7 @@ pub fn extract_block_ids(source: &str) -> Vec<BlockIdOccurrence> {
     out
 }
 
-fn block_id_at_line_end(line: &str) -> Option<String> {
+pub fn block_id_at_line_end(line: &str) -> Option<String> {
     let line = line.trim_end();
     let caret = line.rfind('^')?;
     let id = &line[caret + 1..];
@@ -138,6 +138,28 @@ mod tests {
         let got = extract_block_ids(src);
         let ids: Vec<&str> = got.iter().map(|o| o.block_id.as_str()).collect();
         assert_eq!(ids, vec!["yes"]);
+    }
+
+    #[test]
+    fn grammar_matches_the_shared_fixture() {
+        #[derive(serde::Deserialize)]
+        struct Case {
+            id: String,
+            valid: bool,
+        }
+        let cases: Vec<Case> =
+            serde_json::from_str(include_str!("../../tests/fixtures/block_ids.json"))
+                .expect("fixture parses");
+        for c in cases {
+            assert_eq!(is_valid_block_id(&c.id), c.valid, "grammar on {:?}", c.id);
+            let src = format!("text ^{}\n", c.id);
+            assert_eq!(
+                !extract_block_ids(&src).is_empty(),
+                c.valid,
+                "extraction on {:?}",
+                c.id
+            );
+        }
     }
 
     #[test]

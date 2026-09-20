@@ -347,13 +347,15 @@ runs the real `UPDATE` against a real index and asserts the matched set equals
 `classify_candidate`'s. Two notions of token matching is precisely the drift this
 layer exists to prevent — extend `link_match`, never re-derive.
 
-**Case-insensitive means one function, everywhere.**
-"Case-insensitive" above is `cubical_index::names_eq_folded`, and
-`PathResolver`, wikilink autocomplete and the graph's ghost interning all fold
-through the same `fold_name`. It cannot be SQL: `LOWER()` in libSQL is ASCII-only
-under the core-only pin ([`Cargo.toml`](../../Cargo.toml)), so a SQL-side fold
-would resolve `[[CAFÉ]]` to `café.md` when rendering and then fail to reattach
-that referrer on rename — a stale link produced by the fold, not by a missing
+**Case-insensitive means one function, everywhere.** "Case-insensitive" above is
+`cubical_index::names_eq_folded`, and `PathResolver`, wikilink autocomplete, the
+graph's ghost interning and every tag match all fold through the same
+`fold_name`. Tags resolve once, in `cubical_index::tag_paths_under`: the tag
+page, tag autocomplete and dataview's `FROM #tag` plan all start from that set
+of stored spellings. It cannot be SQL: `LOWER()` in libSQL is ASCII-only under
+the core-only pin ([`Cargo.toml`](../../Cargo.toml)), so a SQL-side fold would
+resolve `[[CAFÉ]]` to `café.md` when rendering and then fail to reattach that
+referrer on rename — a stale link produced by the fold, not by a missing
 rewrite. Every query that folds therefore reads its candidates and folds them in
 Rust. `classification_folds_the_way_path_resolution_folds` is what holds the two
 sides together.
@@ -384,13 +386,24 @@ which is the cost of having exactly one spelling of a token.
 `FrontmatterTitle` is the one rank with no reattachment twin. It is
 **candidate-only**: offered to the user, never used by any automatic rewrite. That asymmetry is the
 whole boundary — confident matching stays narrow, consented matching can afford
-to be generous.
+to be generous. Generosity stops at *which* key is the title: it is
+`cubical_ast::FRONTMATTER_TITLE_KEY`, matched exactly as search matches it, so a
+`Title:` note is not offered under a title the rest of the app never shows.
 
 **What counts as dangling.** A link row whose `target_path` no longer names a
 tracked file. Two shapes reach that state: a stale non-null path (the watcher's
 `Removed` arm deletes the `files` row and leaves referring link rows pointing at
-it — that *is* the rot), and a null path that never resolved. A null path with no
-repair candidate is dropped from the report: in a PKM, `[[a note I have not
+it — that *is* the rot), and a null path that never resolved. The predicate is
+`cubical_index::DANGLING_LINK_PREDICATE`; the integrity panel and its repair
+read it. Rename's automatic reattachment (`reconnect_broken_links_to`, journal
+replay) deliberately takes a narrower set, `REATTACHABLE_LINK`: unresolved rows
+plus rows still naming the file being moved. The second half is what replay
+needs — a crash between the move and the rekey lets the scan sweep drop the
+`files` row while referrers keep naming it. Rows stale on some *other* removed
+file stay out: a `[[plan]]` whose `c/plan.md` was deleted may belong to a
+surviving `b/plan.md`, and only the consented repair path may guess. Both halves
+are indexed equality lookups, which the broad predicate is not. A null path with
+no repair candidate is dropped from the report: in a PKM, `[[a note I have not
 written yet]]` is normal authoring, and a panel that lists it is a panel nobody
 reads. Groups are keyed by exact `target_raw`, which is also what
 `apply_pending`'s rewrite matches on, so a group is exactly one repairable unit.
@@ -655,8 +668,10 @@ so the three callers cannot drift apart.
 parameter, threaded into `vault_lock::acquire`/`write_payload`) rather than a
 fixed location, because the path is keyed by the app's own pid
 (`cubical-<pid>.sock`) — the same machine-local reasoning that keeps the
-lockfile itself out of `.cubical/`, above. The server is a
-`.setup()`-spawned, **sequential** accept loop (not one task per connection):
+lockfile itself out of `.cubical/`, above. The server is
+`cubical_ipc::serve`, which `cubical-app` spawns from `.setup()` with its state
+and sink — the transport owns binding and accepting, the app only wires them. It
+is a **sequential** accept loop (not one task per connection):
 `handle_connection` borrows `&AppState`, and `AppState`'s own locks already
 serialize mutations (see Lock discipline above), so a second concurrency
 layer here would be redundant. A transient `accept` error backs off and

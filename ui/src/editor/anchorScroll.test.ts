@@ -59,8 +59,8 @@ describe("findBlockDefinitionOffset", () => {
     expect(findBlockDefinitionOffset("text ^a.b\n", "a.b")).toBeNull();
   });
 
-  it("matches a unicode-letter id", () => {
-    const doc = "café note ^café\n";
-    expect(findBlockDefinitionOffset(doc, "café")).toBe(0);
+  it("refuses an id the engine never indexes", () => {
+    expect(findBlockDefinitionOffset("café note ^café\n", "café")).toBeNull();
+    expect(findBlockDefinitionOffset("note ^1abc\n", "1abc")).toBeNull();
   });
 });

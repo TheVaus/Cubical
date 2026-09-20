@@ -37,17 +37,7 @@ pub fn save(store: &Path, vault_path: &str, session: &TabSession) {
     } else {
         all.insert(vault_path.to_string(), session.clone());
     }
-    let _ = atomic_write(store, &all);
-}
-
-fn atomic_write(store: &Path, all: &Store) -> std::io::Result<()> {
-    if let Some(parent) = store.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let json = serde_json::to_vec_pretty(all)?;
-    let tmp = store.with_extension("json.tmp");
-    std::fs::write(&tmp, &json)?;
-    std::fs::rename(&tmp, store)
+    crate::app_store::write_json(store, &all);
 }
 
 #[cfg(test)]

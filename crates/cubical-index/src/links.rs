@@ -3,6 +3,9 @@ use libsql::params;
 use crate::error::IndexError;
 use crate::runner::IndexConn;
 
+pub const DANGLING_LINK_PREDICATE: &str =
+    "(target_path IS NULL OR target_path NOT IN (SELECT path FROM files))";
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct LinkRow {
     pub target_raw: String,

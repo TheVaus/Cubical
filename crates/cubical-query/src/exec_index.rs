@@ -1,8 +1,8 @@
 use cubical_ast::note_title;
-use cubical_index::IndexConn;
+use cubical_index::{tag_paths_under, IndexConn};
 use libsql::{params_from_iter, Value as SqlValue};
 
-use crate::ast::{Command, Query};
+use crate::ast::{Command, Query, Source};
 use crate::error::QueryError;
 use crate::exec::{ListItem, NoteRef, QueryResult, Row};
 use crate::plan::{plan, SqlParam};
@@ -38,7 +38,11 @@ fn note_ref(path: String) -> NoteRef {
 }
 
 pub async fn run(conn: &IndexConn, q: &Query) -> Result<QueryResult, QueryError> {
-    let p = plan(q);
+    let source_tags = match &q.source {
+        Some(Source::Tag(t)) => tag_paths_under(conn, t).await?,
+        _ => Vec::new(),
+    };
+    let p = plan(q, &source_tags);
     let values = to_sql_values(&p.params);
     let c = conn.connection();
 
@@ -130,6 +134,28 @@ mod tests {
             list_paths(&conn, r#"LIST FROM "areas""#).await,
             vec!["areas/sub/y.md", "areas/x.md"]
         );
+    }
+
+    #[tokio::test]
+    async fn from_a_tag_folds_case_the_way_the_tag_page_does() {
+        use cubical_index::{files_for_tag_prefix, replace_tags_for_file, TagRow, TagSource};
+        let (_d, conn) = seed_paths(&["a.md", "b.md", "c.md"]).await;
+        for (path, tag) in [("a.md", "CAFÉ"), ("b.md", "café/noir"), ("c.md", "cafés")] {
+            replace_tags_for_file(
+                &conn,
+                path,
+                &[TagRow {
+                    tag_path: tag.into(),
+                    source: TagSource::Inline,
+                }],
+            )
+            .await
+            .unwrap();
+        }
+        let listed = list_paths(&conn, "LIST FROM #café").await;
+        assert_eq!(listed, vec!["a.md", "b.md"]);
+        assert_eq!(listed, files_for_tag_prefix(&conn, "café").await.unwrap());
+        assert!(list_paths(&conn, "LIST FROM #nothing").await.is_empty());
     }
 
     #[tokio::test]

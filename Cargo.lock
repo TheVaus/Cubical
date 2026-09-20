@@ -820,7 +820,6 @@ dependencies = [
  "cubical-core",
  "cubical-engine",
  "cubical-ipc",
- "futures-util",
  "nix 0.31.3",
  "portable-pty",
  "serde",
@@ -923,6 +922,7 @@ name = "cubical-index"
 version = "0.1.0"
 dependencies = [
  "libsql",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.20",
  "tokio",
@@ -937,11 +937,13 @@ dependencies = [
  "clap",
  "cubical-core",
  "cubical-engine",
+ "futures-util",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
  "tokio-util",
+ "tracing",
 ]
 
 [[package]]
@@ -953,6 +955,7 @@ dependencies = [
  "cubical-table",
  "libsql",
  "serde",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.20",
  "tokio",

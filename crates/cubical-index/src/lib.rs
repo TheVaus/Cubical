@@ -23,7 +23,7 @@ pub use fold::{fold_name, names_eq_folded};
 pub use folders::{delete_folder, list_folders, sweep_stale_folders, upsert_folder};
 pub use links::{
     backlinks_for, files_for_link_query, links_from, links_to, replace_links_for_file, BacklinkRow,
-    LinkRow,
+    LinkRow, DANGLING_LINK_PREDICATE,
 };
 pub use migrations::{Migration, MIGRATIONS};
 pub use pending::{
@@ -34,5 +34,5 @@ pub use pending::{
 pub use runner::{open_index, IndexConn};
 pub use tags::{
     all_tag_assignments, all_tag_paths, files_for_tag_prefix, replace_tags_for_file,
-    tag_paths_for_prefix, tags_for_file, TagAssignment, TagRow, TagSource,
+    tag_paths_for_prefix, tag_paths_under, tags_for_file, TagAssignment, TagRow, TagSource,
 };

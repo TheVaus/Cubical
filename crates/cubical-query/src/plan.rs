@@ -51,7 +51,7 @@ fn escape_like(s: &str) -> String {
 }
 
 #[must_use]
-pub fn plan(q: &Query) -> Plan {
+pub fn plan(q: &Query, source_tags: &[String]) -> Plan {
     let mut params: Vec<SqlParam> = Vec::new();
 
     let select = match &q.command {
@@ -73,15 +73,16 @@ pub fn plan(q: &Query) -> Plan {
 
     let mut wheres: Vec<String> = Vec::new();
     match &q.source {
-        Some(Source::Tag(t)) => {
+        Some(Source::Tag(_)) if source_tags.is_empty() => wheres.push("0".to_string()),
+        Some(Source::Tag(_)) => {
             wheres.push(
                 "files.path IN (SELECT file_path FROM tags \
-                 WHERE LOWER(tag_path) = ? OR LOWER(tag_path) LIKE ? ESCAPE '\\')"
+                 WHERE tag_path IN (SELECT value FROM json_each(?)))"
                     .to_string(),
             );
-            let needle = t.to_lowercase();
-            params.push(SqlParam::Text(needle.clone()));
-            params.push(SqlParam::Text(format!("{}/%", escape_like(&needle))));
+            params.push(SqlParam::Text(
+                serde_json::to_string(source_tags).unwrap_or_default(),
+            ));
         }
         Some(Source::Path(f)) => {
             wheres.push("files.path LIKE ? ESCAPE '\\'".to_string());
@@ -157,7 +158,7 @@ mod tests {
             conds: vec![],
             sort: None,
         };
-        let p = plan(&q);
+        let p = plan(&q, &[]);
         assert_eq!(p.sql, "SELECT files.path FROM files ORDER BY files.path");
         assert!(p.params.is_empty());
     }
@@ -170,26 +171,38 @@ mod tests {
             conds: vec![],
             sort: None,
         };
-        assert_eq!(plan(&q).sql, "SELECT COUNT(*) FROM files");
+        assert_eq!(plan(&q, &[]).sql, "SELECT COUNT(*) FROM files");
     }
 
     #[test]
-    fn plans_from_tag() {
+    fn plans_from_tag_over_the_resolved_tag_paths() {
         let q = Query {
             command: Command::List,
             source: Some(Source::Tag("Project".into())),
             conds: vec![],
             sort: None,
         };
-        let p = plan(&q);
-        assert!(p.sql.contains("files.path IN (SELECT file_path FROM tags"));
+        let p = plan(&q, &["Project".into(), "project/a".into()]);
+        assert!(p
+            .sql
+            .contains("tag_path IN (SELECT value FROM json_each(?))"));
         assert_eq!(
             p.params,
-            vec![
-                SqlParam::Text("project".into()),
-                SqlParam::Text("project/%".into()),
-            ]
+            vec![SqlParam::Text(r#"["Project","project/a"]"#.into())]
         );
+    }
+
+    #[test]
+    fn plans_from_an_unused_tag_as_no_rows() {
+        let q = Query {
+            command: Command::Count,
+            source: Some(Source::Tag("nothing".into())),
+            conds: vec![],
+            sort: None,
+        };
+        let p = plan(&q, &[]);
+        assert_eq!(p.sql, "SELECT COUNT(*) FROM files WHERE 0");
+        assert!(p.params.is_empty());
     }
 
     #[test]
@@ -200,7 +213,7 @@ mod tests {
             conds: vec![],
             sort: None,
         };
-        let p = plan(&q);
+        let p = plan(&q, &[]);
         assert!(p.sql.contains("files.path LIKE ? ESCAPE"));
         assert_eq!(p.params, vec![SqlParam::Text("areas/health/%".into())]);
     }
@@ -224,7 +237,7 @@ mod tests {
             ],
             sort: None,
         };
-        let p = plan(&q);
+        let p = plan(&q, &[]);
         assert!(p.sql.contains("typeof(CASE json_type(f.value,'$')"));
         assert!(p.sql.contains("IN ('integer','real')"));
         assert!(p.sql.contains(" AND EXISTS"));
@@ -247,7 +260,7 @@ mod tests {
             conds: vec![],
             sort: None,
         };
-        let p = plan(&q);
+        let p = plan(&q, &[]);
         assert!(p
             .sql
             .starts_with("SELECT files.path, (SELECT CASE json_type(value,'$')"));
@@ -265,7 +278,7 @@ mod tests {
                 dir: SortDir::Desc,
             }),
         };
-        let p = plan(&q);
+        let p = plan(&q, &[]);
         assert!(p.sql.contains("IS NULL, "));
         assert!(p.sql.contains(") DESC, files.path"));
         assert_eq!(

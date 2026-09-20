@@ -22,7 +22,7 @@ pub mod tags;
 mod watcher;
 
 pub use atomic::atomic_write;
-pub use blocks::{refresh_block_refs_for_file, refresh_blocks};
+pub use blocks::{block_id_at_line_end, refresh_block_refs_for_file, refresh_blocks};
 pub use frontmatter::{refresh_frontmatter, refresh_frontmatter_with_doc};
 pub use links::{
     extract_links, refresh_links, refresh_links_with_doc, resolve_target, LinkExtraction,

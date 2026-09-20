@@ -10,7 +10,7 @@ pub mod wikilink;
 
 pub use error::AstError;
 pub use frontmatter::parse_frontmatter;
-pub use note_name::{basename, note_title, strip_markdown_extension};
+pub use note_name::{basename, note_title, strip_markdown_extension, FRONTMATTER_TITLE_KEY};
 pub use types::{Anchor, Block, Document, Frontmatter, Inline, ListItem, Span};
 pub use wikilink::{scan_wikilinks, TokenizedRun};
 

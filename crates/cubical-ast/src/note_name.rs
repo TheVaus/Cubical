@@ -8,6 +8,8 @@ pub fn basename(path: &str) -> &str {
     path.rsplit('/').next().unwrap_or(path)
 }
 
+pub const FRONTMATTER_TITLE_KEY: &str = "title";
+
 #[must_use]
 pub fn note_title(path: &str) -> &str {
     strip_markdown_extension(basename(path))

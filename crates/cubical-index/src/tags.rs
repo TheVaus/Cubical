@@ -1,6 +1,7 @@
 use libsql::params;
 
 use crate::error::IndexError;
+use crate::fold::fold_name;
 use crate::runner::IndexConn;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,37 +45,36 @@ pub async fn replace_tags_for_file(
     Ok(())
 }
 
-fn escape_like_literal(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for ch in s.chars() {
-        if ch == '\\' || ch == '%' || ch == '_' {
-            out.push('\\');
-        }
-        out.push(ch);
-    }
-    out
+pub async fn tag_paths_under(conn: &IndexConn, tag_path: &str) -> Result<Vec<String>, IndexError> {
+    let needle = fold_name(tag_path);
+    let descendant = format!("{needle}/");
+    Ok(all_tag_paths(conn)
+        .await?
+        .into_iter()
+        .filter(|tag| {
+            let folded = fold_name(tag);
+            folded == needle || folded.starts_with(&descendant)
+        })
+        .collect())
 }
 
 pub async fn files_for_tag_prefix(
     conn: &IndexConn,
     tag_path: &str,
 ) -> Result<Vec<String>, IndexError> {
-    let needle = tag_path.to_lowercase();
-    let prefix_like = format!("{}/%", escape_like_literal(&needle));
+    let matched = tag_paths_under(conn, tag_path).await?;
     let mut rows = conn
         .connection()
         .query(
             "SELECT DISTINCT file_path FROM tags \
-             WHERE LOWER(tag_path) = ?1 \
-                OR LOWER(tag_path) LIKE ?2 ESCAPE '\\' \
+             WHERE tag_path IN (SELECT value FROM json_each(?1)) \
              ORDER BY file_path",
-            params![needle, prefix_like],
+            params![serde_json::to_string(&matched).unwrap_or_default()],
         )
         .await?;
     let mut out = Vec::new();
     while let Some(row) = rows.next().await? {
-        let path: String = row.get(0)?;
-        out.push(path);
+        out.push(row.get::<String>(0)?);
     }
     Ok(out)
 }
@@ -84,23 +84,13 @@ pub async fn tag_paths_for_prefix(
     query: &str,
     limit: u32,
 ) -> Result<Vec<String>, IndexError> {
-    let needle = query.to_lowercase();
-    let prefix_like = format!("{}%", escape_like_literal(&needle));
-    let mut rows = conn
-        .connection()
-        .query(
-            "SELECT DISTINCT tag_path FROM tags \
-             WHERE ?1 = '' OR LOWER(tag_path) LIKE ?2 ESCAPE '\\' \
-             ORDER BY tag_path \
-             LIMIT ?3",
-            params![needle, prefix_like, i64::from(limit)],
-        )
-        .await?;
-    let mut out = Vec::new();
-    while let Some(row) = rows.next().await? {
-        out.push(row.get::<String>(0)?);
-    }
-    Ok(out)
+    let needle = fold_name(query);
+    Ok(all_tag_paths(conn)
+        .await?
+        .into_iter()
+        .filter(|tag| fold_name(tag).starts_with(&needle))
+        .take(limit as usize)
+        .collect())
 }
 
 pub async fn all_tag_paths(conn: &IndexConn) -> Result<Vec<String>, IndexError> {
@@ -449,6 +439,41 @@ mod tests {
         assert_eq!(got, vec!["a.md".to_string(), "b.md".to_string()]);
         let got = files_for_tag_prefix(&conn, "TODO").await.expect("upper");
         assert_eq!(got, vec!["a.md".to_string(), "b.md".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn files_for_tag_prefix_folds_non_ascii_case() {
+        let (_dir, conn) = open_test_index().await;
+        seed_file(&conn, "a.md").await;
+        seed_file(&conn, "b.md").await;
+        replace_tags_for_file(&conn, "a.md", &[row("CAFÉ", TagSource::Inline)])
+            .await
+            .expect("a");
+        replace_tags_for_file(&conn, "b.md", &[row("Ärger/Ölpreis", TagSource::Inline)])
+            .await
+            .expect("b");
+        let got = files_for_tag_prefix(&conn, "café").await.expect("café");
+        assert_eq!(got, vec!["a.md".to_string()]);
+        let got = files_for_tag_prefix(&conn, "ärger").await.expect("ärger");
+        assert_eq!(got, vec!["b.md".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn tag_paths_for_prefix_folds_non_ascii_case() {
+        let (_dir, conn) = open_test_index().await;
+        seed_file(&conn, "a.md").await;
+        replace_tags_for_file(
+            &conn,
+            "a.md",
+            &[
+                row("ÉTÉ", TagSource::Inline),
+                row("été/juillet", TagSource::Inline),
+            ],
+        )
+        .await
+        .unwrap();
+        let got = tag_paths_for_prefix(&conn, "ét", 50).await.unwrap();
+        assert_eq!(got, vec!["ÉTÉ".to_string(), "été/juillet".to_string()]);
     }
 
     #[tokio::test]

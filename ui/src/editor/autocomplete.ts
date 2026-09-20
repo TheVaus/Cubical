@@ -9,6 +9,7 @@ import type { EditorState, Extension } from "@codemirror/state";
 import type { SyntaxNode } from "@lezer/common";
 
 import type { AutocompleteProvider } from "./autocompleteProvider";
+import { BLOCK_ID_CHAR } from "./blockId";
 import { fenceCompletionSource } from "./fenceComplete";
 
 export interface Trigger {
@@ -43,11 +44,14 @@ export interface BlockTrigger {
   from: number;
 }
 
+const BLOCK_TRIGGER = new RegExp(`\\[\\[([^\\]\\n|#]+)#\\^([${BLOCK_ID_CHAR}]*)$`);
+const BLOCK_PREFIX = new RegExp(`^[${BLOCK_ID_CHAR}]*$`);
+
 export function detectBlockTrigger(
   before: string,
   pos: number,
 ): BlockTrigger | null {
-  const m = /\[\[([^\]\n|#]+)#\^([A-Za-z0-9_-]*)$/.exec(before);
+  const m = BLOCK_TRIGGER.exec(before);
   if (!m) return null;
   const target = m[1] ?? "";
   if (target.trim().length === 0) return null;
@@ -162,7 +166,7 @@ export function blockCompletionSource(
           });
         },
       })),
-      validFor: /^[A-Za-z0-9_-]*$/,
+      validFor: BLOCK_PREFIX,
     };
   };
 }

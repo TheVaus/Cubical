@@ -1,4 +1,4 @@
-use cubical_ast::{basename, note_title, parse, Block, Document, Inline};
+use cubical_ast::{basename, note_title, parse, Block, Document, Inline, FRONTMATTER_TITLE_KEY};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct IndexDoc {
@@ -43,7 +43,7 @@ pub fn project_with_doc(path: &str, doc: &Document, mtime_secs: i64, size_bytes:
 
 fn derive_title(path: &str, doc: &Document) -> String {
     if let Some(fm) = &doc.frontmatter {
-        if let Some(t) = fm.get_string("title") {
+        if let Some(t) = fm.get_string(FRONTMATTER_TITLE_KEY) {
             return t.to_string();
         }
     }
@@ -71,7 +71,7 @@ fn flatten_frontmatter(doc: &Document) -> String {
     };
     let mut buf = String::new();
     for (key, value) in fm.flattened_scalars() {
-        if key == "title" || key == "tags" || key.starts_with("tags.") {
+        if key == FRONTMATTER_TITLE_KEY || key == "tags" || key.starts_with("tags.") {
             continue;
         }
         if !buf.is_empty() {

@@ -12,7 +12,7 @@ Extraction is regex + delimiter counting over the Rust source, not a Rust parser
 - `#[tauri::command]` sites unparsed: **0**
 - entries in `tauri::generate_handler!`: **64**
 - `cubical-ipc` public types (struct/enum): **10** · type aliases: **1** · public consts: **4**
-- `cubical-ipc` re-exports from `lib.rs`: **16**
+- `cubical-ipc` re-exports from `lib.rs`: **18**
 
 ## Tauri commands
 
@@ -23,67 +23,67 @@ Extraction is regex + delimiter counting over the Rust source, not a Rust parser
 | `agent_instructions_accept` | `req: AgentInstructionsRequest` | `core::AgentInstructionsAccepted` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/agent_instructions.rs`:18 | yes |
 | `agent_instructions_decline` | `req: AgentInstructionsRequest` | `()` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/agent_instructions.rs`:26 | yes |
 | `agent_instructions_status` | `req: AgentInstructionsRequest` | `core::AgentInstructionsStatus` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/agent_instructions.rs`:10 | yes |
-| `block_id_autocomplete` | `req: BlockIdAutocompleteRequest` | `BlockIdAutocompleteResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:525 | yes |
-| `cancel_vault_scan` | `req: CancelVaultScanRequest` | `()` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:325 | yes |
-| `close_vault` | `req: CloseVaultRequest` | `()` | `CubicalError` | `state: tauri::State<'_, AppState>`<br>`registry: tauri::State<'_, terminal::TerminalRegistry>`<br>`layouts: tauri::State<'_, cubical_engine::commands::graph::LayoutRegistry>`<br>`app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:747 | yes |
-| `create_block_ref` | `req: CreateBlockRefRequest` | `CreateBlockRefResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:533 | yes |
-| `create_file` | `req: CreateFileRequest` | `CreateFileResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:349 | yes |
-| `create_file_at_path` | `req: CreateFileAtPathRequest` | `CreateFileAtPathResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:357 | yes |
-| `create_folder` | `req: CreateFolderRequest` | `CreateFolderResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:365 | yes |
-| `dataview_query` | `req: DataviewQueryRequest` | `DataviewResult` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:731 | yes |
-| `delete_path` | `req: DeletePathRequest` | `()` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:373 | yes |
-| `flush_pending_rewrites` | `req: FlushPendingRewritesRequest` | `FlushPendingRewritesResponse` | `CubicalError` | `state: tauri::State<'_, AppState>`<br>`app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:605 | yes |
-| `flush_pending_rewrites_for_target` | `req: FlushPendingRewritesForTargetRequest` | `FlushPendingRewritesResponse` | `CubicalError` | `state: tauri::State<'_, AppState>`<br>`app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:619 | yes |
-| `get_backlinks` | `req: GetBacklinksRequest` | `GetBacklinksResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:477 | yes |
-| `get_broken_block_refs` | `req: GetBrokenBlockRefsRequest` | `GetBrokenBlockRefsResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:541 | yes |
-| `get_canonical_ast` | `req: GetCanonicalAstRequest` | `GetCanonicalAstResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:429 | yes |
-| `get_embed` | `req: GetEmbedRequest` | `GetEmbedResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:445 | yes |
-| `get_frontmatter` | `req: GetFrontmatterRequest` | `GetFrontmatterResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:381 | yes |
-| `get_pending_rewrites_breakdown` | `req: GetPendingRewritesBreakdownRequest` | `GetPendingRewritesBreakdownResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:641 | yes |
-| `get_pending_rewrites_count` | `req: GetPendingRewritesCountRequest` | `GetPendingRewritesCountResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:633 | yes |
-| `get_property` | `req: GetPropertyRequest` | `GetPropertyResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:453 | yes |
-| `get_setting` | `req: GetSettingRequest` | `GetSettingResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:413 | yes |
-| `get_unlinked_mentions` | `req: cubical_engine::api::types::GetUnlinkedMentionsRequest` | `cubical_engine::api::types::GetUnlinkedMentionsResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:461 | yes |
-| `get_vault_info` | `req: GetVaultInfoRequest` | `GetVaultInfoResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:333 | yes |
+| `block_id_autocomplete` | `req: BlockIdAutocompleteRequest` | `BlockIdAutocompleteResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:469 | yes |
+| `cancel_vault_scan` | `req: CancelVaultScanRequest` | `()` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:269 | yes |
+| `close_vault` | `req: CloseVaultRequest` | `()` | `CubicalError` | `state: tauri::State<'_, AppState>`<br>`registry: tauri::State<'_, terminal::TerminalRegistry>`<br>`layouts: tauri::State<'_, cubical_engine::commands::graph::LayoutRegistry>`<br>`app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:691 | yes |
+| `create_block_ref` | `req: CreateBlockRefRequest` | `CreateBlockRefResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:477 | yes |
+| `create_file` | `req: CreateFileRequest` | `CreateFileResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:293 | yes |
+| `create_file_at_path` | `req: CreateFileAtPathRequest` | `CreateFileAtPathResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:301 | yes |
+| `create_folder` | `req: CreateFolderRequest` | `CreateFolderResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:309 | yes |
+| `dataview_query` | `req: DataviewQueryRequest` | `DataviewResult` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:675 | yes |
+| `delete_path` | `req: DeletePathRequest` | `()` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:317 | yes |
+| `flush_pending_rewrites` | `req: FlushPendingRewritesRequest` | `FlushPendingRewritesResponse` | `CubicalError` | `state: tauri::State<'_, AppState>`<br>`app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:549 | yes |
+| `flush_pending_rewrites_for_target` | `req: FlushPendingRewritesForTargetRequest` | `FlushPendingRewritesResponse` | `CubicalError` | `state: tauri::State<'_, AppState>`<br>`app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:563 | yes |
+| `get_backlinks` | `req: GetBacklinksRequest` | `GetBacklinksResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:421 | yes |
+| `get_broken_block_refs` | `req: GetBrokenBlockRefsRequest` | `GetBrokenBlockRefsResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:485 | yes |
+| `get_canonical_ast` | `req: GetCanonicalAstRequest` | `GetCanonicalAstResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:373 | yes |
+| `get_embed` | `req: GetEmbedRequest` | `GetEmbedResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:389 | yes |
+| `get_frontmatter` | `req: GetFrontmatterRequest` | `GetFrontmatterResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:325 | yes |
+| `get_pending_rewrites_breakdown` | `req: GetPendingRewritesBreakdownRequest` | `GetPendingRewritesBreakdownResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:585 | yes |
+| `get_pending_rewrites_count` | `req: GetPendingRewritesCountRequest` | `GetPendingRewritesCountResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:577 | yes |
+| `get_property` | `req: GetPropertyRequest` | `GetPropertyResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:397 | yes |
+| `get_setting` | `req: GetSettingRequest` | `GetSettingResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:357 | yes |
+| `get_unlinked_mentions` | `req: cubical_engine::api::types::GetUnlinkedMentionsRequest` | `cubical_engine::api::types::GetUnlinkedMentionsResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:405 | yes |
+| `get_vault_info` | `req: GetVaultInfoRequest` | `GetVaultInfoResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:277 | yes |
 | `graph_layout` | `req: GraphLayoutRequest`<br>`on_frame: Channel<LayoutFrame>` | `LayoutComplete` | `CubicalError` | `state: tauri::State<'_, AppState>`<br>`registry: tauri::State<'_, LayoutRegistry>` | `crates/cubical-app/src/graph.rs`:17 | yes |
 | `graph_layout_cancel` | `req: GraphLayoutCancelRequest` | `()` | `CubicalError` | `registry: tauri::State<'_, LayoutRegistry>` | `crates/cubical-app/src/graph.rs`:35 | yes |
 | `graph_snapshot` | `req: GraphSnapshotRequest` | `GraphSnapshot` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/graph.rs`:9 | yes |
-| `link_autocomplete` | `req: LinkAutocompleteRequest` | `LinkAutocompleteResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:493 | yes |
-| `link_mention` | `req: cubical_engine::api::types::LinkMentionRequest` | `cubical_engine::api::types::LinkMentionResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:469 | yes |
-| `list_dangling_links` | `req: ListDanglingLinksRequest` | `ListDanglingLinksResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:671 | yes |
-| `list_files` | `req: ListFilesRequest` | `ListFilesResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:341 | yes |
-| `list_recent_rename_ops` | `req: ListRecentRenameOpsRequest` | `ListRecentRenameOpsResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:649 | yes |
-| `list_recent_vaults` | — | `recent_vaults::ListRecentVaultsResponse` | — | `app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:289 | yes |
-| `list_tag_assignments` | `req: ListTagAssignmentsRequest` | `ListTagAssignmentsResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:509 | yes |
-| `list_tags` | `req: ListTagsRequest` | `ListTagsResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:517 | yes |
-| `load_tab_session` | `vault_path: String` | `tab_sessions::TabSession` | — | `app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:311 | yes |
-| `open_vault` | `req: OpenVaultRequest` | `OpenVaultResponse` | `CubicalError` | `state: tauri::State<'_, AppState>`<br>`app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:258 | yes |
-| `query_tag_page` | `req: QueryTagPageRequest` | `QueryTagPageResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:485 | yes |
-| `read_file_bytes` | `req: ReadFileBytesRequest` | `ReadFileBytesResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:397 | yes |
-| `read_file_text` | `req: ReadFileTextRequest` | `ReadFileTextResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:389 | yes |
-| `reload_settings` | `req: ReloadSettingsRequest` | `ReloadSettingsResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:739 | yes |
-| `remove_recent_vault` | `req: recent_vaults::RemoveRecentVaultRequest` | `()` | — | `app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:297 | yes |
-| `rename_block_id` | `req: RenameBlockIdRequest` | `RenameBlockIdResponse` | `CubicalError` | `state: tauri::State<'_, AppState>`<br>`app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:591 | yes |
-| `rename_file` | `req: RenameFileRequest` | `RenameFileResponse` | `CubicalError` | `state: tauri::State<'_, AppState>`<br>`app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:549 | yes |
-| `rename_folder` | `req: RenameFolderRequest` | `RenameFolderResponse` | `CubicalError` | `state: tauri::State<'_, AppState>`<br>`app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:563 | yes |
-| `rename_tag` | `req: RenameTagRequest` | `RenameTagResponse` | `CubicalError` | `state: tauri::State<'_, AppState>`<br>`app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:577 | yes |
-| `repair_dangling_link` | `req: RepairDanglingLinkRequest` | `RepairDanglingLinkResponse` | `CubicalError` | `state: tauri::State<'_, AppState>`<br>`app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:679 | yes |
-| `resolve_link` | `req: ResolveLinkRequest` | `ResolveLinkResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:437 | yes |
-| `save_tab_session` | `vault_path: String`<br>`session: tab_sessions::TabSession` | `()` | — | `app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:318 | yes |
-| `search` | `req: SearchRequest` | `SearchResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:693 | yes |
-| `search_get_health` | `req: SearchVaultRequest` | `SearchHealthDto` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:723 | yes |
-| `search_index_status` | `req: SearchVaultRequest` | `SearchIndexStatusDto` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:701 | yes |
-| `search_rebuild_index` | `req: SearchVaultRequest` | `()` | `CubicalError` | `state: tauri::State<'_, AppState>`<br>`app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:709 | yes |
-| `set_setting` | `req: SetSettingRequest` | `SetSettingResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:421 | yes |
-| `tag_autocomplete` | `req: TagAutocompleteRequest` | `TagAutocompleteResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:501 | yes |
+| `link_autocomplete` | `req: LinkAutocompleteRequest` | `LinkAutocompleteResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:437 | yes |
+| `link_mention` | `req: cubical_engine::api::types::LinkMentionRequest` | `cubical_engine::api::types::LinkMentionResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:413 | yes |
+| `list_dangling_links` | `req: ListDanglingLinksRequest` | `ListDanglingLinksResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:615 | yes |
+| `list_files` | `req: ListFilesRequest` | `ListFilesResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:285 | yes |
+| `list_recent_rename_ops` | `req: ListRecentRenameOpsRequest` | `ListRecentRenameOpsResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:593 | yes |
+| `list_recent_vaults` | — | `recent_vaults::ListRecentVaultsResponse` | — | `app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:233 | yes |
+| `list_tag_assignments` | `req: ListTagAssignmentsRequest` | `ListTagAssignmentsResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:453 | yes |
+| `list_tags` | `req: ListTagsRequest` | `ListTagsResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:461 | yes |
+| `load_tab_session` | `vault_path: String` | `tab_sessions::TabSession` | — | `app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:255 | yes |
+| `open_vault` | `req: OpenVaultRequest` | `OpenVaultResponse` | `CubicalError` | `state: tauri::State<'_, AppState>`<br>`app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:202 | yes |
+| `query_tag_page` | `req: QueryTagPageRequest` | `QueryTagPageResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:429 | yes |
+| `read_file_bytes` | `req: ReadFileBytesRequest` | `ReadFileBytesResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:341 | yes |
+| `read_file_text` | `req: ReadFileTextRequest` | `ReadFileTextResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:333 | yes |
+| `reload_settings` | `req: ReloadSettingsRequest` | `ReloadSettingsResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:683 | yes |
+| `remove_recent_vault` | `req: recent_vaults::RemoveRecentVaultRequest` | `()` | — | `app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:241 | yes |
+| `rename_block_id` | `req: RenameBlockIdRequest` | `RenameBlockIdResponse` | `CubicalError` | `state: tauri::State<'_, AppState>`<br>`app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:535 | yes |
+| `rename_file` | `req: RenameFileRequest` | `RenameFileResponse` | `CubicalError` | `state: tauri::State<'_, AppState>`<br>`app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:493 | yes |
+| `rename_folder` | `req: RenameFolderRequest` | `RenameFolderResponse` | `CubicalError` | `state: tauri::State<'_, AppState>`<br>`app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:507 | yes |
+| `rename_tag` | `req: RenameTagRequest` | `RenameTagResponse` | `CubicalError` | `state: tauri::State<'_, AppState>`<br>`app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:521 | yes |
+| `repair_dangling_link` | `req: RepairDanglingLinkRequest` | `RepairDanglingLinkResponse` | `CubicalError` | `state: tauri::State<'_, AppState>`<br>`app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:623 | yes |
+| `resolve_link` | `req: ResolveLinkRequest` | `ResolveLinkResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:381 | yes |
+| `save_tab_session` | `vault_path: String`<br>`session: tab_sessions::TabSession` | `()` | — | `app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:262 | yes |
+| `search` | `req: SearchRequest` | `SearchResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:637 | yes |
+| `search_get_health` | `req: SearchVaultRequest` | `SearchHealthDto` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:667 | yes |
+| `search_index_status` | `req: SearchVaultRequest` | `SearchIndexStatusDto` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:645 | yes |
+| `search_rebuild_index` | `req: SearchVaultRequest` | `()` | `CubicalError` | `state: tauri::State<'_, AppState>`<br>`app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:653 | yes |
+| `set_setting` | `req: SetSettingRequest` | `SetSettingResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:365 | yes |
+| `tag_autocomplete` | `req: TagAutocompleteRequest` | `TagAutocompleteResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:445 | yes |
 | `terminal_busy` | `terminal_id: String` | `bool` | `String` | `registry: tauri::State<'_, TerminalRegistry>` | `crates/cubical-app/src/terminal.rs`:119 | yes |
 | `terminal_close` | `terminal_id: String` | `()` | `String` | `registry: tauri::State<'_, TerminalRegistry>` | `crates/cubical-app/src/terminal.rs`:127 | yes |
 | `terminal_open` | `vault_id: String`<br>`cols: u16`<br>`rows: u16`<br>`on_output: Channel<TerminalChunk>` | `TerminalOpenResponse` | `String` | `state: tauri::State<'_, AppState>`<br>`registry: tauri::State<'_, TerminalRegistry>` | `crates/cubical-app/src/terminal.rs`:85 | yes |
 | `terminal_reap_all` | — | `()` | `String` | `registry: tauri::State<'_, TerminalRegistry>` | `crates/cubical-app/src/terminal.rs`:136 | yes |
 | `terminal_resize` | `terminal_id: String`<br>`cols: u16`<br>`rows: u16` | `()` | `String` | `registry: tauri::State<'_, TerminalRegistry>` | `crates/cubical-app/src/terminal.rs`:109 | yes |
 | `terminal_write` | `terminal_id: String`<br>`data: String` | `()` | `String` | `registry: tauri::State<'_, TerminalRegistry>` | `crates/cubical-app/src/terminal.rs`:100 | yes |
-| `undo_rename` | `req: UndoRenameRequest` | `UndoRenameResponse` | `CubicalError` | `state: tauri::State<'_, AppState>`<br>`app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:657 | yes |
-| `write_file_text` | `req: WriteFileTextRequest` | `WriteFileTextResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:405 | yes |
+| `undo_rename` | `req: UndoRenameRequest` | `UndoRenameResponse` | `CubicalError` | `state: tauri::State<'_, AppState>`<br>`app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:601 | yes |
+| `write_file_text` | `req: WriteFileTextRequest` | `WriteFileTextResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:349 | yes |
 
 ### Registration cross-check
 
@@ -168,6 +168,8 @@ None — every `#[tauri::command]` site matched the signature pattern.
 The crate-level surface, as re-exported from `crates/cubical-ipc/src/lib.rs`:
 
 - `pub use dispatch::dispatch;`
+- `pub use listener::bind_socket;`
+- `pub use listener::serve;`
 - `pub use protocol::Command;`
 - `pub use protocol::Outcome;`
 - `pub use protocol::Request;`
