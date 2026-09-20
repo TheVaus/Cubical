@@ -101,7 +101,8 @@ pub fn block_id_at_line_end(line: &str) -> Option<String> {
     Some(id.to_string())
 }
 
-fn is_valid_block_id(id: &str) -> bool {
+#[must_use]
+pub fn is_valid_block_id(id: &str) -> bool {
     let mut chars = id.chars();
     match chars.next() {
         Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
@@ -140,17 +141,32 @@ mod tests {
         assert_eq!(ids, vec!["yes"]);
     }
 
+    #[derive(serde::Deserialize)]
+    struct IdCase {
+        id: String,
+        valid: bool,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct LineCase {
+        line: String,
+        id: Option<String>,
+    }
+
+    #[derive(serde::Deserialize)]
+    struct Fixture {
+        ids: Vec<IdCase>,
+        lines: Vec<LineCase>,
+    }
+
+    fn fixture() -> Fixture {
+        serde_json::from_str(include_str!("../../tests/fixtures/block_ids.json"))
+            .expect("fixture parses")
+    }
+
     #[test]
     fn grammar_matches_the_shared_fixture() {
-        #[derive(serde::Deserialize)]
-        struct Case {
-            id: String,
-            valid: bool,
-        }
-        let cases: Vec<Case> =
-            serde_json::from_str(include_str!("../../tests/fixtures/block_ids.json"))
-                .expect("fixture parses");
-        for c in cases {
+        for c in fixture().ids {
             assert_eq!(is_valid_block_id(&c.id), c.valid, "grammar on {:?}", c.id);
             let src = format!("text ^{}\n", c.id);
             assert_eq!(
@@ -158,6 +174,18 @@ mod tests {
                 c.valid,
                 "extraction on {:?}",
                 c.id
+            );
+        }
+    }
+
+    #[test]
+    fn trailing_position_matches_the_shared_fixture() {
+        for c in fixture().lines {
+            assert_eq!(
+                block_id_at_line_end(&c.line).as_deref(),
+                c.id.as_deref(),
+                "trailing id on {:?}",
+                c.line
             );
         }
     }

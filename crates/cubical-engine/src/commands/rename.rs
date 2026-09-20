@@ -783,10 +783,11 @@ pub async fn rename_block_id(
     if req.old_id == req.new_id {
         return Err(CubicalError::InvalidRequest("old_id == new_id".into()));
     }
-    if req.old_id.is_empty() || req.new_id.is_empty() {
-        return Err(CubicalError::InvalidRequest(
-            "block id must not be empty".into(),
-        ));
+    if !cubical_core::vault::is_valid_block_id(&req.new_id) {
+        return Err(CubicalError::InvalidRequest(format!(
+            "`{}` is not a block id",
+            req.new_id
+        )));
     }
     let (vault, flush_own_writes, _flush_in_progress) =
         clone_vault_with_flush_state(state, &req.vault_id).await?;
@@ -3138,6 +3139,40 @@ mod tests {
         .await
         .expect_err("must reject");
         assert!(matches!(err, CubicalError::InvalidRequest(_)));
+    }
+
+    #[tokio::test]
+    async fn rename_block_id_rejects_an_id_the_owning_grammar_rejects() {
+        for new_id in ["café", "1abc", "a b", "a.b"] {
+            let (_d, vault, state) = fresh("v1").await;
+            seed_file(&vault, "Pinned.md", "markdown").await;
+            replace_blocks_for_file(
+                vault.index(),
+                "Pinned.md",
+                &[BlockRow {
+                    block_id: "intro".into(),
+                    position_hint: 0,
+                }],
+            )
+            .await
+            .expect("seed block");
+            let err = rename_block_id(
+                &state,
+                &NoopEventSink,
+                RenameBlockIdRequest {
+                    vault_id: "v1".into(),
+                    file_path: "Pinned.md".into(),
+                    old_id: "intro".into(),
+                    new_id: new_id.into(),
+                },
+            )
+            .await
+            .expect_err(&format!("must reject {new_id}"));
+            assert!(
+                matches!(err, CubicalError::InvalidRequest(_)),
+                "{new_id}: {err:?}"
+            );
+        }
     }
 
     #[tokio::test]

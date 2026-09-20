@@ -6,12 +6,17 @@ import { Text } from "@codemirror/state";
 import { parser } from "@lezer/markdown";
 
 import { findBlockDefinitionOffset } from "./anchorScroll";
-import { isBlockId } from "./blockId";
+import { isBlockId, TRAILING_BLOCK_ID } from "./blockId";
 import { findBlockIds } from "./decorations";
 
-interface Case {
+interface IdCase {
   id: string;
   valid: boolean;
+}
+
+interface LineCase {
+  line: string;
+  id: string | null;
 }
 
 const FIXTURE = resolve(
@@ -19,11 +24,13 @@ const FIXTURE = resolve(
   "../../../crates/cubical-core/tests/fixtures/block_ids.json",
 );
 
-const cases: Case[] = JSON.parse(readFileSync(FIXTURE, "utf8"));
+const fixture: { ids: IdCase[]; lines: LineCase[] } = JSON.parse(
+  readFileSync(FIXTURE, "utf8"),
+);
 const away = { head: 0, from: 0, to: 0 };
 
 describe("block-ID grammar agrees with cubical_core::vault::blocks", () => {
-  for (const c of cases) {
+  for (const c of fixture.ids) {
     it(`${JSON.stringify(c.id)} is ${c.valid ? "valid" : "invalid"}`, () => {
       const src = `x\ntext ^${c.id}`;
       expect(isBlockId(c.id)).toBe(c.valid);
@@ -31,6 +38,14 @@ describe("block-ID grammar agrees with cubical_core::vault::blocks", () => {
         c.valid,
       );
       expect(findBlockDefinitionOffset(src, c.id) !== null).toBe(c.valid);
+    });
+  }
+});
+
+describe("trailing block-ID position agrees with block_id_at_line_end", () => {
+  for (const c of fixture.lines) {
+    it(`${JSON.stringify(c.line)} yields ${JSON.stringify(c.id)}`, () => {
+      expect(TRAILING_BLOCK_ID.exec(c.line)?.[2] ?? null).toBe(c.id);
     });
   }
 });
