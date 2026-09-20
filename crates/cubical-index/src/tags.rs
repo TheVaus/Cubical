@@ -1,7 +1,7 @@
 use libsql::params;
 
 use crate::error::IndexError;
-use crate::fold::fold_name;
+use crate::fold::{fold_name, fold_prefix_upper_bound};
 use crate::runner::IndexConn;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,16 +50,9 @@ pub async fn replace_tags_for_file(
     Ok(())
 }
 
-fn escape_like_literal(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for ch in s.chars() {
-        if ch == '\\' || ch == '%' || ch == '_' {
-            out.push('\\');
-        }
-        out.push(ch);
-    }
-    out
-}
+pub(crate) const FILES_FOR_TAG_SQL: &str = "SELECT DISTINCT file_path FROM tags \
+     WHERE tag_fold = ?1 OR (tag_fold >= ?2 AND tag_fold < ?3) \
+     ORDER BY file_path";
 
 pub async fn files_for_tag_prefix(
     conn: &IndexConn,
@@ -69,16 +62,13 @@ pub async fn files_for_tag_prefix(
     if needle.is_empty() {
         return Ok(Vec::new());
     }
-    let prefix_like = format!("{}/%", escape_like_literal(&needle));
+    let descendants = format!("{needle}/");
+    let Some(beyond) = fold_prefix_upper_bound(&descendants) else {
+        return Ok(Vec::new());
+    };
     let mut rows = conn
         .connection()
-        .query(
-            "SELECT DISTINCT file_path FROM tags \
-             WHERE tag_fold = ?1 \
-                OR tag_fold LIKE ?2 ESCAPE '\\' \
-             ORDER BY file_path",
-            params![needle, prefix_like],
-        )
+        .query(FILES_FOR_TAG_SQL, params![needle, descendants, beyond])
         .await?;
     let mut out = Vec::new();
     while let Some(row) = rows.next().await? {
@@ -88,23 +78,34 @@ pub async fn files_for_tag_prefix(
     Ok(out)
 }
 
+pub(crate) const TAG_PATHS_FOR_PREFIX_SQL: &str = "SELECT DISTINCT tag_path FROM tags \
+     WHERE tag_fold >= ?1 AND tag_fold < ?2 \
+     ORDER BY tag_path LIMIT ?3";
+
+const ALL_TAG_PATHS_SQL: &str = "SELECT DISTINCT tag_path FROM tags \
+     ORDER BY tag_path LIMIT ?1";
+
 pub async fn tag_paths_for_prefix(
     conn: &IndexConn,
     query: &str,
     limit: u32,
 ) -> Result<Vec<String>, IndexError> {
     let needle = fold_name(query);
-    let prefix_like = format!("{}%", escape_like_literal(&needle));
-    let mut rows = conn
-        .connection()
-        .query(
-            "SELECT DISTINCT tag_path FROM tags \
-             WHERE ?1 = '' OR tag_fold LIKE ?2 ESCAPE '\\' \
-             ORDER BY tag_path \
-             LIMIT ?3",
-            params![needle, prefix_like, i64::from(limit)],
-        )
-        .await?;
+    let mut rows = match fold_prefix_upper_bound(&needle) {
+        None => {
+            conn.connection()
+                .query(ALL_TAG_PATHS_SQL, params![i64::from(limit)])
+                .await?
+        }
+        Some(beyond) => {
+            conn.connection()
+                .query(
+                    TAG_PATHS_FOR_PREFIX_SQL,
+                    params![needle, beyond, i64::from(limit)],
+                )
+                .await?
+        }
+    };
     let mut out = Vec::new();
     while let Some(row) = rows.next().await? {
         out.push(row.get::<String>(0)?);
@@ -259,6 +260,41 @@ mod tests {
             tags,
             vec!["alpha".to_string(), "project/cubical".to_string()]
         );
+    }
+
+    async fn plan_for(conn: &IndexConn, sql: &str, args: &[&str]) -> String {
+        let owned: Vec<libsql::Value> = args
+            .iter()
+            .map(|a| libsql::Value::Text((*a).to_string()))
+            .collect();
+        let mut rows = conn
+            .connection()
+            .query(&format!("EXPLAIN QUERY PLAN {sql}"), owned)
+            .await
+            .expect("explain");
+        let mut out = String::new();
+        while let Some(row) = rows.next().await.expect("row") {
+            out.push_str(&row.get::<String>(3).expect("detail"));
+            out.push('\n');
+        }
+        out
+    }
+
+    #[tokio::test]
+    async fn tag_matching_reads_the_fold_index_instead_of_scanning() {
+        let (_dir, conn) = open_test_index().await;
+        let carriers = plan_for(
+            &conn,
+            FILES_FOR_TAG_SQL,
+            &["projekt", "projekt/", "projekt0"],
+        )
+        .await;
+        assert!(carriers.contains("idx_tags_fold"), "{carriers}");
+        assert!(!carriers.contains("SCAN tags"), "{carriers}");
+
+        let prefixes = plan_for(&conn, TAG_PATHS_FOR_PREFIX_SQL, &["pro", "prp", "10"]).await;
+        assert!(prefixes.contains("idx_tags_fold"), "{prefixes}");
+        assert!(!prefixes.contains("SCAN tags"), "{prefixes}");
     }
 
     #[tokio::test]

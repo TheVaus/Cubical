@@ -74,14 +74,26 @@ pub fn plan(q: &Query) -> Plan {
     let mut wheres: Vec<String> = Vec::new();
     match &q.source {
         Some(Source::Tag(t)) => {
-            wheres.push(
-                "files.path IN (SELECT file_path FROM tags \
-                 WHERE tag_fold = ? OR tag_fold LIKE ? ESCAPE '\\')"
-                    .to_string(),
-            );
             let needle = cubical_index::fold_name(t);
-            params.push(SqlParam::Text(needle.clone()));
-            params.push(SqlParam::Text(format!("{}/%", escape_like(&needle))));
+            let descendants = format!("{needle}/");
+            match cubical_index::fold_prefix_upper_bound(&descendants) {
+                Some(beyond) => {
+                    wheres.push(
+                        "files.path IN (SELECT file_path FROM tags \
+                         WHERE tag_fold = ? OR (tag_fold >= ? AND tag_fold < ?))"
+                            .to_string(),
+                    );
+                    params.push(SqlParam::Text(needle));
+                    params.push(SqlParam::Text(descendants));
+                    params.push(SqlParam::Text(beyond));
+                }
+                None => {
+                    wheres.push(
+                        "files.path IN (SELECT file_path FROM tags WHERE tag_fold = ?)".to_string(),
+                    );
+                    params.push(SqlParam::Text(needle));
+                }
+            }
         }
         Some(Source::Path(f)) => {
             wheres.push("files.path LIKE ? ESCAPE '\\'".to_string());
@@ -187,7 +199,8 @@ mod tests {
             p.params,
             vec![
                 SqlParam::Text("project".into()),
-                SqlParam::Text("project/%".into()),
+                SqlParam::Text("project/".into()),
+                SqlParam::Text("project0".into()),
             ]
         );
     }
@@ -202,12 +215,19 @@ mod tests {
         };
         let p = plan(&q);
         assert!(!p.sql.contains("LOWER(tag_path)"), "{}", p.sql);
-        assert!(p.sql.contains("tag_fold = ?"), "{}", p.sql);
+        assert!(!p.sql.contains("LIKE ?"), "{}", p.sql);
+        assert!(
+            p.sql
+                .contains("tag_fold = ? OR (tag_fold >= ? AND tag_fold < ?)"),
+            "{}",
+            p.sql
+        );
         assert_eq!(
             p.params,
             vec![
                 SqlParam::Text(cubical_index::fold_name("Projekt/CAFÉ")),
-                SqlParam::Text("projekt/café/%".into()),
+                SqlParam::Text("projekt/café/".into()),
+                SqlParam::Text("projekt/café0".into()),
             ]
         );
     }

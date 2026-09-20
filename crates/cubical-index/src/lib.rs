@@ -19,7 +19,7 @@ pub use blocks::{
 };
 pub use error::IndexError;
 pub use files::{all_file_paths, upsert_file, FileRow};
-pub use fold::{fold_name, names_eq_folded};
+pub use fold::{fold_name, fold_prefix_upper_bound, names_eq_folded};
 pub use folders::{delete_folder, list_folders, sweep_stale_folders, upsert_folder};
 pub use links::{
     backlinks_for, files_for_link_query, links_from, links_to, replace_links_for_file, BacklinkRow,

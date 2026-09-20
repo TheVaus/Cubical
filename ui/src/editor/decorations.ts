@@ -99,7 +99,6 @@ export function findFrontmatter(
   return null;
 }
 
-
 function isInsideCode(tree: Tree, pos: number): boolean {
   let node: SyntaxNode | null = tree.resolveInner(pos, -1);
   while (node) {

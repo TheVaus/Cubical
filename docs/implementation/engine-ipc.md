@@ -354,8 +354,11 @@ through the same `fold_name`. It cannot be SQL: `LOWER()` in libSQL is ASCII-onl
 under the core-only pin ([`Cargo.toml`](../../Cargo.toml)), so a SQL-side fold
 would resolve `[[CAFÉ]]` to `café.md` when rendering and then fail to reattach
 that referrer on rename — a stale link produced by the fold, not by a missing
-rewrite. Every query that folds therefore reads its candidates and folds them in
-Rust. `classification_folds_the_way_path_resolution_folds` is what holds the two
+rewrite. Every query that folds therefore folds in
+Rust — either by reading its candidates and comparing them there, or, where the
+row count makes that untenable, by storing the folded form alongside the written
+one and comparing that (`tags.tag_fold`).
+`classification_folds_the_way_path_resolution_folds` is what holds the two
 sides together.
 
 The fold lives in `cubical-index` rather than beside the path validators in
