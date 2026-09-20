@@ -66,6 +66,9 @@ pub async fn files_for_tag_prefix(
     tag_path: &str,
 ) -> Result<Vec<String>, IndexError> {
     let needle = fold_name(tag_path);
+    if needle.is_empty() {
+        return Ok(Vec::new());
+    }
     let prefix_like = format!("{}/%", escape_like_literal(&needle));
     let mut rows = conn
         .connection()
@@ -256,6 +259,24 @@ mod tests {
             tags,
             vec!["alpha".to_string(), "project/cubical".to_string()]
         );
+    }
+
+    #[tokio::test]
+    async fn an_empty_tag_never_matches_a_row_awaiting_backfill() {
+        let (_dir, conn) = open_test_index().await;
+        seed_file(&conn, "a.md").await;
+        conn.connection()
+            .execute(
+                "INSERT INTO tags (file_path, tag_path, source) VALUES ('a.md', 'todo', 'inline')",
+                (),
+            )
+            .await
+            .expect("seed unfolded row");
+
+        assert!(files_for_tag_prefix(&conn, "")
+            .await
+            .expect("lookup")
+            .is_empty());
     }
 
     #[tokio::test]

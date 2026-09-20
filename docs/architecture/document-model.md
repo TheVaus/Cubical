@@ -116,7 +116,7 @@ Both feed the same tag index.
 
 **Nesting** uses `/`: `#parent/child/grandchild`.
 
-**Casing** is case-insensitive for matching, case-preserving for display. The canonical display form is whichever case was typed first in the vault; a tag-edit UI lets the user override. The fold has one owner, `cubical_index::fold_name` — the same fold vault names use — and it is applied in Rust on the way *into* the `tag_fold` column, never in SQL: libSQL's `LOWER()` is ASCII-only, so a `#CAFÉ` folded there stayed `cafÉ` and no `#café` query ever reached it, and a fold applied to the column defeated `idx_tags_path` besides. Every matcher — tag pages, autocomplete, the dataview `FROM #tag` source — compares folded values; `tag_path` is for display.
+**Casing** is case-insensitive for matching, case-preserving for display. The canonical display form is whichever case was typed first in the vault; a tag-edit UI lets the user override. The fold has one owner, `cubical_index::fold_name` — the same fold vault names use — and it is applied in Rust on the way *into* the `tag_fold` column, never in SQL: libSQL's `LOWER()` is ASCII-only, so a `#CAFÉ` folded there stayed `cafÉ` and no `#café` query ever reached it, and a fold applied to the column defeated `idx_tags_path` besides. Every matcher — tag pages, autocomplete, the dataview `FROM #tag` source — compares folded values; `tag_path` is for display. An empty needle matches nothing rather than everything: the empty string is the not-yet-backfilled marker, not a tag.
 
 **Allowed characters:** Unicode letters, digits, `_`, `-`, `/`. Must contain at least one letter or underscore (rules out `#1234`).
 
