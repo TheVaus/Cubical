@@ -50,6 +50,17 @@ describe("registerBlocks", () => {
     expect(corePluginActive({}, "graph-view")).toBe(true);
   });
 
+  test("lets each plugin carry its own help page, so settings holds none", () => {
+    const documented = registeredCorePlugins().filter((p) => p.doc);
+    expect(documented.map((p) => p.id)).toEqual([
+      "dataview",
+      "property-refs",
+      "math",
+      "equations",
+    ]);
+    for (const plugin of documented) expect(typeof plugin.doc).toBe("function");
+  });
+
   test("hands settings the statusbar's segments in bar order", () => {
     expect(registeredStatusbarSegments().map((s) => s.id)).toEqual([
       "vault_path",

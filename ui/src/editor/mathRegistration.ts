@@ -1,4 +1,5 @@
 import type { CorePlugin } from "../settings/corePlugins";
+import MathDoc from "./mathDoc";
 
 export const MATH_PLUGIN: CorePlugin = {
   id: "math",
@@ -7,5 +8,5 @@ export const MATH_PLUGIN: CorePlugin = {
     "Typeset LaTeX with KaTeX — ```math blocks and $$…$$ display math render as you write.",
   settingKey: "plugins.math_enabled",
   defaultEnabled: true,
-  docId: "math",
+  doc: MathDoc,
 };

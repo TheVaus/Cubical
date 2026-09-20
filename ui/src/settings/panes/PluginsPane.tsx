@@ -8,17 +8,16 @@ import {
   corePluginEnabled,
   missingRequirements,
   registeredCorePlugins,
-  type PluginDocId,
+  type CorePlugin,
 } from "../corePlugins";
-import { PLUGIN_DOCS } from "../docs";
 import OnOffControl from "../OnOffControl";
 import type { SettingsState } from "../settingsState";
 
 const PluginsPane = (props: { settings: SettingsState }) => {
-  const [docId, setDocId] = createSignal<PluginDocId | null>(null);
+  const [opened, setOpened] = createSignal<CorePlugin | null>(null);
   const doc = () => {
-    const id = docId();
-    return id === null ? null : PLUGIN_DOCS[id];
+    const plugin = opened();
+    return plugin?.doc === undefined ? null : plugin;
   };
 
   return (
@@ -46,16 +45,14 @@ const PluginsPane = (props: { settings: SettingsState }) => {
                   </Show>
                 </div>
                 <div class="set-row__control">
-                  <Show when={p.docId}>
-                    {(id) => (
-                      <IconButton
-                        label={`How ${p.name} works`}
-                        size="sm"
-                        onClick={() => setDocId(id())}
-                      >
-                        <Icon name="info" />
-                      </IconButton>
-                    )}
+                  <Show when={p.doc}>
+                    <IconButton
+                      label={`How ${p.name} works`}
+                      size="sm"
+                      onClick={() => setOpened(p)}
+                    >
+                      <Icon name="info" />
+                    </IconButton>
                   </Show>
                   <OnOffControl
                     value={corePluginEnabled(props.settings.corePlugins(), p)}
@@ -76,14 +73,14 @@ const PluginsPane = (props: { settings: SettingsState }) => {
             <IconButton
               label="Back to plugins"
               size="sm"
-              onClick={() => setDocId(null)}
+              onClick={() => setOpened(null)}
             >
               <Icon name="chevron-right" class="set-doc__back" />
             </IconButton>
           </div>
-          <h2 class="set-h2">{active().title}</h2>
+          <h2 class="set-h2">{active().name}</h2>
           <div class="set-doc">
-            <Dynamic component={active().body} />
+            <Dynamic component={active().doc} />
           </div>
         </>
       )}

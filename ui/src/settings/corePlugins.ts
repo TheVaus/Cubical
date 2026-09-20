@@ -1,8 +1,8 @@
+import type { Component } from "solid-js";
+
 import type { Setting } from "../api/ipc";
 
 export type BooleanSettingKey = Extract<Setting, { value: boolean }>["key"];
-
-export type PluginDocId = "query" | "property-refs" | "math" | "equations";
 
 export interface CorePlugin {
   id: string;
@@ -10,7 +10,7 @@ export interface CorePlugin {
   description: string;
   settingKey: BooleanSettingKey;
   defaultEnabled: boolean;
-  docId?: PluginDocId;
+  doc?: Component;
   requires?: readonly string[];
 }
 
