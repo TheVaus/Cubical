@@ -3,6 +3,7 @@ import { For, type Component } from "solid-js";
 import Toast from "@ds/components/feedback/Toast/Toast";
 
 import { dismissToast, toasts } from "./toastState";
+import "./toast.css";
 
 export const ToastHost: Component = () => {
   return (

@@ -12,6 +12,7 @@ import WikilinksPane from "./panes/WikilinksPane";
 import { registeredSettingsSections } from "./sections";
 import type { SettingsState } from "./settingsState";
 import { settingsNav } from "./tabs";
+import "./settings.css";
 
 export interface SettingsModalProps {
   open: boolean;
