@@ -1,6 +1,8 @@
 import { syntaxTree } from "@codemirror/language";
 import type { EditorState } from "@codemirror/state";
 
+import { isBlockId } from "./blockId";
+
 export function findHeadingOffset(
   state: EditorState,
   value: string,
@@ -25,15 +27,11 @@ export function findHeadingOffset(
   return found;
 }
 
-function isAllowedBlockId(id: string): boolean {
-  return id.length > 0 && /^[\p{L}\p{N}_-]+$/u.test(id);
-}
-
 export function findBlockDefinitionOffset(
   doc: string,
   blockId: string,
 ): number | null {
-  if (!isAllowedBlockId(blockId)) return null;
+  if (!isBlockId(blockId)) return null;
   const needle = `^${blockId}`;
 
   let lineStart = 0;

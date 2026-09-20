@@ -9,7 +9,12 @@ import type { EditorState, Extension } from "@codemirror/state";
 import type { SyntaxNode } from "@lezer/common";
 
 import type { AutocompleteProvider } from "./autocompleteProvider";
+import { BLOCK_ID_PREFIX_RE, BLOCK_ID_PREFIX_SOURCE } from "./blockId";
 import { fenceCompletionSource } from "./fenceComplete";
+
+const BLOCK_TRIGGER_RE = new RegExp(
+  `\\[\\[([^\\]\\n|#]+)#\\^(${BLOCK_ID_PREFIX_SOURCE})$`,
+);
 
 export interface Trigger {
   query: string;
@@ -47,7 +52,7 @@ export function detectBlockTrigger(
   before: string,
   pos: number,
 ): BlockTrigger | null {
-  const m = /\[\[([^\]\n|#]+)#\^([A-Za-z0-9_-]*)$/.exec(before);
+  const m = BLOCK_TRIGGER_RE.exec(before);
   if (!m) return null;
   const target = m[1] ?? "";
   if (target.trim().length === 0) return null;
@@ -162,7 +167,7 @@ export function blockCompletionSource(
           });
         },
       })),
-      validFor: /^[A-Za-z0-9_-]*$/,
+      validFor: BLOCK_ID_PREFIX_RE,
     };
   };
 }

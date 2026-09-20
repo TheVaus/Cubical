@@ -146,6 +146,11 @@ describe("detectBlockTrigger", () => {
   it("rejects outside any `[[`", () => {
     expect(detectBlockTrigger("text^pre", 8)).toBeNull();
   });
+
+  it("rejects a prefix no valid block id can start with", () => {
+    expect(detectBlockTrigger("[[note#^1", 9)).toBeNull();
+    expect(detectBlockTrigger("[[note#^-a", 10)).toBeNull();
+  });
 });
 
 describe("blockInsertion", () => {

@@ -50,7 +50,7 @@ CREATE INDEX idx_links_target ON links(target_path);
 
 A block ID is a slug (`^my-block`) appended to a paragraph or list item. **Lazy assignment:** an ID is only created when the user creates a reference to that paragraph (typing `[[note#^...]]` in autocomplete, or invoking a "create block ref" action). No bulk auto-assignment. The literal `^id` lives in the markdown source as text; it survives content edits as long as the user doesn't delete it.
 
-Allowed characters: Unicode letters, digits, `_`, `-`. Must start with a letter or underscore.
+**Grammar, one owner:** an ID is ASCII — `[A-Za-z_][A-Za-z0-9_-]*` — and the owner is `cubical_core::is_valid_block_id`, with `block_id_at_line_end` owning what counts as a *trailing* ID (caret at line start or after whitespace, trailing whitespace tolerated). Minting, indexing, decoration, anchor scroll and autocomplete are all consumers: they import the owner or, across the language boundary, agree with it through `crates/cubical-core/tests/fixtures/block-ids.json`, which the Rust `block_id_grammar` integration test and the TS `blockId.test.ts` both read. ASCII is deliberate and narrower than the Unicode grammar this section claimed until #305: IDs are minted by the app rather than typed (`unique_id` hashes path and position), a Unicode ID has never been indexed or decorated by any build, and Unicode identifiers compared in SQL inherit the two traps this vault already tracks — libSQL's `LOWER()` is ASCII-only, and nothing normalises NFC against NFD (#123).
 
 Scope: per file. `(file_path, block_id)` is unique within a file pre-L7; `(file_uuid, block_id)` post-L7.
 

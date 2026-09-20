@@ -1,5 +1,6 @@
 use std::fmt::Write as _;
 
+use cubical_core::block_id_at_line_end;
 use cubical_core::vault::blocks::refresh_blocks;
 use cubical_index::broken_block_refs;
 use sha2::{Digest, Sha256};
@@ -70,7 +71,7 @@ fn mint_block_id(source: &str, position: u64, path: &str) -> (String, String) {
     let line = &source[line_start..line_end];
     let line_trimmed = line.trim_end();
 
-    if let Some(existing) = trailing_block_id(line_trimmed) {
+    if let Some(existing) = block_id_at_line_end(line_trimmed) {
         return (source.to_string(), existing);
     }
 
@@ -85,32 +86,11 @@ fn mint_block_id(source: &str, position: u64, path: &str) -> (String, String) {
     (new_source, id)
 }
 
-fn trailing_block_id(line: &str) -> Option<String> {
-    let caret = line.rfind('^')?;
-    let id = &line[caret + 1..];
-    let before_ok = caret == 0
-        || line[..caret]
-            .chars()
-            .next_back()
-            .is_some_and(char::is_whitespace);
-    if before_ok && is_valid_id(id) {
-        Some(id.to_string())
-    } else {
-        None
-    }
-}
-
 fn existing_block_ids(source: &str) -> Vec<String> {
     source
         .lines()
-        .filter_map(|l| trailing_block_id(l.trim_end()))
+        .filter_map(|l| block_id_at_line_end(l.trim_end()))
         .collect()
-}
-
-fn is_valid_id(id: &str) -> bool {
-    let mut c = id.chars();
-    matches!(c.next(), Some(ch) if ch.is_ascii_alphabetic() || ch == '_')
-        && c.all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-')
 }
 
 fn unique_id(path: &str, position: u64, existing: &[String]) -> String {
@@ -280,5 +260,41 @@ mod tests {
     #[test]
     fn generated_ids_are_stable_across_hasher_upgrades() {
         assert_eq!(unique_id("notes/a.md", 42, &[]), "bd064a2");
+    }
+}
+
+#[cfg(test)]
+mod owner_agreement {
+    use super::*;
+
+    #[test]
+    fn minted_ids_satisfy_the_owning_grammar() {
+        let mut bad = Vec::new();
+        for (path, pos) in [("a.md", 0u64), ("notes/b.md", 42), ("c.md", 7)] {
+            let id = unique_id(path, pos, &[]);
+            let collided = unique_id(path, pos, std::slice::from_ref(&id));
+            for candidate in [id, collided] {
+                if !cubical_core::is_valid_block_id(&candidate) {
+                    bad.push(candidate);
+                }
+            }
+        }
+        assert!(bad.is_empty(), "minted ids the owner rejects: {bad:?}");
+    }
+
+    #[test]
+    fn minting_reuses_every_trailing_id_the_owner_accepts() {
+        let mut drifted = Vec::new();
+        for id in ["intro", "_x", "a-b", "Q1", "z9-_"] {
+            let source = format!("a paragraph ^{id}\n");
+            let (new_source, minted) = mint_block_id(&source, 0, "note.md");
+            let owned = cubical_core::block_id_at_line_end(source.trim_end());
+            if owned.as_deref() == Some(id) && (minted != id || new_source != source) {
+                drifted.push(format!(
+                    "owner accepts `{id}` but minting replaced it with `{minted}`"
+                ));
+            }
+        }
+        assert!(drifted.is_empty(), "{}", drifted.join("\n"));
     }
 }

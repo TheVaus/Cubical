@@ -19,6 +19,7 @@ import { type SyntaxNode, type Tree } from "@lezer/common";
 
 import { measurePerf } from "../core/perf";
 import { scanWikilinks, type TokenizedRun } from "../ast/wikilink";
+import { TRAILING_BLOCK_ID_RE } from "./blockId";
 import type { WikiLinkResolution } from "./wikilinkResolver";
 import { withinLines } from "./withinLines";
 
@@ -98,7 +99,6 @@ export function findFrontmatter(
   return null;
 }
 
-const TRAILING_BLOCK_ID = /(^|\s)\^([A-Za-z_][A-Za-z0-9_-]*)\s*$/;
 
 function isInsideCode(tree: Tree, pos: number): boolean {
   let node: SyntaxNode | null = tree.resolveInner(pos, -1);
@@ -125,7 +125,7 @@ export function findBlockIds(
   const out: DecoEntry[] = [];
   for (let ln = 1; ln <= doc.lines; ln++) {
     const line = doc.line(ln);
-    const m = TRAILING_BLOCK_ID.exec(line.text);
+    const m = TRAILING_BLOCK_ID_RE.exec(line.text);
     if (!m) continue;
     const lead = m[1] ?? "";
     const id = m[2] ?? "";

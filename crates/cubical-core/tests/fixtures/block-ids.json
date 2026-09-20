@@ -1,0 +1,35 @@
+{
+  "ids": [
+    { "name": "ascii letters", "id": "intro", "valid": true },
+    { "name": "leading underscore", "id": "_x", "valid": true },
+    { "name": "digits after the first character", "id": "a1", "valid": true },
+    { "name": "hyphen inside", "id": "a-b", "valid": true },
+    { "name": "trailing hyphen", "id": "abc-", "valid": true },
+    { "name": "uppercase start", "id": "Intro", "valid": true },
+    { "name": "empty", "id": "", "valid": false },
+    { "name": "leading digit", "id": "1abc", "valid": false },
+    { "name": "leading hyphen", "id": "-a", "valid": false },
+    { "name": "unicode letter start", "id": "café", "valid": false },
+    { "name": "unicode letter inside", "id": "abcé", "valid": false },
+    { "name": "non-latin script", "id": "日本", "valid": false },
+    { "name": "space inside", "id": "a b", "valid": false },
+    { "name": "dot inside", "id": "a.b", "valid": false },
+    { "name": "slash inside", "id": "a/b", "valid": false }
+  ],
+  "lines": [
+    { "name": "trailing id after text", "line": "A paragraph line. ^intro", "id": "intro" },
+    { "name": "id alone on its line", "line": "^solo", "id": "solo" },
+    { "name": "trailing whitespace tolerated", "line": "text ^id  ", "id": "id" },
+    { "name": "carriage return tolerated", "line": "text ^id\r", "id": "id" },
+    { "name": "tab before the caret", "line": "text\t^id", "id": "id" },
+    { "name": "last caret wins", "line": "a ^one ^two", "id": "two" },
+    { "name": "caret must follow whitespace or line start", "line": "text^id", "id": null },
+    { "name": "second caret glued to the first id", "line": "a ^one^two", "id": null },
+    { "name": "mid-line id is not trailing", "line": "text ^mid more", "id": null },
+    { "name": "bare caret", "line": "text ^", "id": null },
+    { "name": "leading digit rejected", "line": "text ^1bad", "id": null },
+    { "name": "unicode rejected", "line": "text ^café", "id": null },
+    { "name": "empty line", "line": "", "id": null },
+    { "name": "no caret at all", "line": "plain text", "id": null }
+  ]
+}

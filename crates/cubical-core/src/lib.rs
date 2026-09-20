@@ -10,9 +10,9 @@ pub use file_type::{
 };
 pub use time::unix_now_secs;
 pub use vault::{
-    atomic_write, parse_off_executor, refresh_block_refs_for_file, refresh_blocks,
-    refresh_frontmatter, refresh_frontmatter_with_doc, refresh_links, refresh_links_with_doc,
-    refresh_tags, refresh_tags_with_doc, scan, start_watcher, ChangeSink, NoChangeSink, NoScanSink,
-    ScanOutcome, ScanProgress, ScanSink, VanishedFile, Vault, VaultError, WatchEvent,
-    WatcherHandle,
+    atomic_write, block_id_at_line_end, is_valid_block_id, parse_off_executor,
+    refresh_block_refs_for_file, refresh_blocks, refresh_frontmatter, refresh_frontmatter_with_doc,
+    refresh_links, refresh_links_with_doc, refresh_tags, refresh_tags_with_doc, scan,
+    start_watcher, ChangeSink, NoChangeSink, NoScanSink, ScanOutcome, ScanProgress, ScanSink,
+    VanishedFile, Vault, VaultError, WatchEvent, WatcherHandle,
 };
