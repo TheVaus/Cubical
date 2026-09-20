@@ -23,6 +23,8 @@ pub async fn repair_dangling_link(
     app: &dyn EventSink,
     req: RepairDanglingLinkRequest,
 ) -> Result<RepairDanglingLinkResponse, CubicalError> {
+    crate::plugins::require(state, &req.vault_id, crate::plugins::Feature::Integrity).await?;
+
     let target_raw = req.target_raw.trim().to_string();
     if target_raw.is_empty() {
         return Err(CubicalError::InvalidRequest("target_raw is empty".into()));
@@ -123,7 +125,7 @@ async fn dangling_referrers(
 
 #[cfg(test)]
 mod tests {
-    use super::super::fixtures::{drop_file_as_watcher_would, vault_with};
+    use super::super::fixtures::{drop_file_as_watcher_would, switch, vault_with};
     use super::super::list_dangling_links;
     use super::super::ListDanglingLinksRequest;
     use super::*;
@@ -256,5 +258,33 @@ mod tests {
         .await
         .expect_err("should be InvalidRequest");
         assert!(matches!(err, CubicalError::InvalidRequest(_)));
+    }
+
+    #[tokio::test]
+    async fn a_repair_is_refused_while_the_integrity_plugin_is_off() {
+        let (dir, vault, state) = vault_with(&[
+            ("src.md", "see [[plan]]\n"),
+            ("notes/plan.md", "one\n"),
+            ("archive/roadmap.md", "two\n"),
+        ])
+        .await;
+        drop_file_as_watcher_would(&dir, &vault, "notes/plan.md").await;
+        switch(&state, "plugins.integrity_enabled", false).await;
+
+        let err = repair_dangling_link(
+            &state,
+            &NoopEventSink,
+            RepairDanglingLinkRequest {
+                vault_id: "v1".into(),
+                target_raw: "plan".into(),
+                to_path: "archive/roadmap.md".into(),
+            },
+        )
+        .await
+        .expect_err("a switched-off plugin must not rewrite files");
+
+        assert!(matches!(err, CubicalError::FeatureDisabled(id) if id == "integrity"));
+        let on_disk = std::fs::read_to_string(dir.path().join("src.md")).unwrap();
+        assert_eq!(on_disk, "see [[plan]]\n", "a refusal writes nothing");
     }
 }

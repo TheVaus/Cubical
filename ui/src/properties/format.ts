@@ -1,4 +1,4 @@
-import type { CurrencyCode } from "../settings/propertyFormats";
+import type { CurrencyCode } from "./formats";
 
 const CURRENCY_ISO: Record<string, string> = {
   usd: "USD",

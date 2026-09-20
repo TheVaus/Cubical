@@ -1,4 +1,7 @@
-use cubical_core::vault::embeds::{extract_block, extract_section, strip_frontmatter};
+mod extract;
+
+use extract::{extract_block, extract_section, strip_frontmatter};
+
 use cubical_core::vault::links::{read_source_off_executor, resolve_target};
 use cubical_core::vault::pending::materialize_on_read;
 use cubical_index::{all_file_paths, blocks_for_file};
@@ -141,7 +144,7 @@ pub async fn get_embed(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::{AppState, OpenVault, ScanStatusBackend};
+    use crate::state::{AppState, OpenVault};
     use cubical_core::Vault;
     use cubical_index::{replace_blocks_for_file, BlockRow};
     use tempfile::tempdir;
@@ -150,17 +153,11 @@ mod tests {
     async fn state_with_vault_at(dir: &std::path::Path, vault_id: &str) -> (Vault, AppState) {
         let vault = Vault::open(dir).await.expect("open");
         let state = AppState::new();
-        state.vaults().write().await.insert(
-            vault_id.to_string(),
-            OpenVault::new(
-                vault.clone(),
-                crate::search_handle::SearchHandle::open(&vault).await,
-                CancellationToken::new(),
-                ScanStatusBackend::Complete,
-                None,
-                cubical_core::vault::settings::SettingsMap::new(),
-            ),
-        );
+        state
+            .vaults()
+            .write()
+            .await
+            .insert(vault_id.to_string(), OpenVault::for_test(&vault).await);
         (vault, state)
     }
 

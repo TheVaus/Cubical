@@ -221,11 +221,8 @@ export type Setting =
   | { key: "editor.live_tab_limit"; value: number }
   | { key: "appearance.theme_mode"; value: "light" | "dark" | "system" }
   | { key: "ui.right_sidebar_collapsed"; value: boolean }
-  | {
-      key: "ui.right_sidebar_panel";
-      value: "backlinks" | "unlinked_mentions" | "integrity";
-    }
-  | { key: "ui.left_sidebar_mode"; value: "files" | "tags" }
+  | { key: "ui.right_sidebar_panel"; value: string }
+  | { key: "ui.left_sidebar_mode"; value: string }
   | { key: "pending_rewrites.flush_interval_secs"; value: number }
   | { key: "plugins.dataview_enabled"; value: boolean }
   | { key: "plugins.property_refs_enabled"; value: boolean }
@@ -233,6 +230,9 @@ export type Setting =
   | { key: "plugins.equations_enabled"; value: boolean }
   | { key: "plugins.terminal_enabled"; value: boolean }
   | { key: "plugins.graph_view_enabled"; value: boolean }
+  | { key: "plugins.search_enabled"; value: boolean }
+  | { key: "plugins.autocomplete_enabled"; value: boolean }
+  | { key: "plugins.integrity_enabled"; value: boolean }
   | { key: "properties.typed_enabled"; value: boolean }
   | { key: "properties.date_format_default"; value: string }
   | { key: "properties.default_currency"; value: string }

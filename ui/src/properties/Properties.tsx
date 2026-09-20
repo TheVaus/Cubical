@@ -32,7 +32,7 @@ import RawCell from "./RawCell";
 import CurrencyCell from "./CurrencyCell";
 import EnumCell from "./EnumCell";
 import { convertDate } from "./dateFormats";
-import { DATE_FORMAT_TOKENS } from "../settings/propertyFormats";
+import { DATE_FORMAT_TOKENS } from "./formats";
 import { parseTypeComments, type PropertyType } from "./typeComments";
 import {
   effectiveCurrency,

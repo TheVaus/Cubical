@@ -6,9 +6,7 @@ import {
   on,
   onCleanup,
   onMount,
-  Match,
   Show,
-  Switch,
   untrack,
   type Component,
 } from "solid-js";
@@ -144,23 +142,15 @@ import {
 } from "./vault/fileRename";
 import { noteTitle } from "./vault/noteName";
 import { watchSystemTheme } from "./styles/theme";
-import Backlinks from "./backlinks/Backlinks";
-import UnlinkedMentions from "./backlinks/UnlinkedMentions";
-import IntegrityPanel from "./integrity/IntegrityPanel";
 import TagPage from "./tags/TagPage";
 import OmniBar from "./omnibar/OmniBar";
 import { type OmniItem, type RankedItem } from "./omnibar/ranker";
 import { OMNI_COMMANDS } from "./omnibar/commands";
 import { corePluginActive } from "./settings/corePlugins";
+import { registeredSidebarPanels } from "./settings/sidebarPanels";
 import { VaultSwitcher } from "./vaultSwitcher/VaultSwitcher";
 
 const AUTOSAVE_DEBOUNCE_MS = 300;
-
-const RIGHT_SIDEBAR_TABS = [
-  { label: "Backlinks", value: "backlinks" },
-  { label: "Mentions", value: "unlinked_mentions" },
-  { label: "Integrity", value: "integrity" },
-];
 
 const App: Component = () => {
   const {
@@ -634,7 +624,7 @@ const App: Component = () => {
   };
 
   const handleRunCommand = (id: string) => {
-    if (id === "statusbar.toggle") settings.toggleStatusbar();
+    if (id === "statusbar.toggle") settings.toggle("statusbar.enabled");
   };
 
   const stillOpen = (vault: string, tabId: string) =>
@@ -1383,10 +1373,10 @@ const App: Component = () => {
                                 onNavigateTag={(tagPath) =>
                                   void handleNavigateTag(tagPath)
                                 }
-                                typedEnabled={settings.typedProps()}
-                                dateDefault={settings.dateDefault()}
-                                currencyDefault={settings.currencyDefault()}
-                                tagsKeyAsTags={settings.tagsKeyAsTags()}
+                                typedEnabled={settings.value("properties.typed_enabled")}
+                                dateDefault={settings.value("properties.date_format_default")}
+                                currencyDefault={settings.value("properties.default_currency")}
+                                tagsKeyAsTags={settings.value("properties.tags_key_as_tags")}
                               />
                             </FeatureBoundary>
                           </Show>
@@ -1486,45 +1476,29 @@ const App: Component = () => {
                 variant="pill"
                 ariaLabel="Sidebar panels"
                 value={settings.rightSidebarPanel()}
-                options={RIGHT_SIDEBAR_TABS}
+                options={registeredSidebarPanels().map((p) => ({
+                  label: p.label,
+                  value: p.id,
+                }))}
                 onChange={(v) => settings.setRightSidebarPanelValue(v)}
               />
               <div class="rs-body">
                 <FeatureBoundary feature="Sidebar panel">
-                  <Switch>
-                    <Match when={settings.rightSidebarPanel() === "backlinks"}>
-                      <Backlinks
-                        vaultId={vaultId()}
-                        path={selectedPath()}
-                        refreshSignal={rightSidebarRefreshTick()}
-                        onRowClick={(path) =>
-                          void handleNavigateWikilink(path, null)
-                        }
-                      />
-                    </Match>
-                    <Match
-                      when={settings.rightSidebarPanel() === "unlinked_mentions"}
-                    >
-                      <UnlinkedMentions
-                        vaultId={vaultId()}
-                        path={selectedPath()}
-                        refreshSignal={rightSidebarRefreshTick()}
-                        onRowClick={(path) =>
-                          void handleNavigateWikilink(path, null)
-                        }
-                      />
-                    </Match>
-                    <Match when={settings.rightSidebarPanel() === "integrity"}>
-                      <IntegrityPanel
-                        vaultId={vaultId()}
-                        refreshSignal={rightSidebarRefreshTick()}
-                        onRowClick={(path) =>
-                          void handleNavigateWikilink(path, null)
-                        }
-                        onRepaired={() => rightSidebarRefresh.schedule()}
-                      />
-                    </Match>
-                  </Switch>
+                  <For each={registeredSidebarPanels()}>
+                    {(entry) => (
+                      <Show when={settings.rightSidebarPanel() === entry.id}>
+                        <entry.panel
+                          vaultId={vaultId()}
+                          path={selectedPath()}
+                          refreshSignal={rightSidebarRefreshTick()}
+                          onNavigate={(path) =>
+                            void handleNavigateWikilink(path, null)
+                          }
+                          onRefresh={() => rightSidebarRefresh.schedule()}
+                        />
+                      </Show>
+                    )}
+                  </For>
                 </FeatureBoundary>
               </div>
             </div>
@@ -1574,11 +1548,11 @@ const App: Component = () => {
         </p>
       </ConfirmDialog>
 
-      <Show when={vaultId() && settings.statusbarEnabled()}>
+      <Show when={vaultId() && settings.value("statusbar.enabled")}>
         <FeatureBoundary feature="Status bar">
           <footer class="statusbar">
             {(() => {
-              const vaultVis = () => settings.segVisible(VAULT_PATH_SEGMENT);
+              const vaultVis = () => settings.value(VAULT_PATH_SEGMENT.settingKey);
               const scanVis = () => scanStatus() === "in_progress";
               const brokenVis = () => !!formatBrokenBlockRefs(brokenBlockRefs());
               const pendingVis = () =>
@@ -1634,8 +1608,8 @@ const App: Component = () => {
 
             <Show when={view().kind === "file" && !!selectedPath()}>
               {(() => {
-                const wordVis = () => settings.segVisible(WORD_COUNT_SEGMENT);
-                const blockVis = () => settings.segVisible(BLOCK_COUNT_SEGMENT);
+                const wordVis = () => settings.value(WORD_COUNT_SEGMENT.settingKey);
+                const blockVis = () => settings.value(BLOCK_COUNT_SEGMENT.settingKey);
                 const sep = () => leadingSeparators([wordVis(), blockVis()]);
                 return (
                   <span class="statusbar__group statusbar__mid">
@@ -1658,7 +1632,7 @@ const App: Component = () => {
                 when={
                   view().kind === "file" &&
                   selectedPath() &&
-                  settings.segVisible(FILE_PATH_SEGMENT)
+                  settings.value(FILE_PATH_SEGMENT.settingKey)
                 }
               >
                 <span class="statusbar__dir" title={selectedPath() ?? ""}>

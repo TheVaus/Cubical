@@ -16,8 +16,8 @@ describe("QUERY_PLUGIN", () => {
     expect(QUERY_PLUGIN.settingKey).toBe("plugins.dataview_enabled");
   });
 
-  test("points at its doc and requires nothing", () => {
-    expect(QUERY_PLUGIN.docId).toBe("query");
+  test("carries its help page and requires nothing", () => {
+    expect(typeof QUERY_PLUGIN.doc).toBe("function");
     expect(QUERY_PLUGIN.requires ?? []).toEqual([]);
   });
 });

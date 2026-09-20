@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { CURRENCY_CODES } from "../settings/propertyFormats";
+import { CURRENCY_CODES } from "./formats";
 import {
   formatCurrency,
   isKnownCurrency,

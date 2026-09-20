@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, test } from "vitest";
 
 import {
@@ -5,7 +6,8 @@ import {
   corePluginEnabled,
   registeredCorePlugins,
 } from "../settings/corePlugins";
-import { registeredStatusbarSegments } from "../settings/statusbarSettings";
+import { registeredSidebarPanels } from "../settings/sidebarPanels";
+import { registeredStatusbarSegments } from "../statusbar/statusbarSettings";
 import { STATUSBAR_SEGMENTS } from "../statusbar/segments";
 import { registerBlocks } from "./registerBlocks";
 
@@ -20,6 +22,9 @@ describe("registerBlocks", () => {
       "equations",
       "terminal",
       "graph-view",
+      "search",
+      "autocomplete",
+      "integrity",
     ]);
   });
 
@@ -48,6 +53,31 @@ describe("registerBlocks", () => {
 
   test("ships the graph entry, default-on", () => {
     expect(corePluginActive({}, "graph-view")).toBe(true);
+  });
+
+  test("lets each plugin carry its own help page, so settings holds none", () => {
+    const documented = registeredCorePlugins().filter((p) => p.doc);
+    expect(documented.map((p) => p.id)).toEqual([
+      "dataview",
+      "property-refs",
+      "math",
+      "equations",
+    ]);
+    for (const plugin of documented) expect(typeof plugin.doc).toBe("function");
+  });
+
+  test("hands the right sidebar its panels in tab order, from three blocks", () => {
+    expect(registeredSidebarPanels().map((p) => p.id)).toEqual([
+      "backlinks",
+      "unlinked_mentions",
+      "integrity",
+    ]);
+  });
+
+  test("ships search, autocomplete and integrity default-on", () => {
+    for (const id of ["search", "autocomplete", "integrity"]) {
+      expect(corePluginActive({}, id)).toBe(true);
+    }
   });
 
   test("hands settings the statusbar's segments in bar order", () => {

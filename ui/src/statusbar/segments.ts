@@ -1,4 +1,5 @@
-import type { StatusbarSegment } from "../settings/statusbarSettings";
+import type { StatusbarSegment } from "./statusbarSettings";
+import "./statusbar.css";
 
 export const VAULT_PATH_SEGMENT: StatusbarSegment = {
   id: "vault_path",

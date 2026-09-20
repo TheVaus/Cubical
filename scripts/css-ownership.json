@@ -1,0 +1,64 @@
+{
+  "_": [
+    "Read by scripts/gates/css_ownership.py. The rule is",
+    "docs/principles/domain-scoped-dependencies.md.",
+    "",
+    "A stylesheet's domain is the domain of the directory it sits in, so the",
+    "path half of the census is scripts/domain-boundaries.json and is not",
+    "repeated here. This file answers the half a path cannot: which domain a",
+    "CSS class belongs to. Without it, removing a block leaves its styling",
+    "behind in substrate, because the domain-boundary gate reads TS imports and",
+    "a stylesheet has none.",
+    "",
+    "`owners` maps a class-name prefix to a domain named in that census. A",
+    "class matches its prefix exactly or continues with `-` or `__`, so one",
+    "entry covers a BEM block with every element and modifier under it, and the",
+    "longest matching prefix wins. The gate constrains the stylesheet that",
+    "DECLARES a selector, never the markup that uses one: a block's component",
+    "may wear a substrate class such as `.set-row` exactly as it may render a",
+    "design-system component.",
+    "",
+    "`shared` lists the prefixes that belong to no domain — design-system class",
+    "names the app qualifies (`.tab__close.icon-btn` is a delta over the DS",
+    "IconButton, not a second owner of it) and vendor class names. A shared",
+    "class never decides who owns a rule, and a rule built only from shared",
+    "classes has no owner at all, which the gate treats as a failure rather",
+    "than a pass."
+  ],
+
+  "shared": [
+    "btn",
+    "ghost",
+    "icon-btn",
+    "text-input",
+    "segmented-control",
+    "segmented-option",
+    "pill",
+    "xterm"
+  ],
+
+  "owners": {
+    "app-shell": "styles",
+    "topbar": "styles",
+    "stage": "styles",
+    "side": "styles",
+    "rs-tabs": "styles",
+    "rs-body": "styles",
+    "empty-vault": "styles",
+
+    "doc-title": "editor",
+    "editor": "editor",
+    "graph": "graph",
+    "kb-row": "settings",
+    "pending-rewrites-popover": "statusbar",
+    "recent-vaults": "vault-switcher",
+    "set": "settings",
+    "statusbar": "statusbar",
+    "tab": "tabs",
+    "terminal": "terminal",
+    "toast-host": "toast",
+    "vault-btn": "vault-switcher",
+    "vault-switcher": "vault-switcher",
+    "viewer": "viewer"
+  }
+}

@@ -1,4 +1,5 @@
 import type { CorePlugin } from "../settings/corePlugins";
+import QueryDoc from "./QueryDoc";
 
 export const QUERY_PLUGIN: CorePlugin = {
   id: "dataview",
@@ -7,5 +8,5 @@ export const QUERY_PLUGIN: CorePlugin = {
     "Turn a ```query block into a live table, list, or count of notes, built from tags, folders, and frontmatter.",
   settingKey: "plugins.dataview_enabled",
   defaultEnabled: true,
-  docId: "query",
+  doc: QueryDoc,
 };

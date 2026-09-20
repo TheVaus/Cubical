@@ -1,4 +1,4 @@
-import { createSignal, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 
 import TwoPaneModal from "@ds/components/overlay/TwoPaneModal/TwoPaneModal";
 
@@ -7,11 +7,12 @@ import AppearancePane from "./panes/AppearancePane";
 import EditorPane from "./panes/EditorPane";
 import PluginsPane from "./panes/PluginsPane";
 import ShortcutsPane from "./panes/ShortcutsPane";
-import StatusbarPane from "./panes/StatusbarPane";
 import VaultPane from "./panes/VaultPane";
 import WikilinksPane from "./panes/WikilinksPane";
+import { registeredSettingsSections } from "./sections";
 import type { SettingsState } from "./settingsState";
-import { SETTINGS_TABS, type SettingsTab } from "./tabs";
+import { settingsNav } from "./tabs";
+import "./settings.css";
 
 export interface SettingsModalProps {
   open: boolean;
@@ -23,10 +24,10 @@ export interface SettingsModalProps {
 }
 
 const SettingsModal = (props: SettingsModalProps) => {
-  const [tab, setTab] = createSignal<SettingsTab>("appearance");
+  const [tab, setTab] = createSignal<string>("appearance");
   const info = createInfoControl();
 
-  const select = (id: SettingsTab) => {
+  const select = (id: string) => {
     setTab(id);
     info.close();
   };
@@ -39,9 +40,9 @@ const SettingsModal = (props: SettingsModalProps) => {
         info.close();
       }}
       title="Settings"
-      items={SETTINGS_TABS}
+      items={settingsNav()}
       activeId={tab()}
-      onSelect={(id) => select(id as SettingsTab)}
+      onSelect={(id) => select(id)}
     >
       <Show when={tab() === "appearance"}>
         <AppearancePane settings={props.settings} />
@@ -55,9 +56,6 @@ const SettingsModal = (props: SettingsModalProps) => {
       <Show when={tab() === "plugins"}>
         <PluginsPane settings={props.settings} />
       </Show>
-      <Show when={tab() === "statusbar"}>
-        <StatusbarPane settings={props.settings} />
-      </Show>
       <Show when={tab() === "vault"}>
         <VaultPane
           settings={props.settings}
@@ -69,6 +67,13 @@ const SettingsModal = (props: SettingsModalProps) => {
       <Show when={tab() === "shortcuts"}>
         <ShortcutsPane settings={props.settings} info={info} />
       </Show>
+      <For each={registeredSettingsSections()}>
+        {(section) => (
+          <Show when={tab() === section.id}>
+            <section.pane settings={props.settings} info={info} />
+          </Show>
+        )}
+      </For>
     </TwoPaneModal>
   );
 };

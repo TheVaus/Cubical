@@ -1,13 +1,13 @@
 import { For } from "solid-js";
 
-import OnOffControl from "../OnOffControl";
-import type { SettingsState } from "../settingsState";
+import OnOffControl from "../settings/OnOffControl";
+import type { SettingsPaneProps } from "../settings/sections";
 import {
   STATUSBAR_ENABLED_KEY,
   registeredStatusbarSegments,
-} from "../statusbarSettings";
+} from "./statusbarSettings";
 
-const StatusbarPane = (props: { settings: SettingsState }) => (
+const StatusbarPane = (props: SettingsPaneProps) => (
   <>
     <h2 class="set-h2">Status bar</h2>
     <div class="set-row">
@@ -18,21 +18,19 @@ const StatusbarPane = (props: { settings: SettingsState }) => (
         </div>
       </div>
       <OnOffControl
-        value={props.settings.statusbarEnabled()}
-        onChange={(v) =>
-          props.settings.setStatusbarSetting(STATUSBAR_ENABLED_KEY, v)
-        }
+        value={props.settings.value(STATUSBAR_ENABLED_KEY)}
+        onChange={(v) => props.settings.setValue(STATUSBAR_ENABLED_KEY, v)}
       />
     </div>
     <For each={registeredStatusbarSegments()}>
       {(seg) => {
-        const on = () => props.settings.segVisible(seg);
+        const on = () => props.settings.value(seg.settingKey);
         return (
           <div
             class="set-row"
             style={{
-              opacity: props.settings.statusbarEnabled() ? 1 : 0.5,
-              "pointer-events": props.settings.statusbarEnabled()
+              opacity: props.settings.value(STATUSBAR_ENABLED_KEY) ? 1 : 0.5,
+              "pointer-events": props.settings.value(STATUSBAR_ENABLED_KEY)
                 ? "auto"
                 : "none",
             }}
@@ -43,9 +41,7 @@ const StatusbarPane = (props: { settings: SettingsState }) => (
             </div>
             <OnOffControl
               value={on()}
-              onChange={(v) =>
-                props.settings.setStatusbarSetting(seg.settingKey, v)
-              }
+              onChange={(v) => props.settings.setValue(seg.settingKey, v)}
             />
           </div>
         );

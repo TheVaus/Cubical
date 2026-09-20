@@ -1,4 +1,5 @@
 import type { CorePlugin } from "../settings/corePlugins";
+import EquationsDoc from "./equationDoc";
 
 export const EQUATIONS_PLUGIN: CorePlugin = {
   id: "equations",
@@ -7,6 +8,6 @@ export const EQUATIONS_PLUGIN: CorePlugin = {
     "Compute inside a note: `= 5-3` renders 2, and an operand can be a property from any note.",
   settingKey: "plugins.equations_enabled",
   defaultEnabled: true,
-  docId: "equations",
+  doc: EquationsDoc,
   requires: ["property-refs"],
 };

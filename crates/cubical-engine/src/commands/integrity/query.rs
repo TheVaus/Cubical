@@ -7,8 +7,9 @@ use super::{
     RepairCandidate,
 };
 use crate::commands::link_match::{classify_candidate, CandidateRank};
-use crate::commands::open::open_vault_cloned;
+use crate::commands::open::open_vault_cloned_for;
 use crate::error::CubicalError;
+use crate::plugins::Feature;
 use crate::state::AppState;
 
 use cubical_index::DANGLING_LINK_PREDICATE as DANGLING_PREDICATE;
@@ -27,7 +28,7 @@ pub async fn list_dangling_links(
     state: &AppState,
     req: ListDanglingLinksRequest,
 ) -> Result<ListDanglingLinksResponse, CubicalError> {
-    let vault = open_vault_cloned(state, &req.vault_id).await?;
+    let vault = open_vault_cloned_for(state, &req.vault_id, Feature::Integrity).await?;
     let conn = vault.index().connection();
 
     let accumulated = accumulate_groups(conn).await?;
@@ -167,7 +168,7 @@ fn rank_candidates(
 
 #[cfg(test)]
 mod tests {
-    use super::super::fixtures::{drop_file_as_watcher_would, vault_with};
+    use super::super::fixtures::{drop_file_as_watcher_would, switch, vault_with};
     use super::*;
 
     async fn list(state: &AppState) -> ListDanglingLinksResponse {
@@ -299,5 +300,23 @@ mod tests {
         .await
         .expect_err("should be VaultNotOpen");
         assert!(matches!(err, CubicalError::VaultNotOpen(v) if v == "ghost"));
+    }
+
+    #[tokio::test]
+    async fn listing_is_refused_while_the_integrity_plugin_is_off() {
+        let (_dir, _vault, state) = vault_with(&[("a.md", "see [[ghost]]\n")]).await;
+        switch(&state, "plugins.integrity_enabled", false).await;
+
+        let err = list_dangling_links(
+            &state,
+            ListDanglingLinksRequest {
+                vault_id: "v1".into(),
+                limit: None,
+            },
+        )
+        .await
+        .expect_err("a switched-off plugin must not be served");
+
+        assert!(matches!(err, CubicalError::FeatureDisabled(id) if id == "integrity"));
     }
 }

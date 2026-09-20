@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { DATE_FORMAT_TOKENS } from "../settings/propertyFormats";
+import { DATE_FORMAT_TOKENS } from "./formats";
 import {
   convertDate,
   DATE_FORMATS,

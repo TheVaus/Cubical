@@ -3,7 +3,7 @@ use libsql::params;
 use tempfile::{tempdir, TempDir};
 use tokio_util::sync::CancellationToken;
 
-use crate::state::{AppState, OpenVault, ScanStatusBackend};
+use crate::state::{AppState, OpenVault};
 
 pub(super) async fn vault_with(files: &[(&str, &str)]) -> (TempDir, Vault, AppState) {
     let dir = tempdir().unwrap();
@@ -17,17 +17,11 @@ pub(super) async fn vault_with(files: &[(&str, &str)]) -> (TempDir, Vault, AppSt
     let vault = Vault::open(dir.path()).await.expect("open");
     scan(&vault).await;
     let state = AppState::new();
-    state.vaults().write().await.insert(
-        "v1".to_string(),
-        OpenVault::new(
-            vault.clone(),
-            crate::search_handle::SearchHandle::open(&vault).await,
-            CancellationToken::new(),
-            ScanStatusBackend::Complete,
-            None,
-            cubical_core::vault::settings::SettingsMap::new(),
-        ),
-    );
+    state
+        .vaults()
+        .write()
+        .await
+        .insert("v1".to_string(), OpenVault::for_test(&vault).await);
     (dir, vault, state)
 }
 
@@ -51,4 +45,16 @@ pub(super) async fn drop_file_as_watcher_would(dir: &TempDir, vault: &Vault, rel
         .execute("DELETE FROM files WHERE path = ?1", params![rel])
         .await
         .unwrap();
+}
+
+pub(super) async fn switch(state: &AppState, key: &str, on: bool) {
+    let settings = crate::commands::open::with_open_vault(state, "v1", |open| {
+        std::sync::Arc::clone(&open.settings)
+    })
+    .await
+    .expect("vault open");
+    settings
+        .write()
+        .await
+        .insert(key.to_string(), serde_json::json!(on));
 }

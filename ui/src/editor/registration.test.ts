@@ -13,10 +13,12 @@ import { PROPERTY_REFS_PLUGIN } from "./propertyRefRegistration";
 registerCorePlugins([PROPERTY_REFS_PLUGIN, MATH_PLUGIN, EQUATIONS_PLUGIN]);
 
 describe("editor plugin entries", () => {
-  test("each points at its own doc", () => {
+  test("each carries its own help page", () => {
     expect(
-      [PROPERTY_REFS_PLUGIN, MATH_PLUGIN, EQUATIONS_PLUGIN].map((p) => p.docId),
-    ).toEqual(["property-refs", "math", "equations"]);
+      [PROPERTY_REFS_PLUGIN, MATH_PLUGIN, EQUATIONS_PLUGIN].map(
+        (p) => typeof p.doc,
+      ),
+    ).toEqual(["function", "function", "function"]);
   });
 
   test("ships property references default-on", () => {

@@ -23,7 +23,23 @@ values app-side.**
 |---|---|
 | `tokens.css` | the variable surface (re-export only, app-side) |
 | `base.css` | element resets and base styles, consuming tokens; no hardcoded design values |
-| `layout.css` | app chrome layout — the shell, not component internals |
+| `layout.css` | app chrome layout — the shell frame, not component internals |
+| `<domain>/<domain>.css` | one domain's rules, imported by a module of that domain |
+
+Which domain a class belongs to is
+[`../principles/domain-scoped-dependencies.md`](../principles/domain-scoped-dependencies.md)'s
+question, not this file's. The CSS-layer consequence is that `layout.css` holds
+the frame the blocks sit in — shell, stage, sidebars, top bar, the empty-vault
+state — and everything painted inside one of those regions lives with the
+domain that paints it.
+
+A rule qualified with a design-system class (`.doc-title.text-input`,
+`.vault-btn.btn.ghost`, `.tab__close.icon-btn`, `.set-row__num.text-input`,
+`.set-info-btn.icon-btn`, `.rs-tabs.segmented-control.pill`) is a delta on one
+instance: it restates only what this instance differs in and leaves the rest to
+the component. Each is strictly more specific than the component's own rule, so
+it wins wherever its stylesheet is loaded — which is what lets a domain own its
+stylesheet without depending on load order.
 
 The layout model: full-width top and status bars, a positioning-context stage,
 a fixed centred editor layer that never moves, and floating sidebar layers that
