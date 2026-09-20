@@ -13,6 +13,8 @@ pub fn note_title(path: &str) -> &str {
     strip_markdown_extension(basename(path))
 }
 
+pub const FRONTMATTER_TITLE_KEY: &str = "title";
+
 #[cfg(test)]
 mod tests {
     use super::*;

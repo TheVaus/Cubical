@@ -386,6 +386,13 @@ which is the cost of having exactly one spelling of a token.
 whole boundary — confident matching stays narrow, consented matching can afford
 to be generous.
 
+**Which key is a title.** `cubical_ast::FRONTMATTER_TITLE_KEY`, matched exactly,
+because a YAML key is case-sensitive and `Title:` is a different key. Integrity
+matched `LOWER(key)` until #294, so a `Title:` note was a repair candidate under
+a title no other feature — search, autocomplete, dataview, graph — would give
+it. Exact matching also restores `idx_frontmatter_key`: `LOWER(key) = ?` is a
+function of the column, so it scanned every frontmatter row in the vault.
+
 **What counts as dangling.** A link row whose `target_path` no longer names a
 tracked file. Two shapes reach that state: a stale non-null path (the watcher's
 `Removed` arm deletes the `files` row and leaves referring link rows pointing at
