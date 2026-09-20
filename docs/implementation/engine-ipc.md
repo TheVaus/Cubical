@@ -14,9 +14,9 @@ only the shims.
 IPC request/response types are framework-free `serde` structs for the same
 reason — they survive a shell migration unchanged.
 
-## A block's wire types live with its commands
+## A block's wire types and logic live with its commands
 
-**Anchors:** DataviewResult · GraphSnapshot · SearchVaultRequest · ListDanglingLinksRequest
+**Anchors:** DataviewResult · GraphSnapshot · SearchVaultRequest · ListDanglingLinksRequest · extract_section · extract_block · strip_frontmatter
 
 `api/types.rs` holds the substrate's request and response types — vault, files,
 links, tags, rename, settings. Each block's types live in its own command
@@ -34,6 +34,16 @@ as an edge to that crate's census entry.
 `list_tags` lives in `commands::tags` for the same reason: listing the vault's
 tags is substrate the explorer's tag tree reads, not part of the autocomplete
 block it used to sit in.
+
+The embed extractors moved the other way, and for the mirror-image reason.
+`extract_section`, `extract_block` and `strip_frontmatter` sat in
+`cubical-core`, which the rule permits — a block may call substrate — but the
+embeds command was their only caller, so what looked like vault substrate was
+one block's semantics with substrate's lifetime: the vault crate answered
+"which slice of a note does `![[note#heading]]` mean", a question that
+disappears with the block. They are pure functions over a source string, with no
+vault or index handle, so they moved whole into `commands/embeds/extract.rs`.
+`cubical-core` no longer has an `embeds` module.
 
 ## Caller-supplied paths
 
