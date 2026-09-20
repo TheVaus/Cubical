@@ -7,10 +7,10 @@
 -- feed the same logical index so virtual tag pages (Session E) treat
 -- them uniformly.
 --
--- `tag_path` is stored with its case as written. Case-insensitive
--- matching is the query-layer's job (`WHERE LOWER(tag_path) = LOWER(?)`)
--- so we don't lose the user's preferred casing for display in tag
--- pages and autocomplete.
+-- `tag_path` is stored with its case as written, so we don't lose the
+-- user's preferred casing for display in tag pages and autocomplete.
+-- Case-insensitive matching was the query layer's job via SQL `LOWER()`
+-- until migration 008 gave it a folded column of its own.
 --
 -- ON DELETE CASCADE on `file_path` means a future `DELETE FROM files`
 -- (pending-rewrites territory, Session J) cleans up its tag rows.

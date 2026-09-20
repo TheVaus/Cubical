@@ -1,6 +1,7 @@
 use libsql::params;
 
 use crate::error::IndexError;
+use crate::fold::fold_name;
 use crate::runner::IndexConn;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,9 +36,14 @@ pub async fn replace_tags_for_file(
         .await?;
     for r in rows {
         c.execute(
-            "INSERT OR IGNORE INTO tags (file_path, tag_path, source) \
-             VALUES (?1, ?2, ?3)",
-            params![file_path, r.tag_path.clone(), r.source.as_str()],
+            "INSERT OR IGNORE INTO tags (file_path, tag_path, source, tag_fold) \
+             VALUES (?1, ?2, ?3, ?4)",
+            params![
+                file_path,
+                r.tag_path.clone(),
+                r.source.as_str(),
+                fold_name(&r.tag_path)
+            ],
         )
         .await?;
     }
@@ -59,14 +65,14 @@ pub async fn files_for_tag_prefix(
     conn: &IndexConn,
     tag_path: &str,
 ) -> Result<Vec<String>, IndexError> {
-    let needle = tag_path.to_lowercase();
+    let needle = fold_name(tag_path);
     let prefix_like = format!("{}/%", escape_like_literal(&needle));
     let mut rows = conn
         .connection()
         .query(
             "SELECT DISTINCT file_path FROM tags \
-             WHERE LOWER(tag_path) = ?1 \
-                OR LOWER(tag_path) LIKE ?2 ESCAPE '\\' \
+             WHERE tag_fold = ?1 \
+                OR tag_fold LIKE ?2 ESCAPE '\\' \
              ORDER BY file_path",
             params![needle, prefix_like],
         )
@@ -84,13 +90,13 @@ pub async fn tag_paths_for_prefix(
     query: &str,
     limit: u32,
 ) -> Result<Vec<String>, IndexError> {
-    let needle = query.to_lowercase();
+    let needle = fold_name(query);
     let prefix_like = format!("{}%", escape_like_literal(&needle));
     let mut rows = conn
         .connection()
         .query(
             "SELECT DISTINCT tag_path FROM tags \
-             WHERE ?1 = '' OR LOWER(tag_path) LIKE ?2 ESCAPE '\\' \
+             WHERE ?1 = '' OR tag_fold LIKE ?2 ESCAPE '\\' \
              ORDER BY tag_path \
              LIMIT ?3",
             params![needle, prefix_like, i64::from(limit)],
@@ -249,6 +255,29 @@ mod tests {
         assert_eq!(
             tags,
             vec!["alpha".to_string(), "project/cubical".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_non_ascii_tag_matches_the_same_fold_the_vault_uses_for_names() {
+        let (_dir, conn) = open_test_index().await;
+        seed_file(&conn, "a.md").await;
+        replace_tags_for_file(&conn, "a.md", &[row("Projekt/CAFÉ", TagSource::Inline)])
+            .await
+            .expect("replace");
+
+        assert!(crate::names_eq_folded("Projekt/CAFÉ", "projekt/café"));
+        assert_eq!(
+            files_for_tag_prefix(&conn, "projekt/café")
+                .await
+                .expect("lookup"),
+            vec!["a.md".to_string()]
+        );
+        assert_eq!(
+            tag_paths_for_prefix(&conn, "projekt/CAFÉ", 10)
+                .await
+                .expect("prefix"),
+            vec!["Projekt/CAFÉ".to_string()]
         );
     }
 

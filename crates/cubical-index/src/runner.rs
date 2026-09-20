@@ -27,6 +27,33 @@ pub async fn open_index(path: &Path) -> Result<IndexConn, IndexError> {
     open_index_with_migrations(path, MIGRATIONS).await
 }
 
+async fn backfill_tag_folds(conn: &Connection) -> Result<(), IndexError> {
+    let mut present = conn
+        .query(
+            "SELECT 1 FROM pragma_table_info('tags') WHERE name = 'tag_fold'",
+            (),
+        )
+        .await?;
+    if present.next().await?.is_none() {
+        return Ok(());
+    }
+    let mut rows = conn
+        .query("SELECT DISTINCT tag_path FROM tags WHERE tag_fold = ''", ())
+        .await?;
+    let mut stale: Vec<String> = Vec::new();
+    while let Some(row) = rows.next().await? {
+        stale.push(row.get(0)?);
+    }
+    for tag_path in stale {
+        conn.execute(
+            "UPDATE tags SET tag_fold = ?1 WHERE tag_path = ?2 AND tag_fold = ''",
+            libsql::params![crate::fold::fold_name(&tag_path), tag_path],
+        )
+        .await?;
+    }
+    Ok(())
+}
+
 pub(crate) async fn open_index_with_migrations(
     path: &Path,
     migrations: &[Migration],
@@ -37,6 +64,8 @@ pub(crate) async fn open_index_with_migrations(
     conn.execute("PRAGMA foreign_keys = ON", ()).await?;
 
     run_migrations(&conn, migrations).await?;
+
+    backfill_tag_folds(&conn).await?;
 
     // Best-effort: a prune failure must never block opening the vault.
     if let Err(e) =
@@ -150,7 +179,7 @@ mod tests {
         rows.next().await.expect("next").is_some()
     }
 
-    const HIGHEST_KNOWN_VERSION: i64 = 7;
+    const HIGHEST_KNOWN_VERSION: i64 = 8;
 
     #[tokio::test]
     async fn fresh_db_applies_all_known_migrations() {
@@ -311,6 +340,46 @@ mod tests {
         assert_eq!(
             scalar_i64(conn, "SELECT MAX(version) FROM schema_version").await,
             HIGHEST_KNOWN_VERSION
+        );
+    }
+
+    #[tokio::test]
+    async fn tags_written_before_the_fold_column_are_backfilled_on_open() {
+        let dir = TempDir::new().unwrap();
+        let path = db_path(&dir);
+
+        let pre_fold: &[Migration] = &MIGRATIONS[..7];
+        {
+            let idx = open_index_with_migrations(&path, pre_fold)
+                .await
+                .expect("pre-fold open");
+            let conn = idx.connection();
+            conn.execute(
+                "INSERT INTO files (
+                    path, type_id, size_bytes, mtime_unix, content_hash,
+                    inode, last_seen, created_at, updated_at
+                ) VALUES ('a.md', 'markdown', 1, 0, 'h', NULL, 0, 0, 0)",
+                (),
+            )
+            .await
+            .expect("insert seed file");
+            conn.execute(
+                "INSERT INTO tags (file_path, tag_path, source) \
+                 VALUES ('a.md', 'Projekt/CAFÉ', 'inline')",
+                (),
+            )
+            .await
+            .expect("insert seed tag");
+        }
+
+        let idx = open_index(&path)
+            .await
+            .expect("reopen with the fold column");
+        assert_eq!(
+            crate::tags::files_for_tag_prefix(&idx, "projekt/café")
+                .await
+                .expect("lookup"),
+            vec!["a.md".to_string()]
         );
     }
 

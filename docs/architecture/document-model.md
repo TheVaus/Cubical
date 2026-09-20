@@ -116,7 +116,7 @@ Both feed the same tag index.
 
 **Nesting** uses `/`: `#parent/child/grandchild`.
 
-**Casing** is case-insensitive for matching, case-preserving for display. The canonical display form is whichever case was typed first in the vault; a tag-edit UI lets the user override.
+**Casing** is case-insensitive for matching, case-preserving for display. The canonical display form is whichever case was typed first in the vault; a tag-edit UI lets the user override. The fold has one owner, `cubical_index::fold_name` — the same fold vault names use — and it is applied in Rust on the way *into* the `tag_fold` column, never in SQL: libSQL's `LOWER()` is ASCII-only, so a `#CAFÉ` folded there stayed `cafÉ` and no `#café` query ever reached it, and a fold applied to the column defeated `idx_tags_path` besides. Every matcher — tag pages, autocomplete, the dataview `FROM #tag` source — compares folded values; `tag_path` is for display.
 
 **Allowed characters:** Unicode letters, digits, `_`, `-`, `/`. Must contain at least one letter or underscore (rules out `#1234`).
 
@@ -129,11 +129,13 @@ Both feed the same tag index.
 ```sql
 CREATE TABLE tags (
     file_path TEXT NOT NULL,
-    tag_path  TEXT NOT NULL,
+    tag_path  TEXT NOT NULL,         -- as written, for display
     source    TEXT NOT NULL,         -- 'inline' | 'frontmatter'
+    tag_fold  TEXT NOT NULL,         -- fold_name(tag_path), what matching compares
     PRIMARY KEY (file_path, tag_path, source)
 );
 CREATE INDEX idx_tags_path ON tags(tag_path);
+CREATE INDEX idx_tags_fold ON tags(tag_fold);
 ```
 
 (`file_path` becomes `file_uuid` post-L7 via schema migration.)

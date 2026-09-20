@@ -76,10 +76,10 @@ pub fn plan(q: &Query) -> Plan {
         Some(Source::Tag(t)) => {
             wheres.push(
                 "files.path IN (SELECT file_path FROM tags \
-                 WHERE LOWER(tag_path) = ? OR LOWER(tag_path) LIKE ? ESCAPE '\\')"
+                 WHERE tag_fold = ? OR tag_fold LIKE ? ESCAPE '\\')"
                     .to_string(),
             );
-            let needle = t.to_lowercase();
+            let needle = cubical_index::fold_name(t);
             params.push(SqlParam::Text(needle.clone()));
             params.push(SqlParam::Text(format!("{}/%", escape_like(&needle))));
         }
@@ -188,6 +188,26 @@ mod tests {
             vec![
                 SqlParam::Text("project".into()),
                 SqlParam::Text("project/%".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn plans_from_tag_matches_on_the_folded_column() {
+        let q = Query {
+            command: Command::List,
+            source: Some(Source::Tag("Projekt/CAFÉ".into())),
+            conds: vec![],
+            sort: None,
+        };
+        let p = plan(&q);
+        assert!(!p.sql.contains("LOWER(tag_path)"), "{}", p.sql);
+        assert!(p.sql.contains("tag_fold = ?"), "{}", p.sql);
+        assert_eq!(
+            p.params,
+            vec![
+                SqlParam::Text(cubical_index::fold_name("Projekt/CAFÉ")),
+                SqlParam::Text("projekt/café/%".into()),
             ]
         );
     }

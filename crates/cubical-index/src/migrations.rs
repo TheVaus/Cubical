@@ -33,11 +33,25 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 7,
         up: include_str!("../migrations/007_folders.sql"),
     },
+    Migration {
+        version: 8,
+        up: include_str!("../migrations/008_tag_fold.sql"),
+    },
 ];
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn migration_008_adds_the_tag_fold_column() {
+        let m = MIGRATIONS
+            .iter()
+            .find(|m| m.version == 8)
+            .expect("008 migration must be registered");
+        assert!(m.up.contains("ALTER TABLE tags ADD COLUMN tag_fold"));
+        assert!(m.up.contains("idx_tags_fold"));
+    }
 
     #[test]
     fn migration_007_creates_folders_table() {
