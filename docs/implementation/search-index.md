@@ -172,7 +172,7 @@ spreadsheet row.
 
 ## Full-text search (`cubical-search`)
 
-**Anchors:** SearchIndex · rebuilt_reason · is_recoverable_by_wipe · SearchHandle · SearchScanSink · settle_after_scan · change_sink · SEARCH_REBUILT · SEARCH_UNAVAILABLE
+**Anchors:** SearchIndex · rebuilt_reason · is_recoverable_by_wipe · SearchHandle · SearchScanSink · settle_after_scan · change_sink · rebuild_from_files · begin_rebuild · file_paths_of_type · SEARCH_REBUILT · SEARCH_UNAVAILABLE
 
 Every byte in the search directory is derived from the `.md` files, so wiping
 it costs a rescan and nothing else. `SearchIndex::open` therefore wipes and
@@ -209,6 +209,29 @@ required argument, so a path that forgets search fails to compile rather than
 quietly leaving the index stale. The sink owns what used to live inline in the
 walk: the commit every 5,000 documents that bounds `IndexWriter` memory, and
 the end-of-scan `retain_paths` reconcile over every path it was handed.
+
+**A rebuild is the search block's own walk, not a vault scan.**
+`search_rebuild_index` wipes the index and spawns `rebuild_from_files`, which
+reads the markdown paths the `files` table already holds
+(`file_paths_of_type`), then reads, materializes, parses and upserts each one.
+It writes no substrate row, emits no `vault:scan-*` event and never touches
+`OpenVault::scan_status`, so the frontend cannot mistake it for a vault scan and
+a cancelled rebuild cannot read as a cancelled scan (#326). Its progress is the
+search-state cell's `indexed_files` / `total_files`, which `search_index_status`
+already serves. It does not replay the rename journal: the journal repairs
+referrer links in `index.db`, which a search-only rebuild neither wipes nor
+writes. Reading the `files` table rather than walking the disk is safe because
+the scan and the watcher keep that table current; a rebuild started mid-scan
+misses only rows the scan has not reached, and the scan's own sink adds those.
+
+The rebuild and the scan can both be feeding one index, so readiness has one
+arbiter per case. `begin_rebuild` bumps a generation and marks the cell
+`rebuilding`; `settle_after_scan` leaves the state alone while that flag is set,
+and a rebuild that finishes while the vault scan is still in progress leaves the
+state `Building` for the scan to settle. The rebuild settles under the vaults
+read lock, and `settle_after_scan` runs under its write lock, so the two cannot
+interleave. A second rebuild supersedes the first by generation; the first stops
+at its next file and settles nothing.
 
 Tantivy holds one writer lock per directory, so a second `SearchHandle::open`
 on a directory whose handle is still alive fails with `LockFailure` and yields

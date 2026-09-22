@@ -19,6 +19,7 @@ import {
   registerStatusbarSegments,
   statusbarBlockSettings,
 } from "../statusbar/statusbarSettings";
+import { INTEGRITY_PLUGIN } from "../integrity/registration";
 import { registerBlockSettings } from "./blockSettings";
 import { registerCorePlugins } from "./corePlugins";
 import {
@@ -30,7 +31,15 @@ import { createSettingsState } from "./settingsState";
 registerSidebarPanels([
   { id: "first-panel", label: "First", order: 10, panel: () => null },
   { id: "second-panel", label: "Second", order: 20, panel: () => null },
+  {
+    id: "gated-panel",
+    label: "Gated",
+    order: 30,
+    panel: () => null,
+    plugin: INTEGRITY_PLUGIN.id,
+  },
 ]);
+registerCorePlugins([INTEGRITY_PLUGIN]);
 registerLeftSidebarModes(["first-mode", "second-mode"]);
 registerCorePlugins([GRAPH_PLUGIN]);
 registerCommands([GRAPH_COMMAND]);
@@ -244,6 +253,56 @@ describe("applyChanged", () => {
   it("ignores a key nothing registered", () => {
     const s = build();
     expect(() => s.applyChanged("nobody.owns_this", true)).not.toThrow();
+  });
+});
+
+describe("a right sidebar panel owned by a core plugin", () => {
+  const storedGated = (integrityOn: boolean) =>
+    stored.mockImplementation((_v: string, key: string) =>
+      Promise.resolve(
+        key === "ui.right_sidebar_panel"
+          ? "gated-panel"
+          : key === INTEGRITY_PLUGIN.settingKey
+            ? integrityOn
+            : null,
+      ),
+    );
+
+  it("falls back when the persisted panel's plugin is off, and keeps the choice", async () => {
+    storedGated(false);
+    const s = build();
+    await s.hydrate("v1");
+    expect(s.rightSidebarPanel()).toBe("first-panel");
+
+    s.setCorePlugin(INTEGRITY_PLUGIN.id, INTEGRITY_PLUGIN.settingKey, true);
+    expect(s.rightSidebarPanel()).toBe("gated-panel");
+  });
+
+  it("falls back the moment the plugin is switched off", async () => {
+    storedGated(true);
+    const s = build();
+    await s.hydrate("v1");
+    expect(s.rightSidebarPanel()).toBe("gated-panel");
+
+    s.setCorePlugin(INTEGRITY_PLUGIN.id, INTEGRITY_PLUGIN.settingKey, false);
+    expect(s.rightSidebarPanel()).toBe("first-panel");
+  });
+
+  it("refuses to select a panel whose plugin is off", async () => {
+    stored.mockImplementation((_v: string, key: string) =>
+      Promise.resolve(key === INTEGRITY_PLUGIN.settingKey ? false : null),
+    );
+    const s = build();
+    await s.hydrate("v1");
+    written.mockClear();
+
+    s.setRightSidebarPanelValue("gated-panel");
+    expect(s.rightSidebarPanel()).toBe("first-panel");
+    expect(written).not.toHaveBeenCalledWith(
+      "v1",
+      "ui.right_sidebar_panel",
+      "gated-panel",
+    );
   });
 });
 

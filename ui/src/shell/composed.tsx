@@ -12,7 +12,7 @@ import BaseExplorerPanel, {
 } from "../explorer/ExplorerPanel";
 import SearchBar from "../search/SearchBar";
 import SearchResults from "../search/SearchResults";
-import { createSearchState } from "../search/searchState";
+import { createSearchWiring } from "../search/wiring";
 import { hasViewer } from "../viewer";
 import { editorBlocks, previewToggles, type PreviewToggles } from "./editorBlocks";
 
@@ -67,20 +67,26 @@ export const Editor: Component<ComposedEditorProps> = (props) => {
 export interface ComposedExplorerProps
   extends Omit<ExplorerPanelProps, "search" | "canView"> {
   onNavigate: (path: string) => void;
+  corePlugins: Record<string, boolean>;
 }
 
 export const ExplorerPanel: Component<ComposedExplorerProps> = (props) => {
-  const [own, panel] = splitProps(props, ["onNavigate"]);
-  const state = createSearchState({
+  const [own, panel] = splitProps(props, ["onNavigate", "corePlugins"]);
+  const searchState = createSearchWiring({
     vaultId: () => props.vaultId,
     refreshSignal: () => props.refreshSignal,
+    corePlugins: () => own.corePlugins,
   });
-  const search: ExplorerSearchSlot = {
-    active: state.isSearching,
-    bar: () => <SearchBar state={state} />,
-    results: () => (
-      <SearchResults state={state} onNavigate={(p) => own.onNavigate(p)} />
-    ),
-  };
-  return <BaseExplorerPanel {...panel} canView={hasViewer} search={search} />;
+  const search = createMemo<ExplorerSearchSlot | null>(() => {
+    const state = searchState();
+    if (state === null) return null;
+    return {
+      active: state.isSearching,
+      bar: () => <SearchBar state={state} />,
+      results: () => (
+        <SearchResults state={state} onNavigate={(p) => own.onNavigate(p)} />
+      ),
+    };
+  });
+  return <BaseExplorerPanel {...panel} canView={hasViewer} search={search()} />;
 };

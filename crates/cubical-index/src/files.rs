@@ -56,6 +56,24 @@ pub async fn all_file_paths(conn: &IndexConn) -> Result<Vec<String>, IndexError>
     Ok(out)
 }
 
+pub async fn file_paths_of_type(
+    conn: &IndexConn,
+    type_id: &str,
+) -> Result<Vec<String>, IndexError> {
+    let mut rows = conn
+        .connection()
+        .query(
+            "SELECT path FROM files WHERE type_id = ?1 ORDER BY path",
+            params![type_id],
+        )
+        .await?;
+    let mut out = Vec::new();
+    while let Some(row) = rows.next().await? {
+        out.push(row.get::<String>(0)?);
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,6 +166,25 @@ mod tests {
         assert_eq!(
             all_file_paths(&conn).await.unwrap(),
             vec!["a.md", "a/b.md", "z.md"],
+        );
+    }
+
+    #[tokio::test]
+    async fn lists_only_the_paths_of_one_type() {
+        let (_d, conn) = fresh().await;
+        upsert_file(&conn, &row("b.md", "markdown", "h", 0))
+            .await
+            .unwrap();
+        upsert_file(&conn, &row("a.png", "binary", "h", 0))
+            .await
+            .unwrap();
+        upsert_file(&conn, &row("a.md", "markdown", "h", 0))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            file_paths_of_type(&conn, "markdown").await.unwrap(),
+            vec!["a.md", "b.md"],
         );
     }
 
