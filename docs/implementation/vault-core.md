@@ -327,6 +327,12 @@ object per rename op — zero `.md` bytes, no UUIDs, portable. The core module i
 pure (serialize / parse / compact); file I/O and scan integration live with the
 command layer. See [`engine-ipc.md`](engine-ipc.md) for replay.
 
+**An `op_id` is not an entry's identity.** The counter that mints it lives in
+`index.db`, so a rebuild restarts it at 0 while older entries survive, and a
+rename paired by the scan is journalled with 0; `compact` therefore drops whole
+entries, never "every entry with this op id", which would discard an unflushed
+rename alongside the flushed one that shares its number.
+
 **An absent journal and an unreadable one are different facts.** `read_journal`
 returns an `io::Result`: only `NotFound` collapses to "no entries", every other
 I/O failure — a directory in its place, non-UTF-8 bytes, a permission error —

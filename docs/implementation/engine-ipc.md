@@ -418,12 +418,14 @@ written yet]]` is normal authoring, and a panel that lists it is a panel nobody
 reads. Groups are keyed by exact `target_raw`, which is also what
 `apply_pending`'s rewrite matches on, so a group is exactly one repairable unit.
 
-**Repair routes through the pending queue.** `repair_dangling_link` mints an op
-id, enqueues one coalesced `wiki_link` rewrite per referring file, reconnects the
+**Repair routes through the pending queue.** `repair_dangling_link` validates
+the request and hands it to rename's `reattach_dangling`, which mints an op id,
+enqueues one coalesced `wiki_link` rewrite per referring file, reconnects the
 index rows in the same transaction, then flushes those targets through
 `flush_pending_for_target` (so the own-write hash gate is honoured and the
-watcher doesn't echo). No markdown is written by hand and no second rewrite path
-exists. The new token keeps the shape the author used — a bare token stays bare —
+watcher doesn't echo) and emits rename's flush events. Integrity writes no
+`links` row and builds no rename event; no markdown is written by hand and no
+second rewrite path exists. The new token keeps the shape the author used — a bare token stays bare —
 except when the basename would collide with the token that was already ambiguous,
 where it widens to the path form, since that is the only form that disambiguates.
 There is deliberately **no repair-all**: an unconfirmed guess writes wrong links

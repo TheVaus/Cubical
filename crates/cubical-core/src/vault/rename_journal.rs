@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -61,10 +60,10 @@ pub fn parse_read(contents: &str) -> JournalRead {
 }
 
 #[must_use]
-pub fn compact(contents: &str, drop_ops: &HashSet<i64>) -> String {
+pub fn compact(contents: &str, drop: &[RenameJournalEntry]) -> String {
     let mut out = String::new();
     for entry in parse_all(contents) {
-        if drop_ops.contains(&entry.op_id) {
+        if drop.contains(&entry) {
             continue;
         }
         out.push_str(&serialize_entry(&entry));
@@ -100,14 +99,14 @@ pub fn read_journal(vault_root: &Path) -> std::io::Result<JournalRead> {
     }
 }
 
-pub fn rewrite_without(vault_root: &Path, drop_ops: &HashSet<i64>) -> std::io::Result<()> {
+pub fn rewrite_without(vault_root: &Path, drop: &[RenameJournalEntry]) -> std::io::Result<()> {
     let path = journal_path(vault_root);
     let contents = match std::fs::read_to_string(&path) {
         Ok(c) => c,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(e) => return Err(e),
     };
-    let compacted = compact(&contents, drop_ops);
+    let compacted = compact(&contents, drop);
     if compacted.is_empty() {
         match std::fs::remove_file(&path) {
             Ok(()) => Ok(()),
@@ -171,8 +170,7 @@ mod tests {
             serialize_entry(&entry(2, "c.md", "d.md")),
             serialize_entry(&entry(3, "e.md", "f.md")),
         );
-        let drop: HashSet<i64> = [2].into_iter().collect();
-        let out = compact(&body, &drop);
+        let out = compact(&body, &[entry(2, "c.md", "d.md")]);
         let kept = parse_all(&out);
         let ids: Vec<i64> = kept.iter().map(|e| e.op_id).collect();
         assert_eq!(ids, vec![1, 3], "op 2 + the malformed line are gone");
@@ -185,8 +183,18 @@ mod tests {
     #[test]
     fn compact_empty_result_is_empty_string() {
         let body = format!("{}\n", serialize_entry(&entry(1, "a.md", "b.md")));
-        let drop: HashSet<i64> = [1].into_iter().collect();
-        assert_eq!(compact(&body, &drop), "");
+        assert_eq!(compact(&body, &[entry(1, "a.md", "b.md")]), "");
+    }
+
+    #[test]
+    fn compact_keeps_an_entry_that_only_shares_the_dropped_op_id() {
+        let body = format!(
+            "{}\n{}\n",
+            serialize_entry(&entry(0, "a.md", "b.md")),
+            serialize_entry(&entry(0, "c.md", "d.md")),
+        );
+        let kept = parse_all(&compact(&body, &[entry(0, "a.md", "b.md")]));
+        assert_eq!(kept, vec![entry(0, "c.md", "d.md")]);
     }
 
     #[test]
@@ -267,7 +275,7 @@ mod tests {
         append_entry(root, &entry(1, "a.md", "b.md")).unwrap();
         append_entry(root, &entry(2, "c.md", "d.md")).unwrap();
 
-        rewrite_without(root, &[1].into_iter().collect()).unwrap();
+        rewrite_without(root, &[entry(1, "a.md", "b.md")]).unwrap();
 
         let got = read_journal(root).unwrap().entries;
         assert_eq!(got.len(), 1);
@@ -280,7 +288,7 @@ mod tests {
         let root = dir.path();
         append_entry(root, &entry(1, "a.md", "b.md")).unwrap();
 
-        rewrite_without(root, &[1].into_iter().collect()).unwrap();
+        rewrite_without(root, &[entry(1, "a.md", "b.md")]).unwrap();
 
         assert!(
             !journal_path(root).exists(),
@@ -292,6 +300,6 @@ mod tests {
     #[test]
     fn rewrite_without_on_missing_file_is_ok() {
         let dir = tempfile::tempdir().unwrap();
-        rewrite_without(dir.path(), &HashSet::new()).unwrap();
+        rewrite_without(dir.path(), &[]).unwrap();
     }
 }
