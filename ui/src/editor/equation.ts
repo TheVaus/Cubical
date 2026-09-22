@@ -1,9 +1,4 @@
-import {
-  Decoration,
-  EditorView,
-  WidgetType,
-  type DecorationSet,
-} from "@codemirror/view";
+import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 import {
   Facet,
   type EditorState,
@@ -110,20 +105,18 @@ class EquationWidget extends WidgetType {
   }
 }
 
-function buildEquationDecorations(state: EditorState): DecorationSet {
-  if (!state.facet(equationsEnabledFacet)) return Decoration.none;
+function collectEquations(state: EditorState): Range<Decoration>[] {
+  if (!state.facet(equationsEnabledFacet)) return [];
   const doc = state.doc;
   const resolver = state.facet(propertyResolverFacet);
   let docText: string | undefined;
   const getDocText = () => (docText ??= doc.toString());
   const resolve = makeRefResolver(resolver, getDocText);
-  const activeLine = doc.lineAt(state.selection.main.head).number;
   const ranges: Range<Decoration>[] = [];
 
   syntaxTree(state).iterate({
     enter: (node) => {
       if (node.name !== "InlineCode") return;
-      if (doc.lineAt(node.from).number === activeLine) return;
       const marks = node.node.getChildren("CodeMark");
       const first = marks[0];
       const last = marks[marks.length - 1];
@@ -143,12 +136,11 @@ function buildEquationDecorations(state: EditorState): DecorationSet {
     },
   });
 
-  ranges.sort((a, b) => a.from - b.from);
-  return Decoration.set(ranges, true);
+  return ranges;
 }
 
 export const equationField = decorationField({
-  build: buildEquationDecorations,
+  collect: collectEquations,
   effects: [propertyResolverUpdated],
   watch: [
     (s) => s.facet(propertyResolverFacet),

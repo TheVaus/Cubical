@@ -14,6 +14,7 @@ import {
 } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
 
+import { offActiveLine } from "./decorationField";
 import { renderGuarded } from "./widgetGuard";
 
 export interface BlockRenderContext {
@@ -125,14 +126,13 @@ function sameRevisions(a: unknown[], b: unknown[]): boolean {
   return a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
 }
 
-function buildDecorations(
+function collectBlocks(
   state: EditorState,
   renderers: readonly BlockRenderer[],
-): DecorationSet {
-  if (renderers.length === 0) return Decoration.none;
+): Range<Decoration>[] {
+  if (renderers.length === 0) return [];
   const tree = syntaxTree(state);
   const doc = state.doc;
-  const activeLineNumber = doc.lineAt(state.selection.main.head).number;
   const ranges: Range<Decoration>[] = [];
 
   tree.iterate({
@@ -148,12 +148,6 @@ function buildDecorations(
 
       const fromLine = doc.lineAt(node.from);
       const toLine = doc.lineAt(Math.max(node.from, node.to - 1));
-      if (
-        activeLineNumber >= fromLine.number &&
-        activeLineNumber <= toLine.number
-      ) {
-        return;
-      }
 
       const body = node.node.getChild("CodeText");
       const source = body ? doc.sliceString(body.from, body.to) : "";
@@ -172,22 +166,32 @@ function buildDecorations(
     },
   });
 
-  ranges.sort((a, b) => a.from - b.from);
-  return Decoration.set(ranges, true);
+  return ranges;
 }
 
 export interface BlockRenderState {
+  ranges: readonly Range<Decoration>[];
+  activeLine: number;
   deco: DecorationSet;
   renderers: readonly BlockRenderer[];
   revisions: unknown[];
 }
 
-function stateFor(state: EditorState): BlockRenderState {
-  const renderers = activeRenderers(state);
+const activeLineOf = (state: EditorState): number =>
+  state.doc.lineAt(state.selection.main.head).number;
+
+function stateFor(
+  state: EditorState,
+  renderers: readonly BlockRenderer[] = activeRenderers(state),
+  revisions: unknown[] = revisionsOf(state, renderers),
+): BlockRenderState {
+  const ranges = collectBlocks(state, renderers);
   return {
-    deco: buildDecorations(state, renderers),
+    ranges,
+    activeLine: activeLineOf(state),
+    deco: offActiveLine(state, ranges),
     renderers,
-    revisions: revisionsOf(state, renderers),
+    revisions,
   };
 }
 
@@ -197,29 +201,27 @@ export const blockRenderersField = StateField.define<BlockRenderState>({
     const renderers = activeRenderers(tr.state);
     const revisions = revisionsOf(tr.state, renderers);
     const treeChanged = syntaxTree(tr.startState) !== syntaxTree(tr.state);
-    const activeLineChanged =
-      tr.startState.doc.lineAt(tr.startState.selection.main.head).number !==
-      tr.state.doc.lineAt(tr.state.selection.main.head).number;
     const renderersChanged =
       prev.renderers.length !== renderers.length ||
       prev.renderers.some((r, i) => r !== renderers[i]);
     const invalidated = tr.effects.some((e) => e.is(blockRenderersUpdated));
 
     if (
-      !tr.docChanged &&
-      !treeChanged &&
-      !activeLineChanged &&
-      !renderersChanged &&
-      !invalidated &&
-      sameRevisions(prev.revisions, revisions)
+      tr.docChanged ||
+      treeChanged ||
+      renderersChanged ||
+      invalidated ||
+      !sameRevisions(prev.revisions, revisions)
     ) {
-      return prev;
+      return stateFor(tr.state, renderers, revisions);
     }
 
+    const activeLine = activeLineOf(tr.state);
+    if (activeLine === prev.activeLine) return prev;
     return {
-      deco: buildDecorations(tr.state, renderers),
-      renderers,
-      revisions,
+      ...prev,
+      activeLine,
+      deco: offActiveLine(tr.state, prev.ranges),
     };
   },
   provide: (f) => [

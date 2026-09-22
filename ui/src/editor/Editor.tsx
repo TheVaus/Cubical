@@ -55,7 +55,7 @@ import {
   propertyResolverUpdated,
   type PropertyResolver,
 } from "./propertySlot";
-import { livePreviewFor, type PreviewBlocks } from "./livePreview";
+import { livePreviewFor } from "./livePreview";
 import { colorSourceHighlight } from "./colorSource";
 import { createUpdateSubscriber } from "./updateSubscription";
 import { verticalDocLineMotion } from "./verticalMotion";
@@ -112,10 +112,7 @@ export interface EditorProps {
   colorizeSource?: boolean;
   wikilinkResolver?: WikiLinkResolver | null;
   propertyResolver?: PropertyResolver | null;
-  propertyRefsEnabled?: boolean;
-  mathEnabled?: boolean;
-  equationsEnabled?: boolean;
-  previewBlocks?: PreviewBlocks;
+  previewBlocks?: Extension;
   blockExtensions?: readonly Extension[];
   editorBindings?: KeyBinding[];
   onNavigateWikilink?: (path: string, anchor: ResolvedAnchor | null) => void;
@@ -133,12 +130,7 @@ export interface EditorProps {
 const AST_DEBOUNCE_MS = 150;
 
 const Editor: Component<EditorProps> = (props) => {
-  const preview = () =>
-    livePreviewFor(props.rawSource, {
-      math: props.mathEnabled ?? true,
-      equations: props.equationsEnabled ?? true,
-      propertyRefs: props.propertyRefsEnabled ?? true,
-    }, props.previewBlocks);
+  const preview = () => livePreviewFor(props.rawSource, props.previewBlocks);
   let host!: HTMLDivElement;
   let view: EditorView | undefined;
   let astPending: ReturnType<typeof setTimeout> | undefined;
@@ -452,13 +444,7 @@ const Editor: Component<EditorProps> = (props) => {
 
   createEffect(
     on(
-      () =>
-        [
-          props.rawSource,
-          props.mathEnabled,
-          props.equationsEnabled,
-          props.propertyRefsEnabled,
-        ] as const,
+      () => props.rawSource,
       () => {
         view?.dispatch({
           effects: decorationCompartment.reconfigure(preview()),

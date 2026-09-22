@@ -495,7 +495,7 @@ compartments rather than rebuilding the view:
 | Live Preview decorations | raw-source toggles (swapped for a no-op) |
 | Raw-source coloring | raw source **and** the colorize setting are both on |
 | CM6 chrome theme | the resolved theme flips |
-| One per block extension | that block's inputs change — a new embed resolver or open note, a new dataview runner, a new autocomplete provider |
+| One per block extension | that block's inputs change — a new embed resolver or open note, a new dataview runner, a new autocomplete provider, a preview plugin toggled |
 | Keymap | a shortcut is remapped in Settings |
 
 **The editor core names no block.** Embeds, dataview and autocomplete each
@@ -506,7 +506,12 @@ handlers (dataview's link and frame clicks) — and the shell's composed `Editor
 `blockExtensions`. The core gives each entry its own compartment and
 reconfigures only the entry whose identity changed, so switching tabs swaps the
 embed facet without rebuilding autocompletion. A new block joins by writing a
-builder and adding it in the shell; `Editor.tsx` does not change. Vertical
+builder and adding it in the shell; `Editor.tsx` does not change. The math,
+equations and property-refs toggles ride the same seam: `shell/editorBlocks.ts`
+maps each toggle to its block's enable-facet value (`previewToggles`), and the
+composed `Editor` memoises the flag before building the value, so flipping one
+plugin reconfigures that one compartment and every other block keeps its state
+and its decorations. Vertical
 cursor motion past block widgets is core behaviour, not the embed block's, so
 it stays in the core keymap (`verticalMotion.ts`) ahead of the default keys.
 
@@ -540,9 +545,21 @@ decoration, which CodeMirror forbids from a view plugin, so it is supplied by a
 separate state field. It is also not Lezer-sourced — the markdown grammar does
 not model frontmatter — so it scans the document directly.
 
+**A cursor move is not a rebuild.** Every widget field (`decorationField`,
+and `blockRenderersField` for fences) collects its ranges without regard to the
+cursor and keeps them; the reveal — dropping whatever overlaps the cursor's
+line — is a filter over that list. A transaction that only moves the cursor to
+another line re-runs the filter, so no equation is evaluated, no property or
+embed resolver is asked, no fence is matched and every widget object is reused.
+The collect runs again only on an edit, a new syntax tree, one of the field's
+own effects or a change in a facet it watches. The core decoration plugin
+still rebuilds on every selection change, because inline reveal depends on the
+exact cursor position, but its wiki-link prefetch walks the tree only when the
+document, the tree or the resolver changes.
+
 ## The Live Preview bundle is a hard contract
 
-`livePreviewFor(rawSource, plugins, blocks)` in `ui/src/editor/livePreview.ts`
+`livePreviewFor(rawSource, blocks)` in `ui/src/editor/livePreview.ts`
 is the single composed extension installed into the decoration compartment.
 Raw-source mode reconfigures that compartment to `[]`, which structurally kills
 every transformation inside it.
@@ -553,18 +570,21 @@ source will not kill it. The editor core contributes `livePreviewBundle` — the
 decoration plugin and the block-renderer field — plus the render-failure theme,
 which `livePreviewFor` installs last, and names no feature. Everything a feature adds (the embed block field; the math,
 calc, query and csv renderers; the display-math, property-ref and equation
-fields, each with its base theme; and each feature's enable facet) is assembled
-by `editorBlocks(plugins)` in `shell/editorBlocks.ts`, which the shell hands
-every `Editor` as `blocks` through the seams below, so features die with raw
-source exactly like the core does. Renderer order is visible: fence completion
-lists languages in registration order, so `editorBlocks` registers query, csv,
-math, calc. Settings that only
-gate a preview extension belong in that record, so they ride inside the
-compartment raw source already kills, instead of earning a compartment and a
-reconfigure effect of their own in `Editor.tsx`. The record exists because the
-third such setting arrived: `propertyRefsEnabled` had taken the compartment
-route this paragraph forbids, and folding it in alongside `math` and
-`equations` removed a compartment rather than adding one.
+fields, each with its base theme) is the constant `editorBlocks` in
+`shell/editorBlocks.ts`, which the shell hands every `Editor` as
+`previewBlocks` through the seams below, so features die with raw source
+exactly like the core does. Renderer order is visible: fence completion lists
+languages in registration order, so `editorBlocks` registers query, csv, math,
+calc.
+
+A setting that only gates a preview feature is **not** a transformation and does
+not go through `livePreviewFor`. It is the feature's enable-facet value, and it
+reaches the editor as one more `blockExtensions` entry (see *Editor
+compartments*). Raw source still kills the feature, because the field that reads
+the facet lives in the preview compartment; the facet value left behind decorates
+nothing. Folding the flags into the preview compartment instead, as a
+`LivePreviewPlugins` record the core passed on, made `Editor.tsx` name every
+gated block and turned one toggle into a reconfigure of the whole preview.
 
 ## Fenced blocks go through the renderer registry
 
@@ -737,12 +757,11 @@ type from the editor.
 `![[…]]` link, and the editor constructs as usual. Tests build it that way on
 purpose; do not give a seam a default that imports the block it stands in for.
 
-**`previewBlocks` is composition, not state.** The shell passes a module
-function, `editorBlocks`, and `Editor` calls it with the current plugin flags
-whenever the preview compartment is rebuilt; it does not watch the function
-itself. The feature extensions are one module constant inside it, so only the
-enable facets are new on each rebuild. A caller that swaps the function at
-runtime must also flip something the compartment's effect already tracks.
+**`previewBlocks` is composition, not state.** The shell passes one module
+constant, `editorBlocks`, and `Editor` installs it whenever raw source turns off;
+it does not watch the prop. Anything that changes at runtime — a resolver, a
+runner, a plugin toggle — belongs in `blockExtensions`, whose entries are
+reconfigured one compartment at a time.
 
 The explorer's file rows follow the same rule for `hasViewer`: `FileRow` reads
 `CanViewContext`, `ExplorerPanel` provides it from its `canView` prop, and the

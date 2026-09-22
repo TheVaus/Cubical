@@ -6,7 +6,7 @@ import { markdown } from "@codemirror/lang-markdown";
 
 import { wikilinkExtension } from "./wikilink";
 import { livePreviewFor } from "./livePreview";
-import { editorBlocks } from "../shell/editorBlocks";
+import { editorBlocks, previewToggles } from "../shell/editorBlocks";
 import { propertyResolverFacet } from "./propertyRef";
 import type { PropertyResolver } from "./propertyResolver";
 import type { PropertyLookup } from "./propertySlot";
@@ -42,7 +42,10 @@ function mount(
       extensions: [
         markdown({ extensions: [wikilinkExtension] }),
         propertyResolverFacet.of(resolver),
-        livePreviewFor(rawSource, plugins, editorBlocks),
+        livePreviewFor(rawSource, editorBlocks),
+        previewToggles.mathEnabled(plugins.math),
+        previewToggles.equationsEnabled(plugins.equations),
+        previewToggles.propertyRefsEnabled(plugins.propertyRefs),
       ],
     }),
   });

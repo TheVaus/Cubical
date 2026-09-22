@@ -1,8 +1,4 @@
-import {
-  Decoration,
-  WidgetType,
-  type DecorationSet,
-} from "@codemirror/view";
+import { Decoration, WidgetType } from "@codemirror/view";
 import {
   type EditorState,
   type Extension,
@@ -136,18 +132,15 @@ class DisplayMathWidget extends WidgetType {
   }
 }
 
-function buildDecorations(state: EditorState): DecorationSet {
-  if (!state.facet(mathEnabledFacet)) return Decoration.none;
-  const doc = state.doc;
-  const head = state.selection.main.head;
+function collectDisplayMath(state: EditorState): Range<Decoration>[] {
+  if (!state.facet(mathEnabledFacet)) return [];
   const excluded = codeRanges(state);
   const ranges: Range<Decoration>[] = [];
 
-  for (const region of scanDisplayMath(doc.toString())) {
+  for (const region of scanDisplayMath(state.doc.toString())) {
     if (excluded.some(([from, to]) => region.from < to && from < region.to)) {
       continue;
     }
-    if (head >= region.from && head <= region.to) continue;
     ranges.push(
       Decoration.replace({
         widget: new DisplayMathWidget(region.source),
@@ -155,13 +148,11 @@ function buildDecorations(state: EditorState): DecorationSet {
       }).range(region.from, region.to),
     );
   }
-
-  ranges.sort((a, b) => a.from - b.from);
-  return Decoration.set(ranges, true);
+  return ranges;
 }
 
 export const displayMathField = decorationField({
-  build: buildDecorations,
+  collect: collectDisplayMath,
   watch: [(s) => s.facet(mathEnabledFacet)],
 });
 

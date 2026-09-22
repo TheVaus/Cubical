@@ -117,11 +117,7 @@ function mountView(doc: string, selectionAnchor: number): {
       openNotePathFacet.of(null),
       wikilinkResolverFacet.of(null),
       compartment.of(
-        livePreviewFor(
-          false,
-          { math: true, equations: true, propertyRefs: true },
-          editorBlocks,
-        ),
+        livePreviewFor(false, editorBlocks),
       ),
     ],
   });
