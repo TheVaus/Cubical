@@ -1,6 +1,5 @@
 use cubical_ast::{note_title, strip_markdown_extension};
 use cubical_core::unix_now_secs;
-use std::collections::HashSet;
 
 use cubical_core::vault::pending::apply_pending;
 use cubical_core::{
@@ -11,7 +10,7 @@ use cubical_core::{
 use cubical_index::{
     delete_pending_for_target, delete_rename_op, list_recent_rename_ops as list_ops,
     names_eq_folded, pending_count_breakdown, pending_count_total, pending_for_target,
-    pending_targets,
+    pending_targets, DANGLING_LINK_PREDICATE,
 };
 use libsql::params;
 
@@ -24,7 +23,7 @@ use crate::api::types::{
     RenameFileRequest, RenameFileResponse, RenameFolderRequest, RenameFolderResponse,
     RenameTagRequest, RenameTagResponse, UndoRenameRequest, UndoRenameResponse,
 };
-use crate::commands::link_match::link_name_forms;
+use crate::commands::link_match::{derive_reattach_token, link_name_forms};
 use crate::commands::open::{open_vault_cloned, with_open_vault};
 use crate::commands::paths;
 use crate::error::CubicalError;
@@ -57,7 +56,7 @@ fn file_stamp(path: &std::path::Path, fallback_len: u64) -> (i64, u64) {
 
 const RENAME_OP_ID_KEY: &str = "pending_rewrites.next_rename_op_id";
 
-pub(super) async fn mint_rename_op_id(vault: &cubical_core::Vault) -> Result<i64, CubicalError> {
+async fn mint_rename_op_id(vault: &cubical_core::Vault) -> Result<i64, CubicalError> {
     let conn = vault.index().connection();
     let tx = conn.transaction().await?;
 
@@ -96,7 +95,7 @@ fn derive_wikilink_new_token(target_raw: &str, from_path: &str, to_path: &str) -
     }
 }
 
-pub(super) async fn clone_vault_with_flush_state(
+async fn clone_vault_with_flush_state(
     state: &AppState,
     vault_id: &str,
 ) -> Result<
@@ -131,7 +130,7 @@ async fn enforce_fifty_per_file_fuse(
     Ok(())
 }
 
-pub(super) async fn enqueue_coalesced(
+async fn enqueue_coalesced(
     tx: &libsql::Transaction,
     target_file: &str,
     rewrite_kind: &str,
@@ -961,33 +960,17 @@ pub async fn flush_pending_rewrites(
     let _guard = flush_in_progress.lock().await;
 
     let targets = pending_targets(vault.index()).await?;
-    let mut files_rewritten: i64 = 0;
-    let mut refs_updated: i64 = 0;
-    for target in &targets {
-        let (changed, n) =
-            flush_pending_for_target(&vault, target, Some(flush_own_writes.clone())).await?;
-        if changed {
-            files_rewritten += 1;
-        }
-        refs_updated += n as i64;
-    }
+    let (files_rewritten, refs_updated) =
+        flush_targets(&vault, &targets, &flush_own_writes).await?;
     prune_materialized_journal(&vault).await;
 
     let pending_count = pending_count_total(vault.index()).await?;
-    emit_flush_complete(
+    emit_flush_outcome(
         app,
-        VaultFlushComplete {
-            vault_id: req.vault_id.clone(),
-            files_rewritten,
-            refs_updated,
-        },
-    );
-    emit_pending_rewrites_changed(
-        app,
-        VaultPendingRewritesChanged {
-            vault_id: req.vault_id.clone(),
-            count: pending_count,
-        },
+        &req.vault_id,
+        files_rewritten,
+        refs_updated,
+        pending_count,
     );
 
     Ok(FlushPendingRewritesResponse {
@@ -1012,10 +995,49 @@ pub async fn flush_pending_rewrites_for_target(
     prune_materialized_journal(&vault).await;
 
     let pending_count = pending_count_total(vault.index()).await?;
+    emit_flush_outcome(
+        app,
+        &req.vault_id,
+        files_rewritten,
+        refs_updated,
+        pending_count,
+    );
+
+    Ok(FlushPendingRewritesResponse {
+        files_rewritten,
+        refs_updated,
+    })
+}
+
+async fn flush_targets(
+    vault: &cubical_core::Vault,
+    targets: &[String],
+    flush_own_writes: &FlushOwnWrites,
+) -> Result<(i64, i64), CubicalError> {
+    let mut files_rewritten: i64 = 0;
+    let mut refs_updated: i64 = 0;
+    for target in targets {
+        let (changed, n) =
+            flush_pending_for_target(vault, target, Some(flush_own_writes.clone())).await?;
+        if changed {
+            files_rewritten += 1;
+        }
+        refs_updated += n as i64;
+    }
+    Ok((files_rewritten, refs_updated))
+}
+
+fn emit_flush_outcome(
+    app: &dyn EventSink,
+    vault_id: &str,
+    files_rewritten: i64,
+    refs_updated: i64,
+    pending_count: i64,
+) {
     emit_flush_complete(
         app,
         VaultFlushComplete {
-            vault_id: req.vault_id.clone(),
+            vault_id: vault_id.to_string(),
             files_rewritten,
             refs_updated,
         },
@@ -1023,15 +1045,94 @@ pub async fn flush_pending_rewrites_for_target(
     emit_pending_rewrites_changed(
         app,
         VaultPendingRewritesChanged {
-            vault_id: req.vault_id.clone(),
+            vault_id: vault_id.to_string(),
             count: pending_count,
         },
     );
+}
 
-    Ok(FlushPendingRewritesResponse {
+pub(crate) struct Reattachment {
+    pub files_rewritten: i64,
+    pub refs_updated: i64,
+    pub pending_count: i64,
+}
+
+pub(crate) async fn reattach_dangling(
+    state: &AppState,
+    app: &dyn EventSink,
+    vault_id: &str,
+    target_raw: &str,
+    to_path: &str,
+) -> Result<Reattachment, CubicalError> {
+    let (vault, flush_own_writes, flush_in_progress) =
+        clone_vault_with_flush_state(state, vault_id).await?;
+    let conn = vault.index().connection();
+
+    if !path_tracked(conn, to_path).await? {
+        return Err(CubicalError::FileNotFound(to_path.to_string()));
+    }
+
+    let referrers = dangling_referrers(conn, target_raw).await?;
+    if referrers.is_empty() {
+        return Ok(Reattachment {
+            files_rewritten: 0,
+            refs_updated: 0,
+            pending_count: pending_count_total(vault.index()).await?,
+        });
+    }
+
+    let new_token = derive_reattach_token(target_raw, to_path);
+    let rename_op_id = mint_rename_op_id(&vault).await?;
+    let now = unix_now_secs();
+
+    let tx = conn.transaction().await?;
+    for source_path in &referrers {
+        enqueue_coalesced(
+            &tx,
+            source_path,
+            "wiki_link",
+            target_raw,
+            &new_token,
+            now,
+            rename_op_id,
+        )
+        .await?;
+    }
+    let reconnect = format!(
+        "UPDATE links SET target_path = ?1 WHERE target_raw = ?2 AND {DANGLING_LINK_PREDICATE}"
+    );
+    tx.execute(&reconnect, params![to_path, target_raw]).await?;
+    tx.commit().await?;
+
+    let _guard = flush_in_progress.lock().await;
+    let (files_rewritten, refs_updated) =
+        flush_targets(&vault, &referrers, &flush_own_writes).await?;
+
+    let pending_count = pending_count_total(vault.index()).await?;
+    emit_flush_outcome(app, vault_id, files_rewritten, refs_updated, pending_count);
+
+    Ok(Reattachment {
         files_rewritten,
         refs_updated,
+        pending_count,
     })
+}
+
+async fn dangling_referrers(
+    conn: &libsql::Connection,
+    target_raw: &str,
+) -> Result<Vec<String>, CubicalError> {
+    let sql = format!(
+        "SELECT DISTINCT source_path FROM links \
+         WHERE target_raw = ?1 AND {DANGLING_LINK_PREDICATE} \
+         ORDER BY source_path"
+    );
+    let mut rows = conn.query(&sql, params![target_raw]).await?;
+    let mut out = Vec::new();
+    while let Some(row) = rows.next().await? {
+        out.push(row.get(0)?);
+    }
+    Ok(out)
 }
 
 pub(crate) async fn flush_all_for_vault(
@@ -1043,34 +1144,11 @@ pub(crate) async fn flush_all_for_vault(
 ) -> Result<FlushPendingRewritesResponse, CubicalError> {
     let _guard = flush_in_progress.lock().await;
     let targets = pending_targets(vault.index()).await?;
-    let mut files_rewritten: i64 = 0;
-    let mut refs_updated: i64 = 0;
-    for target in &targets {
-        let (changed, n) =
-            flush_pending_for_target(vault, target, Some(flush_own_writes.clone())).await?;
-        if changed {
-            files_rewritten += 1;
-        }
-        refs_updated += n as i64;
-    }
+    let (files_rewritten, refs_updated) = flush_targets(vault, &targets, flush_own_writes).await?;
     prune_materialized_journal(vault).await;
 
     let pending_count = pending_count_total(vault.index()).await?;
-    emit_flush_complete(
-        app,
-        VaultFlushComplete {
-            vault_id: vault_id.to_string(),
-            files_rewritten,
-            refs_updated,
-        },
-    );
-    emit_pending_rewrites_changed(
-        app,
-        VaultPendingRewritesChanged {
-            vault_id: vault_id.to_string(),
-            count: pending_count,
-        },
-    );
+    emit_flush_outcome(app, vault_id, files_rewritten, refs_updated, pending_count);
 
     Ok(FlushPendingRewritesResponse {
         files_rewritten,
@@ -1304,10 +1382,7 @@ pub async fn undo_rename(
     })
 }
 
-pub(super) async fn path_tracked(
-    conn: &libsql::Connection,
-    path: &str,
-) -> Result<bool, CubicalError> {
+async fn path_tracked(conn: &libsql::Connection, path: &str) -> Result<bool, CubicalError> {
     let mut rows = conn
         .query("SELECT 1 FROM files WHERE path = ?1", params![path])
         .await?;
@@ -1398,8 +1473,8 @@ async fn prune_materialized_journal_inner(vault: &cubical_core::Vault) -> Result
         return Ok(());
     }
     let conn = vault.index().connection();
-    let mut prune: HashSet<i64> = HashSet::new();
-    for e in &entries {
+    let mut prune: Vec<cubical_core::vault::rename_journal::RenameJournalEntry> = Vec::new();
+    for e in entries {
         if e.kind != "file" {
             continue;
         }
@@ -1407,12 +1482,12 @@ async fn prune_materialized_journal_inner(vault: &cubical_core::Vault) -> Result
             continue;
         }
         if !path_tracked(conn, &e.to).await? {
-            prune.insert(e.op_id);
+            prune.push(e);
             continue;
         }
         let (old_basename, old_path_no_md) = link_name_forms(&e.from);
         if !any_pending_named(conn, &old_basename, &old_path_no_md).await? {
-            prune.insert(e.op_id);
+            prune.push(e);
         }
     }
     if !prune.is_empty() {
@@ -2161,6 +2236,154 @@ mod tests {
         );
         assert_eq!(p[0].old_token, "Daily");
         assert_eq!(p[0].new_token, "Journal");
+    }
+
+    async fn open_scanned(root: &std::path::Path) -> (Vault, AppState) {
+        let vault = Vault::open(root).await.expect("open");
+        let (tx, mut rx) = tokio::sync::mpsc::channel(64);
+        let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
+        cubical_core::vault::scan(
+            vault.clone(),
+            CancellationToken::new(),
+            tx,
+            cubical_core::NoScanSink,
+        )
+        .await
+        .expect("scan");
+        drain.await.unwrap();
+        replay_rename_journal(&vault, &NoopEventSink, "v1").await;
+        let state = AppState::new();
+        state
+            .vaults()
+            .write()
+            .await
+            .insert("v1".into(), OpenVault::for_test(&vault).await);
+        (vault, state)
+    }
+
+    async fn rename_on(state: &AppState, from: &str, to: &str) {
+        rename_file(
+            state,
+            &NoopEventSink,
+            RenameFileRequest {
+                vault_id: "v1".into(),
+                from_path: from.into(),
+                to_path: to.into(),
+            },
+        )
+        .await
+        .expect("rename");
+    }
+
+    #[tokio::test]
+    async fn a_rename_after_an_index_rebuild_never_prunes_an_older_journal_entry() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        for (rel, body) in [
+            ("A.md", "a\n"),
+            ("C.md", "c\n"),
+            ("RefA.md", "see [[A]]\n"),
+            ("RefC.md", "see [[C]]\n"),
+        ] {
+            std::fs::write(root.join(rel), body).unwrap();
+        }
+        let corrupt = || std::fs::write(root.join(".cubical").join("index.db"), [0x5au8; 8192]);
+
+        {
+            let (vault, state) = open_scanned(&root).await;
+            mint_rename_op_id(&vault).await.unwrap();
+            rename_on(&state, "A.md", "A2.md").await;
+        }
+        corrupt().unwrap();
+
+        {
+            let (_vault, state) = open_scanned(&root).await;
+            rename_on(&state, "C.md", "C2.md").await;
+            let ops: Vec<i64> = read_entries(&root).iter().map(|e| e.op_id).collect();
+            assert_eq!(
+                ops,
+                vec![2, 2],
+                "premise: the rebuilt counter re-issues an op id the journal already holds",
+            );
+
+            flush_pending_rewrites_for_target(
+                &state,
+                &NoopEventSink,
+                FlushPendingRewritesForTargetRequest {
+                    vault_id: "v1".into(),
+                    target_file: "RefA.md".into(),
+                },
+            )
+            .await
+            .expect("flush");
+            assert_eq!(
+                std::fs::read_to_string(root.join("RefA.md")).unwrap(),
+                "see [[A2]]\n"
+            );
+            let left: Vec<(String, String)> = read_entries(&root)
+                .into_iter()
+                .map(|e| (e.from, e.to))
+                .collect();
+            assert_eq!(
+                left,
+                vec![("C.md".to_string(), "C2.md".to_string())],
+                "pruning the materialized A entry must not take the unflushed C entry with it",
+            );
+        }
+        corrupt().unwrap();
+
+        let (vault, _state) = open_scanned(&root).await;
+        let p = pending_for_target(vault.index(), "RefC.md").await.unwrap();
+        assert_eq!(p.len(), 1, "the second rebuild still recovers C's rewrite");
+        assert_eq!(
+            (p[0].old_token.as_str(), p[0].new_token.as_str()),
+            ("C", "C2")
+        );
+    }
+
+    #[tokio::test]
+    async fn reattach_dangling_mints_a_rename_op_reconnects_and_flushes() {
+        let (_d, vault, state) = fresh("v1").await;
+        seed_file(&vault, "archive/roadmap.md", "markdown").await;
+        seed_file(&vault, "src.md", "markdown").await;
+        std::fs::write(vault.root().join("src.md"), "see [[plan]]\n").unwrap();
+        replace_links_for_file(
+            vault.index(),
+            "src.md",
+            &[LinkRow {
+                target_raw: "plan".into(),
+                target_path: None,
+                anchor_kind: None,
+                anchor_value: None,
+                display_text: None,
+                is_embed: false,
+                position: 4,
+            }],
+        )
+        .await
+        .unwrap();
+
+        let done = reattach_dangling(&state, &NoopEventSink, "v1", "plan", "archive/roadmap.md")
+            .await
+            .expect("reattach");
+
+        assert_eq!(
+            (done.files_rewritten, done.refs_updated, done.pending_count),
+            (1, 1, 0)
+        );
+        assert_eq!(
+            std::fs::read_to_string(vault.root().join("src.md")).unwrap(),
+            "see [[roadmap]]\n"
+        );
+        let bl = backlinks_for(vault.index(), "archive/roadmap.md")
+            .await
+            .unwrap();
+        assert!(bl.iter().any(|r| r.source_path == "src.md"));
+        assert_eq!(
+            mint_rename_op_id(&vault).await.unwrap(),
+            2,
+            "the reattachment drew op 1 from rename's own counter",
+        );
     }
 
     #[tokio::test]

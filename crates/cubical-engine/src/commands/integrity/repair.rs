@@ -1,22 +1,8 @@
-use libsql::params;
-
-use cubical_core::unix_now_secs;
-use cubical_index::pending_count_total;
-
 use super::{RepairDanglingLinkRequest, RepairDanglingLinkResponse};
-use crate::commands::link_match::derive_reattach_token;
-use crate::commands::rename::{
-    clone_vault_with_flush_state, enqueue_coalesced, flush_pending_for_target, mint_rename_op_id,
-    path_tracked,
-};
+use crate::commands::rename::reattach_dangling;
 use crate::error::CubicalError;
-use crate::events::{
-    emit_flush_complete, emit_pending_rewrites_changed, EventSink, VaultFlushComplete,
-    VaultPendingRewritesChanged,
-};
+use crate::events::EventSink;
 use crate::state::AppState;
-
-use cubical_index::DANGLING_LINK_PREDICATE as DANGLING_PREDICATE;
 
 pub async fn repair_dangling_link(
     state: &AppState,
@@ -25,102 +11,17 @@ pub async fn repair_dangling_link(
 ) -> Result<RepairDanglingLinkResponse, CubicalError> {
     crate::plugins::require(state, &req.vault_id, crate::plugins::Feature::Integrity).await?;
 
-    let target_raw = req.target_raw.trim().to_string();
+    let target_raw = req.target_raw.trim();
     if target_raw.is_empty() {
         return Err(CubicalError::InvalidRequest("target_raw is empty".into()));
     }
 
-    let (vault, flush_own_writes, flush_in_progress) =
-        clone_vault_with_flush_state(state, &req.vault_id).await?;
-    let conn = vault.index().connection();
-
-    if !path_tracked(conn, &req.to_path).await? {
-        return Err(CubicalError::FileNotFound(req.to_path.clone()));
-    }
-
-    let referrers = dangling_referrers(conn, &target_raw).await?;
-    if referrers.is_empty() {
-        return Ok(RepairDanglingLinkResponse {
-            files_rewritten: 0,
-            refs_updated: 0,
-            pending_count: pending_count_total(vault.index()).await?,
-        });
-    }
-
-    let new_token = derive_reattach_token(&target_raw, &req.to_path);
-    let rename_op_id = mint_rename_op_id(&vault).await?;
-    let now = unix_now_secs();
-
-    let tx = conn.transaction().await?;
-    for source_path in &referrers {
-        enqueue_coalesced(
-            &tx,
-            source_path,
-            "wiki_link",
-            &target_raw,
-            &new_token,
-            now,
-            rename_op_id,
-        )
-        .await?;
-    }
-    let reconnect =
-        format!("UPDATE links SET target_path = ?1 WHERE target_raw = ?2 AND {DANGLING_PREDICATE}");
-    tx.execute(&reconnect, params![req.to_path.clone(), target_raw.clone()])
-        .await?;
-    tx.commit().await?;
-
-    let _guard = flush_in_progress.lock().await;
-    let mut files_rewritten: i64 = 0;
-    let mut refs_updated: i64 = 0;
-    for source_path in &referrers {
-        let (changed, n) =
-            flush_pending_for_target(&vault, source_path, Some(flush_own_writes.clone())).await?;
-        if changed {
-            files_rewritten += 1;
-        }
-        refs_updated += n as i64;
-    }
-
-    let pending_count = pending_count_total(vault.index()).await?;
-    emit_flush_complete(
-        app,
-        VaultFlushComplete {
-            vault_id: req.vault_id.clone(),
-            files_rewritten,
-            refs_updated,
-        },
-    );
-    emit_pending_rewrites_changed(
-        app,
-        VaultPendingRewritesChanged {
-            vault_id: req.vault_id.clone(),
-            count: pending_count,
-        },
-    );
-
+    let done = reattach_dangling(state, app, &req.vault_id, target_raw, &req.to_path).await?;
     Ok(RepairDanglingLinkResponse {
-        files_rewritten,
-        refs_updated,
-        pending_count,
+        files_rewritten: done.files_rewritten,
+        refs_updated: done.refs_updated,
+        pending_count: done.pending_count,
     })
-}
-
-async fn dangling_referrers(
-    conn: &libsql::Connection,
-    target_raw: &str,
-) -> Result<Vec<String>, CubicalError> {
-    let sql = format!(
-        "SELECT DISTINCT source_path FROM links \
-         WHERE target_raw = ?1 AND {DANGLING_PREDICATE} \
-         ORDER BY source_path"
-    );
-    let mut rows = conn.query(&sql, params![target_raw]).await?;
-    let mut out = Vec::new();
-    while let Some(row) = rows.next().await? {
-        out.push(row.get(0)?);
-    }
-    Ok(out)
 }
 
 #[cfg(test)]
@@ -173,6 +74,55 @@ mod tests {
         let on_disk = std::fs::read_to_string(dir.path().join("src.md")).unwrap();
         assert_eq!(on_disk, "see [[roadmap]] twice: [[roadmap]]\n");
         assert_eq!(dangling_count(&state).await, 0);
+    }
+
+    struct Recorded(std::sync::Mutex<Vec<crate::events::AppEvent>>);
+
+    impl EventSink for Recorded {
+        fn emit(&self, event: crate::events::AppEvent) {
+            self.0.lock().unwrap().push(event);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_repair_reports_through_the_rename_flush_events() {
+        use crate::events::AppEvent;
+        let (dir, vault, state) = vault_with(&[
+            ("src.md", "see [[plan]]\n"),
+            ("notes/plan.md", "one\n"),
+            ("archive/roadmap.md", "two\n"),
+        ])
+        .await;
+        drop_file_as_watcher_would(&dir, &vault, "notes/plan.md").await;
+        let sink = Recorded(std::sync::Mutex::default());
+
+        repair_dangling_link(
+            &state,
+            &sink,
+            RepairDanglingLinkRequest {
+                vault_id: "v1".into(),
+                target_raw: "plan".into(),
+                to_path: "archive/roadmap.md".into(),
+            },
+        )
+        .await
+        .expect("ok");
+
+        let events = sink.0.into_inner().unwrap();
+        let [AppEvent::FlushComplete(done), AppEvent::PendingRewritesChanged(pending)] =
+            events.as_slice()
+        else {
+            panic!("a repair emits exactly rename's flush-complete then pending-changed");
+        };
+        assert_eq!(
+            (
+                done.vault_id.as_str(),
+                done.files_rewritten,
+                done.refs_updated
+            ),
+            ("v1", 1, 1)
+        );
+        assert_eq!((pending.vault_id.as_str(), pending.count), ("v1", 0));
     }
 
     #[tokio::test]
