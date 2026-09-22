@@ -83,6 +83,7 @@ import {
   closeTab,
   dropMissingTabs,
   emptyTabs,
+  filePathOf,
   moveTab,
   nextTab,
   openTab,
@@ -92,7 +93,7 @@ import {
   type TabSet,
   type TabView,
 } from "./tabs/tabModel";
-import { fromTabSessionDto, toTabSessionDto } from "./tabs/session";
+import { createSessionSaver, fromTabSessionDto, toTabSessionDto } from "./tabs/session";
 import { activateWithFlush, type ActivationDeps } from "./tabs/activation";
 import { liveFileIds, touch } from "./tabs/lru";
 import { pruneContents, remapContentKeys } from "./tabs/contentCache";
@@ -143,6 +144,7 @@ import {
 import { noteTitle } from "./vault/noteName";
 import { watchSystemTheme } from "./styles/theme";
 import TagPage from "./tags/TagPage";
+import { tagPathOf, tagView } from "./tags/tabKind";
 import OmniBar from "./omnibar/OmniBar";
 import { type OmniItem, type RankedItem } from "./omnibar/ranker";
 import { OMNI_COMMANDS } from "./omnibar/commands";
@@ -237,7 +239,7 @@ const App: Component = () => {
     activeTab(tabs())?.view ?? { kind: "file", path: "" };
   const selectedPath = (): string | null => {
     const t = activeTab(tabs());
-    return t !== null && t.view.kind === "file" ? t.view.path : null;
+    return t === null ? null : filePathOf(t.view);
   };
   const [tagRefreshTick, setTagRefreshTick] = createSignal(0);
 
@@ -343,9 +345,10 @@ const App: Component = () => {
   };
   const pathForId = (id: string): string | null => {
     const t = tabs().tabs.find((x) => x.id === id);
-    return t !== undefined && t.view.kind === "file" ? t.view.path : null;
+    return t === undefined ? null : filePathOf(t.view);
   };
   const [tabsReady, setTabsReady] = createSignal(false);
+  const saveSession = createSessionSaver(saveTabSession);
 
   const restoreTabs = async (path: string) => {
     try {
@@ -371,7 +374,7 @@ const App: Component = () => {
     const ready = tabsReady();
     const snapshot = toTabSessionDto(tabs());
     if (path === null || !ready) return;
-    void saveTabSession(path, snapshot);
+    saveSession(path, snapshot);
   });
 
   createEffect(() => {
@@ -674,9 +677,8 @@ const App: Component = () => {
     const switching = tabs().activeId !== id;
     await activateWithFlush(activationDeps, id);
     if (!switching || opts?.fromHistory === true) return;
-    const t = activeTab(tabs());
-    if (t === null || t.view.kind !== "file") return;
-    const path = t.view.path;
+    const path = selectedPath();
+    if (path === null) return;
     nav.push(path);
   };
 
@@ -790,7 +792,7 @@ const App: Component = () => {
 
   const handleNavigateTag = async (tagPath: string) => {
     await flushAutosave();
-    setTabs((s) => openTab(s, { kind: "tag", tagPath }));
+    setTabs((s) => openTab(s, tagView(tagPath)));
   };
 
   const handleExitTagView = async () => {
@@ -941,7 +943,7 @@ const App: Component = () => {
 
         brokenBlockRefsRefresh.schedule();
 
-        if (view().kind === "tag") {
+        if (tagPathOf(view()) !== null) {
           setTagRefreshTick((n) => n + 1);
         }
 
@@ -1253,9 +1255,7 @@ const App: Component = () => {
                       <FeatureBoundary feature="Tag page">
                         <TagPage
                           vaultId={vaultId()}
-                          tagPath={
-                            (view() as { kind: "tag"; tagPath: string }).tagPath
-                          }
+                          tagPath={tagPathOf(view()) ?? ""}
                           refreshSignal={tagRefreshTick()}
                           onSelectFile={(path) =>
                             void handleNavigateWikilink(path, null)

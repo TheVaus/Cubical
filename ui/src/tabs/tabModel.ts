@@ -1,8 +1,24 @@
-export type TabView =
-  | { kind: "file"; path: string }
-  | { kind: "tag"; tagPath: string }
-  | { kind: "terminal"; key: string }
-  | { kind: "graph" };
+import { FILE_KIND, tabKind } from "./tabKinds";
+
+export interface FileView {
+  kind: typeof FILE_KIND;
+  path: string;
+}
+
+export interface BlockView {
+  kind: string;
+  key: string;
+}
+
+export type TabView = FileView | BlockView;
+
+export function isFileView(view: TabView): view is FileView {
+  return view.kind === FILE_KIND && "path" in view;
+}
+
+export function filePathOf(view: TabView): string | null {
+  return isFileView(view) ? view.path : null;
+}
 
 export interface Tab {
   id: string;
@@ -17,27 +33,12 @@ export interface TabSet {
 export const emptyTabs: TabSet = { tabs: [], activeId: null };
 
 export function tabId(view: TabView): string {
-  switch (view.kind) {
-    case "file":
-      return `file:${view.path}`;
-    case "tag":
-      return `tag:${view.tagPath}`;
-    case "terminal":
-      return `terminal:${view.key}`;
-    case "graph":
-      return "graph";
-  }
+  if (isFileView(view)) return `${FILE_KIND}:${view.path}`;
+  return view.key === "" ? view.kind : `${view.kind}:${view.key}`;
 }
 
-export type PersistableTabView = Extract<
-  TabView,
-  { kind: "file" } | { kind: "tag" }
->;
-
-export function isPersistableTab(
-  t: Tab,
-): t is Tab & { view: PersistableTabView } {
-  return t.view.kind === "file" || t.view.kind === "tag";
+export function isPersistableTab(t: Tab): boolean {
+  return isFileView(t.view) || tabKind(t.view.kind)?.persist !== undefined;
 }
 
 export function activeTab(s: TabSet): Tab | null {
@@ -46,8 +47,12 @@ export function activeTab(s: TabSet): Tab | null {
 
 export const MAX_TABS = 8;
 
+function isEvictable(view: TabView): boolean {
+  return isFileView(view) || (tabKind(view.kind)?.evictable ?? false);
+}
+
 function isReplaceable(t: Tab): boolean {
-  return t.view.kind !== "terminal" && t.view.kind !== "graph";
+  return isEvictable(t.view);
 }
 
 type Slot = { at: number } | "existing" | "append" | "full";
@@ -56,7 +61,7 @@ function slotFor(s: TabSet, view: TabView, max: number): Slot {
   const id = tabId(view);
   if (s.tabs.some((t) => t.id === id)) return "existing";
   if (
-    (view.kind === "terminal" || view.kind === "graph") &&
+    !isEvictable(view) &&
     s.tabs.filter((t) => !isReplaceable(t)).length >= max - 1
   ) {
     return "full";
@@ -144,10 +149,10 @@ export function remapTabPaths(
   const rename = new Map<string, string>();
   for (const t of s.tabs) {
     let next = t;
-    if (t.view.kind === "file") {
+    if (isFileView(t.view)) {
       const to = remap(t.view.path);
       if (to !== null && to !== t.view.path) {
-        const view: TabView = { kind: "file", path: to };
+        const view: TabView = { kind: FILE_KIND, path: to };
         next = { ...t, id: tabId(view), view };
         rename.set(t.id, next.id);
       }
@@ -164,7 +169,7 @@ export function dropMissingTabs(
   s: TabSet,
   exists: (path: string) => boolean,
 ): TabSet {
-  const tabs = s.tabs.filter((t) => t.view.kind !== "file" || exists(t.view.path));
+  const tabs = s.tabs.filter((t) => !isFileView(t.view) || exists(t.view.path));
   if (tabs.length === s.tabs.length) return s;
   const activeId = tabs.some((t) => t.id === s.activeId)
     ? s.activeId

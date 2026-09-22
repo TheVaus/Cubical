@@ -9,6 +9,7 @@ import {
 import { registeredSidebarPanels } from "../settings/sidebarPanels";
 import { registeredStatusbarSegments } from "../statusbar/statusbarSettings";
 import { STATUSBAR_SEGMENTS } from "../statusbar/segments";
+import { tabKind } from "../tabs/tabKinds";
 import { registerBlocks } from "./registerBlocks";
 
 registerBlocks();
@@ -78,6 +79,12 @@ describe("registerBlocks", () => {
     for (const id of ["search", "autocomplete", "integrity"]) {
       expect(corePluginActive({}, id)).toBe(true);
     }
+  });
+
+  test("hands the tab substrate each block's kind, and only tags persist", () => {
+    const kinds = ["tag", "terminal", "graph"].map((k) => tabKind(k));
+    expect(kinds.map((k) => k?.evictable)).toEqual([true, false, false]);
+    expect(kinds.map((k) => k?.persist !== undefined)).toEqual([true, false, false]);
   });
 
   test("hands settings the statusbar's segments in bar order", () => {

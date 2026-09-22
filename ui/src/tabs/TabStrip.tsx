@@ -2,7 +2,8 @@ import { For } from "solid-js";
 
 import IconButton from "@ds/components/forms/IconButton/IconButton";
 
-import type { Tab, TabSet } from "./tabModel";
+import { tabKind } from "./tabKinds";
+import { isFileView, type Tab, type TabSet } from "./tabModel";
 import { noteTitle } from "../vault/noteName";
 import "./tabs.css";
 
@@ -14,16 +15,9 @@ export interface TabStripProps {
 }
 
 function label(tab: Tab): string {
-  switch (tab.view.kind) {
-    case "tag":
-      return `#${tab.view.tagPath}`;
-    case "terminal":
-      return "Terminal";
-    case "graph":
-      return "Graph";
-    case "file":
-      return noteTitle(tab.view.path);
-  }
+  const view = tab.view;
+  if (isFileView(view)) return noteTitle(view.path);
+  return tabKind(view.kind)?.label(view.key) ?? (view.key || view.kind);
 }
 
 export default function TabStrip(props: TabStripProps) {
