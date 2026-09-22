@@ -436,7 +436,7 @@ A core plugin's live objects — a query runner, a PTY session, a tab — are
 *derived* from the toggle, never created once at vault open and then gated at
 each use site. Deriving is what makes
 [`../principles/composability.md`](../principles/composability.md)'s
-"switching a feature off drops its derived state" true in the frontend: the
+"switching a feature off removes its affordances" true in the frontend: the
 object falls out of scope with the toggle, taking its cache and its
 subscriptions with it, and coming back on builds a fresh one.
 

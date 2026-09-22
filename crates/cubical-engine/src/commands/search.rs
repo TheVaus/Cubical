@@ -74,6 +74,7 @@ pub async fn search_rebuild_index(
     state: &AppState,
     req: SearchVaultRequest,
 ) -> Result<(), CubicalError> {
+    crate::plugins::require(state, &req.vault_id, crate::plugins::Feature::Search).await?;
     let (vault, search, cancel, search_state) = with_open_vault(state, &req.vault_id, |open| {
         (
             open.vault.clone(),
@@ -535,6 +536,23 @@ mod tests {
         )
         .await
         .expect_err("a switched-off plugin must not be served");
+
+        assert!(matches!(err, CubicalError::FeatureDisabled(id) if id == "search"));
+    }
+
+    #[tokio::test]
+    async fn a_switched_off_search_refuses_a_rebuild() {
+        let (_dir, _handle, state) = fresh_state_with_vault("v1").await;
+        switch(&state, "v1", "plugins.search_enabled", false).await;
+
+        let err = search_rebuild_index(
+            &state,
+            SearchVaultRequest {
+                vault_id: "v1".into(),
+            },
+        )
+        .await
+        .expect_err("a switched-off plugin must not rebuild");
 
         assert!(matches!(err, CubicalError::FeatureDisabled(id) if id == "search"));
     }
