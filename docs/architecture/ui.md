@@ -106,7 +106,7 @@ Locked product decisions about settings, which are what this section owns:
 
 Two tiers, per [`vault.md`](vault.md) §3: `config.toml` is durable and travels
 with the vault; the libSQL `config` table is transient, per-machine workspace
-state. The tier is chosen by a **literal key prefix** — any key beginning `ui.`
+state, lost with the rest of the index when it is rebuilt. The tier is chosen by a **literal key prefix** — any key beginning `ui.`
 is routed to the index, everything else to `config.toml`
 (`cubical_core::vault::settings::is_workspace_key`).
 
