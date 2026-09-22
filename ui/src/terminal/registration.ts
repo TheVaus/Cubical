@@ -12,3 +12,9 @@ export const TERMINAL_PLUGIN: CorePlugin = {
 export const TERMINAL_COMMAND_ID = "view.openTerminal";
 
 export const TERMINAL_COMMAND_TITLE = "Open terminal";
+
+declare module "../api/ipc" {
+  interface SettingRegistry {
+    "plugins.terminal_enabled": boolean;
+  }
+}

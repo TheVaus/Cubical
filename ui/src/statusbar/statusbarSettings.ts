@@ -33,3 +33,9 @@ export function statusbarBlockSettings(): BlockSetting[] {
     ...registry.map((seg) => blockSetting(seg.settingKey, seg.defaultVisible)),
   ];
 }
+
+declare module "../api/ipc" {
+  interface SettingRegistry {
+    "statusbar.enabled": boolean;
+  }
+}

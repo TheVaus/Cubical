@@ -90,9 +90,18 @@ Enforced by `scripts/gates/composition.py`. **This section is prose, not the all
 The **shipped** Settings modal is tab-based. The authoritative tab list is
 `settingsNav()` (`ui/src/settings/tabs.ts`) — the built-in `SETTINGS_TABS` plus
 the sections blocks contribute through `registerSettingsSections`; the authoritative setting *keys* are
-the `Setting` union (`ui/src/api/ipc.ts`), the frontend's typed view of a
+the `SettingRegistry` interface (`ui/src/api/ipc.ts`), the frontend's typed view of a
 deliberately generic backend config table. Neither is restated here: a doc
 mirroring either would rot every time a toggle shipped, and did.
+
+`SettingRegistry` declares only substrate keys. A block adds its own by
+augmenting the interface (`declare module "../api/ipc"`) in the file that
+registers the setting, so a new block adds a setting without editing substrate.
+A key nothing declares fails to type-check wherever it is used, and
+`ui/src/api/settingRegistry.test.ts` refuses a key declared twice or registered
+in a file that does not declare it. A default that both the engine and the
+frontend read is pinned through `crates/cubical-engine/tests/fixtures/setting_defaults.json`,
+which a Rust test and a frontend test each compare against their own constant.
 
 Locked product decisions about settings, which are what this section owns:
 

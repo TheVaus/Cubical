@@ -971,7 +971,7 @@ const App: Component = () => {
     await vaultListeners.attach("vault:setting-changed", () =>
       onVaultSettingChanged((p) => {
         if (p.vault_id !== vaultId()) return;
-        void settings.hydrate(p.vault_id);
+        settings.applyChanged(p.key, p.value);
       }),
     );
 

@@ -8,3 +8,9 @@ export const AUTOCOMPLETE_PLUGIN: CorePlugin = {
   settingKey: "plugins.autocomplete_enabled",
   defaultEnabled: true,
 };
+
+declare module "../api/ipc" {
+  interface SettingRegistry {
+    "plugins.autocomplete_enabled": boolean;
+  }
+}

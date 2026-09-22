@@ -8,3 +8,9 @@ export const SEARCH_PLUGIN: CorePlugin = {
   settingKey: "plugins.search_enabled",
   defaultEnabled: true,
 };
+
+declare module "../api/ipc" {
+  interface SettingRegistry {
+    "plugins.search_enabled": boolean;
+  }
+}

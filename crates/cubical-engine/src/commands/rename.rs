@@ -189,18 +189,25 @@ async fn enqueue_coalesced(
 
 pub const WIKILINKS_REWRITE_BROKEN_KEY: &str = "wikilinks.rewrite_broken_links_on_rename";
 
-async fn read_bool_setting(state: &AppState, vault_id: &str, key: &str, default: bool) -> bool {
+pub const WIKILINKS_REWRITE_BROKEN_DEFAULT: bool = true;
+
+pub fn rewrite_broken_links(settings: &cubical_core::vault::settings::SettingsMap) -> bool {
+    settings
+        .get(WIKILINKS_REWRITE_BROKEN_KEY)
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(WIKILINKS_REWRITE_BROKEN_DEFAULT)
+}
+
+async fn read_rewrite_broken(state: &AppState, vault_id: &str) -> bool {
     let Ok(settings) = with_open_vault(state, vault_id, |open| {
         std::sync::Arc::clone(&open.settings)
     })
     .await
     else {
-        return default;
+        return WIKILINKS_REWRITE_BROKEN_DEFAULT;
     };
     let map = settings.read().await;
-    map.get(key)
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(default)
+    rewrite_broken_links(&map)
 }
 
 async fn collect_referrers(
@@ -433,8 +440,7 @@ pub async fn rename_file(
         }
     }
 
-    let rewrite_broken =
-        read_bool_setting(state, &req.vault_id, WIKILINKS_REWRITE_BROKEN_KEY, true).await;
+    let rewrite_broken = read_rewrite_broken(state, &req.vault_id).await;
     let committed = commit_rename(
         app,
         RenameCommitInput {
@@ -577,8 +583,7 @@ pub async fn rename_folder(
         out
     };
 
-    let rewrite_broken =
-        read_bool_setting(state, &req.vault_id, WIKILINKS_REWRITE_BROKEN_KEY, true).await;
+    let rewrite_broken = read_rewrite_broken(state, &req.vault_id).await;
 
     let new_path_for = |old: &str| -> String {
         if old == from_path {
@@ -1571,6 +1576,18 @@ async fn replay_rename_journal_inner(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_rewrite_broken_default_matches_the_shared_fixture() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../tests/fixtures/setting_defaults.json"))
+                .expect("setting_defaults.json parses");
+        assert_eq!(
+            fixture.get(super::WIKILINKS_REWRITE_BROKEN_KEY),
+            Some(&serde_json::json!(super::WIKILINKS_REWRITE_BROKEN_DEFAULT)),
+            "the frontend default reads the same fixture, so both sides agree through it"
+        );
+    }
+
     use super::*;
     use crate::state::OpenVault;
     use cubical_core::Vault;

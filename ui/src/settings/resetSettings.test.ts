@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { createRoot } from "solid-js";
+import { createComputed, createRoot } from "solid-js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../api/ipc", () => ({
@@ -120,5 +120,22 @@ describe("resetSettings", () => {
 
     resetSettings(s);
     expect(s.rightSidebarCollapsed()).toBe(false);
+  });
+
+  it("notifies a reader of every block value once, not once per key", () => {
+    const s = build();
+    for (const seg of registeredStatusbarSegments()) s.setValue(seg.settingKey, false);
+    let runs = 0;
+    createRoot(() =>
+      createComputed(() => {
+        for (const setting of registeredBlockSettings()) s.value(setting.key);
+        runs += 1;
+      }),
+    );
+    runs = 0;
+
+    resetSettings(s);
+
+    expect(runs).toBe(1);
   });
 });
