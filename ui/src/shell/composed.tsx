@@ -14,10 +14,11 @@ import SearchBar from "../search/SearchBar";
 import SearchResults from "../search/SearchResults";
 import { createSearchState } from "../search/searchState";
 import { hasViewer } from "../viewer";
-import { editorBlocks } from "./editorBlocks";
+import { editorBlocks, previewToggles, type PreviewToggles } from "./editorBlocks";
 
 export interface ComposedEditorProps
-  extends Omit<EditorProps, "previewBlocks" | "blockExtensions"> {
+  extends Omit<EditorProps, "previewBlocks" | "blockExtensions">,
+    PreviewToggles {
   embedResolver?: EmbedResolver | null;
   openNotePath?: string | null;
   dataviewRunner?: DataviewRunner | null;
@@ -30,6 +31,9 @@ export const Editor: Component<ComposedEditorProps> = (props) => {
     "openNotePath",
     "dataviewRunner",
     "autocompleteProvider",
+    "mathEnabled",
+    "equationsEnabled",
+    "propertyRefsEnabled",
   ]);
   const embeds = createMemo(() =>
     embedExtensionFor(own.embedResolver ?? null, own.openNotePath ?? null),
@@ -40,11 +44,22 @@ export const Editor: Component<ComposedEditorProps> = (props) => {
   const autocomplete = createMemo(() =>
     autocompleteExtensionFor(own.autocompleteProvider),
   );
+  const toggles = (Object.keys(previewToggles) as (keyof PreviewToggles)[]).map(
+    (key) => {
+      const on = createMemo(() => own[key] ?? true);
+      return createMemo(() => previewToggles[key](on()));
+    },
+  );
   return (
     <BaseEditor
       {...base}
       previewBlocks={editorBlocks}
-      blockExtensions={[embeds(), dataview(), autocomplete()]}
+      blockExtensions={[
+        embeds(),
+        dataview(),
+        autocomplete(),
+        ...toggles.map((toggle) => toggle()),
+      ]}
     />
   );
 };

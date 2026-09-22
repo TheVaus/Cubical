@@ -14,7 +14,7 @@ import { syntaxTree } from "@codemirror/language";
 
 import { scanWikilinks } from "../ast/wikilink";
 import { splitFrontmatter, parseFrontmatterYaml } from "../ast/frontmatter";
-import { decorationField } from "./decorationField";
+import { decorationField, offActiveLine } from "./decorationField";
 import {
   propertyResolverFacet,
   propertyResolverUpdated,
@@ -57,9 +57,11 @@ export function selfPropertyValue(docText: string, property: string): unknown {
   return entries.has(property) ? entries.get(property) : undefined;
 }
 
-function selfValue(docText: string, property: string): string | null {
-  const value = selfPropertyValue(docText, property);
-  return value === undefined ? null : scalarToDisplay(value);
+function selfValue(
+  entries: Map<string, unknown>,
+  property: string,
+): string | null {
+  return entries.has(property) ? scalarToDisplay(entries.get(property)) : null;
 }
 
 class PropertyRefWidget extends WidgetType {
@@ -83,11 +85,11 @@ class PropertyRefWidget extends WidgetType {
 function renderStateFor(
   tok: { note: string | null; property: string },
   raw: string,
-  getDocText: () => string,
+  ownEntries: () => Map<string, unknown>,
   resolver: PropertyResolver | null,
 ): PropertyRefRenderState {
   if (tok.note === null) {
-    const v = selfValue(getDocText(), tok.property);
+    const v = selfValue(ownEntries(), tok.property);
     return v === null ? { status: "broken", raw } : { status: "resolved", value: v };
   }
   const hit = resolver?.get(tok.note, tok.property);
@@ -102,14 +104,13 @@ function renderStateFor(
   return { status: "broken", raw };
 }
 
-export function buildPropertyDecorations(state: EditorState): DecorationSet {
-  if (!state.facet(propertyRefsEnabledFacet)) return Decoration.none;
+function collectPropertyRefs(state: EditorState): Range<Decoration>[] {
+  if (!state.facet(propertyRefsEnabledFacet)) return [];
   const resolver = state.facet(propertyResolverFacet);
   const tree = syntaxTree(state);
   const doc = state.doc;
-  let docText: string | undefined;
-  const getDocText = () => (docText ??= doc.toString());
-  const activeLine = doc.lineAt(state.selection.main.head).number;
+  let own: Map<string, unknown> | undefined;
+  const ownEntries = () => (own ??= frontmatterEntries(doc.toString()));
   const ranges: Range<Decoration>[] = [];
 
   tree.iterate({
@@ -118,8 +119,7 @@ export function buildPropertyDecorations(state: EditorState): DecorationSet {
       const raw = doc.sliceString(node.from, node.to);
       const tok = scanWikilinks(raw)[0];
       if (!tok || tok.kind !== "property_ref") return;
-      if (doc.lineAt(node.from).number === activeLine) return;
-      const rstate = renderStateFor(tok, raw, getDocText, resolver);
+      const rstate = renderStateFor(tok, raw, ownEntries, resolver);
       ranges.push(
         Decoration.replace({
           widget: new PropertyRefWidget(rstate),
@@ -128,12 +128,15 @@ export function buildPropertyDecorations(state: EditorState): DecorationSet {
     },
   });
 
-  ranges.sort((a, b) => a.from - b.from);
-  return Decoration.set(ranges, true);
+  return ranges;
+}
+
+export function buildPropertyDecorations(state: EditorState): DecorationSet {
+  return offActiveLine(state, collectPropertyRefs(state));
 }
 
 export const propertyRefField = decorationField({
-  build: buildPropertyDecorations,
+  collect: collectPropertyRefs,
   effects: [propertyResolverUpdated],
   watch: [
     (s) => s.facet(propertyResolverFacet),

@@ -188,3 +188,35 @@ describe("blockRenderersField", () => {
     ]);
   });
 });
+
+describe("blockRenderersField cursor moves", () => {
+  it("re-reveals by line without matching or rendering the fences again", () => {
+    let renders = 0;
+    const alpha = textRenderer("a", ["alpha"], {
+      render: (source) => {
+        renders += 1;
+        const el = document.createElement("pre");
+        el.dataset.renderer = "a";
+        el.textContent = source;
+        return el;
+      },
+    });
+    const doc = "intro\n\n```alpha\nbody\n```\n\nmiddle\n\ntail\n";
+    const view = new EditorView({ state: stateWith(doc, [alpha], 0) });
+    const ranges = view.state.field(blockRenderersField).ranges;
+    const before = renders;
+
+    view.dispatch({ selection: { anchor: doc.indexOf("middle") } });
+    view.dispatch({ selection: { anchor: doc.indexOf("body") } });
+    const revealed = view.dom.querySelectorAll("[data-renderer]").length;
+    view.dispatch({ selection: { anchor: doc.indexOf("tail") } });
+    const shown = view.dom.querySelectorAll("[data-renderer]").length;
+    const after = view.state.field(blockRenderersField).ranges;
+    view.destroy();
+
+    expect(revealed).toBe(0);
+    expect(shown).toBe(1);
+    expect(after).toBe(ranges);
+    expect(renders).toBe(before + 1);
+  });
+});

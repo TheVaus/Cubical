@@ -5,7 +5,6 @@ import { markdown } from "@codemirror/lang-markdown";
 import { livePreviewFor } from "./livePreview";
 import { editorBlocks } from "../shell/editorBlocks";
 
-const ALL_ON = { math: true, equations: true, propertyRefs: true };
 import { wikilinkExtension } from "./wikilink";
 import { tagExtension } from "./tag";
 import {
@@ -51,7 +50,7 @@ describe("livePreviewFor with the shell's blocks", () => {
         embedResolverFacet.of(stubEmbedResolver),
         openNotePathFacet.of(null),
         wikilinkResolverFacet.of(null),
-        livePreviewFor(false, ALL_ON, editorBlocks),
+        livePreviewFor(false, editorBlocks),
       ],
     });
     expect(() => state.field(embedBlockField)).not.toThrow();
@@ -67,11 +66,11 @@ describe("livePreviewFor with the shell's blocks", () => {
         embedResolverFacet.of(stubEmbedResolver),
         openNotePathFacet.of(null),
         wikilinkResolverFacet.of(null),
-        livePreviewFor(false, ALL_ON, editorBlocks),
+        livePreviewFor(false, editorBlocks),
       ],
     });
 
-    const set = state.field(embedBlockField);
+    const set = state.field(embedBlockField).deco;
     let blockReplace = false;
     set.between(0, doc.length, (_from, _to, value) => {
       if (value.spec?.widget && value.spec?.block === true) blockReplace = true;

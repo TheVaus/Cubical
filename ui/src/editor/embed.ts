@@ -1,9 +1,4 @@
-import {
-  Decoration,
-  EditorView,
-  WidgetType,
-  type DecorationSet,
-} from "@codemirror/view";
+import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 import {
   Facet,
   StateEffect,
@@ -112,15 +107,13 @@ class EmbedWidget extends WidgetType {
   }
 }
 
-function buildDecorations(state: EditorState): DecorationSet {
+function collectEmbeds(state: EditorState): Range<Decoration>[] {
   const resolver = state.facet(embedResolverFacet);
-  if (!resolver) return Decoration.none;
+  if (!resolver) return [];
   const openNotePath = state.facet(openNotePathFacet);
   const renderFile = state.facet(embedFileRendererFacet);
   const tree = syntaxTree(state);
   const doc = state.doc;
-  const head = state.selection.main.head;
-  const activeLineNumber = doc.lineAt(head).number;
   const ranges: Range<Decoration>[] = [];
 
   tree.iterate({
@@ -131,7 +124,6 @@ function buildDecorations(state: EditorState): DecorationSet {
       if (!tok || tok.kind !== "wiki_link" || !tok.embed) return;
       const line = doc.lineAt(node.from);
       if (line.text.trim() !== raw.trim()) return;
-      if (line.number === activeLineNumber) return;
       const targetRaw = targetRawOf(tok);
       const widget = new EmbedWidget(
         resolver,
@@ -146,12 +138,11 @@ function buildDecorations(state: EditorState): DecorationSet {
     },
   });
 
-  ranges.sort((a, b) => a.from - b.from);
-  return Decoration.set(ranges, true);
+  return ranges;
 }
 
 export const embedBlockField = decorationField({
-  build: buildDecorations,
+  collect: collectEmbeds,
   effects: [embedResolverUpdated],
   watch: [
     (s) => s.facet(embedResolverFacet),
