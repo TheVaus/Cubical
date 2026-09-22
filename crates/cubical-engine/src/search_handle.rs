@@ -1,16 +1,21 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use cubical_ast::Document;
-use cubical_core::{unix_now_secs, ChangeSink, ScanSink, Vault};
-use cubical_index::{append_audit, AuditLevel};
+use cubical_core::vault::contained_join;
+use cubical_core::vault::links::read_source_off_executor;
+use cubical_core::vault::pending::materialize_on_read;
+use cubical_core::{parse_off_executor, unix_now_secs, ChangeSink, ScanSink, Vault};
+use cubical_index::{append_audit, file_paths_of_type, AuditLevel};
 use cubical_search::{IndexState, SearchError, SearchIndex};
+use tokio::sync::RwLock;
+use tokio_util::sync::CancellationToken;
 
 use crate::commands::open::with_open_vault;
 use crate::error::CubicalError;
 use crate::events::record_vault_warning;
-use crate::state::{AppState, OpenVault};
+use crate::state::{AppState, OpenVault, ScanStatusBackend, SearchStateInner};
 
 pub const SEARCH_REBUILT: &str = "search_rebuilt";
 
@@ -213,8 +218,137 @@ pub fn settle_after_scan(open: &OpenVault, completed: bool) {
         IndexState::Error
     };
     if let Ok(mut cell) = open.search_state.lock() {
-        cell.state = settled;
+        if !cell.rebuilding {
+            cell.state = settled;
+        }
     }
+}
+
+pub fn begin_rebuild(cell: &Mutex<SearchStateInner>) -> u64 {
+    let Ok(mut cell) = cell.lock() else {
+        return 0;
+    };
+    cell.rebuild_generation += 1;
+    cell.rebuilding = true;
+    cell.state = IndexState::Building;
+    cell.indexed_files = 0;
+    cell.total_files = 0;
+    cell.rebuild_generation
+}
+
+pub struct RebuildRun {
+    pub vaults: Arc<RwLock<HashMap<String, OpenVault>>>,
+    pub vault_id: String,
+    pub vault: Vault,
+    pub search: SearchHandle,
+    pub search_state: Arc<Mutex<SearchStateInner>>,
+    pub generation: u64,
+    pub cancel: CancellationToken,
+}
+
+impl RebuildRun {
+    fn current(&self) -> bool {
+        self.search_state
+            .lock()
+            .is_ok_and(|cell| cell.rebuild_generation == self.generation)
+    }
+
+    fn progress(&self, indexed: usize, total: usize) {
+        if let Ok(mut cell) = self.search_state.lock() {
+            if cell.rebuild_generation == self.generation {
+                cell.indexed_files = indexed as u64;
+                cell.total_files = total as u64;
+            }
+        }
+    }
+}
+
+pub async fn rebuild_from_files(run: RebuildRun) {
+    let paths = match file_paths_of_type(run.vault.index(), "markdown").await {
+        Ok(paths) => paths,
+        Err(e) => {
+            tracing::warn!(error = %e, "search rebuild could not list the vault's notes");
+            settle_rebuild(&run, false).await;
+            return;
+        }
+    };
+    run.progress(0, paths.len());
+
+    let mut completed = true;
+    let mut since_commit = 0usize;
+    for (done, path) in paths.iter().enumerate() {
+        if run.cancel.is_cancelled() || !run.current() {
+            completed = false;
+            break;
+        }
+        index_one(&run, path).await;
+        since_commit += 1;
+        if since_commit >= SEARCH_COMMIT_EVERY {
+            if let Err(e) = run.search.commit() {
+                tracing::warn!(error = %e, "search rebuild periodic commit failed");
+            }
+            since_commit = 0;
+        }
+        run.progress(done + 1, paths.len());
+    }
+    if let Err(e) = run.search.commit() {
+        tracing::warn!(error = %e, "search rebuild final commit failed");
+    }
+    settle_rebuild(&run, completed).await;
+}
+
+async fn index_one(run: &RebuildRun, path: &str) {
+    let Ok((_, abs)) = contained_join(run.vault.root(), path) else {
+        return;
+    };
+    let Some(raw) = read_source_off_executor(&abs).await else {
+        return;
+    };
+    let source = match materialize_on_read(run.vault.index(), path, &raw).await {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!(path, error = %e, "search rebuild: materialize_on_read failed; using raw source");
+            raw
+        }
+    };
+    let Some(doc) = parse_off_executor(&source).await else {
+        return;
+    };
+    let mtime = tokio::fs::metadata(&abs)
+        .await
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX));
+    if let Err(e) = run
+        .search
+        .upsert_doc(path, &doc, mtime, source.len() as u64)
+    {
+        tracing::warn!(path, error = %e, "search rebuild upsert failed");
+    }
+}
+
+async fn settle_rebuild(run: &RebuildRun, completed: bool) {
+    let vaults = run.vaults.read().await;
+    let scanning = vaults
+        .get(&run.vault_id)
+        .is_some_and(|open| open.scan_status == ScanStatusBackend::InProgress);
+    let Ok(mut cell) = run.search_state.lock() else {
+        return;
+    };
+    if cell.rebuild_generation != run.generation {
+        return;
+    }
+    cell.rebuilding = false;
+    cell.state = if !completed || !run.search.is_available() {
+        IndexState::Error
+    } else if scanning {
+        IndexState::Building
+    } else {
+        IndexState::Ready
+    };
+    drop(cell);
+    drop(vaults);
 }
 
 pub(crate) async fn open_search_cloned(

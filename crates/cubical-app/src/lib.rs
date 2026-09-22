@@ -653,15 +653,9 @@ async fn search_index_status(
 #[tauri::command]
 async fn search_rebuild_index(
     state: tauri::State<'_, AppState>,
-    app: tauri::AppHandle,
     req: SearchVaultRequest,
 ) -> Result<(), CubicalError> {
-    commands::search::search_rebuild_index(
-        state.inner(),
-        std::sync::Arc::new(crate::tauri_sink::TauriEventSink::new(app)),
-        req,
-    )
-    .await
+    commands::search::search_rebuild_index(state.inner(), req).await
 }
 
 #[tauri::command]

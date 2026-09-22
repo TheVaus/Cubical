@@ -25,12 +25,12 @@ Extraction is regex + delimiter counting over the Rust source, not a Rust parser
 | `agent_instructions_status` | `req: AgentInstructionsRequest` | `core::AgentInstructionsStatus` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/agent_instructions.rs`:10 | yes |
 | `block_id_autocomplete` | `req: BlockIdAutocompleteRequest` | `BlockIdAutocompleteResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:469 | yes |
 | `cancel_vault_scan` | `req: CancelVaultScanRequest` | `()` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:269 | yes |
-| `close_vault` | `req: CloseVaultRequest` | `()` | `CubicalError` | `state: tauri::State<'_, AppState>`<br>`registry: tauri::State<'_, terminal::TerminalRegistry>`<br>`layouts: tauri::State<'_, cubical_engine::commands::graph::LayoutRegistry>`<br>`app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:691 | yes |
+| `close_vault` | `req: CloseVaultRequest` | `()` | `CubicalError` | `state: tauri::State<'_, AppState>`<br>`registry: tauri::State<'_, terminal::TerminalRegistry>`<br>`layouts: tauri::State<'_, cubical_engine::commands::graph::LayoutRegistry>`<br>`app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:685 | yes |
 | `create_block_ref` | `req: CreateBlockRefRequest` | `CreateBlockRefResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:477 | yes |
 | `create_file` | `req: CreateFileRequest` | `CreateFileResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:293 | yes |
 | `create_file_at_path` | `req: CreateFileAtPathRequest` | `CreateFileAtPathResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:301 | yes |
 | `create_folder` | `req: CreateFolderRequest` | `CreateFolderResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:309 | yes |
-| `dataview_query` | `req: DataviewQueryRequest` | `DataviewResult` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:675 | yes |
+| `dataview_query` | `req: DataviewQueryRequest` | `DataviewResult` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:669 | yes |
 | `delete_path` | `req: DeletePathRequest` | `()` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:317 | yes |
 | `flush_pending_rewrites` | `req: FlushPendingRewritesRequest` | `FlushPendingRewritesResponse` | `CubicalError` | `state: tauri::State<'_, AppState>`<br>`app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:549 | yes |
 | `flush_pending_rewrites_for_target` | `req: FlushPendingRewritesForTargetRequest` | `FlushPendingRewritesResponse` | `CubicalError` | `state: tauri::State<'_, AppState>`<br>`app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:563 | yes |
@@ -61,7 +61,7 @@ Extraction is regex + delimiter counting over the Rust source, not a Rust parser
 | `query_tag_page` | `req: QueryTagPageRequest` | `QueryTagPageResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:429 | yes |
 | `read_file_bytes` | `req: ReadFileBytesRequest` | `ReadFileBytesResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:341 | yes |
 | `read_file_text` | `req: ReadFileTextRequest` | `ReadFileTextResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:333 | yes |
-| `reload_settings` | `req: ReloadSettingsRequest` | `ReloadSettingsResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:683 | yes |
+| `reload_settings` | `req: ReloadSettingsRequest` | `ReloadSettingsResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:677 | yes |
 | `remove_recent_vault` | `req: recent_vaults::RemoveRecentVaultRequest` | `()` | — | `app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:241 | yes |
 | `rename_block_id` | `req: RenameBlockIdRequest` | `RenameBlockIdResponse` | `CubicalError` | `state: tauri::State<'_, AppState>`<br>`app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:535 | yes |
 | `rename_file` | `req: RenameFileRequest` | `RenameFileResponse` | `CubicalError` | `state: tauri::State<'_, AppState>`<br>`app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:493 | yes |
@@ -71,9 +71,9 @@ Extraction is regex + delimiter counting over the Rust source, not a Rust parser
 | `resolve_link` | `req: ResolveLinkRequest` | `ResolveLinkResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:381 | yes |
 | `save_tab_session` | `vault_path: String`<br>`session: tab_sessions::TabSession` | `()` | — | `app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:262 | yes |
 | `search` | `req: SearchRequest` | `SearchResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:637 | yes |
-| `search_get_health` | `req: SearchVaultRequest` | `SearchHealthDto` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:667 | yes |
+| `search_get_health` | `req: SearchVaultRequest` | `SearchHealthDto` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:661 | yes |
 | `search_index_status` | `req: SearchVaultRequest` | `SearchIndexStatusDto` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:645 | yes |
-| `search_rebuild_index` | `req: SearchVaultRequest` | `()` | `CubicalError` | `state: tauri::State<'_, AppState>`<br>`app: tauri::AppHandle` | `crates/cubical-app/src/lib.rs`:653 | yes |
+| `search_rebuild_index` | `req: SearchVaultRequest` | `()` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:653 | yes |
 | `set_setting` | `req: SetSettingRequest` | `SetSettingResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:365 | yes |
 | `tag_autocomplete` | `req: TagAutocompleteRequest` | `TagAutocompleteResponse` | `CubicalError` | `state: tauri::State<'_, AppState>` | `crates/cubical-app/src/lib.rs`:445 | yes |
 | `terminal_busy` | `terminal_id: String` | `bool` | `String` | `registry: tauri::State<'_, TerminalRegistry>` | `crates/cubical-app/src/terminal.rs`:119 | yes |

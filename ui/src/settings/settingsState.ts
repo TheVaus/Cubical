@@ -19,9 +19,9 @@ import { registeredCorePlugins, type BooleanSettingKey } from "./corePlugins";
 import { SETTINGS_DEFAULTS } from "./defaults";
 import {
   defaultLeftSidebarMode,
+  createSidebarPanelChoice,
   defaultSidebarPanel,
   isLeftSidebarMode,
-  isSidebarPanel,
 } from "./sidebarPanels";
 
 export interface SettingsStateDeps {
@@ -109,9 +109,7 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
   const [rightSidebarCollapsed, setRightSidebarCollapsed] = createSignal(
     SETTINGS_DEFAULTS.rightSidebarCollapsed,
   );
-  const [rightSidebarPanel, setRightSidebarPanel] = createSignal<string>(
-    defaultSidebarPanel(),
-  );
+  const rightPanel = createSidebarPanelChoice(corePlugins);
   const [leftSidebarMode, setLeftSidebarMode] = createSignal<string>(
     defaultLeftSidebarMode(),
   );
@@ -190,8 +188,8 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
   };
 
   const setRightSidebarPanelValue = (id: string) => {
-    if (!isSidebarPanel(id)) return;
-    setRightSidebarPanel(id);
+    if (!rightPanel.offers(id)) return;
+    rightPanel.choose(id);
     persistSetting(vid(), "ui.right_sidebar_panel", id);
   };
 
@@ -209,7 +207,7 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
   const resetForVaultSwitch = () => {
     setRawOverride(null);
     setRightSidebarCollapsed(false);
-    setRightSidebarPanel(defaultSidebarPanel());
+    rightPanel.choose(defaultSidebarPanel());
     setLeftSidebarMode(defaultLeftSidebarMode());
     setShortcutOverrides({});
     setCorePlugins({});
@@ -291,7 +289,7 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
       vaultId,
       "ui.right_sidebar_panel",
       defaultSidebarPanel(),
-      (id) => setRightSidebarPanel(isSidebarPanel(id) ? id : defaultSidebarPanel()),
+      rightPanel.choose,
     );
     await seedSetting(
       vaultId,
@@ -328,7 +326,7 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
     toggle,
     rightSidebarCollapsed,
     toggleRightSidebar,
-    rightSidebarPanel,
+    rightSidebarPanel: rightPanel.current,
     leftSidebarMode,
     setLeftSidebarModeValue,
     setRightSidebarPanelValue,

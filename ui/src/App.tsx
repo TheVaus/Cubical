@@ -113,10 +113,7 @@ import {
   type PropertyResolver,
 } from "./editor/propertyResolver";
 import { createDataviewWiring } from "./editor/dataviewWiring";
-import {
-  createAutocompleteProvider,
-  type AutocompleteProvider,
-} from "./editor/autocompleteProvider";
+import { createAutocompleteWiring } from "./editor/autocompleteWiring";
 import { buildFileTree, countFilesUnderFolder } from "./explorer/fileTree";
 import { createFileActions } from "./explorer/fileActions";
 import { Editor, ExplorerPanel } from "./shell/composed";
@@ -147,7 +144,7 @@ import OmniBar from "./omnibar/OmniBar";
 import { type OmniItem, type RankedItem } from "./omnibar/ranker";
 import { OMNI_COMMANDS } from "./omnibar/commands";
 import { corePluginActive } from "./settings/corePlugins";
-import { registeredSidebarPanels } from "./settings/sidebarPanels";
+import { offeredSidebarPanels } from "./settings/sidebarPanels";
 import { VaultSwitcher } from "./vaultSwitcher/VaultSwitcher";
 
 const AUTOSAVE_DEBOUNCE_MS = 300;
@@ -224,8 +221,10 @@ const App: Component = () => {
     onOpen: (p) => void handleNavigateWikilink(p, null),
   });
 
-  const [autocompleteProvider, setAutocompleteProvider] =
-    createSignal<AutocompleteProvider | null>(null);
+  const autocompleteProvider = createAutocompleteWiring({
+    vaultId,
+    corePlugins: settings.corePlugins,
+  });
 
   const [createOffer, setCreateOffer] = createSignal<{ path: string } | null>(
     null,
@@ -1037,7 +1036,6 @@ const App: Component = () => {
           setWikilinkResolver(createWikiLinkResolver(opened.vault_id));
           setEmbedResolver(createEmbedResolver(opened.vault_id));
           setPropertyResolver(createPropertyResolver(opened.vault_id));
-          setAutocompleteProvider(createAutocompleteProvider(opened.vault_id));
           scheduleRefresh();
         },
       });
@@ -1189,6 +1187,7 @@ const App: Component = () => {
                   selectedPath={selectedPath()}
                   mode={settings.leftSidebarMode()}
                   refreshSignal={searchRefreshTick()}
+                  corePlugins={settings.corePlugins()}
                   actions={fileActions}
                   onModeChange={settings.setLeftSidebarModeValue}
                   onRefresh={() => void refreshFileList()}
@@ -1476,7 +1475,7 @@ const App: Component = () => {
                 variant="pill"
                 ariaLabel="Sidebar panels"
                 value={settings.rightSidebarPanel()}
-                options={registeredSidebarPanels().map((p) => ({
+                options={offeredSidebarPanels(settings.corePlugins()).map((p) => ({
                   label: p.label,
                   value: p.id,
                 }))}
@@ -1484,7 +1483,7 @@ const App: Component = () => {
               />
               <div class="rs-body">
                 <FeatureBoundary feature="Sidebar panel">
-                  <For each={registeredSidebarPanels()}>
+                  <For each={offeredSidebarPanels(settings.corePlugins())}>
                     {(entry) => (
                       <Show when={settings.rightSidebarPanel() === entry.id}>
                         <entry.panel

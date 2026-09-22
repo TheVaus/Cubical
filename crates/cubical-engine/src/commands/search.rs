@@ -23,8 +23,7 @@ pub struct SearchVaultRequest {
 
 use crate::commands::open::with_open_vault;
 use crate::error::CubicalError;
-use crate::events::{spawn_scan_dispatcher, EventSink};
-use crate::search_handle::open_search_cloned;
+use crate::search_handle::{begin_rebuild, open_search_cloned, rebuild_from_files, RebuildRun};
 use crate::state::AppState;
 
 pub async fn search(state: &AppState, req: SearchRequest) -> Result<SearchResponse, CubicalError> {
@@ -73,7 +72,6 @@ pub async fn search_index_status(
 
 pub async fn search_rebuild_index(
     state: &AppState,
-    app: std::sync::Arc<dyn EventSink>,
     req: SearchVaultRequest,
 ) -> Result<(), CubicalError> {
     let (vault, search, cancel, search_state) = with_open_vault(state, &req.vault_id, |open| {
@@ -87,22 +85,20 @@ pub async fn search_rebuild_index(
     .await?;
 
     let index = search.index()?;
-    if let Ok(mut cell) = search_state.lock() {
-        cell.state = IndexState::Building;
-    }
+    let generation = begin_rebuild(&search_state);
 
     index.delete_all()?;
     index.commit()?;
 
-    spawn_scan_dispatcher(
-        app.clone(),
-        state.vaults_arc(),
-        req.vault_id.clone(),
+    tokio::spawn(rebuild_from_files(RebuildRun {
+        vaults: state.vaults_arc(),
+        vault_id: req.vault_id,
         vault,
-        search.scan_sink(),
-        crate::search_handle::settle_after_scan,
+        search,
+        search_state,
+        generation,
         cancel,
-    );
+    }));
 
     Ok(())
 }
@@ -324,40 +320,175 @@ mod tests {
             .scan_status
     }
 
+    fn query(text: &str) -> SearchQuery {
+        SearchQuery {
+            text: text.into(),
+            limit: 10,
+            offset: 0,
+            fields: Default::default(),
+            fuzzy: false,
+            sort: Default::default(),
+        }
+    }
+
+    async fn search_cell(state: &AppState, vault_id: &str) -> crate::state::SearchStateInner {
+        state
+            .vaults()
+            .read()
+            .await
+            .get(vault_id)
+            .unwrap()
+            .search_state
+            .lock()
+            .unwrap()
+            .clone()
+    }
+
+    async fn rebuild_settled(state: &AppState, vault_id: &str) -> crate::state::SearchStateInner {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            let cell = search_cell(state, vault_id).await;
+            if !cell.rebuilding {
+                return cell;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the rebuild never settled"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }
+
+    async fn vault_of(state: &AppState, vault_id: &str) -> Vault {
+        state
+            .vaults()
+            .read()
+            .await
+            .get(vault_id)
+            .unwrap()
+            .vault
+            .clone()
+    }
+
+    async fn scan_substrate_only(vault: &Vault) {
+        let (tx, _rx) = tokio::sync::mpsc::channel(256);
+        cubical_core::scan(
+            vault.clone(),
+            CancellationToken::new(),
+            tx,
+            cubical_core::NoScanSink,
+        )
+        .await
+        .expect("scan");
+    }
+
+    async fn rebuild(state: &AppState, vault_id: &str) {
+        search_rebuild_index(
+            state,
+            SearchVaultRequest {
+                vault_id: vault_id.into(),
+            },
+        )
+        .await
+        .expect("rebuild dispatches");
+    }
+
     #[tokio::test]
     async fn a_rebuild_runs_under_the_vaults_own_cancellation_token() {
-        let (_dir, _handle, state) = fresh_state_with_vault("v1").await;
-        let cancel = state
+        let (dir, _handle, state) = fresh_state_with_vault("v1").await;
+        std::fs::write(dir.path().join("a.md"), "alpha\n").unwrap();
+        scan_substrate_only(&vault_of(&state, "v1").await).await;
+        state
             .vaults()
             .read()
             .await
             .get("v1")
             .unwrap()
             .cancel
-            .clone();
-        cancel.cancel();
+            .cancel();
 
-        search_rebuild_index(
+        rebuild(&state, "v1").await;
+        let cell = rebuild_settled(&state, "v1").await;
+
+        assert!(
+            matches!(cell.state, IndexState::Error),
+            "a cancelled vault must stop its rebuild, not index on regardless",
+        );
+        assert_eq!(
+            scan_status(&state, "v1").await,
+            ScanStatusBackend::Complete,
+            "a cancelled rebuild is not a cancelled vault scan",
+        );
+    }
+
+    #[tokio::test]
+    async fn a_rebuild_reports_search_progress_and_leaves_the_vault_scan_alone() {
+        let (dir, handle, state) = fresh_state_with_vault("v1").await;
+        std::fs::write(dir.path().join("a.md"), "# A\n\nzzqxalpha\n").unwrap();
+        std::fs::write(dir.path().join("b.md"), "# B\n\nzzqxbeta\n").unwrap();
+        std::fs::write(dir.path().join("c.png"), b"not a note").unwrap();
+        scan_substrate_only(&vault_of(&state, "v1").await).await;
+
+        rebuild(&state, "v1").await;
+        let cell = rebuild_settled(&state, "v1").await;
+
+        assert!(matches!(cell.state, IndexState::Ready));
+        assert_eq!((cell.indexed_files, cell.total_files), (2, 2));
+        assert_eq!(handle.index().unwrap().doc_count().unwrap(), 2);
+        let hits = search(
             &state,
-            std::sync::Arc::new(crate::events::NoopEventSink),
-            SearchVaultRequest {
+            SearchRequest {
                 vault_id: "v1".into(),
+                query: query("zzqxbeta"),
             },
         )
         .await
-        .expect("rebuild dispatches");
+        .expect("ok")
+        .hits;
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].path, "b.md");
+        assert_eq!(scan_status(&state, "v1").await, ScanStatusBackend::Complete);
+    }
 
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        loop {
-            if scan_status(&state, "v1").await == ScanStatusBackend::Cancelled {
-                break;
-            }
-            assert!(
-                std::time::Instant::now() < deadline,
-                "a cancelled vault must stop its rebuild, not scan on regardless",
-            );
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
+    #[tokio::test]
+    async fn a_rebuild_during_the_vault_scan_leaves_readiness_to_the_scan() {
+        let (_dir, _handle, state) = fresh_state_with_vault("v1").await;
+        state
+            .vaults()
+            .write()
+            .await
+            .get_mut("v1")
+            .unwrap()
+            .scan_status = ScanStatusBackend::InProgress;
+
+        rebuild(&state, "v1").await;
+        let cell = rebuild_settled(&state, "v1").await;
+        assert!(
+            matches!(cell.state, IndexState::Building),
+            "the scan is still feeding the index, so it is not ready yet",
+        );
+
+        let guard = state.vaults().read().await;
+        crate::search_handle::settle_after_scan(guard.get("v1").unwrap(), true);
+        assert!(matches!(
+            guard.get("v1").unwrap().search_state.lock().unwrap().state,
+            IndexState::Ready
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_scan_settling_mid_rebuild_does_not_claim_the_index_is_ready() {
+        let (_dir, _handle, state) = fresh_state_with_vault("v1").await;
+        let guard = state.vaults().read().await;
+        let open = guard.get("v1").unwrap();
+        crate::search_handle::begin_rebuild(&open.search_state);
+
+        crate::search_handle::settle_after_scan(open, true);
+
+        assert!(matches!(
+            open.search_state.lock().unwrap().state,
+            IndexState::Building
+        ));
     }
 
     #[tokio::test]
@@ -410,9 +541,35 @@ mod tests {
 
     #[tokio::test]
     async fn the_index_keeps_reporting_while_the_search_plugin_is_off() {
-        let (_dir, _handle, state) = fresh_state_with_vault("v1").await;
+        let (dir, _handle, state) = fresh_state_with_vault("v1").await;
         mark_ready(&state, "v1").await;
         switch(&state, "v1", "plugins.search_enabled", false).await;
+
+        let (vault, scan_sink, changes) =
+            crate::commands::open::with_open_vault(&state, "v1", |open| {
+                (
+                    open.vault.clone(),
+                    open.search.scan_sink(),
+                    open.change_sink(),
+                )
+            })
+            .await
+            .expect("vault open");
+
+        std::fs::write(dir.path().join("scanned.md"), "zzqxscanned\n").unwrap();
+        let (tx, _rx) = tokio::sync::mpsc::channel(256);
+        cubical_core::scan(vault.clone(), CancellationToken::new(), tx, scan_sink)
+            .await
+            .expect("scan");
+
+        std::fs::write(dir.path().join("watched.md"), "zzqxwatched\n").unwrap();
+        crate::events::apply_watch_events_batch(
+            &vault,
+            changes.as_ref(),
+            &[cubical_core::WatchEvent::Created("watched.md".into())],
+            None,
+        )
+        .await;
 
         let status = search_index_status(
             &state,
@@ -422,7 +579,22 @@ mod tests {
         )
         .await
         .expect("the toggle gates the query, never the index behind it");
-
         assert!(matches!(status.state, IndexState::Ready));
+
+        switch(&state, "v1", "plugins.search_enabled", true).await;
+        for (token, path) in [("zzqxscanned", "scanned.md"), ("zzqxwatched", "watched.md")] {
+            let hits = search(
+                &state,
+                SearchRequest {
+                    vault_id: "v1".into(),
+                    query: query(token),
+                },
+            )
+            .await
+            .expect("switched back on, the query is served")
+            .hits;
+            assert_eq!(hits.len(), 1, "{path} was indexed while search was off");
+            assert_eq!(hits[0].path, path);
+        }
     }
 }

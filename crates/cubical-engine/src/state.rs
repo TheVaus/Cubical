@@ -33,6 +33,8 @@ pub struct SearchStateInner {
     pub indexed_files: u64,
     pub total_files: u64,
     pub last_commit_secs: Option<i64>,
+    pub rebuild_generation: u64,
+    pub rebuilding: bool,
 }
 
 impl Default for SearchStateInner {
@@ -42,6 +44,8 @@ impl Default for SearchStateInner {
             indexed_files: 0,
             total_files: 0,
             last_commit_secs: None,
+            rebuild_generation: 0,
+            rebuilding: false,
         }
     }
 }

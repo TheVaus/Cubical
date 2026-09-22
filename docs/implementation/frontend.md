@@ -324,10 +324,11 @@ failure: the tree unmounted with it and the whole left sidebar went with the
 throw. No boundary placement fixes that — wrapping the parent keeps the parent's
 siblings alive, never its children. The fix is nesting. Search is three pieces
 now: `createSearchState` holds the query, the filters and the polled index
-status; `SearchBar` draws the chrome; `SearchResults` draws the overlay. The
-shell (`shell/composed.tsx`) creates the state and hands the explorer an
-`ExplorerSearchSlot` — bar, results and an `active` accessor — because search
-is its own block (`search/`) and a block may not import another. The explorer renders
+status; `SearchBar` draws the chrome; `SearchResults` draws the overlay.
+`search/wiring.ts` builds the state from the search toggle, and the shell
+(`shell/composed.tsx`) turns it into an `ExplorerSearchSlot` — bar, results and
+an `active` accessor — because search is its own block (`search/`) and a block
+may not import another. The explorer renders
 bar, tree and results as **siblings** inside one positioned container, each in
 its own boundary, so a failure in any one of the three leaves the other two on
 screen. With no slot the explorer draws the tree alone.
@@ -367,7 +368,7 @@ which is exactly the state the app boots in.
 
 ## A core plugin's runtime is derived from its toggle
 
-**Anchors:** createDataviewWiring · createTerminalWiring · createGraphWiring · corePluginActive · corePluginEnabled
+**Anchors:** createDataviewWiring · createTerminalWiring · createGraphWiring · createAutocompleteWiring · createSearchWiring · createSidebarPanelChoice · offeredSidebarPanels · corePluginActive · corePluginEnabled
 
 A core plugin's live objects — a query runner, a PTY session, a tab — are
 *derived* from the toggle, never created once at vault open and then gated at
@@ -384,6 +385,21 @@ held the runner directly and invalidated it, so every external file change
 re-ran the whole cached query set for a feature the user had switched off. No
 number of gated call sites is safe — one missed site restores the leak, and the
 count only grows.
+
+Switching off has to remove the affordance, not leave one that reports the
+engine's refusal (#314). Autocomplete, search and link integrity each did the
+second until their runtimes were derived too: the autocomplete provider is a
+memo in `editor/autocompleteWiring.ts`, so with the plugin off the editor gets
+no provider and its `[[`, `#` and `[[#^` triggers offer nothing rather than
+asking and swallowing the refusal; the search state is a memo in
+`search/wiring.ts`, so the explorer gets no slot — no bar, no results overlay
+and no index-status poll. A right sidebar panel names the plugin that owns it
+(`SidebarPanel.plugin`), and `offeredSidebarPanels` drops a panel whose plugin
+is inactive from both the switcher and the body. The persisted
+`ui.right_sidebar_panel` is left as the user chose it:
+`createSidebarPanelChoice` resolves it against the toggles on every read, so a
+choice pointing at a disabled panel shows the first offered one and comes back
+when the plugin does, and choosing a panel that is not offered is refused.
 
 A block asks `corePluginActive`, which folds in the dependency graph the
 principle names, so a block whose requirement is off reads as off.
