@@ -1,23 +1,43 @@
 import { describe, it, expect } from "vitest";
+import { GRAPH_COMMAND } from "../graph/registration";
+import { OMNIBAR_COMMAND } from "../omnibar/registration";
+import { STATUSBAR_COMMAND } from "../statusbar/commands";
+import { TERMINAL_COMMAND } from "../terminal/registration";
 import {
-  DEFAULT_BINDINGS,
-  COMMAND_DEFAULTS,
+  activeCommands,
+  CORE_COMMANDS,
+  defaultBindings,
+  registerCommands,
+  registeredCommands,
+  resolveBindings,
+  sameBindings,
+} from "./commandRegistry";
+import {
   findDuplicateBindings,
   parseKeySpec,
   chordMatches,
   resolveGlobal,
   toCmBindings,
-  resolveBindings,
   findConflict,
   specFromChord,
   formatChordForDisplay,
   type Command,
 } from "./commands";
 
+registerCommands([
+  OMNIBAR_COMMAND,
+  TERMINAL_COMMAND,
+  GRAPH_COMMAND,
+  STATUSBAR_COMMAND,
+]);
+
+const COMMAND_DEFAULTS = registeredCommands();
+const DEFAULT_BINDINGS = defaultBindings();
+
 const cmd = (id: string, when?: () => boolean): Command =>
   when
-    ? { id, title: id, run: () => {}, when }
-    : { id, title: id, run: () => {} };
+    ? { id, run: () => {}, when }
+    : { id, run: () => {} };
 
 const ev = (
   o: Partial<{
@@ -370,5 +390,96 @@ describe("new bindable commands (#7)", () => {
   });
   it("renders the Tab key with a readable label", () => {
     expect(formatChordForDisplay("Mod-Tab")).toEqual(["⌘/Ctrl", "Tab"]);
+  });
+});
+
+describe("the command registry", () => {
+  it("keeps every persisted command id byte-identical", () => {
+    expect(COMMAND_DEFAULTS.map((c) => c.id).sort()).toEqual(
+      [
+        "editor.copyBlockRef",
+        "editor.followWikilink",
+        "editor.toggleRawSource",
+        "file.new",
+        "graph.open",
+        "nav.back",
+        "nav.forward",
+        "omnibar.toggle",
+        "statusbar.toggle",
+        "view.closeTab",
+        "view.nextTab",
+        "view.openTerminal",
+        "view.prevTab",
+        "view.toggleSidebar",
+      ].sort(),
+    );
+  });
+
+  it("names no block in its substrate table", () => {
+    const blockIds = [
+      OMNIBAR_COMMAND,
+      TERMINAL_COMMAND,
+      GRAPH_COMMAND,
+      STATUSBAR_COMMAND,
+    ].map((c) => c.id);
+    expect(CORE_COMMANDS.every((c) => c.plugin === undefined)).toBe(true);
+    expect(CORE_COMMANDS.some((c) => blockIds.includes(c.id))).toBe(false);
+  });
+
+  it("registers by id, so a second boot adds no row", () => {
+    const before = registeredCommands().length;
+    registerCommands([OMNIBAR_COMMAND, GRAPH_COMMAND]);
+    expect(registeredCommands()).toHaveLength(before);
+  });
+
+  it("gates a plugin's commands on that plugin and nothing else", () => {
+    const ids = activeCommands((p) => p !== GRAPH_COMMAND.plugin).map(
+      (c) => c.id,
+    );
+    expect(ids).not.toContain("graph.open");
+    expect(ids).toContain("omnibar.toggle");
+    expect(ids).toContain("view.openTerminal");
+  });
+
+  it("drops a switched-off block's binding but not its override", () => {
+    const overrides = { "graph.open": "Mod-Shift-j" };
+    const off = resolveBindings(
+      overrides,
+      activeCommands((p) => p !== GRAPH_COMMAND.plugin),
+    );
+    expect(off.some((b) => b.command === "graph.open")).toBe(false);
+    expect(
+      resolveGlobal(
+        off,
+        { "graph.open": cmd("graph.open") },
+        ev({ key: "j", metaKey: true, shiftKey: true }),
+      ),
+    ).toBeUndefined();
+
+    const on = resolveBindings(overrides, activeCommands(() => true));
+    expect(on.find((b) => b.command === "graph.open")?.key).toBe(
+      "Mod-Shift-j",
+    );
+  });
+
+  it("leaves a command with no default key unbound until the user binds it", () => {
+    expect(
+      defaultBindings().some((b) => b.command === "statusbar.toggle"),
+    ).toBe(false);
+    expect(
+      resolveBindings({ "statusbar.toggle": "Mod-Shift-u" }).find(
+        (b) => b.command === "statusbar.toggle",
+      )?.key,
+    ).toBe("Mod-Shift-u");
+  });
+
+  it("compares binding tables by content", () => {
+    expect(sameBindings(resolveBindings({}), resolveBindings({}))).toBe(true);
+    expect(
+      sameBindings(
+        resolveBindings({}),
+        resolveBindings({ "file.new": "Mod-Shift-n" }),
+      ),
+    ).toBe(false);
   });
 });

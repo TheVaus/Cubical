@@ -2,7 +2,6 @@ import { createMemo, createSignal, type Accessor } from "solid-js";
 
 import { getSetting, type Setting, type SettingValue } from "../api/ipc";
 import { persistSetting, seedSetting } from "../core/settings";
-import { resolveBindings, type KeyBinding } from "../core/commands";
 import { clampLimit } from "../tabs/lru";
 import { resolveRawState } from "./rawSource";
 import {
@@ -17,6 +16,7 @@ import {
 } from "./blockSettings";
 import { registeredCorePlugins, type BooleanSettingKey } from "./corePlugins";
 import { SETTINGS_DEFAULTS } from "./defaults";
+import { createShortcutBindings, type ShortcutBindings } from "./shortcutBindings";
 import {
   defaultLeftSidebarMode,
   defaultSidebarPanel,
@@ -28,7 +28,7 @@ export interface SettingsStateDeps {
   vaultId: Accessor<string | null>;
 }
 
-export interface SettingsState {
+export interface SettingsState extends ShortcutBindings {
   themeMode: Accessor<ThemeMode>;
   resolvedTheme: Accessor<ResolvedTheme>;
   setTheme: (mode: ThemeMode) => void;
@@ -70,7 +70,6 @@ export interface SettingsState {
 
   shortcutOverrides: Accessor<Record<string, string>>;
   setShortcutOverridesValue: (next: Record<string, string>) => void;
-  effectiveBindings: Accessor<KeyBinding[]>;
 
   hydrate: (vaultId: string) => Promise<void>;
   resetForVaultSwitch: () => void;
@@ -122,9 +121,7 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
   const effectiveRaw = createMemo(() =>
     resolveRawState(rawOverride(), rawDefault()),
   );
-  const effectiveBindings = createMemo(() =>
-    resolveBindings(shortcutOverrides()),
-  );
+  const bindings = createShortcutBindings(shortcutOverrides, corePlugins);
   const value = <K extends SettingKey>(key: K): SettingValue<K> =>
     (blockValues()[key] ?? fallbackFor(key)) as SettingValue<K>;
 
@@ -334,7 +331,7 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
     setRightSidebarPanelValue,
     shortcutOverrides,
     setShortcutOverridesValue,
-    effectiveBindings,
+    ...bindings,
     hydrate,
     resetForVaultSwitch,
   };

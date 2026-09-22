@@ -2,7 +2,6 @@ export type CommandScope = "global" | "editor";
 
 export interface Command {
   id: string;
-  title: string;
   run: () => void;
   when?: () => boolean;
 }
@@ -13,106 +12,10 @@ export interface KeyBinding {
   scope: CommandScope;
 }
 
-export interface BindingDefault {
-  id: string;
-  title: string;
-  scope: CommandScope;
-  defaultKey: string;
-}
-
-export const COMMAND_DEFAULTS: readonly BindingDefault[] = [
-  {
-    id: "omnibar.toggle",
-    title: "Open Omni-Bar",
-    scope: "global",
-    defaultKey: "Mod-k",
-  },
-  {
-    id: "editor.toggleRawSource",
-    title: "Toggle raw source / Live Preview",
-    scope: "editor",
-    defaultKey: "Mod-e",
-  },
-  {
-    id: "editor.copyBlockRef",
-    title: "Copy block reference",
-    scope: "editor",
-    defaultKey: "Mod-Shift-b",
-  },
-  {
-    id: "editor.followWikilink",
-    title: "Follow link under cursor",
-    scope: "editor",
-    defaultKey: "Alt-Enter",
-  },
-  {
-    id: "view.toggleSidebar",
-    title: "Toggle left sidebar",
-    scope: "global",
-    defaultKey: "Mod-Shift-l",
-  },
-  {
-    id: "file.new",
-    title: "New note",
-    scope: "global",
-    defaultKey: "Mod-n",
-  },
-  {
-    id: "nav.back",
-    title: "Navigate back",
-    scope: "global",
-    defaultKey: "Mod-Alt-ArrowLeft",
-  },
-  {
-    id: "nav.forward",
-    title: "Navigate forward",
-    scope: "global",
-    defaultKey: "Mod-Alt-ArrowRight",
-  },
-  {
-    id: "view.nextTab",
-    title: "Next tab",
-    scope: "global",
-    defaultKey: "Mod-Tab",
-  },
-  {
-    id: "view.prevTab",
-    title: "Previous tab",
-    scope: "global",
-    defaultKey: "Mod-Shift-Tab",
-  },
-  {
-    id: "view.closeTab",
-    title: "Close tab",
-    scope: "global",
-    defaultKey: "Mod-Shift-w",
-  },
-  {
-    id: "view.openTerminal",
-    title: "Open terminal",
-    scope: "global",
-    defaultKey: "Mod-Shift-t",
-  },
-  {
-    id: "graph.open",
-    title: "Open graph view",
-    scope: "global",
-    defaultKey: "Mod-Shift-g",
-  },
-];
-
-export const DEFAULT_BINDINGS: readonly KeyBinding[] = COMMAND_DEFAULTS.map(
-  (c) => ({ key: c.defaultKey, command: c.id, scope: c.scope }),
-);
-
-export function resolveBindings(
-  overrides: Record<string, string>,
-): KeyBinding[] {
-  return COMMAND_DEFAULTS.map((c) => ({
-    key: overrides[c.id] || c.defaultKey,
-    command: c.id,
-    scope: c.scope,
-  }));
+export function commandTable(
+  commands: readonly Command[],
+): Record<string, Command> {
+  return Object.fromEntries(commands.map((c) => [c.id, c]));
 }
 
 export function findDuplicateBindings(

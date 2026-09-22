@@ -212,27 +212,57 @@ they no longer agree with.
 
 ## Command registry is pure substrate
 
-**Anchors:** COMMAND_DEFAULTS
+**Anchors:** registerCommands · registeredCommands · activeCommands · CORE_COMMANDS · resolveBindings · commandTable · paletteCommands · createShortcutBindings
 
-`ui/src/core/commands.ts` holds types, the default binding table, key-string
-matching and command resolution — **no DOM, no Solid, and no import from any
+`ui/src/core/commandRegistry.ts` holds what commands exist: the `BindingDefault`
+contract, the substrate's own table and the registry blocks join.
+`ui/src/core/commands.ts` holds how keys reach them: key-string matching and
+command resolution. Both have **no DOM, no Solid, and no import from any
 feature module**. The adapters (the App-level `keydown`, the CodeMirror keymap)
 inject the `run` closures and wire it to their runtime.
 
-Keep it that way: the moment the registry imports a feature, the "one place
-that defines shortcuts" property is gone. Adding a command is a single entry in
-the default table — the keymap, the global handler and the Settings UI are all
-derived from it.
+The substrate's table names no block. A block declares its own commands beside
+its plugin entry (`terminal/registration.ts`, `graph/registration.ts`,
+`omnibar/registration.ts`, `statusbar/commands.ts`) and
+`shell/registerBlocks.ts` registers them, the same shape as the settings
+registries below. The id is written once, in the block; the block's wiring
+builds its handler from that constant. Registration is idempotent by id and
+appends after the substrate's table, which is the Settings → Shortcuts order.
+
+A command gated on a plugin names it in `plugin`, by id, and `activeCommands`
+drops it while `corePluginActive` says the plugin is off. The settings store
+derives both the active list and the effective bindings from it, so a
+switched-off block's command leaves the keymap, Settings → Shortcuts and the
+Omni-Bar together, and its key stops firing rather than firing a no-op. The
+Omni-Bar lists every active command the shell has a handler for whose `when`
+passes, except its own toggle.
+
+A command's title lives in the registry only. `Command` carries the id and the
+closures, and a surface that shows a name reads the `BindingDefault`, so the
+palette, the Shortcuts row and a block's toolbar button cannot disagree.
 
 Rebinding is layered on top as a **diff, not a snapshot**:
 
 - A command with no override falls through to its default, so a later change to
   a default is picked up automatically instead of being frozen by a stale
-  saved snapshot.
-- Resolution only ever iterates the default table, so an override naming a
-  command that no longer exists is silently ignored rather than resurrecting it.
+  saved snapshot. A command may ship with no default key (the status-bar
+  toggle): it is unbound until the user binds one.
+- Resolution only ever iterates the registry, so an override naming a command
+  that no longer exists is silently ignored rather than resurrecting it.
+- **An override outlives its block's toggle.** Ids are persisted, so they never
+  change; switching a block off filters the command out of resolution but
+  leaves `shortcuts.overrides` alone, and the Shortcuts pane writes back the
+  whole map, hidden rows included. Switching the block back on restores the
+  user's key. Conflict checks run against every registered command, visible or
+  not, so a key cannot be handed out while its owner is off and come back as a
+  duplicate; the rejection names the owner as switched off.
 - `global` and `editor` are **independent key spaces** — the same chord in the
   other scope is not a conflict.
+
+The effective bindings are memoised with content equality, so a toggle or a
+settings write that leaves the table unchanged does not rebuild the editor's
+keymap. The Omni-Bar builds its note, tag and command list only while it is
+open; a closed palette costs nothing on a file change.
 
 ## An open overlay owns the keyboard
 

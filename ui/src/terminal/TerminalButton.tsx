@@ -4,7 +4,7 @@ import IconButton from "@ds/components/forms/IconButton/IconButton";
 import Icon from "@ds/components/graphics/Icon/Icon";
 
 import type { TabView } from "../tabs/tabModel";
-import { TERMINAL_COMMAND_TITLE } from "./registration";
+import { TERMINAL_COMMAND } from "./registration";
 import { isTerminalView } from "./tabView";
 
 export function TerminalButton(props: {
@@ -16,7 +16,7 @@ export function TerminalButton(props: {
   return (
     <Show when={props.available()}>
       <IconButton
-        label={TERMINAL_COMMAND_TITLE}
+        label={TERMINAL_COMMAND.title}
         onClick={props.onOpen}
         active={active()}
         ariaPressed={active()}
