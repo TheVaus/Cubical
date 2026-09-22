@@ -88,7 +88,8 @@ Enforced by `scripts/gates/composition.py`. **This section is prose, not the all
 ## 12. Settings
 
 The **shipped** Settings modal is tab-based. The authoritative tab list is
-`SETTINGS_TABS` (`ui/src/settings/tabs.ts`); the authoritative setting *keys* are
+`settingsNav()` (`ui/src/settings/tabs.ts`) — the built-in `SETTINGS_TABS` plus
+the sections blocks contribute through `registerSettingsSections`; the authoritative setting *keys* are
 the `Setting` union (`ui/src/api/ipc.ts`), the frontend's typed view of a
 deliberately generic backend config table. Neither is restated here: a doc
 mirroring either would rot every time a toggle shipped, and did.

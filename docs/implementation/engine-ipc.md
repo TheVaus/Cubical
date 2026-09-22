@@ -553,12 +553,13 @@ All three default **on**, because each is behaviour the product already shipped
 always-on — a default-off toggle would remove a feature rather than make one
 optional, and only a capability gateway earns that default.
 
-Derived state stays warm. Property-ref link rows, the graph model and the search
-index are built whether or not their feature is on, because
-[composability](../principles/composability.md) already says switching a feature
-off drops its derived state and rebuilds it if it comes back — so keeping it
-current costs a little work and makes the toggle instant, and skipping it would
-buy nothing a rescan does not already provide.
+Derived state stays warm. Property-ref link rows and the search index are built
+whether or not their feature is on: keeping them current costs a little work and
+makes the toggle instant, and stopping them would put a plugin check inside
+substrate and turn switching back on into a full rebuild. The graph keeps no
+model of its own — `graph_snapshot` builds one on demand from the always-warm
+`links` and `tags` rows, so there is nothing to keep warm. Everything warm stays
+disposable ([derived-state-disposable](../principles/derived-state-disposable.md)).
 
 Search is the sharpest case of that split, so it is pinned by a test: with
 `plugins.search_enabled` off the scan and the watcher still report through its
