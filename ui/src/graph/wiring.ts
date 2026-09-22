@@ -4,8 +4,7 @@ import type { Command } from "../core/commands";
 import { corePluginActive } from "../settings/corePlugins";
 import { canOpenTab, openTab, type TabSet } from "../tabs/tabModel";
 import {
-  GRAPH_COMMAND_ID,
-  GRAPH_COMMAND_TITLE,
+  GRAPH_COMMAND,
   GRAPH_PLUGIN,
 } from "./registration";
 import { GRAPH_TAB_ID, graphView, hasGraphTab } from "./tabView";
@@ -52,8 +51,7 @@ export function createGraphWiring(deps: GraphWiringDeps): GraphWiring {
     available,
     open,
     command: {
-      id: GRAPH_COMMAND_ID,
-      title: GRAPH_COMMAND_TITLE,
+      id: GRAPH_COMMAND.id,
       when: available,
       run: open,
     },

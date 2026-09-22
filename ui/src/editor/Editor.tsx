@@ -17,12 +17,8 @@ import {
 } from "@codemirror/state";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
-import {
-  DEFAULT_BINDINGS,
-  toCmBindings,
-  type Command,
-  type KeyBinding,
-} from "../core/commands";
+import { defaultBindings } from "../core/commandRegistry";
+import { toCmBindings, type Command, type KeyBinding } from "../core/commands";
 import { syntaxTree } from "@codemirror/language";
 
 import { normalize } from "../ast/normalize";
@@ -245,12 +241,10 @@ const Editor: Component<EditorProps> = (props) => {
   const editorCommands: Record<string, Command> = {
     "editor.toggleRawSource": {
       id: "editor.toggleRawSource",
-      title: "Toggle raw source",
       run: () => props.onToggleRawSource?.(),
     },
     "editor.copyBlockRef": {
       id: "editor.copyBlockRef",
-      title: "Copy block reference",
       run: () => {
         if (!view) return;
         const head = view.state.selection.main.head;
@@ -260,7 +254,6 @@ const Editor: Component<EditorProps> = (props) => {
     },
     "editor.followWikilink": {
       id: "editor.followWikilink",
-      title: "Follow link under cursor",
       run: () => {
         if (!view) return;
         handleClickAtPos(view, view.state.selection.main.head);
@@ -270,7 +263,7 @@ const Editor: Component<EditorProps> = (props) => {
 
   const buildEditorKeymap = (bindings: KeyBinding[] | undefined) =>
     keymap.of([
-      ...toCmBindings(bindings ?? DEFAULT_BINDINGS, editorCommands),
+      ...toCmBindings(bindings ?? defaultBindings(), editorCommands),
       {
         key: "ArrowUp",
         run: (view) => verticalDocLineMotion(view, false),

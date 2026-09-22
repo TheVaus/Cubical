@@ -72,7 +72,7 @@ means the §15.1 semantics.
 | Search-panel result | `search/SearchResults.tsx` | `handleNavigateWikilink(path, null)` | Opens the **file**, not the hit. Results are grouped per file and the group header is the only open affordance; there is no jump-to-match |
 | Omni-Bar note result | `omnibar/OmniBar.tsx` | `handleNavigateWikilink(path, null)` | Open-or-focus, then the bar closes |
 | Omni-Bar tag result | `omnibar/OmniBar.tsx` | `handleNavigateTag` | Tag tab |
-| Omni-Bar command result | `omnibar/OmniBar.tsx` | `handleRunCommand` | Not navigation — the omni-bar command set is one entry (`omnibar/commands.ts`), separate from the keymap registry |
+| Omni-Bar command result | `omnibar/OmniBar.tsx` | `handleRunCommand` | Runs the same global command a key would, `when` checked again. The list is the keymap registry's active commands (`omnibar/paletteCommands.ts`), so a command that navigates (back, forward, next tab) navigates exactly as its shortcut does |
 | Dataview result link | the dataview mousedown plugin (`editor/dataview.ts`) → the runner's `open` | `handleNavigateWikilink(path, null)` | Open-or-focus |
 | Create from unresolved link | the create-offer dialog | `createFileAtPath` then `handleNavigateWikilink` | Creates the file, then opens it. The fresh content hash is threaded through so the watcher's created-echo is not read as an external edit |
 | New note (`Mod-N`, the `+` button) | left file panel, keymap | `createFile` then `handleNavigateWikilink` | Same shape |

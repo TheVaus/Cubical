@@ -11,6 +11,8 @@ vi.mock("../styles/theme", () => ({
 }));
 
 import { getSetting, setSetting } from "../api/ipc";
+import { registerCommands } from "../core/commandRegistry";
+import { GRAPH_COMMAND, GRAPH_PLUGIN } from "../graph/registration";
 import { propertiesBlockSettings } from "../properties/formats";
 import { STATUSBAR_SEGMENTS, VAULT_PATH_SEGMENT } from "../statusbar/segments";
 import {
@@ -30,6 +32,8 @@ registerSidebarPanels([
   { id: "second-panel", label: "Second", order: 20, panel: () => null },
 ]);
 registerLeftSidebarModes(["first-mode", "second-mode"]);
+registerCorePlugins([GRAPH_PLUGIN]);
+registerCommands([GRAPH_COMMAND]);
 registerStatusbarSegments(STATUSBAR_SEGMENTS);
 registerBlockSettings([
   ...statusbarBlockSettings(),
@@ -277,5 +281,46 @@ describe("resetForVaultSwitch", () => {
     expect(s.corePlugins()).toEqual({});
     expect(s.value(VAULT_PATH_SEGMENT.settingKey)).toBe(true);
     expect(s.value("statusbar.enabled")).toBe(true);
+  });
+});
+
+describe("a block's commands follow its toggle", () => {
+  const graphKey = (s: ReturnType<typeof build>) =>
+    s.effectiveBindings().find((b) => b.command === GRAPH_COMMAND.id)?.key;
+
+  it("unbinds the command while the block is off and keeps the override", () => {
+    const s = build();
+    s.setShortcutOverridesValue({ [GRAPH_COMMAND.id]: "Mod-Shift-j" });
+    expect(graphKey(s)).toBe("Mod-Shift-j");
+    written.mockClear();
+
+    s.setCorePlugin(GRAPH_PLUGIN.id, GRAPH_PLUGIN.settingKey, false);
+
+    expect(graphKey(s)).toBeUndefined();
+    expect(s.activeCommands().some((c) => c.id === GRAPH_COMMAND.id)).toBe(
+      false,
+    );
+    expect(s.shortcutOverrides()).toEqual({ [GRAPH_COMMAND.id]: "Mod-Shift-j" });
+    expect(written).not.toHaveBeenCalledWith(
+      "v1",
+      "shortcuts.overrides",
+      expect.anything(),
+    );
+    expect(written).toHaveBeenCalledWith(
+      "v1",
+      GRAPH_PLUGIN.settingKey,
+      false,
+    );
+
+    s.setCorePlugin(GRAPH_PLUGIN.id, GRAPH_PLUGIN.settingKey, true);
+
+    expect(graphKey(s)).toBe("Mod-Shift-j");
+  });
+
+  it("hands out the same binding table when a toggle changes no binding", () => {
+    const s = build();
+    const before = s.effectiveBindings();
+    s.setCorePlugin("dataview", "plugins.dataview_enabled", false);
+    expect(s.effectiveBindings()).toBe(before);
   });
 });

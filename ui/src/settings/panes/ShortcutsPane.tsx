@@ -27,6 +27,7 @@ const ShortcutsPane = (props: {
     </div>
     <ShortcutsPanel
       overrides={props.settings.shortcutOverrides()}
+      commands={props.settings.activeCommands()}
       onChange={props.settings.setShortcutOverridesValue}
     />
   </>

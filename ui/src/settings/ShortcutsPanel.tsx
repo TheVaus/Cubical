@@ -1,15 +1,26 @@
-import { type Component, createEffect, createSignal, For, onCleanup, Show } from "solid-js";
+import {
+  type Component,
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  onCleanup,
+  Show,
+} from "solid-js";
 
 import Button from "@ds/components/forms/Button/Button";
 import Icon from "@ds/components/graphics/Icon/Icon";
 import IconButton from "@ds/components/forms/IconButton/IconButton";
 
 import {
-  COMMAND_DEFAULTS,
+  registeredCommands,
+  resolveBindings,
+  type BindingDefault,
+} from "../core/commandRegistry";
+import {
   eventToChord,
   findConflict,
   formatChordForDisplay,
-  resolveBindings,
   specFromChord,
   type CommandScope,
 } from "../core/commands";
@@ -18,6 +29,7 @@ const MODIFIER_KEYS = new Set(["Meta", "Control", "Shift", "Alt", "AltGraph"]);
 
 export interface ShortcutsPanelProps {
   overrides: Record<string, string>;
+  commands?: readonly BindingDefault[];
   onChange: (next: Record<string, string>) => void;
 }
 
@@ -27,9 +39,18 @@ const ShortcutsPanel: Component<ShortcutsPanelProps> = (props) => {
     null,
   );
 
-  const effectiveBindings = () => resolveBindings(props.overrides);
-  const keyFor = (id: string) =>
-    effectiveBindings().find((b) => b.command === id)?.key ?? "";
+  const rows = () => props.commands ?? registeredCommands();
+  const everyBinding = createMemo(() =>
+    resolveBindings(props.overrides, registeredCommands()),
+  );
+  const keys = createMemo(
+    () => new Map(everyBinding().map((b) => [b.command, b.key])),
+  );
+  const keyFor = (id: string) => keys().get(id) ?? "";
+  const titleOf = (id: string) => {
+    const title = registeredCommands().find((c) => c.id === id)?.title ?? id;
+    return rows().some((c) => c.id === id) ? title : `${title} (switched off)`;
+  };
 
   const startListening = (id: string) => {
     setListeningId(id);
@@ -39,7 +60,7 @@ const ShortcutsPanel: Component<ShortcutsPanelProps> = (props) => {
   createEffect(() => {
     const id = listeningId();
     if (id === null) return;
-    const target = COMMAND_DEFAULTS.find((c) => c.id === id);
+    const target = registeredCommands().find((c) => c.id === id);
     if (!target) return;
     const scope: CommandScope = target.scope;
 
@@ -57,12 +78,12 @@ const ShortcutsPanel: Component<ShortcutsPanelProps> = (props) => {
         return;
       }
       const spec = specFromChord(eventToChord(e));
-      const conflictWith = findConflict(spec, scope, effectiveBindings(), id);
+      const conflictWith = findConflict(spec, scope, everyBinding(), id);
       if (conflictWith) {
-        const title =
-          COMMAND_DEFAULTS.find((c) => c.id === conflictWith)?.title ??
-          conflictWith;
-        setErrorFor({ id, message: `Already used by ${title}` });
+        setErrorFor({
+          id,
+          message: `Already used by ${titleOf(conflictWith)}`,
+        });
         return;
       }
       props.onChange({ ...props.overrides, [id]: spec });
@@ -85,16 +106,20 @@ const ShortcutsPanel: Component<ShortcutsPanelProps> = (props) => {
   return (
     <>
       <h2 class="set-h2">Shortcuts</h2>
-      <For each={COMMAND_DEFAULTS}>
+      <For each={rows()}>
         {(c) => (
           <div class="kb-row">
             <span>{c.title}</span>
             <Show
               when={listeningId() === c.id}
               fallback={
-                <For each={formatChordForDisplay(keyFor(c.id))}>
-                  {(label) => <kbd>{label}</kbd>}
-                </For>
+                <Show when={keyFor(c.id)} fallback={<span>Not set</span>}>
+                  {(key) => (
+                    <For each={formatChordForDisplay(key())}>
+                      {(label) => <kbd>{label}</kbd>}
+                    </For>
+                  )}
+                </Show>
               }
             >
               <kbd>Press keys…</kbd>

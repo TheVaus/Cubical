@@ -13,8 +13,7 @@ import { corePluginActive } from "../settings/corePlugins";
 import { canOpenTab, openTab, type TabSet } from "../tabs/tabModel";
 import { createConsentGate } from "./consent";
 import {
-  TERMINAL_COMMAND_ID,
-  TERMINAL_COMMAND_TITLE,
+  TERMINAL_COMMAND,
   TERMINAL_PLUGIN,
 } from "./registration";
 import { createTerminalSessions } from "./sessions";
@@ -119,8 +118,7 @@ export function createTerminalWiring(deps: TerminalWiringDeps): TerminalWiring {
     available,
     open,
     command: {
-      id: TERMINAL_COMMAND_ID,
-      title: TERMINAL_COMMAND_TITLE,
+      id: TERMINAL_COMMAND.id,
       when: available,
       run: open,
     },

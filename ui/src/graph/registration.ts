@@ -1,3 +1,4 @@
+import type { BindingDefault } from "../core/commandRegistry";
 import type { CorePlugin } from "../settings/corePlugins";
 
 export const GRAPH_PLUGIN: CorePlugin = {
@@ -9,9 +10,13 @@ export const GRAPH_PLUGIN: CorePlugin = {
   defaultEnabled: true,
 };
 
-export const GRAPH_COMMAND_ID = "graph.open";
-
-export const GRAPH_COMMAND_TITLE = "Open graph view";
+export const GRAPH_COMMAND: BindingDefault = {
+  id: "graph.open",
+  title: "Open graph view",
+  scope: "global",
+  defaultKey: "Mod-Shift-g",
+  plugin: GRAPH_PLUGIN.id,
+};
 
 declare module "../api/ipc" {
   interface SettingRegistry {

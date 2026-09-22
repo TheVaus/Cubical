@@ -22,7 +22,6 @@ import ConfirmDialog from "@ds/components/overlay/ConfirmDialog/ConfirmDialog";
 
 import type { EditorApi } from "./editor/Editor";
 import {
-  TERMINAL_COMMAND_ID,
   TerminalButton,
   TerminalCloseDialog,
   TerminalConsentDialog,
@@ -30,7 +29,7 @@ import {
   createTerminalWiring,
   isTerminalView,
 } from "./terminal";
-import { GRAPH_COMMAND_ID, GraphButton, GraphTabPane, createGraphWiring, isGraphView } from "./graph";
+import { GraphButton, GraphTabPane, createGraphWiring, isGraphView } from "./graph";
 import Properties from "./properties/Properties";
 import { RecentVaultList } from "./vaultSwitcher/RecentVaultList";
 import SettingsModal from "./settings/SettingsModal";
@@ -60,7 +59,7 @@ import {
 } from "./api/ipc";
 import { createBlockRef, getBrokenBlockRefs, type BrokenBlockRef } from "./api/blocks";
 import { createVaultSession } from "./core/vaultSession";
-import { type Command } from "./core/commands";
+import { commandTable } from "./core/commands";
 import { attachGlobalKeys } from "./core/globalKeys";
 import { createNavSession } from "./core/navSession";
 import { createVaultTags } from "./omnibar/vaultTags";
@@ -147,7 +146,9 @@ import TagPage from "./tags/TagPage";
 import { tagPathOf, tagView } from "./tags/tabKind";
 import OmniBar from "./omnibar/OmniBar";
 import { type OmniItem, type RankedItem } from "./omnibar/ranker";
-import { OMNI_COMMANDS } from "./omnibar/commands";
+import { paletteCommands } from "./omnibar/paletteCommands";
+import { OMNIBAR_COMMAND } from "./omnibar/registration";
+import { statusbarCommand } from "./statusbar/commands";
 import { corePluginActive } from "./settings/corePlugins";
 import { registeredSidebarPanels } from "./settings/sidebarPanels";
 import { VaultSwitcher } from "./vaultSwitcher/VaultSwitcher";
@@ -274,17 +275,13 @@ const App: Component = () => {
     ),
   );
 
-  const omniItems = createMemo<OmniItem[]>(() => {
+  const omniNoteItems = createMemo<OmniItem[]>(() => {
+    if (!omniOpen()) return [];
     const notes: OmniItem[] = files()
       .filter((f) => f.type_id === "markdown")
       .map((f) => ({ kind: "note", title: noteTitle(f.path), path: f.path }));
     const tags: OmniItem[] = vaultTags.tags().map((t) => ({ kind: "tag", tag: t }));
-    const commands: OmniItem[] = OMNI_COMMANDS.map((c) => ({
-      kind: "command",
-      id: c.id,
-      title: c.title,
-    }));
-    return [...notes, ...tags, ...commands];
+    return [...notes, ...tags];
   });
   const recentNotes = createMemo<RankedItem[]>(() =>
     [...files()]
@@ -627,7 +624,8 @@ const App: Component = () => {
   };
 
   const handleRunCommand = (id: string) => {
-    if (id === "statusbar.toggle") settings.toggle("statusbar.enabled");
+    const c = globalCommands[id];
+    if (c && (!c.when || c.when())) c.run();
   };
 
   const stillOpen = (vault: string, tabId: string) =>
@@ -830,75 +828,74 @@ const App: Component = () => {
     }
   };
 
+  const globalCommands = commandTable([
+    {
+      id: OMNIBAR_COMMAND.id,
+      when: () => vaultId() !== null,
+      run: () => {
+        void vaultTags.ensureLoaded();
+        setOmniOpen((v) => !v);
+      },
+    },
+    {
+      id: "view.toggleSidebar",
+      when: () => vaultId() !== null,
+      run: () => toggleLeftSidebar(),
+    },
+    {
+      id: "file.new",
+      when: () => vaultId() !== null,
+      run: () => void fileActions.newFile(""),
+    },
+    {
+      id: "nav.back",
+      when: () => nav.canBack(),
+      run: () => goBack(),
+    },
+    {
+      id: "nav.forward",
+      when: () => nav.canForward(),
+      run: () => goForward(),
+    },
+    {
+      id: "view.nextTab",
+      when: () => tabs().tabs.length > 1,
+      run: () => {
+        const id = nextTab(tabs()).activeId;
+        if (id !== null) void activateTabById(id);
+      },
+    },
+    {
+      id: "view.prevTab",
+      when: () => tabs().tabs.length > 1,
+      run: () => {
+        const id = prevTab(tabs()).activeId;
+        if (id !== null) void activateTabById(id);
+      },
+    },
+    {
+      id: "view.closeTab",
+      when: () => tabs().activeId !== null,
+      run: () => {
+        const id = tabs().activeId;
+        if (id !== null) void closeTabById(id);
+      },
+    },
+    statusbarCommand(() => settings.toggle("statusbar.enabled")),
+    terminalTab.command,
+    graphTab.command,
+  ]);
+
+  const omniItems = createMemo<OmniItem[]>(() => [
+    ...omniNoteItems(),
+    ...(omniOpen() ? paletteCommands(settings.activeCommands(), globalCommands) : []),
+  ]);
+
   onMount(async () => {
     const onBeforeUnload = () => doc.writeBeforeUnload();
     window.addEventListener("beforeunload", onBeforeUnload);
     onCleanup(() => window.removeEventListener("beforeunload", onBeforeUnload));
 
-    const globalCommands: Record<string, Command> = {
-      "omnibar.toggle": {
-        id: "omnibar.toggle",
-        title: "Toggle Omni-Bar",
-        when: () => vaultId() !== null,
-        run: () => {
-          void vaultTags.ensureLoaded();
-          setOmniOpen((v) => !v);
-        },
-      },
-      "view.toggleSidebar": {
-        id: "view.toggleSidebar",
-        title: "Toggle left sidebar",
-        when: () => vaultId() !== null,
-        run: () => toggleLeftSidebar(),
-      },
-      "file.new": {
-        id: "file.new",
-        title: "New note",
-        when: () => vaultId() !== null,
-        run: () => void fileActions.newFile(""),
-      },
-      "nav.back": {
-        id: "nav.back",
-        title: "Navigate back",
-        when: () => nav.canBack(),
-        run: () => goBack(),
-      },
-      "nav.forward": {
-        id: "nav.forward",
-        title: "Navigate forward",
-        when: () => nav.canForward(),
-        run: () => goForward(),
-      },
-      "view.nextTab": {
-        id: "view.nextTab",
-        title: "Next tab",
-        when: () => tabs().tabs.length > 1,
-        run: () => {
-          const id = nextTab(tabs()).activeId;
-          if (id !== null) void activateTabById(id);
-        },
-      },
-      "view.prevTab": {
-        id: "view.prevTab",
-        title: "Previous tab",
-        when: () => tabs().tabs.length > 1,
-        run: () => {
-          const id = prevTab(tabs()).activeId;
-          if (id !== null) void activateTabById(id);
-        },
-      },
-      "view.closeTab": {
-        id: "view.closeTab",
-        title: "Close tab",
-        when: () => tabs().activeId !== null,
-        run: () => {
-          const id = tabs().activeId;
-          if (id !== null) void closeTabById(id);
-        },
-      },
-      [TERMINAL_COMMAND_ID]: terminalTab.command,
-      [GRAPH_COMMAND_ID]: graphTab.command,
-    };
     attachGlobalKeys(() => settings.effectiveBindings(), globalCommands);
 
     const unwatchTheme = watchSystemTheme(() => {

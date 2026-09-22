@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, test } from "vitest";
 
+import { CORE_COMMANDS, registeredCommands } from "../core/commandRegistry";
 import {
   corePluginActive,
   corePluginEnabled,
@@ -94,5 +95,25 @@ describe("registerBlocks", () => {
       "word_count",
       "block_count",
     ]);
+  });
+
+  test("hands the command registry each block's commands after the substrate's", () => {
+    expect(registeredCommands().map((c) => c.id)).toEqual([
+      ...CORE_COMMANDS.map((c) => c.id),
+      "omnibar.toggle",
+      "view.openTerminal",
+      "graph.open",
+      "statusbar.toggle",
+    ]);
+  });
+
+  test("gates each block command on a plugin the registry knows", () => {
+    const plugins = new Set(registeredCorePlugins().map((p) => p.id));
+    const gated = registeredCommands().filter((c) => c.plugin !== undefined);
+    expect(gated.map((c) => [c.id, c.plugin])).toEqual([
+      ["view.openTerminal", "terminal"],
+      ["graph.open", "graph-view"],
+    ]);
+    for (const c of gated) expect(plugins.has(c.plugin!)).toBe(true);
   });
 });
