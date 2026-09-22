@@ -10,3 +10,9 @@ export const PROPERTY_REFS_PLUGIN: CorePlugin = {
   defaultEnabled: true,
   doc: PropertyRefsDoc,
 };
+
+declare module "../api/ipc" {
+  interface SettingRegistry {
+    "plugins.property_refs_enabled": boolean;
+  }
+}

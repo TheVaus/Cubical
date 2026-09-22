@@ -8,3 +8,9 @@ export const INTEGRITY_PLUGIN: CorePlugin = {
   settingKey: "plugins.integrity_enabled",
   defaultEnabled: true,
 };
+
+declare module "../api/ipc" {
+  interface SettingRegistry {
+    "plugins.integrity_enabled": boolean;
+  }
+}

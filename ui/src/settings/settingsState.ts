@@ -1,7 +1,7 @@
-import { createMemo, createSignal, type Accessor } from "solid-js";
+import { batch, createMemo, createSignal, type Accessor } from "solid-js";
 
 import { getSetting, type Setting, type SettingValue } from "../api/ipc";
-import { persistSetting, seedSetting } from "../core/settings";
+import { persistSetting } from "../core/settings";
 import { resolveBindings, type KeyBinding } from "../core/commands";
 import { clampLimit } from "../tabs/lru";
 import { resolveRawState } from "./rawSource";
@@ -73,6 +73,7 @@ export interface SettingsState {
   effectiveBindings: Accessor<KeyBinding[]>;
 
   hydrate: (vaultId: string) => Promise<void>;
+  applyChanged: (key: string, value: unknown) => void;
   resetForVaultSwitch: () => void;
 }
 
@@ -216,92 +217,84 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
     setBlockValues({});
   };
 
-  const hydrate = async (vaultId: string) => {
-    try {
-      const mode =
-        (await getSetting(vaultId, "appearance.theme_mode")) ??
-        SETTINGS_DEFAULTS.themeMode;
+  type Seed = { key: SettingKey; apply: (stored: unknown) => void };
+
+  const seed = <K extends SettingKey>(
+    key: K,
+    fallback: SettingValue<K>,
+    set: (value: SettingValue<K>) => void,
+  ): Seed => ({
+    key,
+    apply: (stored) => set((stored ?? fallback) as SettingValue<K>),
+  });
+
+  const seeds = (): Seed[] => [
+    seed("appearance.theme_mode", SETTINGS_DEFAULTS.themeMode, (mode) => {
       setThemeMode(mode);
       setResolvedTheme(applyTheme(mode));
-    } catch (e) {
-      console.error("loading theme_mode failed", e);
-    }
-
-    await seedSetting(
-      vaultId,
+    }),
+    seed(
       "editor.raw_source_default",
       SETTINGS_DEFAULTS.rawSourceDefault,
       setRawDefault,
-    );
-    await seedSetting(
-      vaultId,
+    ),
+    seed(
       "editor.minimap_enabled",
       SETTINGS_DEFAULTS.minimapEnabled,
       setMinimapEnabled,
-    );
-    await seedSetting(
-      vaultId,
-      "editor.live_tab_limit",
-      SETTINGS_DEFAULTS.liveTabLimit,
-      (v) => setLiveTabLimit(clampLimit(v)),
-    );
-    await seedSetting(
-      vaultId,
+    ),
+    seed("editor.live_tab_limit", SETTINGS_DEFAULTS.liveTabLimit, (v) =>
+      setLiveTabLimit(clampLimit(v)),
+    ),
+    seed(
       "editor.colorize_raw_source",
       SETTINGS_DEFAULTS.colorizeSource,
       setColorizeSource,
-    );
-    await seedSetting(
-      vaultId,
+    ),
+    seed(
       "wikilinks.rewrite_broken_links_on_rename",
       SETTINGS_DEFAULTS.rewriteBrokenLinks,
       setRewriteBrokenLinks,
-    );
-    const enabled: Record<string, boolean> = {};
-    for (const p of registeredCorePlugins()) {
-      try {
-        const stored = await getSetting(vaultId, p.settingKey);
-        enabled[p.id] = stored ?? p.defaultEnabled;
-      } catch (e) {
-        console.error(`loading ${p.settingKey} failed`, e);
-        enabled[p.id] = p.defaultEnabled;
-      }
-    }
-    setCorePlugins(enabled);
-
-    const stored: Record<string, Setting["value"]> = {};
-    for (const setting of registeredBlockSettings()) {
-      try {
-        stored[setting.key] =
-          (await getSetting(vaultId, setting.key)) ?? setting.fallback;
-      } catch (e) {
-        console.error(`loading ${setting.key} failed`, e);
-        stored[setting.key] = setting.fallback;
-      }
-    }
-    setBlockValues(stored);
-
-    await seedSetting(
-      vaultId,
+    ),
+    seed(
       "ui.right_sidebar_collapsed",
       SETTINGS_DEFAULTS.rightSidebarCollapsed,
       setRightSidebarCollapsed,
+    ),
+    seed("ui.right_sidebar_panel", defaultSidebarPanel(), (id) =>
+      setRightSidebarPanel(isSidebarPanel(id) ? id : defaultSidebarPanel()),
+    ),
+    seed("ui.left_sidebar_mode", defaultLeftSidebarMode(), (id) =>
+      setLeftSidebarMode(isLeftSidebarMode(id) ? id : defaultLeftSidebarMode()),
+    ),
+    seed("shortcuts.overrides", {}, setShortcutOverrides),
+    ...registeredCorePlugins().map((p) =>
+      seed(p.settingKey, p.defaultEnabled, (on) =>
+        setCorePlugins((prev) => ({ ...prev, [p.id]: on })),
+      ),
+    ),
+    ...registeredBlockSettings().map((b) =>
+      seed(b.key, b.fallback, (next) =>
+        setBlockValues((prev) => ({ ...prev, [b.key]: next })),
+      ),
+    ),
+  ];
+
+  const hydrate = async (vaultId: string) => {
+    const all = seeds();
+    const stored = await Promise.all(
+      all.map((s) =>
+        getSetting(vaultId, s.key).catch((e) => {
+          console.error(`loading ${s.key} failed`, e);
+          return null;
+        }),
+      ),
     );
-    await seedSetting(
-      vaultId,
-      "ui.right_sidebar_panel",
-      defaultSidebarPanel(),
-      (id) => setRightSidebarPanel(isSidebarPanel(id) ? id : defaultSidebarPanel()),
-    );
-    await seedSetting(
-      vaultId,
-      "ui.left_sidebar_mode",
-      defaultLeftSidebarMode(),
-      (id) =>
-        setLeftSidebarMode(isLeftSidebarMode(id) ? id : defaultLeftSidebarMode()),
-    );
-    await seedSetting(vaultId, "shortcuts.overrides", {}, setShortcutOverrides);
+    batch(() => all.forEach((s, i) => s.apply(stored[i])));
   };
+
+  const applyChanged = (key: string, stored: unknown) =>
+    seeds().find((s) => s.key === key)?.apply(stored);
 
   return {
     themeMode,
@@ -336,6 +329,7 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
     setShortcutOverridesValue,
     effectiveBindings,
     hydrate,
+    applyChanged,
     resetForVaultSwitch,
   };
 }

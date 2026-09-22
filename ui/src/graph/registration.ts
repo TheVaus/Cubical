@@ -12,3 +12,9 @@ export const GRAPH_PLUGIN: CorePlugin = {
 export const GRAPH_COMMAND_ID = "graph.open";
 
 export const GRAPH_COMMAND_TITLE = "Open graph view";
+
+declare module "../api/ipc" {
+  interface SettingRegistry {
+    "plugins.graph_view_enabled": boolean;
+  }
+}

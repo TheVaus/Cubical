@@ -39,3 +39,12 @@ export const STATUSBAR_SEGMENTS: StatusbarSegment[] = [
   WORD_COUNT_SEGMENT,
   BLOCK_COUNT_SEGMENT,
 ];
+
+declare module "../api/ipc" {
+  interface SettingRegistry {
+    "statusbar.show_vault_path": boolean;
+    "statusbar.show_file_path": boolean;
+    "statusbar.show_word_count": boolean;
+    "statusbar.show_block_count": boolean;
+  }
+}

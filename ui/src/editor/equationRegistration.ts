@@ -11,3 +11,9 @@ export const EQUATIONS_PLUGIN: CorePlugin = {
   doc: EquationsDoc,
   requires: ["property-refs"],
 };
+
+declare module "../api/ipc" {
+  interface SettingRegistry {
+    "plugins.equations_enabled": boolean;
+  }
+}

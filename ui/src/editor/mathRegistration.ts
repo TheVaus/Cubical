@@ -10,3 +10,9 @@ export const MATH_PLUGIN: CorePlugin = {
   defaultEnabled: true,
   doc: MathDoc,
 };
+
+declare module "../api/ipc" {
+  interface SettingRegistry {
+    "plugins.math_enabled": boolean;
+  }
+}

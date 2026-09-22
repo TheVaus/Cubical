@@ -41,3 +41,12 @@ export function propertiesBlockSettings(): BlockSetting[] {
     ),
   ];
 }
+
+declare module "../api/ipc" {
+  interface SettingRegistry {
+    "properties.typed_enabled": boolean;
+    "properties.date_format_default": string;
+    "properties.default_currency": string;
+    "properties.tags_key_as_tags": boolean;
+  }
+}

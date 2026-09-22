@@ -680,13 +680,7 @@ async fn try_adopt_external_rename(
     let Some(ctx) = ctx else {
         return false;
     };
-    let rewrite_broken = ctx
-        .settings
-        .read()
-        .await
-        .get(crate::commands::rename::WIKILINKS_REWRITE_BROKEN_KEY)
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(true);
+    let rewrite_broken = crate::commands::rename::rewrite_broken_links(&*ctx.settings.read().await);
 
     match crate::commands::rename::adopt_external_rename(
         ctx.sink,
