@@ -113,6 +113,24 @@ mod tests {
     }
 
     #[test]
+    fn a_kind_the_app_has_never_heard_of_loads_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = store_path(dir.path());
+        std::fs::write(
+            &store,
+            br#"{"/vaults/a":{"tabs":[
+                {"id":"file:a.md","kind":"file","path":"a.md","tag_path":null},
+                {"id":"gone:x","kind":"gone","path":null,"tag_path":"x"}
+            ],"active_id":"gone:x"}}"#,
+        )
+        .unwrap();
+        let session = load(&store, "/vaults/a");
+        assert_eq!(session.tabs.len(), 2);
+        assert_eq!(session.tabs[1].kind, "gone");
+        assert_eq!(session.active_id.as_deref(), Some("gone:x"));
+    }
+
+    #[test]
     fn a_corrupt_store_loads_as_empty_instead_of_panicking() {
         let dir = tempfile::tempdir().unwrap();
         let store = store_path(dir.path());

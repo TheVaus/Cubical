@@ -6,6 +6,7 @@ import { MATH_PLUGIN } from "../editor/mathRegistration";
 import { PROPERTY_REFS_PLUGIN } from "../editor/propertyRefRegistration";
 import { LEFT_SIDEBAR_MODES } from "../explorer/ExplorerPanel";
 import { GRAPH_PLUGIN } from "../graph/registration";
+import { GRAPH_TAB_KIND } from "../graph/tabView";
 import { INTEGRITY_PLUGIN } from "../integrity/registration";
 import { INTEGRITY_PANEL } from "../integrity/sidebarPanel";
 import PropertiesSettings from "../properties/PropertiesSettings";
@@ -25,7 +26,10 @@ import {
   registerStatusbarSegments,
   statusbarBlockSettings,
 } from "../statusbar/statusbarSettings";
+import { registerTabKinds } from "../tabs/tabKinds";
+import { TAG_TAB_KIND } from "../tags/tabKind";
 import { TERMINAL_PLUGIN } from "../terminal/registration";
+import { TERMINAL_TAB_KIND } from "../terminal/tabView";
 
 export function registerBlocks(): void {
   registerCorePlugins([
@@ -42,6 +46,7 @@ export function registerBlocks(): void {
   registerStatusbarSegments(STATUSBAR_SEGMENTS);
   registerSidebarPanels([BACKLINKS_PANEL, MENTIONS_PANEL, INTEGRITY_PANEL]);
   registerLeftSidebarModes(LEFT_SIDEBAR_MODES);
+  registerTabKinds([TAG_TAB_KIND, TERMINAL_TAB_KIND, GRAPH_TAB_KIND]);
 
   registerSettingsSections([
     {

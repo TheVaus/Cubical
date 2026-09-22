@@ -20,7 +20,9 @@ a path appears, without a line, only to locate a symbol. Each subsection's
 **Anchors:** tabId · openTab · createTerminalWiring · maybeInterceptWikiLinkMousedown · maybeInterceptTagMousedown · maybeInterceptDataviewMousedown
 
 Tab identity is **derived from the view, never minted** (`tabId`,
-`tabs/tabModel.ts`): `file:<path>`, `tag:<tagPath>`, `terminal:<key>`.
+`tabs/tabModel.ts`): `file:<path>`, and `<kind>:<key>` for a kind a block
+contributes — `tag:<tagPath>`, `terminal:<key>` — or the bare kind for a keyless
+singleton, `graph`.
 `openTab` is therefore idempotent — a tab whose id already exists is merely
 activated, otherwise one is appended and activated.
 
@@ -176,16 +178,18 @@ inherits the asymmetry.
 
 **Anchors:** TabView · isPersistableTab · isTerminalView · createTerminalWiring · confirmClose · closeTabById · forceCloseTabById · hasViewer · viewerKindForPath · handleSelectFile · loadActiveTabContent · read_file_bytes · read_file_text
 
-`TabView` has exactly three variants (`tabs/tabModel.ts`). Two of them are
-not documents.
+`TabView` is a file view or a `{ kind, key }` view of a kind a block
+contributes (`tabs/tabModel.ts`); how a kind declares its behaviour is
+[`../implementation/frontend.md`](../implementation/frontend.md) → Tabs. The
+contributed kinds are not documents.
 
-**Tag pages** — `{ kind: "tag", tagPath }`. Singleton per tag path by id
-derivation, persisted across restarts (`isPersistableTab` allow-lists `file` and
-`tag`), rendered in place of the editor by the `view().kind === "file"` fallback.
+**Tag pages** — `{ kind: "tag", key: tagPath }`. Singleton per tag path by id
+derivation, persisted across restarts (the only contributed kind with a codec),
+rendered in place of the editor by the `view().kind === "file"` fallback.
 They hold no buffer, so they are inert for autosave, and absent from nav
 history (§15.4).
 
-**Terminals** — `{ kind: "terminal", key }`. The one **non-singleton** kind:
+**Terminals** — `{ kind: "terminal", key }`, declared non-evictable. The one **non-singleton** kind:
 `open` increments a counter, so `Mod-Shift-T` always yields another tab. Excluded from session persistence and from the keep-alive LRU by allow-list, so
 a terminal can never evict a warm editor — rules owned by
 [`../implementation/frontend.md`](../implementation/frontend.md) → Tabs. They

@@ -30,7 +30,7 @@ export interface RemoveRecentVaultRequest {
 
 export interface TabRecordDto {
   id: string;
-  kind: "file" | "tag";
+  kind: string;
   path: string | null;
   tag_path: string | null;
 }

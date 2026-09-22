@@ -176,9 +176,41 @@ file-backed ids *before* applying the `live_tab_limit` cap — so a non-file tab
 never occupies a capped LRU slot and can never evict a warm file editor's
 CodeMirror state. Filtering only at the render site (`<For each={live()}>`)
 is not enough: that keeps the tab `Editor`-free while still letting it consume
-a slot. `isPersistableTab` likewise allow-lists `file`/`tag` instead of naming
-the kinds to exclude, so any future non-file tab is left out of session
-persistence by default rather than by remembering to add it.
+a slot. `isPersistableTab` likewise persists `file` plus only the kinds that
+declare a codec, so any future non-file tab is left out of session persistence
+by default rather than by remembering to add it.
+
+### Blocks declare their tab kinds
+
+**Anchors:** registerTabKinds · tabKind · TabKind · TAG_TAB_KIND · TERMINAL_TAB_KIND · GRAPH_TAB_KIND · createSessionSaver
+
+`tabs/` is substrate and knows one kind, `file`. Every other kind is a
+`TabKind` a block contributes — `{ kind, label(key), evictable, persist? }` —
+and `shell/registerBlocks.ts` registers it, the same seam as the settings
+registries below. A non-file view is `{ kind, key }`; its id is `kind:key`, or
+the bare kind when the key is empty, which is what makes the graph tab a
+singleton. Substrate keeps the policy — keying, the replace rule, the label
+fallback, what a session holds — and asks the kind where it sits under it:
+`evictable: false` (terminal, graph) means `openTab` never replaces the tab and
+refuses a new one that would leave no replaceable slot; `persist` (tag only)
+maps the key to and from the fields of a `tab_sessions.json` record, which is
+how a tag tab still round-trips as `tag_path` byte for byte.
+
+An unregistered kind is never evictable, since substrate cannot know what
+eviction would destroy, and is labelled by its key, then its kind. **A saved
+tab whose kind is not registered is dropped on restore, and the rest of the
+session restores.** So is one whose codec throws. Keeping such a record for a
+later re-save was rejected: registration does not follow the plugin toggles, so
+an unregistered kind means the block is gone from the build, and a kept record
+would be a tab nobody can see or close that the file carries forever. A
+session is a convenience, not a source of truth.
+
+`createSessionSaver` skips a save whose snapshot equals the last one sent for
+that vault. The persist effect re-runs on every tab-set change, and activating
+the already-active tab, closing a background terminal or a rename that touches
+no open tab all produce a new `TabSet` with the same persisted form; each would otherwise
+rewrite the whole `tab_sessions.json`. A failed save clears the memo so the
+next change retries.
 
 **Known exposure, unchanged from single-file editing:** if the flush write
 fails, activation still proceeds with unflushed content. Today's file-switch has
