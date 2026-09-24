@@ -18,7 +18,7 @@
     "requires": ["property-refs"]
   },
   {
-    "id": "graph-view",
+    "id": "graph",
     "setting_key": "plugins.graph_view_enabled",
     "default_enabled": true,
     "requires": []
