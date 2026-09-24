@@ -38,7 +38,6 @@ function makeStubResolver(resp: EmbedResolution): EmbedResolver {
       lastSettleAt: new Map(),
       lastError: new Map(),
     }),
-    onEvent: () => () => undefined,
     abort: () => undefined,
     version: () => 0,
   };
@@ -59,7 +58,6 @@ function stubResolver(entries: Record<string, EmbedResolution>): EmbedResolver {
       lastSettleAt: new Map(),
       lastError: new Map(),
     }),
-    onEvent: () => () => undefined,
     abort: () => undefined,
     version: () => 0,
   };
@@ -177,7 +175,6 @@ describe("embedExtension", () => {
         lastSettleAt: new Map(),
         lastError: new Map(),
       }),
-      onEvent: () => () => undefined,
       abort: () => undefined,
       version: () => ver,
     };
@@ -259,7 +256,6 @@ describe("embedExtension", () => {
         lastSettleAt: new Map(),
         lastError: new Map(),
       }),
-      onEvent: () => () => undefined,
       abort: () => undefined,
       version: () => ver,
     };
@@ -456,7 +452,6 @@ describe("embedExtension", () => {
         lastSettleAt: new Map(),
         lastError: new Map(),
       }),
-      onEvent: () => () => undefined,
       abort: () => undefined,
       version: () => version,
     };

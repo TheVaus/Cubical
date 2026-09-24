@@ -1,0 +1,56 @@
+[
+  {
+    "id": "autocomplete",
+    "setting_key": "plugins.autocomplete_enabled",
+    "default_enabled": true,
+    "requires": []
+  },
+  {
+    "id": "dataview",
+    "setting_key": "plugins.dataview_enabled",
+    "default_enabled": true,
+    "requires": []
+  },
+  {
+    "id": "equations",
+    "setting_key": "plugins.equations_enabled",
+    "default_enabled": true,
+    "requires": ["property-refs"]
+  },
+  {
+    "id": "graph-view",
+    "setting_key": "plugins.graph_view_enabled",
+    "default_enabled": true,
+    "requires": []
+  },
+  {
+    "id": "integrity",
+    "setting_key": "plugins.integrity_enabled",
+    "default_enabled": true,
+    "requires": []
+  },
+  {
+    "id": "math",
+    "setting_key": "plugins.math_enabled",
+    "default_enabled": true,
+    "requires": []
+  },
+  {
+    "id": "property-refs",
+    "setting_key": "plugins.property_refs_enabled",
+    "default_enabled": true,
+    "requires": []
+  },
+  {
+    "id": "search",
+    "setting_key": "plugins.search_enabled",
+    "default_enabled": true,
+    "requires": []
+  },
+  {
+    "id": "terminal",
+    "setting_key": "plugins.terminal_enabled",
+    "default_enabled": false,
+    "requires": []
+  }
+]

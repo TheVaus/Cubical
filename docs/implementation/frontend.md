@@ -261,6 +261,11 @@ registries below. The id is written once, in the block; the block's wiring
 builds its handler from that constant. Registration is idempotent by id and
 appends after the substrate's table, which is the Settings → Shortcuts order.
 
+A substrate id is written once too. `CORE_COMMANDS` is `as const`, so
+`coreCommands` takes a handler per id as a keyed record: the shell and the
+editor host never retype an id, a misspelt or missing one is a `tsc` error, and
+the ids stay byte-identical for the `shortcuts.overrides` that store them.
+
 A command gated on a plugin names it in `plugin`, by id, and `activeCommands`
 drops it while `corePluginActive` says the plugin is off. The settings store
 derives both the active list and the effective bindings from it, so a

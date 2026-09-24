@@ -1,5 +1,8 @@
 // @vitest-environment jsdom
 import { describe, expect, test } from "vitest";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { CORE_COMMANDS, registeredCommands } from "../core/commandRegistry";
 import {
@@ -37,6 +40,22 @@ describe("registerBlocks", () => {
     expect(registeredStatusbarSegments()).toHaveLength(
       STATUSBAR_SEGMENTS.length,
     );
+  });
+
+  test("agrees with cubical_engine::plugins::Feature on id, key, default and requires", () => {
+    const fixture = resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      "../../../crates/cubical-engine/tests/fixtures/core_plugins.json",
+    );
+    const frontend = registeredCorePlugins()
+      .map((p) => ({
+        id: p.id,
+        setting_key: p.settingKey,
+        default_enabled: p.defaultEnabled,
+        requires: [...(p.requires ?? [])],
+      }))
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    expect(frontend).toEqual(JSON.parse(readFileSync(fixture, "utf8")));
   });
 
   test("gives every plugin a distinct id and setting key", () => {

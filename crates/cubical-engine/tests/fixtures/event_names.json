@@ -1,0 +1,9 @@
+{
+  "scanProgress": "vault:scan-progress",
+  "scanComplete": "vault:scan-complete",
+  "scanCancelled": "vault:scan-cancelled",
+  "fileChanged": "vault:file-changed",
+  "pendingRewritesChanged": "vault:pending-rewrites-changed",
+  "flushComplete": "vault:flush-complete",
+  "settingChanged": "vault:setting-changed"
+}

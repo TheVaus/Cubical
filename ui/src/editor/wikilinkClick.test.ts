@@ -29,7 +29,6 @@ function resolverWith(
       lastSettleAt: new Map(),
       lastError: new Map(),
     }),
-    onEvent: () => () => undefined,
     abort: () => undefined,
   };
 }
@@ -107,7 +106,6 @@ describe("handleWikiLinkClick", () => {
         lastSettleAt: new Map(),
         lastError: new Map(),
       }),
-      onEvent: () => () => undefined,
       abort: () => undefined,
     };
     const onNavigate = vi.fn();

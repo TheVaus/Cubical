@@ -53,6 +53,7 @@ import {
   removeRecentVault,
   renameFile,
   renameFolder,
+  VAULT_EVENTS,
   type FileEntry,
   type RecentVault,
   type ResolvedAnchor,
@@ -60,6 +61,7 @@ import {
 import { createBlockRef, getBrokenBlockRefs, type BrokenBlockRef } from "./api/blocks";
 import { createVaultSession } from "./core/vaultSession";
 import { commandTable } from "./core/commands";
+import { coreCommands } from "./core/commandRegistry";
 import { attachGlobalKeys } from "./core/globalKeys";
 import { createNavSession } from "./core/navSession";
 import { createVaultTags } from "./omnibar/vaultTags";
@@ -836,50 +838,45 @@ const App: Component = () => {
         setOmniOpen((v) => !v);
       },
     },
-    {
-      id: "view.toggleSidebar",
-      when: () => vaultId() !== null,
-      run: () => toggleLeftSidebar(),
-    },
-    {
-      id: "file.new",
-      when: () => vaultId() !== null,
-      run: () => void fileActions.newFile(""),
-    },
-    {
-      id: "nav.back",
-      when: () => nav.canBack(),
-      run: () => goBack(),
-    },
-    {
-      id: "nav.forward",
-      when: () => nav.canForward(),
-      run: () => goForward(),
-    },
-    {
-      id: "view.nextTab",
-      when: () => tabs().tabs.length > 1,
-      run: () => {
-        const id = nextTab(tabs()).activeId;
-        if (id !== null) void activateTabById(id);
+    ...coreCommands<"global">({
+      "view.toggleSidebar": {
+        when: () => vaultId() !== null,
+        run: () => toggleLeftSidebar(),
       },
-    },
-    {
-      id: "view.prevTab",
-      when: () => tabs().tabs.length > 1,
-      run: () => {
-        const id = prevTab(tabs()).activeId;
-        if (id !== null) void activateTabById(id);
+      "file.new": {
+        when: () => vaultId() !== null,
+        run: () => void fileActions.newFile(""),
       },
-    },
-    {
-      id: "view.closeTab",
-      when: () => tabs().activeId !== null,
-      run: () => {
-        const id = tabs().activeId;
-        if (id !== null) void closeTabById(id);
+      "nav.back": {
+        when: () => nav.canBack(),
+        run: () => goBack(),
       },
-    },
+      "nav.forward": {
+        when: () => nav.canForward(),
+        run: () => goForward(),
+      },
+      "view.nextTab": {
+        when: () => tabs().tabs.length > 1,
+        run: () => {
+          const id = nextTab(tabs()).activeId;
+          if (id !== null) void activateTabById(id);
+        },
+      },
+      "view.prevTab": {
+        when: () => tabs().tabs.length > 1,
+        run: () => {
+          const id = prevTab(tabs()).activeId;
+          if (id !== null) void activateTabById(id);
+        },
+      },
+      "view.closeTab": {
+        when: () => tabs().activeId !== null,
+        run: () => {
+          const id = tabs().activeId;
+          if (id !== null) void closeTabById(id);
+        },
+      },
+    }),
     statusbarCommand(() => settings.toggle("statusbar.enabled")),
     terminalTab.command,
     graphTab.command,
@@ -902,7 +899,7 @@ const App: Component = () => {
     });
     onCleanup(unwatchTheme);
 
-    await vaultListeners.attach("vault:scan-progress", () =>
+    await vaultListeners.attach(VAULT_EVENTS.scanProgress, () =>
       onVaultScanProgress((p) => {
         if (p.vault_id !== vaultId()) return;
         setFilesProcessed(p.files_processed);
@@ -910,7 +907,7 @@ const App: Component = () => {
         scheduleRefresh();
       }),
     );
-    await vaultListeners.attach("vault:scan-complete", () =>
+    await vaultListeners.attach(VAULT_EVENTS.scanComplete, () =>
       onVaultScanComplete((p) => {
         if (p.vault_id !== vaultId()) return;
         setFilesProcessed(p.file_count);
@@ -920,13 +917,13 @@ const App: Component = () => {
         void refreshBrokenBlockRefs();
       }),
     );
-    await vaultListeners.attach("vault:scan-cancelled", () =>
+    await vaultListeners.attach(VAULT_EVENTS.scanCancelled, () =>
       onVaultScanCancelled((p) => {
         if (p.vault_id !== vaultId()) return;
         setScanStatus("cancelled");
       }),
     );
-    await vaultListeners.attach("vault:file-changed", () =>
+    await vaultListeners.attach(VAULT_EVENTS.fileChanged, () =>
       onVaultFileChanged((p) => {
         if (p.vault_id !== vaultId()) return;
         scheduleRefresh();
@@ -947,14 +944,14 @@ const App: Component = () => {
       }),
     );
 
-    await vaultListeners.attach("vault:pending-rewrites-changed", () =>
+    await vaultListeners.attach(VAULT_EVENTS.pendingRewritesChanged, () =>
       onVaultPendingRewritesChanged((p) => {
         if (p.vault_id !== vaultId()) return;
         setPendingRewritesCount(p.count);
         void doc.refreshFromDisk();
       }),
     );
-    await vaultListeners.attach("vault:flush-complete", () =>
+    await vaultListeners.attach(VAULT_EVENTS.flushComplete, () =>
       onVaultFlushComplete((p) => {
         if (p.vault_id !== vaultId()) return;
         if (p.files_rewritten === 0 && p.refs_updated === 0) return;
@@ -966,7 +963,7 @@ const App: Component = () => {
         );
       }),
     );
-    await vaultListeners.attach("vault:setting-changed", () =>
+    await vaultListeners.attach(VAULT_EVENTS.settingChanged, () =>
       onVaultSettingChanged((p) => {
         if (p.vault_id !== vaultId()) return;
         settings.applyChanged(p.key, p.value);

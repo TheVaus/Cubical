@@ -36,7 +36,6 @@ const stubEmbedResolver = {
     lastSettleAt: new Map(),
     lastError: new Map(),
   }),
-  onEvent: () => () => undefined,
   abort: () => undefined,
   version: () => 0,
 };

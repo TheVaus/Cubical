@@ -17,8 +17,8 @@ import {
 } from "@codemirror/state";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
-import { defaultBindings } from "../core/commandRegistry";
-import { toCmBindings, type Command, type KeyBinding } from "../core/commands";
+import { coreCommands, defaultBindings } from "../core/commandRegistry";
+import { commandTable, toCmBindings, type KeyBinding } from "../core/commands";
 import { syntaxTree } from "@codemirror/language";
 
 import { normalize } from "../ast/normalize";
@@ -238,13 +238,11 @@ const Editor: Component<EditorProps> = (props) => {
     return true;
   };
 
-  const editorCommands: Record<string, Command> = {
+  const editorCommands = commandTable(coreCommands<"editor">({
     "editor.toggleRawSource": {
-      id: "editor.toggleRawSource",
       run: () => props.onToggleRawSource?.(),
     },
     "editor.copyBlockRef": {
-      id: "editor.copyBlockRef",
       run: () => {
         if (!view) return;
         const head = view.state.selection.main.head;
@@ -253,13 +251,12 @@ const Editor: Component<EditorProps> = (props) => {
       },
     },
     "editor.followWikilink": {
-      id: "editor.followWikilink",
       run: () => {
         if (!view) return;
         handleClickAtPos(view, view.state.selection.main.head);
       },
     },
-  };
+  }));
 
   const buildEditorKeymap = (bindings: KeyBinding[] | undefined) =>
     keymap.of([
