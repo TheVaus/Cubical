@@ -26,7 +26,7 @@ describe("registerBlocks", () => {
       "math",
       "equations",
       "terminal",
-      "graph-view",
+      "graph",
       "search",
       "autocomplete",
       "integrity",
@@ -73,7 +73,7 @@ describe("registerBlocks", () => {
   });
 
   test("ships the graph entry, default-on", () => {
-    expect(corePluginActive({}, "graph-view")).toBe(true);
+    expect(corePluginActive({}, "graph")).toBe(true);
   });
 
   test("lets each plugin carry its own help page, so settings holds none", () => {
@@ -131,7 +131,7 @@ describe("registerBlocks", () => {
     const gated = registeredCommands().filter((c) => c.plugin !== undefined);
     expect(gated.map((c) => [c.id, c.plugin])).toEqual([
       ["view.openTerminal", "terminal"],
-      ["graph.open", "graph-view"],
+      ["graph.open", "graph"],
     ]);
     for (const c of gated) expect(plugins.has(c.plugin!)).toBe(true);
   });

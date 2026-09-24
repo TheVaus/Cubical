@@ -14,7 +14,7 @@ pub enum Feature {
     Math,
     Equations,
     Terminal,
-    GraphView,
+    Graph,
     Search,
     Autocomplete,
     Integrity,
@@ -26,7 +26,7 @@ pub const ALL_FEATURES: [Feature; 9] = [
     Feature::Math,
     Feature::Equations,
     Feature::Terminal,
-    Feature::GraphView,
+    Feature::Graph,
     Feature::Search,
     Feature::Autocomplete,
     Feature::Integrity,
@@ -40,7 +40,7 @@ impl Feature {
             Self::Math => "math",
             Self::Equations => "equations",
             Self::Terminal => "terminal",
-            Self::GraphView => "graph-view",
+            Self::Graph => "graph",
             Self::Search => "search",
             Self::Autocomplete => "autocomplete",
             Self::Integrity => "integrity",
@@ -54,7 +54,7 @@ impl Feature {
             Self::Math => "plugins.math_enabled",
             Self::Equations => "plugins.equations_enabled",
             Self::Terminal => "plugins.terminal_enabled",
-            Self::GraphView => "plugins.graph_view_enabled",
+            Self::Graph => "plugins.graph_view_enabled",
             Self::Search => "plugins.search_enabled",
             Self::Autocomplete => "plugins.autocomplete_enabled",
             Self::Integrity => "plugins.integrity_enabled",
@@ -68,7 +68,7 @@ impl Feature {
             Self::Math => true,
             Self::Equations => true,
             Self::Terminal => false,
-            Self::GraphView => true,
+            Self::Graph => true,
             Self::Search => true,
             Self::Autocomplete => true,
             Self::Integrity => true,
@@ -142,7 +142,7 @@ mod tests {
         assert!(is_active(&empty, Feature::PropertyRefs));
         assert!(is_active(&empty, Feature::Math));
         assert!(is_active(&empty, Feature::Equations));
-        assert!(is_active(&empty, Feature::GraphView));
+        assert!(is_active(&empty, Feature::Graph));
         assert!(is_active(&empty, Feature::Search));
         assert!(is_active(&empty, Feature::Autocomplete));
         assert!(is_active(&empty, Feature::Integrity));

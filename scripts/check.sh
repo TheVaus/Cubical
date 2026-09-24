@@ -25,6 +25,7 @@ echo "==> ds-colours";          python3 scripts/gates/ds_colours.py
 echo "==> composition";        python3 scripts/gates/composition.py
 echo "==> dependency-boundary"; python3 scripts/gates/dependency_boundary.py
 echo "==> domain-boundary";     python3 scripts/gates/domain_boundary.py
+echo "==> domain-names";        python3 scripts/gates/domain_names.py
 echo "==> css-ownership";       python3 scripts/gates/css_ownership.py
 echo "==> view-freshness";      python3 scripts/gates/view_freshness.py
 echo "==> techstack";           python3 scripts/gates/techstack.py
