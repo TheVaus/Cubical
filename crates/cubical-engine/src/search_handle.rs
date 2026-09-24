@@ -17,6 +17,12 @@ use crate::error::CubicalError;
 use crate::events::record_vault_warning;
 use crate::state::{AppState, OpenVault, ScanStatusBackend, SearchStateInner};
 
+impl From<SearchError> for CubicalError {
+    fn from(value: SearchError) -> Self {
+        Self::Search(value.to_string())
+    }
+}
+
 pub const SEARCH_REBUILT: &str = "search_rebuilt";
 
 pub const SEARCH_UNAVAILABLE: &str = "search_unavailable";

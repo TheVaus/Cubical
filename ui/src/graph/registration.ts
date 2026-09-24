@@ -2,7 +2,7 @@ import type { BindingDefault } from "../core/commandRegistry";
 import type { CorePlugin } from "../settings/corePlugins";
 
 export const GRAPH_PLUGIN: CorePlugin = {
-  id: "graph-view",
+  id: "graph",
   name: "Graph view",
   description:
     "Show the vault as a knowledge graph — notes as nodes, links as edges.",

@@ -34,7 +34,7 @@ function harness(opts?: { enabled?: boolean; vaultId?: string | null }): Harness
     const closed: string[] = [];
     const wiring = createGraphWiring({
       vaultId,
-      corePlugins: () => ({ "graph-view": enabled() }),
+      corePlugins: () => ({ "graph": enabled() }),
       tabs,
       setTabs: (updater) => setTabs((s) => updater(s)),
       closeTab: async (id) => {

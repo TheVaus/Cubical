@@ -116,24 +116,9 @@ impl From<IndexError> for CubicalError {
     }
 }
 
-impl From<cubical_graph::GraphError> for CubicalError {
-    fn from(value: cubical_graph::GraphError) -> Self {
-        match value {
-            cubical_graph::GraphError::Index(e) => Self::from(e),
-            cubical_graph::GraphError::Cancelled => Self::LayoutCancelled,
-        }
-    }
-}
-
 impl From<FileTypeError> for CubicalError {
     fn from(value: FileTypeError) -> Self {
         Self::FileType(value.to_string())
-    }
-}
-
-impl From<cubical_search::SearchError> for CubicalError {
-    fn from(value: cubical_search::SearchError) -> Self {
-        Self::Search(value.to_string())
     }
 }
 
