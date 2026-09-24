@@ -555,37 +555,28 @@ export interface VaultFileChanged {
   new_content_hash?: string;
 }
 
-export function onVaultScanProgress(
-  handler: (payload: VaultScanProgress) => void,
-): Promise<UnlistenFn> {
-  return listen<VaultScanProgress>("vault:scan-progress", (e) =>
-    handler(e.payload),
-  );
+export const VAULT_EVENTS = {
+  scanProgress: "vault:scan-progress",
+  scanComplete: "vault:scan-complete",
+  scanCancelled: "vault:scan-cancelled",
+  fileChanged: "vault:file-changed",
+  pendingRewritesChanged: "vault:pending-rewrites-changed",
+  flushComplete: "vault:flush-complete",
+  settingChanged: "vault:setting-changed",
+} as const;
+
+function onVaultEvent<T>(name: string) {
+  return (handler: (payload: T) => void): Promise<UnlistenFn> =>
+    listen<T>(name, (e) => handler(e.payload));
 }
 
-export function onVaultScanComplete(
-  handler: (payload: VaultScanComplete) => void,
-): Promise<UnlistenFn> {
-  return listen<VaultScanComplete>("vault:scan-complete", (e) =>
-    handler(e.payload),
-  );
-}
+export const onVaultScanProgress = onVaultEvent<VaultScanProgress>(VAULT_EVENTS.scanProgress);
 
-export function onVaultScanCancelled(
-  handler: (payload: VaultScanCancelled) => void,
-): Promise<UnlistenFn> {
-  return listen<VaultScanCancelled>("vault:scan-cancelled", (e) =>
-    handler(e.payload),
-  );
-}
+export const onVaultScanComplete = onVaultEvent<VaultScanComplete>(VAULT_EVENTS.scanComplete);
 
-export function onVaultFileChanged(
-  handler: (payload: VaultFileChanged) => void,
-): Promise<UnlistenFn> {
-  return listen<VaultFileChanged>("vault:file-changed", (e) =>
-    handler(e.payload),
-  );
-}
+export const onVaultScanCancelled = onVaultEvent<VaultScanCancelled>(VAULT_EVENTS.scanCancelled);
+
+export const onVaultFileChanged = onVaultEvent<VaultFileChanged>(VAULT_EVENTS.fileChanged);
 
 export function renameFile(
   req: RenameFileRequest,
@@ -656,22 +647,10 @@ export interface VaultFlushComplete {
   refs_updated: number;
 }
 
-export function onVaultPendingRewritesChanged(
-  handler: (payload: VaultPendingRewritesChanged) => void,
-): Promise<UnlistenFn> {
-  return listen<VaultPendingRewritesChanged>(
-    "vault:pending-rewrites-changed",
-    (e) => handler(e.payload),
-  );
-}
+export const onVaultPendingRewritesChanged =
+  onVaultEvent<VaultPendingRewritesChanged>(VAULT_EVENTS.pendingRewritesChanged);
 
-export function onVaultFlushComplete(
-  handler: (payload: VaultFlushComplete) => void,
-): Promise<UnlistenFn> {
-  return listen<VaultFlushComplete>("vault:flush-complete", (e) =>
-    handler(e.payload),
-  );
-}
+export const onVaultFlushComplete = onVaultEvent<VaultFlushComplete>(VAULT_EVENTS.flushComplete);
 
 export interface VaultSettingChanged {
   vault_id: string;
@@ -679,10 +658,4 @@ export interface VaultSettingChanged {
   value: unknown;
 }
 
-export function onVaultSettingChanged(
-  handler: (payload: VaultSettingChanged) => void,
-): Promise<UnlistenFn> {
-  return listen<VaultSettingChanged>("vault:setting-changed", (e) =>
-    handler(e.payload),
-  );
-}
+export const onVaultSettingChanged = onVaultEvent<VaultSettingChanged>(VAULT_EVENTS.settingChanged);

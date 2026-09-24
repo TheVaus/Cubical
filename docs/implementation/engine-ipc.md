@@ -110,6 +110,14 @@ no Tauri dependency — the only Tauri code is the sink adapter.
 Handlers never emit directly; they call the `emit_*` helpers. A transport
 migration touches this one file.
 
+An event name crosses into TypeScript, where a rename fails silently — the
+listener simply never fires. Both sides are pinned to
+`crates/cubical-engine/tests/fixtures/event_names.json`: a Rust test asserts
+every `AppEvent` name is in it, and `api/ipc.test.ts` asserts the frontend's
+`VAULT_EVENTS` table is exactly it. `VAULT_EVENTS` is the one place the
+frontend spells an event name, so the listeners and the shell's listener
+labels read from it.
+
 ## Dispatchers
 
 **Anchors:** dispatch
@@ -586,13 +594,13 @@ simply asked.
 
 Defaults live in two places that must agree — `Feature::default_enabled` here
 and the frontend registry, whose entries sit in each block's registration file
-([`frontend.md`](frontend.md) says which block owns which) — so a test walks
-`ui/src` for every `registration.ts` and `*Registration.ts` and asserts the Rust
-matches, key for key and default for default. It discovers the files rather than
-listing them because a list goes stale the moment an entry moves between blocks.
-An entry declared anywhere other than a registration file still fails the test
-rather than passing it, because the Rust side then has a key the frontend
-lacks.
+([`frontend.md`](frontend.md) says which block owns which) — and so do `id` and
+`requires`, or the settings UI refuses a combination the engine allows. Both
+sides are pinned to `crates/cubical-engine/tests/fixtures/core_plugins.json`:
+a Rust test compares every `Feature`, and `shell/registerBlocks.test.ts`
+compares what `registerBlocks` actually registers. Comparing the registered
+list rather than scraping source files means an entry is checked wherever it
+is declared.
 
 ## Lock discipline
 

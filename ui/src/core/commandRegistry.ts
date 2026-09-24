@@ -1,4 +1,4 @@
-import type { CommandScope, KeyBinding } from "./commands";
+import type { Command, CommandScope, KeyBinding } from "./commands";
 
 export interface BindingDefault {
   id: string;
@@ -8,7 +8,7 @@ export interface BindingDefault {
   plugin?: string;
 }
 
-export const CORE_COMMANDS: readonly BindingDefault[] = [
+export const CORE_COMMANDS = [
   {
     id: "editor.toggleRawSource",
     title: "Toggle raw source / Live Preview",
@@ -69,7 +69,21 @@ export const CORE_COMMANDS: readonly BindingDefault[] = [
     scope: "global",
     defaultKey: "Mod-Shift-w",
   },
-];
+] as const satisfies readonly BindingDefault[];
+
+export type CoreCommandId<S extends CommandScope = CommandScope> = Extract<
+  (typeof CORE_COMMANDS)[number],
+  { scope: S }
+>["id"];
+
+export function coreCommands<S extends CommandScope>(
+  handlers: Record<CoreCommandId<S>, Omit<Command, "id">>,
+): Command[] {
+  return Object.entries<Omit<Command, "id">>(handlers).map(([id, handler]) => ({
+    id,
+    ...handler,
+  }));
+}
 
 const registry: BindingDefault[] = [...CORE_COMMANDS];
 

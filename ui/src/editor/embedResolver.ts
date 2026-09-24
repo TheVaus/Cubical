@@ -5,7 +5,7 @@ import {
 } from "../api/embeds";
 import { createKeyedResolver, type KeyedResolver } from "./keyedResolver";
 
-export type { ResolverDebugState, ResolverEvent } from "./keyedResolver";
+export type { ResolverDebugState } from "./keyedResolver";
 
 export type EmbedResolution = GetEmbedResponse;
 

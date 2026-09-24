@@ -38,8 +38,6 @@ pub const VAULT_PENDING_REWRITES_CHANGED: &str = "vault:pending-rewrites-changed
 
 pub const VAULT_FLUSH_COMPLETE: &str = "vault:flush-complete";
 
-pub const VAULT_AUDIT: &str = "vault:audit";
-
 pub const VAULT_SETTING_CHANGED: &str = "vault:setting-changed";
 
 #[derive(Serialize, Clone)]
@@ -82,13 +80,6 @@ pub enum VaultFileChangeKind {
 }
 
 #[derive(Serialize, Clone)]
-pub struct VaultAudit {
-    pub level: String,
-    pub category: String,
-    pub message: String,
-}
-
-#[derive(Serialize, Clone)]
 pub struct VaultPendingRewritesChanged {
     pub vault_id: String,
     pub count: i64,
@@ -114,7 +105,6 @@ pub enum AppEvent {
     ScanComplete(VaultScanComplete),
     ScanCancelled(VaultScanCancelled),
     FileChanged(VaultFileChanged),
-    Audit(VaultAudit),
     PendingRewritesChanged(VaultPendingRewritesChanged),
     FlushComplete(VaultFlushComplete),
     SettingChanged(VaultSettingChanged),
@@ -128,7 +118,6 @@ impl AppEvent {
             AppEvent::ScanComplete(_) => VAULT_SCAN_COMPLETE,
             AppEvent::ScanCancelled(_) => VAULT_SCAN_CANCELLED,
             AppEvent::FileChanged(_) => VAULT_FILE_CHANGED,
-            AppEvent::Audit(_) => VAULT_AUDIT,
             AppEvent::PendingRewritesChanged(_) => VAULT_PENDING_REWRITES_CHANGED,
             AppEvent::FlushComplete(_) => VAULT_FLUSH_COMPLETE,
             AppEvent::SettingChanged(_) => VAULT_SETTING_CHANGED,
@@ -160,10 +149,6 @@ pub fn emit_scan_cancelled(sink: &dyn EventSink, payload: VaultScanCancelled) {
 
 pub fn emit_file_changed(sink: &dyn EventSink, payload: VaultFileChanged) {
     sink.emit(AppEvent::FileChanged(payload));
-}
-
-pub fn emit_audit(sink: &dyn EventSink, payload: VaultAudit) {
-    sink.emit(AppEvent::Audit(payload));
 }
 
 pub fn emit_pending_rewrites_changed(sink: &dyn EventSink, payload: VaultPendingRewritesChanged) {
@@ -867,6 +852,70 @@ mod tests {
 
     use super::*;
     use tempfile::tempdir;
+
+    fn one_of_every_event() -> Vec<AppEvent> {
+        let vault_id = String::new();
+        let events = vec![
+            AppEvent::ScanProgress(VaultScanProgress {
+                vault_id: vault_id.clone(),
+                files_processed: 0,
+                files_total_estimate: 0,
+            }),
+            AppEvent::ScanComplete(VaultScanComplete {
+                vault_id: vault_id.clone(),
+                file_count: 0,
+                duration_ms: 0,
+            }),
+            AppEvent::ScanCancelled(VaultScanCancelled {
+                vault_id: vault_id.clone(),
+            }),
+            AppEvent::FileChanged(VaultFileChanged {
+                vault_id: vault_id.clone(),
+                path: String::new(),
+                kind: VaultFileChangeKind::Modified,
+                from_path: None,
+                new_content_hash: None,
+            }),
+            AppEvent::PendingRewritesChanged(VaultPendingRewritesChanged {
+                vault_id: vault_id.clone(),
+                count: 0,
+            }),
+            AppEvent::FlushComplete(VaultFlushComplete {
+                vault_id: vault_id.clone(),
+                files_rewritten: 0,
+                refs_updated: 0,
+            }),
+            AppEvent::SettingChanged(VaultSettingChanged {
+                vault_id,
+                key: String::new(),
+                value: serde_json::Value::Null,
+            }),
+        ];
+        for event in &events {
+            match event {
+                AppEvent::ScanProgress(_)
+                | AppEvent::ScanComplete(_)
+                | AppEvent::ScanCancelled(_)
+                | AppEvent::FileChanged(_)
+                | AppEvent::PendingRewritesChanged(_)
+                | AppEvent::FlushComplete(_)
+                | AppEvent::SettingChanged(_) => {}
+            }
+        }
+        events
+    }
+
+    #[test]
+    fn every_event_name_is_the_one_the_frontend_listens_for() {
+        let pinned: std::collections::BTreeMap<String, String> =
+            serde_json::from_str(include_str!("../tests/fixtures/event_names.json"))
+                .expect("event_names.json parses");
+        let pinned: std::collections::BTreeSet<&str> =
+            pinned.values().map(String::as_str).collect();
+        let emitted: std::collections::BTreeSet<&str> =
+            one_of_every_event().iter().map(AppEvent::name).collect();
+        assert_eq!(emitted, pinned);
+    }
 
     async fn fresh_vault_with_one_md(name: &str) -> (tempfile::TempDir, Vault) {
         let dir = tempdir().unwrap();

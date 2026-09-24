@@ -47,20 +47,6 @@ describe("subscriber isolation", () => {
     expect(after).toHaveBeenCalledTimes(1);
   });
 
-  it("isolates event subscribers from each other too", () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    const r = stringResolver();
-    const after = vi.fn();
-    r.onEvent(() => {
-      throw new Error("bad event subscriber");
-    });
-    r.onEvent(after);
-
-    r.fetch("a");
-
-    expect(after).toHaveBeenCalled();
-  });
-
   it("lets a subscriber unsubscribe from inside its own notification", async () => {
     const r = stringResolver();
     const later = vi.fn();

@@ -6,7 +6,6 @@ import {
 import {
   createKeyedResolver,
   type ResolverDebugState,
-  type ResolverEvent,
 } from "./keyedResolver";
 
 export interface WikiLinkResolution {
@@ -22,7 +21,6 @@ export interface WikiLinkResolver {
   markStale(): void;
   onUpdate(handler: () => void): () => void;
   debug(): ResolverDebugState;
-  onEvent(handler: (e: ResolverEvent) => void): () => void;
   abort(): void;
 }
 

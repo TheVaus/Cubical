@@ -5,12 +5,14 @@ import { STATUSBAR_COMMAND } from "../statusbar/commands";
 import { TERMINAL_COMMAND } from "../terminal/registration";
 import {
   activeCommands,
+  coreCommands,
   CORE_COMMANDS,
   defaultBindings,
   registerCommands,
   registeredCommands,
   resolveBindings,
   sameBindings,
+  type BindingDefault,
 } from "./commandRegistry";
 import {
   findDuplicateBindings,
@@ -422,8 +424,38 @@ describe("the command registry", () => {
       GRAPH_COMMAND,
       STATUSBAR_COMMAND,
     ].map((c) => c.id);
-    expect(CORE_COMMANDS.every((c) => c.plugin === undefined)).toBe(true);
+    const core: readonly BindingDefault[] = CORE_COMMANDS;
+    expect(core.every((c) => c.plugin === undefined)).toBe(true);
     expect(CORE_COMMANDS.some((c) => blockIds.includes(c.id))).toBe(false);
+  });
+
+  it("keeps every substrate id byte-identical — shortcuts.overrides stores them", () => {
+    expect(CORE_COMMANDS.map((c) => c.id)).toEqual([
+      "editor.toggleRawSource",
+      "editor.copyBlockRef",
+      "editor.followWikilink",
+      "view.toggleSidebar",
+      "file.new",
+      "nav.back",
+      "nav.forward",
+      "view.nextTab",
+      "view.prevTab",
+      "view.closeTab",
+    ]);
+  });
+
+  it("hands coreCommands' handlers the registry's ids, one per entry", () => {
+    const built = coreCommands<"editor">({
+      "editor.toggleRawSource": { run: () => {} },
+      "editor.copyBlockRef": { run: () => {} },
+      "editor.followWikilink": { run: () => {}, when: () => false },
+    });
+    expect(built.map((c) => c.id)).toEqual([
+      "editor.toggleRawSource",
+      "editor.copyBlockRef",
+      "editor.followWikilink",
+    ]);
+    expect(built[2]?.when?.()).toBe(false);
   });
 
   it("registers by id, so a second boot adds no row", () => {

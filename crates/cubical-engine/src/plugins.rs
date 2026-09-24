@@ -209,63 +209,25 @@ mod tests {
 
     #[test]
     fn the_backend_registry_matches_the_frontend_registry() {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("..")
-            .join("..")
-            .join("ui")
-            .join("src");
-        fn registrations(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
-            let entries =
-                std::fs::read_dir(dir).unwrap_or_else(|e| panic!("read {}: {e}", dir.display()));
-            for entry in entries.filter_map(|entry| entry.ok()) {
-                let path = entry.path();
-                if path.is_dir() {
-                    registrations(&path, out);
-                } else if path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .is_some_and(|n| n == "registration.ts" || n.ends_with("Registration.ts"))
-                {
-                    out.push(path);
-                }
-            }
-        }
-        let mut sources: Vec<std::path::PathBuf> = Vec::new();
-        registrations(&root, &mut sources);
-        sources.sort();
-        assert!(
-            !sources.is_empty(),
-            "no registration.ts or *Registration.ts found under {}",
-            root.display()
-        );
-        let mut frontend: Vec<(String, bool)> = Vec::new();
-        for path in &sources {
-            let text = std::fs::read_to_string(path)
-                .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-            let mut rest = text.as_str();
-            while let Some(at) = rest.find("settingKey:") {
-                rest = &rest[at + "settingKey:".len()..];
-                let Some(end) = rest.find("defaultEnabled:") else {
-                    break;
-                };
-                let Some(key) = rest[..end].split('"').nth(1) else {
-                    continue;
-                };
-                let tail = rest[end + "defaultEnabled:".len()..].trim_start();
-                frontend.push((key.to_string(), tail.starts_with("true")));
-            }
-        }
-        frontend.sort();
-
-        let mut backend: Vec<(String, bool)> = ALL_FEATURES
+        let pinned: serde_json::Value =
+            serde_json::from_str(include_str!("../tests/fixtures/core_plugins.json"))
+                .expect("core_plugins.json parses");
+        let mut features: Vec<Feature> = ALL_FEATURES.to_vec();
+        features.sort_by_key(|f| f.id());
+        let backend: serde_json::Value = features
             .iter()
-            .map(|f| (f.setting_key().to_string(), f.default_enabled()))
+            .map(|f| {
+                json!({
+                    "id": f.id(),
+                    "setting_key": f.setting_key(),
+                    "default_enabled": f.default_enabled(),
+                    "requires": f.requires().iter().map(|r| r.id()).collect::<Vec<_>>(),
+                })
+            })
             .collect();
-        backend.sort();
-
         assert_eq!(
-            backend, frontend,
-            "every frontend registration file and Feature must agree on every key and default"
+            backend, pinned,
+            "every Feature must agree with the frontend registry on id, key, default and requires"
         );
     }
 
