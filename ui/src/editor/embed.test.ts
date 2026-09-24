@@ -38,7 +38,6 @@ function makeStubResolver(resp: EmbedResolution): EmbedResolver {
       lastSettleAt: new Map(),
       lastError: new Map(),
     }),
-    onEvent: () => () => undefined,
     abort: () => undefined,
     version: () => 0,
   };
@@ -59,7 +58,6 @@ function stubResolver(entries: Record<string, EmbedResolution>): EmbedResolver {
       lastSettleAt: new Map(),
       lastError: new Map(),
     }),
-    onEvent: () => () => undefined,
     abort: () => undefined,
     version: () => 0,
   };
@@ -177,7 +175,6 @@ describe("embedExtension", () => {
         lastSettleAt: new Map(),
         lastError: new Map(),
       }),
-      onEvent: () => () => undefined,
       abort: () => undefined,
       version: () => ver,
     };
@@ -259,7 +256,6 @@ describe("embedExtension", () => {
         lastSettleAt: new Map(),
         lastError: new Map(),
       }),
-      onEvent: () => () => undefined,
       abort: () => undefined,
       version: () => ver,
     };
@@ -321,7 +317,7 @@ describe("embedExtension", () => {
     });
 
     let blockReplace: { from: number; to: number } | null = null;
-    state.field(embedBlockField).between(0, state.doc.length, (from, to, v) => {
+    state.field(embedBlockField).deco.between(0, state.doc.length, (from, to, v) => {
       if (v.spec?.widget && v.spec?.block === true) {
         blockReplace = { from, to };
       }
@@ -346,7 +342,7 @@ describe("embedExtension", () => {
       selection: { anchor: 0 },
     });
     let count = 0;
-    state.field(embedBlockField).between(0, state.doc.length, () => {
+    state.field(embedBlockField).deco.between(0, state.doc.length, () => {
       count++;
     });
     expect(count).toBe(0);
@@ -397,7 +393,7 @@ describe("embedExtension", () => {
     });
 
     let count = 0;
-    state.field(embedBlockField).between(0, state.doc.length, () => {
+    state.field(embedBlockField).deco.between(0, state.doc.length, () => {
       count++;
     });
     expect(count).toBe(0);
@@ -419,9 +415,9 @@ describe("embedExtension", () => {
       selection: { anchor: 0 },
     });
 
-    const set0 = state0.field(embedBlockField);
+    const set0 = state0.field(embedBlockField).deco;
     const tr = state0.update({ selection: { anchor: EMBED_FROM + 1 } });
-    const set1 = tr.state.field(embedBlockField);
+    const set1 = tr.state.field(embedBlockField).deco;
 
     expect(set0).not.toBe(set1);
 
@@ -456,7 +452,6 @@ describe("embedExtension", () => {
         lastSettleAt: new Map(),
         lastError: new Map(),
       }),
-      onEvent: () => () => undefined,
       abort: () => undefined,
       version: () => version,
     };
@@ -476,7 +471,7 @@ describe("embedExtension", () => {
     type EqWidget = { eq: (o: unknown) => boolean };
     const widgetOf = (s: EditorState): EqWidget | null => {
       let w: EqWidget | null = null;
-      s.field(embedBlockField).between(0, doc.length, (_f, _t, v) => {
+      s.field(embedBlockField).deco.between(0, doc.length, (_f, _t, v) => {
         const widget = v.spec?.widget;
         if (widget) w = widget as unknown as EqWidget;
       });

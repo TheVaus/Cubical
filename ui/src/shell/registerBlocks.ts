@@ -1,3 +1,4 @@
+import { registerCommands } from "../core/commandRegistry";
 import { BACKLINKS_PANEL, MENTIONS_PANEL } from "../backlinks/sidebarPanels";
 import { QUERY_PLUGIN } from "../dataview/registration";
 import { AUTOCOMPLETE_PLUGIN } from "../editor/autocompleteRegistration";
@@ -5,9 +6,11 @@ import { EQUATIONS_PLUGIN } from "../editor/equationRegistration";
 import { MATH_PLUGIN } from "../editor/mathRegistration";
 import { PROPERTY_REFS_PLUGIN } from "../editor/propertyRefRegistration";
 import { LEFT_SIDEBAR_MODES } from "../explorer/ExplorerPanel";
-import { GRAPH_PLUGIN } from "../graph/registration";
+import { GRAPH_COMMAND, GRAPH_PLUGIN } from "../graph/registration";
+import { GRAPH_TAB_KIND } from "../graph/tabView";
 import { INTEGRITY_PLUGIN } from "../integrity/registration";
 import { INTEGRITY_PANEL } from "../integrity/sidebarPanel";
+import { OMNIBAR_COMMAND } from "../omnibar/registration";
 import PropertiesSettings from "../properties/PropertiesSettings";
 import { propertiesBlockSettings } from "../properties/formats";
 import { SEARCH_PLUGIN } from "../search/registration";
@@ -20,12 +23,16 @@ import {
   registerSidebarPanels,
 } from "../settings/sidebarPanels";
 import StatusbarPane from "../statusbar/StatusbarPane";
+import { STATUSBAR_COMMAND } from "../statusbar/commands";
 import { STATUSBAR_SEGMENTS } from "../statusbar/segments";
 import {
   registerStatusbarSegments,
   statusbarBlockSettings,
 } from "../statusbar/statusbarSettings";
-import { TERMINAL_PLUGIN } from "../terminal/registration";
+import { registerTabKinds } from "../tabs/tabKinds";
+import { TAG_TAB_KIND } from "../tags/tabKind";
+import { TERMINAL_COMMAND, TERMINAL_PLUGIN } from "../terminal/registration";
+import { TERMINAL_TAB_KIND } from "../terminal/tabView";
 
 export function registerBlocks(): void {
   registerCorePlugins([
@@ -39,9 +46,16 @@ export function registerBlocks(): void {
     AUTOCOMPLETE_PLUGIN,
     INTEGRITY_PLUGIN,
   ]);
+  registerCommands([
+    OMNIBAR_COMMAND,
+    TERMINAL_COMMAND,
+    GRAPH_COMMAND,
+    STATUSBAR_COMMAND,
+  ]);
   registerStatusbarSegments(STATUSBAR_SEGMENTS);
   registerSidebarPanels([BACKLINKS_PANEL, MENTIONS_PANEL, INTEGRITY_PANEL]);
   registerLeftSidebarModes(LEFT_SIDEBAR_MODES);
+  registerTabKinds([TAG_TAB_KIND, TERMINAL_TAB_KIND, GRAPH_TAB_KIND]);
 
   registerSettingsSections([
     {

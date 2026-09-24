@@ -10,6 +10,15 @@ use crate::state::AppState;
 
 pub use cubical_graph::{EdgeKind, GraphEdge, GraphNode, NodeId, NodeKind};
 
+impl From<cubical_graph::GraphError> for CubicalError {
+    fn from(value: cubical_graph::GraphError) -> Self {
+        match value {
+            cubical_graph::GraphError::Index(e) => Self::from(e),
+            cubical_graph::GraphError::Cancelled => Self::LayoutCancelled,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GraphFilter {
@@ -163,7 +172,7 @@ pub async fn graph_snapshot(
     let vault = crate::commands::open::open_vault_cloned_for(
         state,
         &req.vault_id,
-        crate::plugins::Feature::GraphView,
+        crate::plugins::Feature::Graph,
     )
     .await?;
 
@@ -180,7 +189,7 @@ pub async fn graph_layout<F>(
 where
     F: FnMut(LayoutFrame) + Send + 'static,
 {
-    crate::plugins::require(state, &req.vault_id, crate::plugins::Feature::GraphView).await?;
+    crate::plugins::require(state, &req.vault_id, crate::plugins::Feature::Graph).await?;
 
     let vault_id = req.vault_id.clone();
     let flag = registry.begin(&vault_id);
@@ -586,7 +595,7 @@ mod tests {
             .await
             .expect_err("a switched-off plugin must not be served");
 
-        assert!(matches!(err, CubicalError::FeatureDisabled(id) if id == "graph-view"));
+        assert!(matches!(err, CubicalError::FeatureDisabled(id) if id == "graph"));
     }
 
     #[tokio::test]
@@ -599,7 +608,7 @@ mod tests {
             .await
             .expect_err("a switched-off plugin must not be served");
 
-        assert!(matches!(err, CubicalError::FeatureDisabled(id) if id == "graph-view"));
+        assert!(matches!(err, CubicalError::FeatureDisabled(id) if id == "graph"));
         assert!(!registry.is_running("v1"), "a refusal registers no work");
     }
 }

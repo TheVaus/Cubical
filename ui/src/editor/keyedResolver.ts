@@ -6,18 +6,6 @@ export interface ResolverDebugState {
   lastError: Map<string, string>;
 }
 
-export interface ResolverEvent {
-  kind:
-    | "fetch-started"
-    | "fetch-settled"
-    | "fetch-errored"
-    | "invalidate"
-    | "abort";
-  key?: string;
-  error?: string;
-  at: number;
-}
-
 export interface KeyedResolver<K, V> {
   get(key: K): V | undefined;
   fetch(key: K): void;
@@ -27,7 +15,6 @@ export interface KeyedResolver<K, V> {
   onUpdate(handler: () => void): () => void;
   version(): number;
   debug(): ResolverDebugState;
-  onEvent(handler: (e: ResolverEvent) => void): () => void;
   abort(): void;
 }
 
@@ -58,7 +45,6 @@ export function createKeyedResolver<K, V>(
     { aborted: boolean; generation: number; rerun: boolean }
   >();
   const subscribers = new Set<() => void>();
-  const eventSubscribers = new Set<(e: ResolverEvent) => void>();
   const lastFetchAt = new Map<string, number>();
   const lastSettleAt = new Map<string, number>();
   const lastError = new Map<string, string>();
@@ -68,10 +54,6 @@ export function createKeyedResolver<K, V>(
 
   const notify = () => {
     for (const fn of [...subscribers]) isolated(fn);
-  };
-
-  const emit = (e: ResolverEvent) => {
-    for (const fn of [...eventSubscribers]) isolated(() => fn(e));
   };
 
   const store = (k: string, value: V, force: boolean): boolean => {
@@ -95,7 +77,6 @@ export function createKeyedResolver<K, V>(
     sources.set(k, key);
     const startedAt = Date.now();
     lastFetchAt.set(k, startedAt);
-    emit({ kind: "fetch-started", key: k, at: startedAt });
     let changed = false;
     spec
       .load(key)
@@ -105,7 +86,6 @@ export function createKeyedResolver<K, V>(
         lastError.delete(k);
         const at = Date.now();
         lastSettleAt.set(k, at);
-        emit({ kind: "fetch-settled", key: k, at });
       })
       .catch((err: unknown) => {
         if (!current()) return;
@@ -114,7 +94,6 @@ export function createKeyedResolver<K, V>(
         lastError.set(k, message);
         const at = Date.now();
         lastSettleAt.set(k, at);
-        emit({ kind: "fetch-errored", key: k, error: message, at });
       })
       .finally(() => {
         const live = current();
@@ -155,7 +134,6 @@ export function createKeyedResolver<K, V>(
       });
     },
     invalidate() {
-      emit({ kind: "invalidate", at: Date.now() });
       stale.clear();
       if (refetches) {
         for (const [k, key] of [...sources]) {
@@ -198,18 +176,8 @@ export function createKeyedResolver<K, V>(
         lastError: new Map(lastError),
       };
     },
-    onEvent(handler) {
-      eventSubscribers.add(handler);
-      return () => {
-        eventSubscribers.delete(handler);
-      };
-    },
     abort() {
-      const at = Date.now();
-      for (const [key, handle] of inFlight.entries()) {
-        handle.aborted = true;
-        emit({ kind: "abort", key, at });
-      }
+      for (const handle of inFlight.values()) handle.aborted = true;
       inFlight.clear();
       notify();
     },

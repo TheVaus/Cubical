@@ -1,7 +1,14 @@
+import type { TabKind } from "../tabs/tabKinds";
 import { tabId, type Tab, type TabView } from "../tabs/tabModel";
 
+export const TERMINAL_TAB_KIND: TabKind = {
+  kind: "terminal",
+  label: () => "Terminal",
+  evictable: false,
+};
+
 export function terminalView(key: string): TabView {
-  return { kind: "terminal", key };
+  return { kind: TERMINAL_TAB_KIND.kind, key };
 }
 
 export function terminalTabId(key: string): string {
@@ -9,7 +16,7 @@ export function terminalTabId(key: string): string {
 }
 
 export function isTerminalView(view: TabView): boolean {
-  return view.kind === "terminal";
+  return view.kind === TERMINAL_TAB_KIND.kind;
 }
 
 export function terminalTabIds(tabs: Tab[]): string[] {

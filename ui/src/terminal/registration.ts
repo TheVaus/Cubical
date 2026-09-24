@@ -1,3 +1,4 @@
+import type { BindingDefault } from "../core/commandRegistry";
 import type { CorePlugin } from "../settings/corePlugins";
 
 export const TERMINAL_PLUGIN: CorePlugin = {
@@ -9,6 +10,16 @@ export const TERMINAL_PLUGIN: CorePlugin = {
   defaultEnabled: false,
 };
 
-export const TERMINAL_COMMAND_ID = "view.openTerminal";
+export const TERMINAL_COMMAND: BindingDefault = {
+  id: "view.openTerminal",
+  title: "Open terminal",
+  scope: "global",
+  defaultKey: "Mod-Shift-t",
+  plugin: TERMINAL_PLUGIN.id,
+};
 
-export const TERMINAL_COMMAND_TITLE = "Open terminal";
+declare module "../api/ipc" {
+  interface SettingRegistry {
+    "plugins.terminal_enabled": boolean;
+  }
+}

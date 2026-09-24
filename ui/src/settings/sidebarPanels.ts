@@ -1,4 +1,6 @@
-import type { Component } from "solid-js";
+import { createMemo, createSignal, type Accessor, type Component } from "solid-js";
+
+import { corePluginActive } from "./corePlugins";
 
 export interface SidebarPanelProps {
   vaultId: string | null;
@@ -13,6 +15,7 @@ export interface SidebarPanel {
   label: string;
   order: number;
   panel: Component<SidebarPanelProps>;
+  plugin?: string;
 }
 
 const panels: SidebarPanel[] = [];
@@ -31,12 +34,40 @@ export function registeredSidebarPanels(): readonly SidebarPanel[] {
   return panels;
 }
 
-export function defaultSidebarPanel(): string {
-  return panels[0]?.id ?? "";
+export function offeredSidebarPanels(
+  corePlugins: Record<string, boolean>,
+): readonly SidebarPanel[] {
+  return panels.filter(
+    (p) => p.plugin === undefined || corePluginActive(corePlugins, p.plugin),
+  );
 }
 
-export function isSidebarPanel(id: string): boolean {
-  return panels.some((p) => p.id === id);
+function resolveSidebarPanel(
+  id: string,
+  corePlugins: Record<string, boolean>,
+): string {
+  const offered = offeredSidebarPanels(corePlugins);
+  return offered.some((p) => p.id === id) ? id : (offered[0]?.id ?? "");
+}
+
+export interface SidebarPanelChoice {
+  current: Accessor<string>;
+  offers: (id: string) => boolean;
+  choose: (id: string) => void;
+}
+
+export function createSidebarPanelChoice(
+  corePlugins: Accessor<Record<string, boolean>>,
+): SidebarPanelChoice {
+  const [chosen, choose] = createSignal(defaultSidebarPanel());
+  const current = createMemo(() => resolveSidebarPanel(chosen(), corePlugins()));
+  const offers = (id: string) =>
+    offeredSidebarPanels(corePlugins()).some((p) => p.id === id);
+  return { current, offers, choose: (id) => void choose(id) };
+}
+
+export function defaultSidebarPanel(): string {
+  return panels[0]?.id ?? "";
 }
 
 export function registerLeftSidebarModes(ids: readonly string[]): void {

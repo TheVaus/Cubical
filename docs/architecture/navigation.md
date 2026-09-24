@@ -20,7 +20,9 @@ a path appears, without a line, only to locate a symbol. Each subsection's
 **Anchors:** tabId · openTab · createTerminalWiring · maybeInterceptWikiLinkMousedown · maybeInterceptTagMousedown · maybeInterceptDataviewMousedown
 
 Tab identity is **derived from the view, never minted** (`tabId`,
-`tabs/tabModel.ts`): `file:<path>`, `tag:<tagPath>`, `terminal:<key>`.
+`tabs/tabModel.ts`): `file:<path>`, and `<kind>:<key>` for a kind a block
+contributes — `tag:<tagPath>`, `terminal:<key>` — or the bare kind for a keyless
+singleton, `graph`.
 `openTab` is therefore idempotent — a tab whose id already exists is merely
 activated, otherwise one is appended and activated.
 
@@ -70,7 +72,7 @@ means the §15.1 semantics.
 | Search-panel result | `search/SearchResults.tsx` | `handleNavigateWikilink(path, null)` | Opens the **file**, not the hit. Results are grouped per file and the group header is the only open affordance; there is no jump-to-match |
 | Omni-Bar note result | `omnibar/OmniBar.tsx` | `handleNavigateWikilink(path, null)` | Open-or-focus, then the bar closes |
 | Omni-Bar tag result | `omnibar/OmniBar.tsx` | `handleNavigateTag` | Tag tab |
-| Omni-Bar command result | `omnibar/OmniBar.tsx` | `handleRunCommand` | Not navigation — the omni-bar command set is one entry (`omnibar/commands.ts`), separate from the keymap registry |
+| Omni-Bar command result | `omnibar/OmniBar.tsx` | `handleRunCommand` | Runs the same global command a key would, `when` checked again. The list is the keymap registry's active commands (`omnibar/paletteCommands.ts`), so a command that navigates (back, forward, next tab) navigates exactly as its shortcut does |
 | Dataview result link | the dataview mousedown plugin (`editor/dataview.ts`) → the runner's `open` | `handleNavigateWikilink(path, null)` | Open-or-focus |
 | Create from unresolved link | the create-offer dialog | `createFileAtPath` then `handleNavigateWikilink` | Creates the file, then opens it. The fresh content hash is threaded through so the watcher's created-echo is not read as an external edit |
 | New note (`Mod-N`, the `+` button) | left file panel, keymap | `createFile` then `handleNavigateWikilink` | Same shape |
@@ -176,16 +178,18 @@ inherits the asymmetry.
 
 **Anchors:** TabView · isPersistableTab · isTerminalView · createTerminalWiring · confirmClose · closeTabById · forceCloseTabById · hasViewer · viewerKindForPath · handleSelectFile · loadActiveTabContent · read_file_bytes · read_file_text
 
-`TabView` has exactly three variants (`tabs/tabModel.ts`). Two of them are
-not documents.
+`TabView` is a file view or a `{ kind, key }` view of a kind a block
+contributes (`tabs/tabModel.ts`); how a kind declares its behaviour is
+[`../implementation/frontend.md`](../implementation/frontend.md) → Tabs. The
+contributed kinds are not documents.
 
-**Tag pages** — `{ kind: "tag", tagPath }`. Singleton per tag path by id
-derivation, persisted across restarts (`isPersistableTab` allow-lists `file` and
-`tag`), rendered in place of the editor by the `view().kind === "file"` fallback.
+**Tag pages** — `{ kind: "tag", key: tagPath }`. Singleton per tag path by id
+derivation, persisted across restarts (the only contributed kind with a codec),
+rendered in place of the editor by the `view().kind === "file"` fallback.
 They hold no buffer, so they are inert for autosave, and absent from nav
 history (§15.4).
 
-**Terminals** — `{ kind: "terminal", key }`. The one **non-singleton** kind:
+**Terminals** — `{ kind: "terminal", key }`, declared non-evictable. The one **non-singleton** kind:
 `open` increments a counter, so `Mod-Shift-T` always yields another tab. Excluded from session persistence and from the keep-alive LRU by allow-list, so
 a terminal can never evict a warm editor — rules owned by
 [`../implementation/frontend.md`](../implementation/frontend.md) → Tabs. They

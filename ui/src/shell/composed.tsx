@@ -12,12 +12,13 @@ import BaseExplorerPanel, {
 } from "../explorer/ExplorerPanel";
 import SearchBar from "../search/SearchBar";
 import SearchResults from "../search/SearchResults";
-import { createSearchState } from "../search/searchState";
+import { createSearchWiring } from "../search/wiring";
 import { hasViewer } from "../viewer";
-import { editorBlocks } from "./editorBlocks";
+import { editorBlocks, previewToggles, type PreviewToggles } from "./editorBlocks";
 
 export interface ComposedEditorProps
-  extends Omit<EditorProps, "previewBlocks" | "blockExtensions"> {
+  extends Omit<EditorProps, "previewBlocks" | "blockExtensions">,
+    PreviewToggles {
   embedResolver?: EmbedResolver | null;
   openNotePath?: string | null;
   dataviewRunner?: DataviewRunner | null;
@@ -30,6 +31,9 @@ export const Editor: Component<ComposedEditorProps> = (props) => {
     "openNotePath",
     "dataviewRunner",
     "autocompleteProvider",
+    "mathEnabled",
+    "equationsEnabled",
+    "propertyRefsEnabled",
   ]);
   const embeds = createMemo(() =>
     embedExtensionFor(own.embedResolver ?? null, own.openNotePath ?? null),
@@ -40,11 +44,22 @@ export const Editor: Component<ComposedEditorProps> = (props) => {
   const autocomplete = createMemo(() =>
     autocompleteExtensionFor(own.autocompleteProvider),
   );
+  const toggles = (Object.keys(previewToggles) as (keyof PreviewToggles)[]).map(
+    (key) => {
+      const on = createMemo(() => own[key] ?? true);
+      return createMemo(() => previewToggles[key](on()));
+    },
+  );
   return (
     <BaseEditor
       {...base}
       previewBlocks={editorBlocks}
-      blockExtensions={[embeds(), dataview(), autocomplete()]}
+      blockExtensions={[
+        embeds(),
+        dataview(),
+        autocomplete(),
+        ...toggles.map((toggle) => toggle()),
+      ]}
     />
   );
 };
@@ -52,20 +67,26 @@ export const Editor: Component<ComposedEditorProps> = (props) => {
 export interface ComposedExplorerProps
   extends Omit<ExplorerPanelProps, "search" | "canView"> {
   onNavigate: (path: string) => void;
+  corePlugins: Record<string, boolean>;
 }
 
 export const ExplorerPanel: Component<ComposedExplorerProps> = (props) => {
-  const [own, panel] = splitProps(props, ["onNavigate"]);
-  const state = createSearchState({
+  const [own, panel] = splitProps(props, ["onNavigate", "corePlugins"]);
+  const searchState = createSearchWiring({
     vaultId: () => props.vaultId,
     refreshSignal: () => props.refreshSignal,
+    corePlugins: () => own.corePlugins,
   });
-  const search: ExplorerSearchSlot = {
-    active: state.isSearching,
-    bar: () => <SearchBar state={state} />,
-    results: () => (
-      <SearchResults state={state} onNavigate={(p) => own.onNavigate(p)} />
-    ),
-  };
-  return <BaseExplorerPanel {...panel} canView={hasViewer} search={search} />;
+  const search = createMemo<ExplorerSearchSlot | null>(() => {
+    const state = searchState();
+    if (state === null) return null;
+    return {
+      active: state.isSearching,
+      bar: () => <SearchBar state={state} />,
+      results: () => (
+        <SearchResults state={state} onNavigate={(p) => own.onNavigate(p)} />
+      ),
+    };
+  });
+  return <BaseExplorerPanel {...panel} canView={hasViewer} search={search()} />;
 };

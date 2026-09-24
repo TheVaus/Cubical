@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { activateWithFlush, type ActivationDeps } from "./activation";
-import { activeTab, activateTab, emptyTabs, openTab, type TabSet } from "./tabModel";
+import {
+  activeTab,
+  activateTab,
+  emptyTabs,
+  isFileView,
+  openTab,
+  type TabSet,
+} from "./tabModel";
 
 function harness() {
   let tabs = activateTab(
@@ -22,7 +29,7 @@ function harness() {
       if (!dirty) return;
       await Promise.resolve();
       const t = activeTab(tabs);
-      if (t !== null && t.view.kind === "file") {
+      if (t !== null && isFileView(t.view)) {
         writes.push({ path: t.view.path, content: buffer });
       }
       dirty = false;

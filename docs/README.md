@@ -109,6 +109,7 @@ app-shell-rule            | docs/architecture/ui.md                    | -
 tauri-boundary-exceptions | scripts/dependency-boundary.json           | -
 domain-census             | scripts/domain-boundaries.json             | -
 css-selector-ownership    | scripts/css-ownership.json                 | -
+block-name-exceptions     | scripts/domain-names.json                  | -
 declared-runtime-deps     | scripts/techstack-declared.json            | -
 perf-budget-machine-class | scripts/perf-budget.json                   | -
 out-of-scope-nonfeatures  | docs/architecture/constraints.md           | -

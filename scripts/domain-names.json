@@ -1,0 +1,72 @@
+{
+  "_": [
+    "Read by scripts/gates/domain_names.py. The rule is",
+    "docs/principles/domain-scoped-dependencies.md.",
+    "",
+    "The census in scripts/domain-boundaries.json says which name belongs to",
+    "which block, and is not repeated here. This file answers the two",
+    "questions a name alone cannot: which spellings in always-on code are not",
+    "block references at all (`ignore`), and which ones are references that",
+    "predate the gate (`allowed`).",
+    "",
+    "`ignore` is small on purpose. An entry lists exact literals — matched as",
+    "written, so `tag` never covers `tags` — and the file prefixes they apply",
+    "to. It is for words a block happens to share with vault syntax or with a",
+    "storage format, never for a reference someone would rather not fix.",
+    "",
+    "`allowed` is a GRANDFATHER LIST, not a design. A key is `<path> -> <block>`,",
+    "or `<path> -> *` when a file names every block at once. Every entry",
+    "carries the issue that tracks removing it; an entry without one is not an",
+    "exception, it is an unrecorded violation. Entries come off as the code is",
+    "touched, and the gate warns about one that no longer matches anything."
+  ],
+
+  "ignore": [
+    {
+      "literals": ["tag", "Tag"],
+      "files": ["ui/src/ast/", "ui/src/editor/"],
+      "why": [
+        "`#tag` is vault syntax: an AST node kind on the wire and a CodeMirror",
+        "decoration in the editor core, both of which must keep working with",
+        "every block switched off. The tags BLOCK is the tag pane and tag page",
+        "in ui/src/tags, which these files neither import nor name."
+      ]
+    },
+    {
+      "literals": ["property_ref", "PropertyRef"],
+      "files": ["ui/src/ast/", "crates/cubical-ast/", "crates/cubical-core/"],
+      "why": [
+        "The same call, and the one #322 argued for explicitly. `[[note.prop]]`",
+        "is vault syntax, so the canonical AST has to parse it and rename has to",
+        "rewrite it whether or not the property-refs block is switched on — the",
+        ".md must stay correct either way. It is substrate for the same reason",
+        "block ids are. What the block owns is RESOLVING a reference to a value,",
+        "which lives in the property-refs domain and is imported by nobody here."
+      ]
+    }
+  ],
+
+  "allowed": {
+    "crates/cubical-engine/src/plugins.rs -> *": {
+      "issue": 321,
+      "reason": [
+        "The plugin registry is the list of blocks: `Feature` has a variant, an",
+        "id and a settings key per block, so adding one edits plumbing and",
+        "removing one leaves a dead variant. This is the Rust half of what",
+        "ui/src/shell/registerBlocks.ts already does properly — the shell should",
+        "hand the engine its registrations, so the census and the registry stop",
+        "being two lists of the same thing."
+      ]
+    },
+    "crates/cubical-engine/src/error.rs -> search": {
+      "issue": 321,
+      "reason": [
+        "CubicalError::Search is a wire error code one block owns, sitting in",
+        "the error enum every command returns. Goes away with a block-supplied",
+        "error variant (a domain plus a message) rather than one variant per",
+        "block; the graph and search From impls have already moved out to the",
+        "blocks they belong to."
+      ]
+    }
+  }
+}

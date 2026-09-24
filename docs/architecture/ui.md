@@ -18,7 +18,7 @@
 - `#`: in-editor tag auto-complete (when typed at word boundary outside code blocks).
 - Drag-and-drop: dropping an asset into the editor creates an inline link and triggers the deduplication pipeline.
 
-App-level and editor keyboard shortcuts are defined in one place — the command/keymap registry (`ui/src/core/commands.ts`, L5 substrate). It owns the command types, the default binding table, and key matching; the App-level `keydown` and the CodeMirror keymap are both generated from it (single source of truth). Users rebind from Settings → Shortcuts: the defaults are the extension point, and only the diff is persisted per-vault as `shortcuts.overrides`. The registry stays pure — it imports nothing from any feature, and the adapters inject the `run` closures.
+App-level and editor keyboard shortcuts are defined in one place — the command/keymap registry (`ui/src/core/commandRegistry.ts` and `ui/src/core/commands.ts`, L5 substrate). It owns the command types, the registry every command joins, and key matching; the App-level `keydown`, the CodeMirror keymap, Settings → Shortcuts and the Omni-Bar's command list are all generated from it (single source of truth). A block's commands are declared by the block and registered by the shell, and they leave all four surfaces while the block is switched off. Users rebind from Settings → Shortcuts: the defaults are the extension point, and only the diff is persisted per-vault as `shortcuts.overrides`. The registry stays pure — it imports nothing from any feature, and the adapters inject the `run` closures.
 
 ### 11.3 Live Preview
 
@@ -88,10 +88,20 @@ Enforced by `scripts/gates/composition.py`. **This section is prose, not the all
 ## 12. Settings
 
 The **shipped** Settings modal is tab-based. The authoritative tab list is
-`SETTINGS_TABS` (`ui/src/settings/tabs.ts`); the authoritative setting *keys* are
-the `Setting` union (`ui/src/api/ipc.ts`), the frontend's typed view of a
+`settingsNav()` (`ui/src/settings/tabs.ts`) — the built-in `SETTINGS_TABS` plus
+the sections blocks contribute through `registerSettingsSections`; the authoritative setting *keys* are
+the `SettingRegistry` interface (`ui/src/api/ipc.ts`), the frontend's typed view of a
 deliberately generic backend config table. Neither is restated here: a doc
 mirroring either would rot every time a toggle shipped, and did.
+
+`SettingRegistry` declares only substrate keys. A block adds its own by
+augmenting the interface (`declare module "../api/ipc"`) in the file that
+registers the setting, so a new block adds a setting without editing substrate.
+A key nothing declares fails to type-check wherever it is used, and
+`ui/src/api/settingRegistry.test.ts` refuses a key declared twice or registered
+in a file that does not declare it. A default that both the engine and the
+frontend read is pinned through `crates/cubical-engine/tests/fixtures/setting_defaults.json`,
+which a Rust test and a frontend test each compare against their own constant.
 
 Locked product decisions about settings, which are what this section owns:
 
@@ -105,7 +115,7 @@ Locked product decisions about settings, which are what this section owns:
 
 Two tiers, per [`vault.md`](vault.md) §3: `config.toml` is durable and travels
 with the vault; the libSQL `config` table is transient, per-machine workspace
-state. The tier is chosen by a **literal key prefix** — any key beginning `ui.`
+state, lost with the rest of the index when it is rebuilt. The tier is chosen by a **literal key prefix** — any key beginning `ui.`
 is routed to the index, everything else to `config.toml`
 (`cubical_core::vault::settings::is_workspace_key`).
 

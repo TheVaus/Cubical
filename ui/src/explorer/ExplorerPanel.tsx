@@ -36,7 +36,7 @@ export interface ExplorerPanelProps {
   onRefresh: () => void;
   onSelectFile: (entry: FileEntry) => void;
   onRenameCommit: (fromPath: string, target: string, isFolder: boolean) => void;
-  search?: ExplorerSearchSlot;
+  search?: ExplorerSearchSlot | null;
   canView?: CanView;
 }
 

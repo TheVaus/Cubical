@@ -176,9 +176,41 @@ file-backed ids *before* applying the `live_tab_limit` cap — so a non-file tab
 never occupies a capped LRU slot and can never evict a warm file editor's
 CodeMirror state. Filtering only at the render site (`<For each={live()}>`)
 is not enough: that keeps the tab `Editor`-free while still letting it consume
-a slot. `isPersistableTab` likewise allow-lists `file`/`tag` instead of naming
-the kinds to exclude, so any future non-file tab is left out of session
-persistence by default rather than by remembering to add it.
+a slot. `isPersistableTab` likewise persists `file` plus only the kinds that
+declare a codec, so any future non-file tab is left out of session persistence
+by default rather than by remembering to add it.
+
+### Blocks declare their tab kinds
+
+**Anchors:** registerTabKinds · tabKind · TabKind · TAG_TAB_KIND · TERMINAL_TAB_KIND · GRAPH_TAB_KIND · createSessionSaver
+
+`tabs/` is substrate and knows one kind, `file`. Every other kind is a
+`TabKind` a block contributes — `{ kind, label(key), evictable, persist? }` —
+and `shell/registerBlocks.ts` registers it, the same seam as the settings
+registries below. A non-file view is `{ kind, key }`; its id is `kind:key`, or
+the bare kind when the key is empty, which is what makes the graph tab a
+singleton. Substrate keeps the policy — keying, the replace rule, the label
+fallback, what a session holds — and asks the kind where it sits under it:
+`evictable: false` (terminal, graph) means `openTab` never replaces the tab and
+refuses a new one that would leave no replaceable slot; `persist` (tag only)
+maps the key to and from the fields of a `tab_sessions.json` record, which is
+how a tag tab still round-trips as `tag_path` byte for byte.
+
+An unregistered kind is never evictable, since substrate cannot know what
+eviction would destroy, and is labelled by its key, then its kind. **A saved
+tab whose kind is not registered is dropped on restore, and the rest of the
+session restores.** So is one whose codec throws. Keeping such a record for a
+later re-save was rejected: registration does not follow the plugin toggles, so
+an unregistered kind means the block is gone from the build, and a kept record
+would be a tab nobody can see or close that the file carries forever. A
+session is a convenience, not a source of truth.
+
+`createSessionSaver` skips a save whose snapshot equals the last one sent for
+that vault. The persist effect re-runs on every tab-set change, and activating
+the already-active tab, closing a background terminal or a rename that touches
+no open tab all produce a new `TabSet` with the same persisted form; each would otherwise
+rewrite the whole `tab_sessions.json`. A failed save clears the memo so the
+next change retries.
 
 **Known exposure, unchanged from single-file editing:** if the flush write
 fails, activation still proceeds with unflushed content. Today's file-switch has
@@ -212,27 +244,62 @@ they no longer agree with.
 
 ## Command registry is pure substrate
 
-**Anchors:** COMMAND_DEFAULTS
+**Anchors:** registerCommands · registeredCommands · activeCommands · CORE_COMMANDS · resolveBindings · commandTable · paletteCommands · createShortcutBindings
 
-`ui/src/core/commands.ts` holds types, the default binding table, key-string
-matching and command resolution — **no DOM, no Solid, and no import from any
+`ui/src/core/commandRegistry.ts` holds what commands exist: the `BindingDefault`
+contract, the substrate's own table and the registry blocks join.
+`ui/src/core/commands.ts` holds how keys reach them: key-string matching and
+command resolution. Both have **no DOM, no Solid, and no import from any
 feature module**. The adapters (the App-level `keydown`, the CodeMirror keymap)
 inject the `run` closures and wire it to their runtime.
 
-Keep it that way: the moment the registry imports a feature, the "one place
-that defines shortcuts" property is gone. Adding a command is a single entry in
-the default table — the keymap, the global handler and the Settings UI are all
-derived from it.
+The substrate's table names no block. A block declares its own commands beside
+its plugin entry (`terminal/registration.ts`, `graph/registration.ts`,
+`omnibar/registration.ts`, `statusbar/commands.ts`) and
+`shell/registerBlocks.ts` registers them, the same shape as the settings
+registries below. The id is written once, in the block; the block's wiring
+builds its handler from that constant. Registration is idempotent by id and
+appends after the substrate's table, which is the Settings → Shortcuts order.
+
+A substrate id is written once too. `CORE_COMMANDS` is `as const`, so
+`coreCommands` takes a handler per id as a keyed record: the shell and the
+editor host never retype an id, a misspelt or missing one is a `tsc` error, and
+the ids stay byte-identical for the `shortcuts.overrides` that store them.
+
+A command gated on a plugin names it in `plugin`, by id, and `activeCommands`
+drops it while `corePluginActive` says the plugin is off. The settings store
+derives both the active list and the effective bindings from it, so a
+switched-off block's command leaves the keymap, Settings → Shortcuts and the
+Omni-Bar together, and its key stops firing rather than firing a no-op. The
+Omni-Bar lists every active command the shell has a handler for whose `when`
+passes, except its own toggle.
+
+A command's title lives in the registry only. `Command` carries the id and the
+closures, and a surface that shows a name reads the `BindingDefault`, so the
+palette, the Shortcuts row and a block's toolbar button cannot disagree.
 
 Rebinding is layered on top as a **diff, not a snapshot**:
 
 - A command with no override falls through to its default, so a later change to
   a default is picked up automatically instead of being frozen by a stale
-  saved snapshot.
-- Resolution only ever iterates the default table, so an override naming a
-  command that no longer exists is silently ignored rather than resurrecting it.
+  saved snapshot. A command may ship with no default key (the status-bar
+  toggle): it is unbound until the user binds one.
+- Resolution only ever iterates the registry, so an override naming a command
+  that no longer exists is silently ignored rather than resurrecting it.
+- **An override outlives its block's toggle.** Ids are persisted, so they never
+  change; switching a block off filters the command out of resolution but
+  leaves `shortcuts.overrides` alone, and the Shortcuts pane writes back the
+  whole map, hidden rows included. Switching the block back on restores the
+  user's key. Conflict checks run against every registered command, visible or
+  not, so a key cannot be handed out while its owner is off and come back as a
+  duplicate; the rejection names the owner as switched off.
 - `global` and `editor` are **independent key spaces** — the same chord in the
   other scope is not a conflict.
+
+The effective bindings are memoised with content equality, so a toggle or a
+settings write that leaves the table unchanged does not rebuild the editor's
+keymap. The Omni-Bar builds its note, tag and command list only while it is
+open; a closed palette costs nothing on a file change.
 
 ## An open overlay owns the keyboard
 
@@ -324,10 +391,11 @@ failure: the tree unmounted with it and the whole left sidebar went with the
 throw. No boundary placement fixes that — wrapping the parent keeps the parent's
 siblings alive, never its children. The fix is nesting. Search is three pieces
 now: `createSearchState` holds the query, the filters and the polled index
-status; `SearchBar` draws the chrome; `SearchResults` draws the overlay. The
-shell (`shell/composed.tsx`) creates the state and hands the explorer an
-`ExplorerSearchSlot` — bar, results and an `active` accessor — because search
-is its own block (`search/`) and a block may not import another. The explorer renders
+status; `SearchBar` draws the chrome; `SearchResults` draws the overlay.
+`search/wiring.ts` builds the state from the search toggle, and the shell
+(`shell/composed.tsx`) turns it into an `ExplorerSearchSlot` — bar, results and
+an `active` accessor — because search is its own block (`search/`) and a block
+may not import another. The explorer renders
 bar, tree and results as **siblings** inside one positioned container, each in
 its own boundary, so a failure in any one of the three leaves the other two on
 screen. With no slot the explorer draws the tree alone.
@@ -367,13 +435,13 @@ which is exactly the state the app boots in.
 
 ## A core plugin's runtime is derived from its toggle
 
-**Anchors:** createDataviewWiring · createTerminalWiring · createGraphWiring · corePluginActive · corePluginEnabled
+**Anchors:** createDataviewWiring · createTerminalWiring · createGraphWiring · createAutocompleteWiring · createSearchWiring · createSidebarPanelChoice · offeredSidebarPanels · corePluginActive · corePluginEnabled
 
 A core plugin's live objects — a query runner, a PTY session, a tab — are
 *derived* from the toggle, never created once at vault open and then gated at
 each use site. Deriving is what makes
 [`../principles/composability.md`](../principles/composability.md)'s
-"switching a feature off drops its derived state" true in the frontend: the
+"switching a feature off removes its affordances" true in the frontend: the
 object falls out of scope with the toggle, taking its cache and its
 subscriptions with it, and coming back on builds a fresh one.
 
@@ -384,6 +452,21 @@ held the runner directly and invalidated it, so every external file change
 re-ran the whole cached query set for a feature the user had switched off. No
 number of gated call sites is safe — one missed site restores the leak, and the
 count only grows.
+
+Switching off has to remove the affordance, not leave one that reports the
+engine's refusal (#314). Autocomplete, search and link integrity each did the
+second until their runtimes were derived too: the autocomplete provider is a
+memo in `editor/autocompleteWiring.ts`, so with the plugin off the editor gets
+no provider and its `[[`, `#` and `[[#^` triggers offer nothing rather than
+asking and swallowing the refusal; the search state is a memo in
+`search/wiring.ts`, so the explorer gets no slot — no bar, no results overlay
+and no index-status poll. A right sidebar panel names the plugin that owns it
+(`SidebarPanel.plugin`), and `offeredSidebarPanels` drops a panel whose plugin
+is inactive from both the switcher and the body. The persisted
+`ui.right_sidebar_panel` is left as the user chose it:
+`createSidebarPanelChoice` resolves it against the toggles on every read, so a
+choice pointing at a disabled panel shows the first offered one and comes back
+when the plugin does, and choosing a panel that is not offered is refused.
 
 A block asks `corePluginActive`, which folds in the dependency graph the
 principle names, so a block whose requirement is off reads as off.
@@ -463,7 +546,7 @@ compartments rather than rebuilding the view:
 | Live Preview decorations | raw-source toggles (swapped for a no-op) |
 | Raw-source coloring | raw source **and** the colorize setting are both on |
 | CM6 chrome theme | the resolved theme flips |
-| One per block extension | that block's inputs change — a new embed resolver or open note, a new dataview runner, a new autocomplete provider |
+| One per block extension | that block's inputs change — a new embed resolver or open note, a new dataview runner, a new autocomplete provider, a preview plugin toggled |
 | Keymap | a shortcut is remapped in Settings |
 
 **The editor core names no block.** Embeds, dataview and autocomplete each
@@ -474,7 +557,12 @@ handlers (dataview's link and frame clicks) — and the shell's composed `Editor
 `blockExtensions`. The core gives each entry its own compartment and
 reconfigures only the entry whose identity changed, so switching tabs swaps the
 embed facet without rebuilding autocompletion. A new block joins by writing a
-builder and adding it in the shell; `Editor.tsx` does not change. Vertical
+builder and adding it in the shell; `Editor.tsx` does not change. The math,
+equations and property-refs toggles ride the same seam: `shell/editorBlocks.ts`
+maps each toggle to its block's enable-facet value (`previewToggles`), and the
+composed `Editor` memoises the flag before building the value, so flipping one
+plugin reconfigures that one compartment and every other block keeps its state
+and its decorations. Vertical
 cursor motion past block widgets is core behaviour, not the embed block's, so
 it stays in the core keymap (`verticalMotion.ts`) ahead of the default keys.
 
@@ -508,9 +596,21 @@ decoration, which CodeMirror forbids from a view plugin, so it is supplied by a
 separate state field. It is also not Lezer-sourced — the markdown grammar does
 not model frontmatter — so it scans the document directly.
 
+**A cursor move is not a rebuild.** Every widget field (`decorationField`,
+and `blockRenderersField` for fences) collects its ranges without regard to the
+cursor and keeps them; the reveal — dropping whatever overlaps the cursor's
+line — is a filter over that list. A transaction that only moves the cursor to
+another line re-runs the filter, so no equation is evaluated, no property or
+embed resolver is asked, no fence is matched and every widget object is reused.
+The collect runs again only on an edit, a new syntax tree, one of the field's
+own effects or a change in a facet it watches. The core decoration plugin
+still rebuilds on every selection change, because inline reveal depends on the
+exact cursor position, but its wiki-link prefetch walks the tree only when the
+document, the tree or the resolver changes.
+
 ## The Live Preview bundle is a hard contract
 
-`livePreviewFor(rawSource, plugins, blocks)` in `ui/src/editor/livePreview.ts`
+`livePreviewFor(rawSource, blocks)` in `ui/src/editor/livePreview.ts`
 is the single composed extension installed into the decoration compartment.
 Raw-source mode reconfigures that compartment to `[]`, which structurally kills
 every transformation inside it.
@@ -521,18 +621,21 @@ source will not kill it. The editor core contributes `livePreviewBundle` — the
 decoration plugin and the block-renderer field — plus the render-failure theme,
 which `livePreviewFor` installs last, and names no feature. Everything a feature adds (the embed block field; the math,
 calc, query and csv renderers; the display-math, property-ref and equation
-fields, each with its base theme; and each feature's enable facet) is assembled
-by `editorBlocks(plugins)` in `shell/editorBlocks.ts`, which the shell hands
-every `Editor` as `blocks` through the seams below, so features die with raw
-source exactly like the core does. Renderer order is visible: fence completion
-lists languages in registration order, so `editorBlocks` registers query, csv,
-math, calc. Settings that only
-gate a preview extension belong in that record, so they ride inside the
-compartment raw source already kills, instead of earning a compartment and a
-reconfigure effect of their own in `Editor.tsx`. The record exists because the
-third such setting arrived: `propertyRefsEnabled` had taken the compartment
-route this paragraph forbids, and folding it in alongside `math` and
-`equations` removed a compartment rather than adding one.
+fields, each with its base theme) is the constant `editorBlocks` in
+`shell/editorBlocks.ts`, which the shell hands every `Editor` as
+`previewBlocks` through the seams below, so features die with raw source
+exactly like the core does. Renderer order is visible: fence completion lists
+languages in registration order, so `editorBlocks` registers query, csv, math,
+calc.
+
+A setting that only gates a preview feature is **not** a transformation and does
+not go through `livePreviewFor`. It is the feature's enable-facet value, and it
+reaches the editor as one more `blockExtensions` entry (see *Editor
+compartments*). Raw source still kills the feature, because the field that reads
+the facet lives in the preview compartment; the facet value left behind decorates
+nothing. Folding the flags into the preview compartment instead, as a
+`LivePreviewPlugins` record the core passed on, made `Editor.tsx` name every
+gated block and turned one toggle into a reconfigure of the whole preview.
 
 ## Fenced blocks go through the renderer registry
 
@@ -705,12 +808,11 @@ type from the editor.
 `![[…]]` link, and the editor constructs as usual. Tests build it that way on
 purpose; do not give a seam a default that imports the block it stands in for.
 
-**`previewBlocks` is composition, not state.** The shell passes a module
-function, `editorBlocks`, and `Editor` calls it with the current plugin flags
-whenever the preview compartment is rebuilt; it does not watch the function
-itself. The feature extensions are one module constant inside it, so only the
-enable facets are new on each rebuild. A caller that swaps the function at
-runtime must also flip something the compartment's effect already tracks.
+**`previewBlocks` is composition, not state.** The shell passes one module
+constant, `editorBlocks`, and `Editor` installs it whenever raw source turns off;
+it does not watch the prop. Anything that changes at runtime — a resolver, a
+runner, a plugin toggle — belongs in `blockExtensions`, whose entries are
+reconfigured one compartment at a time.
 
 The explorer's file rows follow the same rule for `hasViewer`: `FileRow` reads
 `CanViewContext`, `ExplorerPanel` provides it from its `canView` prop, and the

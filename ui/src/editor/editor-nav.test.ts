@@ -97,7 +97,6 @@ function makeResolver() {
       lastSettleAt: new Map(),
       lastError: new Map(),
     }),
-    onEvent: () => () => undefined,
     abort: () => undefined,
     version: () => 0,
   };
@@ -117,11 +116,7 @@ function mountView(doc: string, selectionAnchor: number): {
       openNotePathFacet.of(null),
       wikilinkResolverFacet.of(null),
       compartment.of(
-        livePreviewFor(
-          false,
-          { math: true, equations: true, propertyRefs: true },
-          editorBlocks,
-        ),
+        livePreviewFor(false, editorBlocks),
       ),
     ],
   });

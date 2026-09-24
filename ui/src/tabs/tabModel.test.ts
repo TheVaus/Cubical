@@ -15,13 +15,36 @@ import {
   remapTabPaths,
   tabId,
 } from "./tabModel";
+import { registerTabKinds } from "./tabKinds";
+
+registerTabKinds([
+  { kind: "pinned", label: () => "Pinned", evictable: false },
+  { kind: "singleton", label: () => "Singleton", evictable: false },
+  { kind: "page", label: (k) => k, evictable: true },
+]);
 
 const fileView = (path: string) => ({ kind: "file" as const, path });
 
 describe("tabId", () => {
   it("derives distinct ids per view kind", () => {
     expect(tabId(fileView("a.md"))).toBe("file:a.md");
-    expect(tabId({ kind: "tag", tagPath: "work" })).toBe("tag:work");
+    expect(tabId({ kind: "page", key: "work" })).toBe("page:work");
+  });
+
+  it("gives a keyless kind its bare name, which makes it a singleton", () => {
+    expect(tabId({ kind: "singleton", key: "" })).toBe("singleton");
+  });
+});
+
+describe("unregistered kinds", () => {
+  it("are never replaced, since substrate cannot know what eviction would kill", () => {
+    let s = openTab(emptyTabs, { kind: "unknown-block", key: "1" });
+    for (let i = 0; i < MAX_TABS - 1; i++) s = openTab(s, fileView(`n${i}.md`));
+    s = activateTab(s, "unknown-block:1");
+
+    s = openTab(s, fileView("new.md"));
+
+    expect(s.tabs.map((t) => t.id)).toContain("unknown-block:1");
   });
 });
 
@@ -77,47 +100,47 @@ describe("openTab", () => {
     expect(s.activeId).toBe("file:n0.md");
   });
 
-  it("never replaces a terminal tab, so a live session is not killed", () => {
+  it("never replaces a non-evictable tab, so its live state is not killed", () => {
     let s = emptyTabs;
-    s = openTab(s, { kind: "terminal", key: "1" });
+    s = openTab(s, { kind: "pinned", key: "1" });
     for (let i = 0; i < MAX_TABS - 1; i++) s = openTab(s, fileView(`n${i}.md`));
-    s = activateTab(s, "terminal:1");
+    s = activateTab(s, "pinned:1");
 
     s = openTab(s, fileView("new.md"));
 
-    expect(s.tabs.map((t) => t.id)).toContain("terminal:1");
+    expect(s.tabs.map((t) => t.id)).toContain("pinned:1");
     expect(s.tabs).toHaveLength(MAX_TABS);
     expect(s.activeId).toBe("file:new.md");
     expect(s.tabs.at(-1)?.id).toBe("file:new.md");
   });
 
-  it("focuses the existing graph tab rather than opening a second", () => {
+  it("focuses an existing keyless singleton rather than opening a second", () => {
     let s = emptyTabs;
-    s = openTab(s, { kind: "graph" });
+    s = openTab(s, { kind: "singleton", key: "" });
     s = openTab(s, fileView("a.md"));
-    s = openTab(s, { kind: "graph" });
+    s = openTab(s, { kind: "singleton", key: "" });
 
-    expect(s.tabs.filter((t) => t.view.kind === "graph")).toHaveLength(1);
-    expect(s.activeId).toBe("graph");
+    expect(s.tabs.filter((t) => t.view.kind === "singleton")).toHaveLength(1);
+    expect(s.activeId).toBe("singleton");
   });
 
-  it("never replaces the graph tab, so a running layout is not orphaned", () => {
+  it("never replaces a non-evictable singleton", () => {
     let s = emptyTabs;
-    s = openTab(s, { kind: "graph" });
+    s = openTab(s, { kind: "singleton", key: "" });
     for (let i = 0; i < MAX_TABS - 1; i++) s = openTab(s, fileView(`n${i}.md`));
-    s = activateTab(s, "graph");
+    s = activateTab(s, "singleton");
 
     s = openTab(s, fileView("new.md"));
 
-    expect(s.tabs.map((t) => t.id)).toContain("graph");
+    expect(s.tabs.map((t) => t.id)).toContain("singleton");
     expect(s.tabs).toHaveLength(MAX_TABS);
     expect(s.activeId).toBe("file:new.md");
   });
 
-  it("leaves a slot a file can always take, however many terminals are opened", () => {
+  it("leaves a slot a file can always take, however many non-evictable tabs are opened", () => {
     let s = emptyTabs;
     for (let i = 0; i < MAX_TABS + 6; i++)
-      s = openTab(s, { kind: "terminal", key: String(i) });
+      s = openTab(s, { kind: "pinned", key: String(i) });
 
     expect(s.tabs).toHaveLength(MAX_TABS - 1);
 
@@ -127,21 +150,21 @@ describe("openTab", () => {
     expect(s.activeId).toBe("file:new.md");
   });
 
-  it("refuses a terminal that would leave no replaceable slot", () => {
+  it("refuses a non-evictable tab that would leave no replaceable slot", () => {
     let s = emptyTabs;
     for (let i = 0; i < MAX_TABS - 1; i++)
-      s = openTab(s, { kind: "terminal", key: String(i) });
+      s = openTab(s, { kind: "pinned", key: String(i) });
 
-    const refused = openTab(s, { kind: "terminal", key: "extra" });
+    const refused = openTab(s, { kind: "pinned", key: "extra" });
 
     expect(refused).toBe(s);
-    expect(canOpenTab(s, { kind: "terminal", key: "extra" })).toBe(false);
+    expect(canOpenTab(s, { kind: "pinned", key: "extra" })).toBe(false);
   });
 
-  it("still opens a file at the cap when every other tab is a terminal", () => {
+  it("still opens a file at the cap when every other tab is non-evictable", () => {
     let s = emptyTabs;
     for (let i = 0; i < MAX_TABS - 1; i++)
-      s = openTab(s, { kind: "terminal", key: String(i) });
+      s = openTab(s, { kind: "pinned", key: String(i) });
     s = openTab(s, fileView("only.md"));
 
     expect(canOpenTab(s, fileView("new.md"))).toBe(true);
@@ -155,8 +178,8 @@ describe("openTab", () => {
   it("reports an already-open tab as openable even with no free slot", () => {
     let s = emptyTabs;
     for (let i = 0; i < MAX_TABS - 1; i++)
-      s = openTab(s, { kind: "terminal", key: String(i) });
-    expect(canOpenTab(s, { kind: "terminal", key: "0" })).toBe(true);
+      s = openTab(s, { kind: "pinned", key: String(i) });
+    expect(canOpenTab(s, { kind: "pinned", key: "0" })).toBe(true);
   });
 });
 
@@ -277,12 +300,12 @@ describe("remapTabPaths", () => {
     expect(s.tabs.map((t) => t.id)).toEqual(["file:b.md"]);
   });
 
-  it("leaves tag tabs alone", () => {
+  it("leaves non-file tabs alone", () => {
     const s = remapTabPaths(
-      openTab(emptyTabs, { kind: "tag", tagPath: "work" }),
+      openTab(emptyTabs, { kind: "page", key: "work" }),
       () => "other.md",
     );
-    expect(s.tabs[0]!.id).toBe("tag:work");
+    expect(s.tabs[0]!.id).toBe("page:work");
   });
 });
 
@@ -295,9 +318,9 @@ describe("dropMissingTabs", () => {
     expect(s.activeId).toBe("file:a.md");
   });
 
-  it("never drops tag tabs", () => {
+  it("never drops non-file tabs", () => {
     const s = dropMissingTabs(
-      openTab(emptyTabs, { kind: "tag", tagPath: "work" }),
+      openTab(emptyTabs, { kind: "page", key: "work" }),
       () => false,
     );
     expect(s.tabs).toHaveLength(1);

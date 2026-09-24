@@ -10,3 +10,9 @@ export const QUERY_PLUGIN: CorePlugin = {
   defaultEnabled: true,
   doc: QueryDoc,
 };
+
+declare module "../api/ipc" {
+  interface SettingRegistry {
+    "plugins.dataview_enabled": boolean;
+  }
+}

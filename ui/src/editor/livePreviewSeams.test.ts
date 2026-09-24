@@ -1,15 +1,14 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
-import { EditorState } from "@codemirror/state";
+import { EditorState, type Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { markdown } from "@codemirror/lang-markdown";
 
 import type { DataviewResult } from "../api/dataview";
 import { editorBlocks } from "../shell/editorBlocks";
 import { dataviewRunnerFacet, type DataviewRunner } from "./dataview";
-import { livePreviewFor, type PreviewBlocks } from "./livePreview";
+import { livePreviewFor } from "./livePreview";
 
-const PLUGINS = { math: true, equations: true, propertyRefs: true };
 const DOC =
   "```csv\nname,role\nGandalf,Wizard\n```\n\n```query\nLIST\n```\n\ntail\n";
 
@@ -30,7 +29,7 @@ afterEach(() => {
   view = undefined;
 });
 
-function mount(blocks?: PreviewBlocks): HTMLElement {
+function mount(blocks?: Extension): HTMLElement {
   view = new EditorView({
     state: EditorState.create({
       doc: DOC,
@@ -38,7 +37,7 @@ function mount(blocks?: PreviewBlocks): HTMLElement {
       extensions: [
         markdown(),
         dataviewRunnerFacet.of(runner),
-        livePreviewFor(false, PLUGINS, blocks),
+        livePreviewFor(false, blocks),
       ],
     }),
   });

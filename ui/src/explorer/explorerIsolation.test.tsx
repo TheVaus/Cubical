@@ -73,6 +73,7 @@ describe("search is a sibling of the tree, not its parent", () => {
           selectedPath={null}
           mode="files"
           refreshSignal={0}
+          corePlugins={{}}
           actions={stubActions()}
           onModeChange={() => {}}
           onRefresh={() => {}}

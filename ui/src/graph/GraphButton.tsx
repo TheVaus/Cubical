@@ -4,7 +4,7 @@ import IconButton from "@ds/components/forms/IconButton/IconButton";
 import Icon from "@ds/components/graphics/Icon/Icon";
 
 import type { TabView } from "../tabs/tabModel";
-import { GRAPH_COMMAND_TITLE } from "./registration";
+import { GRAPH_COMMAND } from "./registration";
 import { isGraphView } from "./tabView";
 
 export function GraphButton(props: {
@@ -16,7 +16,7 @@ export function GraphButton(props: {
   return (
     <Show when={props.available()}>
       <IconButton
-        label={GRAPH_COMMAND_TITLE}
+        label={GRAPH_COMMAND.title}
         onClick={props.onOpen}
         active={active()}
         ariaPressed={active()}

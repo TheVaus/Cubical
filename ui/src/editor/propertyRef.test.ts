@@ -52,7 +52,7 @@ function makeView(
 
 function decoCount(state: EditorState): number {
   let n = 0;
-  state.field(propertyRefField).between(0, state.doc.length, () => {
+  state.field(propertyRefField).deco.between(0, state.doc.length, () => {
     n++;
   });
   return n;
@@ -256,6 +256,36 @@ describe("propertyRefExtension — list flattening parity", () => {
     const view = makeView("intro\n\nTags: [[Hero.tags]].\n", resolver, 0);
     const span = view.contentDOM.querySelector(".cm-md-propref");
     expect(span?.textContent).toBe("a, b, c");
+    view.destroy();
+  });
+});
+
+describe("propertyRefExtension — cursor moves", () => {
+  it("does not resolve again when the cursor only changes line", () => {
+    let gets = 0;
+    const base = stubResolver({
+      "Gandalf age": { kind: "resolved", value: 2019 },
+    });
+    const resolver: PropertyResolver = {
+      ...base,
+      get: (note, property) => {
+        gets++;
+        return base.get(note, property);
+      },
+    };
+    const doc = "intro\n\nAge: [[Gandalf.age]].\n\ntail\n";
+    const view = makeView(doc, resolver, 0);
+    const before = gets;
+    const refLine = view.state.doc.line(3);
+
+    view.dispatch({ selection: { anchor: refLine.from } });
+    expect(view.contentDOM.querySelector(".cm-md-propref")).toBeNull();
+    view.dispatch({ selection: { anchor: doc.length } });
+    expect(view.contentDOM.querySelector(".cm-md-propref")?.textContent).toBe(
+      "2019",
+    );
+
+    expect(gets).toBe(before);
     view.destroy();
   });
 });

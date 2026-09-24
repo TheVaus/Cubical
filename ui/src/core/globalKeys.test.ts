@@ -8,7 +8,7 @@ const bindings: readonly KeyBinding[] = [
 ];
 
 const cmd = (id: string, when?: () => boolean): Command =>
-  when ? { id, title: id, run: () => {}, when } : { id, title: id, run: () => {} };
+  when ? { id, run: () => {}, when } : { id, run: () => {} };
 
 const commands = (when?: () => boolean): Record<string, Command> => ({
   "omnibar.toggle": cmd("omnibar.toggle", when),

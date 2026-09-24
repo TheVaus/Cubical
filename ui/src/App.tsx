@@ -22,7 +22,6 @@ import ConfirmDialog from "@ds/components/overlay/ConfirmDialog/ConfirmDialog";
 
 import type { EditorApi } from "./editor/Editor";
 import {
-  TERMINAL_COMMAND_ID,
   TerminalButton,
   TerminalCloseDialog,
   TerminalConsentDialog,
@@ -30,7 +29,7 @@ import {
   createTerminalWiring,
   isTerminalView,
 } from "./terminal";
-import { GRAPH_COMMAND_ID, GraphButton, GraphTabPane, createGraphWiring, isGraphView } from "./graph";
+import { GraphButton, GraphTabPane, createGraphWiring, isGraphView } from "./graph";
 import Properties from "./properties/Properties";
 import { RecentVaultList } from "./vaultSwitcher/RecentVaultList";
 import SettingsModal from "./settings/SettingsModal";
@@ -54,13 +53,15 @@ import {
   removeRecentVault,
   renameFile,
   renameFolder,
+  VAULT_EVENTS,
   type FileEntry,
   type RecentVault,
   type ResolvedAnchor,
 } from "./api/ipc";
 import { createBlockRef, getBrokenBlockRefs, type BrokenBlockRef } from "./api/blocks";
 import { createVaultSession } from "./core/vaultSession";
-import { type Command } from "./core/commands";
+import { commandTable } from "./core/commands";
+import { coreCommands } from "./core/commandRegistry";
 import { attachGlobalKeys } from "./core/globalKeys";
 import { createNavSession } from "./core/navSession";
 import { createVaultTags } from "./omnibar/vaultTags";
@@ -83,6 +84,7 @@ import {
   closeTab,
   dropMissingTabs,
   emptyTabs,
+  filePathOf,
   moveTab,
   nextTab,
   openTab,
@@ -92,7 +94,7 @@ import {
   type TabSet,
   type TabView,
 } from "./tabs/tabModel";
-import { fromTabSessionDto, toTabSessionDto } from "./tabs/session";
+import { createSessionSaver, fromTabSessionDto, toTabSessionDto } from "./tabs/session";
 import { activateWithFlush, type ActivationDeps } from "./tabs/activation";
 import { liveFileIds, touch } from "./tabs/lru";
 import { pruneContents, remapContentKeys } from "./tabs/contentCache";
@@ -113,10 +115,7 @@ import {
   type PropertyResolver,
 } from "./editor/propertyResolver";
 import { createDataviewWiring } from "./editor/dataviewWiring";
-import {
-  createAutocompleteProvider,
-  type AutocompleteProvider,
-} from "./editor/autocompleteProvider";
+import { createAutocompleteWiring } from "./editor/autocompleteWiring";
 import { buildFileTree, countFilesUnderFolder } from "./explorer/fileTree";
 import { createFileActions } from "./explorer/fileActions";
 import { Editor, ExplorerPanel } from "./shell/composed";
@@ -143,11 +142,14 @@ import {
 import { noteTitle } from "./vault/noteName";
 import { watchSystemTheme } from "./styles/theme";
 import TagPage from "./tags/TagPage";
+import { tagPathOf, tagView } from "./tags/tabKind";
 import OmniBar from "./omnibar/OmniBar";
 import { type OmniItem, type RankedItem } from "./omnibar/ranker";
-import { OMNI_COMMANDS } from "./omnibar/commands";
+import { paletteCommands } from "./omnibar/paletteCommands";
+import { OMNIBAR_COMMAND } from "./omnibar/registration";
+import { statusbarCommand } from "./statusbar/commands";
 import { corePluginActive } from "./settings/corePlugins";
-import { registeredSidebarPanels } from "./settings/sidebarPanels";
+import { offeredSidebarPanels } from "./settings/sidebarPanels";
 import { VaultSwitcher } from "./vaultSwitcher/VaultSwitcher";
 
 const AUTOSAVE_DEBOUNCE_MS = 300;
@@ -224,8 +226,10 @@ const App: Component = () => {
     onOpen: (p) => void handleNavigateWikilink(p, null),
   });
 
-  const [autocompleteProvider, setAutocompleteProvider] =
-    createSignal<AutocompleteProvider | null>(null);
+  const autocompleteProvider = createAutocompleteWiring({
+    vaultId,
+    corePlugins: settings.corePlugins,
+  });
 
   const [createOffer, setCreateOffer] = createSignal<{ path: string } | null>(
     null,
@@ -237,7 +241,7 @@ const App: Component = () => {
     activeTab(tabs())?.view ?? { kind: "file", path: "" };
   const selectedPath = (): string | null => {
     const t = activeTab(tabs());
-    return t !== null && t.view.kind === "file" ? t.view.path : null;
+    return t === null ? null : filePathOf(t.view);
   };
   const [tagRefreshTick, setTagRefreshTick] = createSignal(0);
 
@@ -272,17 +276,13 @@ const App: Component = () => {
     ),
   );
 
-  const omniItems = createMemo<OmniItem[]>(() => {
+  const omniNoteItems = createMemo<OmniItem[]>(() => {
+    if (!omniOpen()) return [];
     const notes: OmniItem[] = files()
       .filter((f) => f.type_id === "markdown")
       .map((f) => ({ kind: "note", title: noteTitle(f.path), path: f.path }));
     const tags: OmniItem[] = vaultTags.tags().map((t) => ({ kind: "tag", tag: t }));
-    const commands: OmniItem[] = OMNI_COMMANDS.map((c) => ({
-      kind: "command",
-      id: c.id,
-      title: c.title,
-    }));
-    return [...notes, ...tags, ...commands];
+    return [...notes, ...tags];
   });
   const recentNotes = createMemo<RankedItem[]>(() =>
     [...files()]
@@ -343,9 +343,10 @@ const App: Component = () => {
   };
   const pathForId = (id: string): string | null => {
     const t = tabs().tabs.find((x) => x.id === id);
-    return t !== undefined && t.view.kind === "file" ? t.view.path : null;
+    return t === undefined ? null : filePathOf(t.view);
   };
   const [tabsReady, setTabsReady] = createSignal(false);
+  const saveSession = createSessionSaver(saveTabSession);
 
   const restoreTabs = async (path: string) => {
     try {
@@ -371,7 +372,7 @@ const App: Component = () => {
     const ready = tabsReady();
     const snapshot = toTabSessionDto(tabs());
     if (path === null || !ready) return;
-    void saveTabSession(path, snapshot);
+    saveSession(path, snapshot);
   });
 
   createEffect(() => {
@@ -624,7 +625,8 @@ const App: Component = () => {
   };
 
   const handleRunCommand = (id: string) => {
-    if (id === "statusbar.toggle") settings.toggle("statusbar.enabled");
+    const c = globalCommands[id];
+    if (c && (!c.when || c.when())) c.run();
   };
 
   const stillOpen = (vault: string, tabId: string) =>
@@ -674,9 +676,8 @@ const App: Component = () => {
     const switching = tabs().activeId !== id;
     await activateWithFlush(activationDeps, id);
     if (!switching || opts?.fromHistory === true) return;
-    const t = activeTab(tabs());
-    if (t === null || t.view.kind !== "file") return;
-    const path = t.view.path;
+    const path = selectedPath();
+    if (path === null) return;
     nav.push(path);
   };
 
@@ -790,7 +791,7 @@ const App: Component = () => {
 
   const handleNavigateTag = async (tagPath: string) => {
     await flushAutosave();
-    setTabs((s) => openTab(s, { kind: "tag", tagPath }));
+    setTabs((s) => openTab(s, tagView(tagPath)));
   };
 
   const handleExitTagView = async () => {
@@ -828,48 +829,33 @@ const App: Component = () => {
     }
   };
 
-  onMount(async () => {
-    const onBeforeUnload = () => doc.writeBeforeUnload();
-    window.addEventListener("beforeunload", onBeforeUnload);
-    onCleanup(() => window.removeEventListener("beforeunload", onBeforeUnload));
-
-    const globalCommands: Record<string, Command> = {
-      "omnibar.toggle": {
-        id: "omnibar.toggle",
-        title: "Toggle Omni-Bar",
-        when: () => vaultId() !== null,
-        run: () => {
-          void vaultTags.ensureLoaded();
-          setOmniOpen((v) => !v);
-        },
+  const globalCommands = commandTable([
+    {
+      id: OMNIBAR_COMMAND.id,
+      when: () => vaultId() !== null,
+      run: () => {
+        void vaultTags.ensureLoaded();
+        setOmniOpen((v) => !v);
       },
+    },
+    ...coreCommands<"global">({
       "view.toggleSidebar": {
-        id: "view.toggleSidebar",
-        title: "Toggle left sidebar",
         when: () => vaultId() !== null,
         run: () => toggleLeftSidebar(),
       },
       "file.new": {
-        id: "file.new",
-        title: "New note",
         when: () => vaultId() !== null,
         run: () => void fileActions.newFile(""),
       },
       "nav.back": {
-        id: "nav.back",
-        title: "Navigate back",
         when: () => nav.canBack(),
         run: () => goBack(),
       },
       "nav.forward": {
-        id: "nav.forward",
-        title: "Navigate forward",
         when: () => nav.canForward(),
         run: () => goForward(),
       },
       "view.nextTab": {
-        id: "view.nextTab",
-        title: "Next tab",
         when: () => tabs().tabs.length > 1,
         run: () => {
           const id = nextTab(tabs()).activeId;
@@ -877,8 +863,6 @@ const App: Component = () => {
         },
       },
       "view.prevTab": {
-        id: "view.prevTab",
-        title: "Previous tab",
         when: () => tabs().tabs.length > 1,
         run: () => {
           const id = prevTab(tabs()).activeId;
@@ -886,17 +870,28 @@ const App: Component = () => {
         },
       },
       "view.closeTab": {
-        id: "view.closeTab",
-        title: "Close tab",
         when: () => tabs().activeId !== null,
         run: () => {
           const id = tabs().activeId;
           if (id !== null) void closeTabById(id);
         },
       },
-      [TERMINAL_COMMAND_ID]: terminalTab.command,
-      [GRAPH_COMMAND_ID]: graphTab.command,
-    };
+    }),
+    statusbarCommand(() => settings.toggle("statusbar.enabled")),
+    terminalTab.command,
+    graphTab.command,
+  ]);
+
+  const omniItems = createMemo<OmniItem[]>(() => [
+    ...omniNoteItems(),
+    ...(omniOpen() ? paletteCommands(settings.activeCommands(), globalCommands) : []),
+  ]);
+
+  onMount(async () => {
+    const onBeforeUnload = () => doc.writeBeforeUnload();
+    window.addEventListener("beforeunload", onBeforeUnload);
+    onCleanup(() => window.removeEventListener("beforeunload", onBeforeUnload));
+
     attachGlobalKeys(() => settings.effectiveBindings(), globalCommands);
 
     const unwatchTheme = watchSystemTheme(() => {
@@ -904,7 +899,7 @@ const App: Component = () => {
     });
     onCleanup(unwatchTheme);
 
-    await vaultListeners.attach("vault:scan-progress", () =>
+    await vaultListeners.attach(VAULT_EVENTS.scanProgress, () =>
       onVaultScanProgress((p) => {
         if (p.vault_id !== vaultId()) return;
         setFilesProcessed(p.files_processed);
@@ -912,7 +907,7 @@ const App: Component = () => {
         scheduleRefresh();
       }),
     );
-    await vaultListeners.attach("vault:scan-complete", () =>
+    await vaultListeners.attach(VAULT_EVENTS.scanComplete, () =>
       onVaultScanComplete((p) => {
         if (p.vault_id !== vaultId()) return;
         setFilesProcessed(p.file_count);
@@ -922,13 +917,13 @@ const App: Component = () => {
         void refreshBrokenBlockRefs();
       }),
     );
-    await vaultListeners.attach("vault:scan-cancelled", () =>
+    await vaultListeners.attach(VAULT_EVENTS.scanCancelled, () =>
       onVaultScanCancelled((p) => {
         if (p.vault_id !== vaultId()) return;
         setScanStatus("cancelled");
       }),
     );
-    await vaultListeners.attach("vault:file-changed", () =>
+    await vaultListeners.attach(VAULT_EVENTS.fileChanged, () =>
       onVaultFileChanged((p) => {
         if (p.vault_id !== vaultId()) return;
         scheduleRefresh();
@@ -941,7 +936,7 @@ const App: Component = () => {
 
         brokenBlockRefsRefresh.schedule();
 
-        if (view().kind === "tag") {
+        if (tagPathOf(view()) !== null) {
           setTagRefreshTick((n) => n + 1);
         }
 
@@ -949,14 +944,14 @@ const App: Component = () => {
       }),
     );
 
-    await vaultListeners.attach("vault:pending-rewrites-changed", () =>
+    await vaultListeners.attach(VAULT_EVENTS.pendingRewritesChanged, () =>
       onVaultPendingRewritesChanged((p) => {
         if (p.vault_id !== vaultId()) return;
         setPendingRewritesCount(p.count);
         void doc.refreshFromDisk();
       }),
     );
-    await vaultListeners.attach("vault:flush-complete", () =>
+    await vaultListeners.attach(VAULT_EVENTS.flushComplete, () =>
       onVaultFlushComplete((p) => {
         if (p.vault_id !== vaultId()) return;
         if (p.files_rewritten === 0 && p.refs_updated === 0) return;
@@ -968,10 +963,10 @@ const App: Component = () => {
         );
       }),
     );
-    await vaultListeners.attach("vault:setting-changed", () =>
+    await vaultListeners.attach(VAULT_EVENTS.settingChanged, () =>
       onVaultSettingChanged((p) => {
         if (p.vault_id !== vaultId()) return;
-        void settings.hydrate(p.vault_id);
+        settings.applyChanged(p.key, p.value);
       }),
     );
 
@@ -1037,7 +1032,6 @@ const App: Component = () => {
           setWikilinkResolver(createWikiLinkResolver(opened.vault_id));
           setEmbedResolver(createEmbedResolver(opened.vault_id));
           setPropertyResolver(createPropertyResolver(opened.vault_id));
-          setAutocompleteProvider(createAutocompleteProvider(opened.vault_id));
           scheduleRefresh();
         },
       });
@@ -1189,6 +1183,7 @@ const App: Component = () => {
                   selectedPath={selectedPath()}
                   mode={settings.leftSidebarMode()}
                   refreshSignal={searchRefreshTick()}
+                  corePlugins={settings.corePlugins()}
                   actions={fileActions}
                   onModeChange={settings.setLeftSidebarModeValue}
                   onRefresh={() => void refreshFileList()}
@@ -1253,9 +1248,7 @@ const App: Component = () => {
                       <FeatureBoundary feature="Tag page">
                         <TagPage
                           vaultId={vaultId()}
-                          tagPath={
-                            (view() as { kind: "tag"; tagPath: string }).tagPath
-                          }
+                          tagPath={tagPathOf(view()) ?? ""}
                           refreshSignal={tagRefreshTick()}
                           onSelectFile={(path) =>
                             void handleNavigateWikilink(path, null)
@@ -1476,7 +1469,7 @@ const App: Component = () => {
                 variant="pill"
                 ariaLabel="Sidebar panels"
                 value={settings.rightSidebarPanel()}
-                options={registeredSidebarPanels().map((p) => ({
+                options={offeredSidebarPanels(settings.corePlugins()).map((p) => ({
                   label: p.label,
                   value: p.id,
                 }))}
@@ -1484,7 +1477,7 @@ const App: Component = () => {
               />
               <div class="rs-body">
                 <FeatureBoundary feature="Sidebar panel">
-                  <For each={registeredSidebarPanels()}>
+                  <For each={offeredSidebarPanels(settings.corePlugins())}>
                     {(entry) => (
                       <Show when={settings.rightSidebarPanel() === entry.id}>
                         <entry.panel

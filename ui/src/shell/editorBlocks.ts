@@ -12,7 +12,6 @@ import {
   equationField,
   equationsEnabledFacet,
 } from "../editor/equation";
-import type { LivePreviewPlugins } from "../editor/livePreview";
 import { mathBaseTheme, mathBlockRenderer, mathEnabledFacet } from "../editor/math";
 import { displayMathField } from "../editor/mathDollar";
 import {
@@ -31,7 +30,7 @@ export function renderEmbeddedFile(file: EmbeddedFile): Node {
   );
 }
 
-const previewFeatures: Extension = [
+export const editorBlocks: Extension = [
   blockRenderers(
     dataviewBlockRenderer(renderDataview),
     csvBlockRenderer(renderDelimitedTable),
@@ -51,11 +50,17 @@ const previewFeatures: Extension = [
   embedFileRendererFacet.of(renderEmbeddedFile),
 ];
 
-export function editorBlocks(plugins: LivePreviewPlugins): Extension {
-  return [
-    previewFeatures,
-    mathEnabledFacet.of(plugins.math),
-    equationsEnabledFacet.of(plugins.equations),
-    propertyRefsEnabledFacet.of(plugins.propertyRefs),
-  ];
+export interface PreviewToggles {
+  mathEnabled?: boolean;
+  equationsEnabled?: boolean;
+  propertyRefsEnabled?: boolean;
 }
+
+export const previewToggles: Record<
+  keyof PreviewToggles,
+  (on: boolean) => Extension
+> = {
+  mathEnabled: (on) => mathEnabledFacet.of(on),
+  equationsEnabled: (on) => equationsEnabledFacet.of(on),
+  propertyRefsEnabled: (on) => propertyRefsEnabledFacet.of(on),
+};

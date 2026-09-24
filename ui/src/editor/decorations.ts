@@ -545,16 +545,16 @@ const livePreviewPlugin = ViewPlugin.fromClass(
       const resolverChanged = update.transactions.some((tr) =>
         tr.effects.some((e) => e.is(wikilinkResolverUpdated)),
       );
-      if (
+      const content =
         update.docChanged ||
-        update.viewportChanged ||
-        update.selectionSet ||
         syntaxTree(update.startState) !== syntaxTree(update.state) ||
-        resolverChanged
-      ) {
+        update.startState.facet(wikilinkResolverFacet) !==
+          update.state.facet(wikilinkResolverFacet) ||
+        resolverChanged;
+      if (content || update.viewportChanged || update.selectionSet) {
         this.decorations = buildFor(update.view);
-        kickResolverFetches(update.view);
       }
+      if (content) kickResolverFetches(update.view);
     }
   },
   { decorations: (plugin) => plugin.decorations },

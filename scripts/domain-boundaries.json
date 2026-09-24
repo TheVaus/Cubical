@@ -1,19 +1,35 @@
 {
   "_": [
-    "Read by scripts/gates/domain_boundary.py. The rule is",
-    "docs/principles/domain-scoped-dependencies.md.",
+    "Read by scripts/gates/domain_boundary.py, domain_names.py and",
+    "css_ownership.py, through the classifier in scripts/gates/_census.py.",
+    "The rule is docs/principles/domain-scoped-dependencies.md.",
     "",
-    "Three classes, and the class is the whole rule:",
+    "Four classes, and the class is the whole rule. scripts/gates/_census.py",
+    "is the classifier both domain gates share.",
     "",
     "  substrate — always on. Anything may depend on it. It may depend on",
     "              nothing but other substrate. Switching it off is not a",
     "              feature request, it is a different product.",
+    "  plumbing  — the engine's connective tissue (state, error, plugin",
+    "              registry, wire types). Every engine module imports it, so",
+    "              it cannot be shell; nobody switches it off, so it is not a",
+    "              block. It is held to substrate's rule: anything may depend",
+    "              on it, it may depend only on substrate and plumbing.",
     "  block     — removable. It may depend on substrate and on its own",
     "              domain. It may NOT depend on another domain's block: that",
     "              is what makes two features fail together.",
     "  shell     — the composition root. It exists to know every block, so it",
     "              is exempt. Keeping the exempt set small is the point; a",
     "              shell that grows logic has stopped being a composition root.",
+    "",
+    "Unlisted defaults to a block whose domain is its own name: a crate, a",
+    "command module, or a ui/src directory or bare file. The two exceptions",
+    "are stated where they apply: a module beside engine commands/ has no",
+    "default, and a file inside a listed ui/src directory is that directory's.",
+    "",
+    "Substrate and plumbing may not SPELL a block's name either: that is the",
+    "names half of the rule, checked by scripts/gates/domain_names.py over",
+    "scripts/domain-names.json.",
     "",
     "`allowed` is a GRANDFATHER LIST, not a design. Every entry is a violation",
     "that predates the gate, kept so the gate could land green rather than",
@@ -39,7 +55,11 @@
   "crate_allowed": {},
 
   "engine_modules": {
-    "_": "crates/cubical-engine/src/commands/*. Anything not listed is shell.",
+    "_": [
+      "crates/cubical-engine/src/commands/*. A module not listed is a block",
+      "whose domain is its own name, so a new command is fenced in until the",
+      "census says otherwise."
+    ],
     "open":        { "class": "substrate", "domain": "vault" },
     "paths":       { "class": "substrate", "domain": "vault" },
     "vault":       { "class": "substrate", "domain": "vault" },
@@ -62,19 +82,54 @@
 
   "engine_support": {
     "_": [
-      "crates/cubical-engine/src/* modules outside commands/ that belong to",
-      "one domain, checked both as sources and as targets. The engine crate",
-      "is shell, so without this a block's handle moved beside commands/, or",
-      "substrate such as the watcher living in events.rs, would be invisible.",
-      "Anything unlisted here (state, compose, plugins, api, error) is shell."
+      "crates/cubical-engine/src/* modules outside commands/, each checked",
+      "as a source and as a target. There is no default: an unlisted module",
+      "fails the gate, because skipping it is how plugins and state hid their",
+      "edges while this comment called them shell. A module that belongs to",
+      "one domain takes that domain, so a block's handle moved beside",
+      "commands/, or substrate such as the watcher living in events.rs, stays",
+      "visible. compose and lib are the shell: compose assembles one vault's",
+      "blocks and lib only declares modules."
     ],
     "events":        { "class": "substrate", "domain": "vault" },
     "rename_pairing": { "class": "substrate", "domain": "rename" },
     "vault_lock":    { "class": "substrate", "domain": "vault" },
-    "search_handle": { "class": "block", "domain": "search" }
+    "search_handle": { "class": "block", "domain": "search" },
+    "api":           { "class": "plumbing", "domain": "plumbing" },
+    "error":         { "class": "plumbing", "domain": "plumbing" },
+    "plugins":       { "class": "plumbing", "domain": "plumbing" },
+    "state":         { "class": "plumbing", "domain": "plumbing" },
+    "compose":       { "class": "shell", "domain": "engine" },
+    "lib":           { "class": "shell", "domain": "engine" }
   },
 
-  "engine_allowed": {},
+  "engine_allowed": {
+    "state -> search_handle": {
+      "issue": 321,
+      "reason": [
+        "OpenVault carries `search: SearchHandle` and `search_state`, so every",
+        "substrate command that opens a vault holds the search block. Wants a",
+        "map of domain-owned handles the shell fills at open_vault, not a",
+        "field per block."
+      ]
+    },
+    "state -> cubical-search": {
+      "issue": 321,
+      "reason": [
+        "The same field, typed: SearchStateInner stores cubical_search's",
+        "IndexState and hands back its IndexStatus, so the plumbing struct is",
+        "the search index's status type. Goes with the handle above."
+      ]
+    },
+    "state -> cubical-table": {
+      "issue": 321,
+      "reason": [
+        "AppState owns dataview's TableCache so one cache spans vaults.",
+        "Switching dataview off still allocates it. Same fix: a slot the shell",
+        "fills, owned by the block."
+      ]
+    }
+  },
 
   "ui_domains": {
     "_": [
@@ -82,8 +137,12 @@
       "own domain named after the file. A key with a slash is a path prefix",
       "inside a directory and the longest match wins: that is how the editor",
       "directory holds the always-on editor core and each preview feature as",
-      "separate domains. Anything unlisted defaults to block, so a new feature",
-      "directory is fenced in from its first commit."
+      "separate domains. A file no prefix claims takes its directory's entry,",
+      "so a new file in editor/ or api/ is substrate until given a prefix; a",
+      "directory or bare file the census does not name at all defaults to",
+      "block, so a new feature directory is fenced in from its first commit.",
+      "An api/ wrapper takes the class of the engine command it calls: one",
+      "wire contract, one class."
     ],
     "api":        { "class": "substrate", "domain": "ipc" },
     "api/autocomplete": { "class": "block", "domain": "autocomplete" },
@@ -92,7 +151,7 @@
     "api/embeds": { "class": "block", "domain": "embeds" },
     "api/graph": { "class": "block", "domain": "graph" },
     "api/integrity": { "class": "block", "domain": "integrity" },
-    "api/mentions": { "class": "block", "domain": "backlinks" },
+    "api/mentions": { "class": "substrate", "domain": "links" },
     "api/propertyRef": { "class": "block", "domain": "property-refs" },
     "api/search": { "class": "block", "domain": "search" },
     "api/terminal": { "class": "block", "domain": "terminal" },

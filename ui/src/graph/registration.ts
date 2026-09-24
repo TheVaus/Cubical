@@ -1,7 +1,8 @@
+import type { BindingDefault } from "../core/commandRegistry";
 import type { CorePlugin } from "../settings/corePlugins";
 
 export const GRAPH_PLUGIN: CorePlugin = {
-  id: "graph-view",
+  id: "graph",
   name: "Graph view",
   description:
     "Show the vault as a knowledge graph — notes as nodes, links as edges.",
@@ -9,6 +10,16 @@ export const GRAPH_PLUGIN: CorePlugin = {
   defaultEnabled: true,
 };
 
-export const GRAPH_COMMAND_ID = "graph.open";
+export const GRAPH_COMMAND: BindingDefault = {
+  id: "graph.open",
+  title: "Open graph view",
+  scope: "global",
+  defaultKey: "Mod-Shift-g",
+  plugin: GRAPH_PLUGIN.id,
+};
 
-export const GRAPH_COMMAND_TITLE = "Open graph view";
+declare module "../api/ipc" {
+  interface SettingRegistry {
+    "plugins.graph_view_enabled": boolean;
+  }
+}

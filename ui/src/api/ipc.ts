@@ -30,7 +30,7 @@ export interface RemoveRecentVaultRequest {
 
 export interface TabRecordDto {
   id: string;
-  kind: "file" | "tag";
+  kind: string;
   path: string | null;
   tag_path: string | null;
 }
@@ -214,41 +214,24 @@ export interface QueryTagPageResponse {
   files: TagPageFile[];
 }
 
-export type Setting =
-  | { key: "editor.raw_source_default"; value: boolean }
-  | { key: "editor.minimap_enabled"; value: boolean }
-  | { key: "editor.colorize_raw_source"; value: boolean }
-  | { key: "editor.live_tab_limit"; value: number }
-  | { key: "appearance.theme_mode"; value: "light" | "dark" | "system" }
-  | { key: "ui.right_sidebar_collapsed"; value: boolean }
-  | { key: "ui.right_sidebar_panel"; value: string }
-  | { key: "ui.left_sidebar_mode"; value: string }
-  | { key: "pending_rewrites.flush_interval_secs"; value: number }
-  | { key: "plugins.dataview_enabled"; value: boolean }
-  | { key: "plugins.property_refs_enabled"; value: boolean }
-  | { key: "plugins.math_enabled"; value: boolean }
-  | { key: "plugins.equations_enabled"; value: boolean }
-  | { key: "plugins.terminal_enabled"; value: boolean }
-  | { key: "plugins.graph_view_enabled"; value: boolean }
-  | { key: "plugins.search_enabled"; value: boolean }
-  | { key: "plugins.autocomplete_enabled"; value: boolean }
-  | { key: "plugins.integrity_enabled"; value: boolean }
-  | { key: "properties.typed_enabled"; value: boolean }
-  | { key: "properties.date_format_default"; value: string }
-  | { key: "properties.default_currency"; value: string }
-  | { key: "properties.tags_key_as_tags"; value: boolean }
-  | { key: "statusbar.enabled"; value: boolean }
-  | { key: "statusbar.show_vault_path"; value: boolean }
-  | { key: "statusbar.show_file_path"; value: boolean }
-  | { key: "statusbar.show_word_count"; value: boolean }
-  | { key: "statusbar.show_block_count"; value: boolean }
-  | { key: "wikilinks.rewrite_broken_links_on_rename"; value: boolean }
-  | { key: "shortcuts.overrides"; value: Record<string, string> };
+export interface SettingRegistry {
+  "editor.raw_source_default": boolean;
+  "editor.minimap_enabled": boolean;
+  "editor.colorize_raw_source": boolean;
+  "editor.live_tab_limit": number;
+  "appearance.theme_mode": "light" | "dark" | "system";
+  "ui.right_sidebar_collapsed": boolean;
+  "ui.right_sidebar_panel": string;
+  "ui.left_sidebar_mode": string;
+  "wikilinks.rewrite_broken_links_on_rename": boolean;
+  "shortcuts.overrides": Record<string, string>;
+}
 
-export type SettingValue<K extends Setting["key"]> = Extract<
-  Setting,
-  { key: K }
->["value"];
+export type Setting = {
+  [K in keyof SettingRegistry]: { key: K; value: SettingRegistry[K] };
+}[keyof SettingRegistry];
+
+export type SettingValue<K extends keyof SettingRegistry> = SettingRegistry[K];
 
 export interface GetSettingRequest {
   vault_id: string;
@@ -572,37 +555,28 @@ export interface VaultFileChanged {
   new_content_hash?: string;
 }
 
-export function onVaultScanProgress(
-  handler: (payload: VaultScanProgress) => void,
-): Promise<UnlistenFn> {
-  return listen<VaultScanProgress>("vault:scan-progress", (e) =>
-    handler(e.payload),
-  );
+export const VAULT_EVENTS = {
+  scanProgress: "vault:scan-progress",
+  scanComplete: "vault:scan-complete",
+  scanCancelled: "vault:scan-cancelled",
+  fileChanged: "vault:file-changed",
+  pendingRewritesChanged: "vault:pending-rewrites-changed",
+  flushComplete: "vault:flush-complete",
+  settingChanged: "vault:setting-changed",
+} as const;
+
+function onVaultEvent<T>(name: string) {
+  return (handler: (payload: T) => void): Promise<UnlistenFn> =>
+    listen<T>(name, (e) => handler(e.payload));
 }
 
-export function onVaultScanComplete(
-  handler: (payload: VaultScanComplete) => void,
-): Promise<UnlistenFn> {
-  return listen<VaultScanComplete>("vault:scan-complete", (e) =>
-    handler(e.payload),
-  );
-}
+export const onVaultScanProgress = onVaultEvent<VaultScanProgress>(VAULT_EVENTS.scanProgress);
 
-export function onVaultScanCancelled(
-  handler: (payload: VaultScanCancelled) => void,
-): Promise<UnlistenFn> {
-  return listen<VaultScanCancelled>("vault:scan-cancelled", (e) =>
-    handler(e.payload),
-  );
-}
+export const onVaultScanComplete = onVaultEvent<VaultScanComplete>(VAULT_EVENTS.scanComplete);
 
-export function onVaultFileChanged(
-  handler: (payload: VaultFileChanged) => void,
-): Promise<UnlistenFn> {
-  return listen<VaultFileChanged>("vault:file-changed", (e) =>
-    handler(e.payload),
-  );
-}
+export const onVaultScanCancelled = onVaultEvent<VaultScanCancelled>(VAULT_EVENTS.scanCancelled);
+
+export const onVaultFileChanged = onVaultEvent<VaultFileChanged>(VAULT_EVENTS.fileChanged);
 
 export function renameFile(
   req: RenameFileRequest,
@@ -673,22 +647,10 @@ export interface VaultFlushComplete {
   refs_updated: number;
 }
 
-export function onVaultPendingRewritesChanged(
-  handler: (payload: VaultPendingRewritesChanged) => void,
-): Promise<UnlistenFn> {
-  return listen<VaultPendingRewritesChanged>(
-    "vault:pending-rewrites-changed",
-    (e) => handler(e.payload),
-  );
-}
+export const onVaultPendingRewritesChanged =
+  onVaultEvent<VaultPendingRewritesChanged>(VAULT_EVENTS.pendingRewritesChanged);
 
-export function onVaultFlushComplete(
-  handler: (payload: VaultFlushComplete) => void,
-): Promise<UnlistenFn> {
-  return listen<VaultFlushComplete>("vault:flush-complete", (e) =>
-    handler(e.payload),
-  );
-}
+export const onVaultFlushComplete = onVaultEvent<VaultFlushComplete>(VAULT_EVENTS.flushComplete);
 
 export interface VaultSettingChanged {
   vault_id: string;
@@ -696,10 +658,4 @@ export interface VaultSettingChanged {
   value: unknown;
 }
 
-export function onVaultSettingChanged(
-  handler: (payload: VaultSettingChanged) => void,
-): Promise<UnlistenFn> {
-  return listen<VaultSettingChanged>("vault:setting-changed", (e) =>
-    handler(e.payload),
-  );
-}
+export const onVaultSettingChanged = onVaultEvent<VaultSettingChanged>(VAULT_EVENTS.settingChanged);

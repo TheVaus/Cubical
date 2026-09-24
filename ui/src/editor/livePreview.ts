@@ -10,20 +10,9 @@ export const livePreviewBundle: Extension = [
   blockRenderersBaseTheme,
 ];
 
-export interface LivePreviewPlugins {
-  math: boolean;
-  equations: boolean;
-  propertyRefs: boolean;
-}
-
-export type PreviewBlocks = (plugins: LivePreviewPlugins) => Extension;
-
 export function livePreviewFor(
   rawSource: boolean,
-  plugins: LivePreviewPlugins,
-  blocks?: PreviewBlocks,
+  blocks: Extension = [],
 ): Extension {
-  return rawSource
-    ? []
-    : [livePreviewBundle, blocks ? blocks(plugins) : [], renderFailureBaseTheme];
+  return rawSource ? [] : [livePreviewBundle, blocks, renderFailureBaseTheme];
 }

@@ -17,12 +17,8 @@ import {
 } from "@codemirror/state";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
-import {
-  DEFAULT_BINDINGS,
-  toCmBindings,
-  type Command,
-  type KeyBinding,
-} from "../core/commands";
+import { coreCommands, defaultBindings } from "../core/commandRegistry";
+import { commandTable, toCmBindings, type KeyBinding } from "../core/commands";
 import { syntaxTree } from "@codemirror/language";
 
 import { normalize } from "../ast/normalize";
@@ -55,7 +51,7 @@ import {
   propertyResolverUpdated,
   type PropertyResolver,
 } from "./propertySlot";
-import { livePreviewFor, type PreviewBlocks } from "./livePreview";
+import { livePreviewFor } from "./livePreview";
 import { colorSourceHighlight } from "./colorSource";
 import { createUpdateSubscriber } from "./updateSubscription";
 import { verticalDocLineMotion } from "./verticalMotion";
@@ -112,10 +108,7 @@ export interface EditorProps {
   colorizeSource?: boolean;
   wikilinkResolver?: WikiLinkResolver | null;
   propertyResolver?: PropertyResolver | null;
-  propertyRefsEnabled?: boolean;
-  mathEnabled?: boolean;
-  equationsEnabled?: boolean;
-  previewBlocks?: PreviewBlocks;
+  previewBlocks?: Extension;
   blockExtensions?: readonly Extension[];
   editorBindings?: KeyBinding[];
   onNavigateWikilink?: (path: string, anchor: ResolvedAnchor | null) => void;
@@ -133,12 +126,7 @@ export interface EditorProps {
 const AST_DEBOUNCE_MS = 150;
 
 const Editor: Component<EditorProps> = (props) => {
-  const preview = () =>
-    livePreviewFor(props.rawSource, {
-      math: props.mathEnabled ?? true,
-      equations: props.equationsEnabled ?? true,
-      propertyRefs: props.propertyRefsEnabled ?? true,
-    }, props.previewBlocks);
+  const preview = () => livePreviewFor(props.rawSource, props.previewBlocks);
   let host!: HTMLDivElement;
   let view: EditorView | undefined;
   let astPending: ReturnType<typeof setTimeout> | undefined;
@@ -250,15 +238,11 @@ const Editor: Component<EditorProps> = (props) => {
     return true;
   };
 
-  const editorCommands: Record<string, Command> = {
+  const editorCommands = commandTable(coreCommands<"editor">({
     "editor.toggleRawSource": {
-      id: "editor.toggleRawSource",
-      title: "Toggle raw source",
       run: () => props.onToggleRawSource?.(),
     },
     "editor.copyBlockRef": {
-      id: "editor.copyBlockRef",
-      title: "Copy block reference",
       run: () => {
         if (!view) return;
         const head = view.state.selection.main.head;
@@ -267,18 +251,16 @@ const Editor: Component<EditorProps> = (props) => {
       },
     },
     "editor.followWikilink": {
-      id: "editor.followWikilink",
-      title: "Follow link under cursor",
       run: () => {
         if (!view) return;
         handleClickAtPos(view, view.state.selection.main.head);
       },
     },
-  };
+  }));
 
   const buildEditorKeymap = (bindings: KeyBinding[] | undefined) =>
     keymap.of([
-      ...toCmBindings(bindings ?? DEFAULT_BINDINGS, editorCommands),
+      ...toCmBindings(bindings ?? defaultBindings(), editorCommands),
       {
         key: "ArrowUp",
         run: (view) => verticalDocLineMotion(view, false),
@@ -452,13 +434,7 @@ const Editor: Component<EditorProps> = (props) => {
 
   createEffect(
     on(
-      () =>
-        [
-          props.rawSource,
-          props.mathEnabled,
-          props.equationsEnabled,
-          props.propertyRefsEnabled,
-        ] as const,
+      () => props.rawSource,
       () => {
         view?.dispatch({
           effects: decorationCompartment.reconfigure(preview()),

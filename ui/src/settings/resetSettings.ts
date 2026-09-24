@@ -1,3 +1,5 @@
+import { batch } from "solid-js";
+
 import { registeredBlockSettings } from "./blockSettings";
 import { registeredCorePlugins } from "./corePlugins";
 import { SETTINGS_DEFAULTS } from "./defaults";
@@ -8,6 +10,10 @@ import {
 } from "./sidebarPanels";
 
 export function resetSettings(settings: SettingsState): void {
+  batch(() => resetEach(settings));
+}
+
+function resetEach(settings: SettingsState): void {
   settings.setTheme(SETTINGS_DEFAULTS.themeMode);
   settings.setRawOverride(null);
   settings.setRawDefaultValue(SETTINGS_DEFAULTS.rawSourceDefault);

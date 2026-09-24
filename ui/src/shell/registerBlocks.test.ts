@@ -1,6 +1,10 @@
 // @vitest-environment jsdom
 import { describe, expect, test } from "vitest";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
+import { CORE_COMMANDS, registeredCommands } from "../core/commandRegistry";
 import {
   corePluginActive,
   corePluginEnabled,
@@ -9,6 +13,7 @@ import {
 import { registeredSidebarPanels } from "../settings/sidebarPanels";
 import { registeredStatusbarSegments } from "../statusbar/statusbarSettings";
 import { STATUSBAR_SEGMENTS } from "../statusbar/segments";
+import { tabKind } from "../tabs/tabKinds";
 import { registerBlocks } from "./registerBlocks";
 
 registerBlocks();
@@ -21,7 +26,7 @@ describe("registerBlocks", () => {
       "math",
       "equations",
       "terminal",
-      "graph-view",
+      "graph",
       "search",
       "autocomplete",
       "integrity",
@@ -35,6 +40,22 @@ describe("registerBlocks", () => {
     expect(registeredStatusbarSegments()).toHaveLength(
       STATUSBAR_SEGMENTS.length,
     );
+  });
+
+  test("agrees with cubical_engine::plugins::Feature on id, key, default and requires", () => {
+    const fixture = resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      "../../../crates/cubical-engine/tests/fixtures/core_plugins.json",
+    );
+    const frontend = registeredCorePlugins()
+      .map((p) => ({
+        id: p.id,
+        setting_key: p.settingKey,
+        default_enabled: p.defaultEnabled,
+        requires: [...(p.requires ?? [])],
+      }))
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    expect(frontend).toEqual(JSON.parse(readFileSync(fixture, "utf8")));
   });
 
   test("gives every plugin a distinct id and setting key", () => {
@@ -52,7 +73,7 @@ describe("registerBlocks", () => {
   });
 
   test("ships the graph entry, default-on", () => {
-    expect(corePluginActive({}, "graph-view")).toBe(true);
+    expect(corePluginActive({}, "graph")).toBe(true);
   });
 
   test("lets each plugin carry its own help page, so settings holds none", () => {
@@ -80,6 +101,12 @@ describe("registerBlocks", () => {
     }
   });
 
+  test("hands the tab substrate each block's kind, and only tags persist", () => {
+    const kinds = ["tag", "terminal", "graph"].map((k) => tabKind(k));
+    expect(kinds.map((k) => k?.evictable)).toEqual([true, false, false]);
+    expect(kinds.map((k) => k?.persist !== undefined)).toEqual([true, false, false]);
+  });
+
   test("hands settings the statusbar's segments in bar order", () => {
     expect(registeredStatusbarSegments().map((s) => s.id)).toEqual([
       "vault_path",
@@ -87,5 +114,25 @@ describe("registerBlocks", () => {
       "word_count",
       "block_count",
     ]);
+  });
+
+  test("hands the command registry each block's commands after the substrate's", () => {
+    expect(registeredCommands().map((c) => c.id)).toEqual([
+      ...CORE_COMMANDS.map((c) => c.id),
+      "omnibar.toggle",
+      "view.openTerminal",
+      "graph.open",
+      "statusbar.toggle",
+    ]);
+  });
+
+  test("gates each block command on a plugin the registry knows", () => {
+    const plugins = new Set(registeredCorePlugins().map((p) => p.id));
+    const gated = registeredCommands().filter((c) => c.plugin !== undefined);
+    expect(gated.map((c) => [c.id, c.plugin])).toEqual([
+      ["view.openTerminal", "terminal"],
+      ["graph.open", "graph"],
+    ]);
+    for (const c of gated) expect(plugins.has(c.plugin!)).toBe(true);
   });
 });

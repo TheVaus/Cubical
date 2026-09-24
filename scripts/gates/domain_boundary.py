@@ -25,7 +25,6 @@ Fails on a new edge only. Every pre-existing edge is grandfathered in the
 config with the issue that tracks removing it, so the gate landed green and
 the paydown list is the config diff.
 """
-import json
 import posixpath
 import re
 import sys
@@ -33,9 +32,10 @@ import tomllib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from _common import ROOT, Gate, main_guard, rel, tracked  # noqa: E402
-
-CONFIG = ROOT / "scripts" / "domain-boundaries.json"
+from _common import Gate, main_guard, rel, tracked  # noqa: E402
+from _census import (  # noqa: E402
+    ALWAYS_ON, classify, engine_files, entries, load_census,
+    production_text, ui_files, ui_domain, workspace_crates)
 
 UI_IMPORT = re.compile(
     r"""(?:^\s*(?:import|export)\s[^;]*?from\s+|^\s*import\s+|\bimport\s*\(\s*)"""
@@ -46,57 +46,6 @@ ENGINE_GROUP = re.compile(r"\bcrate::(commands::)?\{")
 CRATE_PATH = re.compile(r"\b(cubical_[a-z_]+)\s*::")
 CRATE_USE = re.compile(r"\buse\s+(cubical_[a-z_]+)\b")
 GROUP_HEAD = re.compile(r"^\s*([a-z_]+)")
-
-
-def production_lines(text: str) -> list[tuple[int, str]]:
-    """Numbered lines outside any `#[cfg(test)]` item.
-
-    Brace-depth tracked rather than "break at the first #[cfg(test)]": that
-    assumed the test module comes last, and commands/graph.rs disproves it with
-    a `#[cfg(test)] fn` inside an impl 124 lines above its `mod tests`. Breaking
-    there stopped scanning the file's real code silently, which is the failure
-    mode a gate must not have.
-
-    Braces inside string literals can skew the depth. An unbalanced one makes
-    the gate include test lines (a visible false positive) or skip a few real
-    ones; it is counted rather than parsed because the alternative is a Rust
-    parser, and the previous heuristic was strictly worse.
-    """
-    out: list[tuple[int, str]] = []
-    depth = 0
-    skip_from: int | None = None
-    opened = False
-    for n, line in enumerate(text.splitlines(), 1):
-        if skip_from is None and line.strip().startswith("#[cfg(test)]"):
-            skip_from = depth
-            opened = "{" in line
-            depth += line.count("{") - line.count("}")
-            item = line.strip()[len("#[cfg(test)]"):]
-            if not opened and ";" in item:
-                skip_from = None
-            continue
-        closed = line.count("}")
-        depth += line.count("{") - closed
-        if skip_from is not None:
-            opened = opened or "{" in line
-            if opened and depth <= skip_from and closed:
-                skip_from = None
-            elif not opened and ";" in line and depth <= skip_from:
-                skip_from = None
-            continue
-        out.append((n, line))
-    return out
-
-
-def production_text(text: str) -> str:
-    """The file with every test-only line blanked, line count preserved.
-
-    Matching the whole text rather than line by line is what lets a `use`
-    group that spans several lines be seen at all.
-    """
-    keep = dict(production_lines(text))
-    return "\n".join(keep.get(n, "")
-                     for n in range(1, len(text.splitlines()) + 1))
 
 
 def braced(text: str, open_pos: int) -> str:
@@ -192,26 +141,27 @@ def engine_edges(text: str) -> list[tuple[int, str]]:
     return found
 
 
-def classify(cfg_table: dict, name: str) -> tuple[str, str]:
-    entry = cfg_table.get(name)
-    if entry is None:
-        return ("block", name)
-    return (entry["class"], entry["domain"])
-
-
 def verdict(src: tuple[str, str], dst: tuple[str, str]) -> str | None:
-    """Why this edge is illegal, or None if it is fine."""
+    """Why this edge is illegal, or None if it is fine.
+
+    Plumbing is held to substrate's rule in both directions: anything may
+    import it, and it may import only substrate and plumbing.
+    """
     src_class, src_domain = src
     dst_class, dst_domain = dst
     if src_domain == dst_domain:
         return None
     if src_class == "shell":
         return None
-    if dst_class == "substrate":
+    if dst_class in ALWAYS_ON:
         return None
     if dst_class == "shell":
         return (f"a {src_class} depends on the shell — the composition root "
                 f"wires features together, it is not a library they call into")
+    if src_class == "plumbing":
+        return (f"engine plumbing depends on the {dst_domain} block — every "
+                f"engine module imports plumbing, so this puts the block under "
+                f"all of them")
     if src_class == "substrate":
         return (f"substrate depends on the {dst_domain} block — substrate is "
                 f"always on, so this makes the block always on too")
@@ -220,15 +170,16 @@ def verdict(src: tuple[str, str], dst: tuple[str, str]) -> str | None:
 
 
 def check_crates(gate: Gate, cfg: dict) -> None:
-    table = cfg["crates"]
+    table = entries(cfg["crates"])
     allowed = cfg["crate_allowed"]
+    workspace = workspace_crates()
     for f in tracked("crates/", suffixes=("Cargo.toml",)):
         crate = rel(f).split("/")[1]
         manifest = tomllib.loads(f.read_text(encoding="utf-8"))
         deps: set[str] = set()
         for section in ("dependencies", "dev-dependencies"):
             deps |= set(manifest.get(section, {}))
-        for dep in sorted(d for d in deps if d in table and d != crate):
+        for dep in sorted(d for d in deps if d in workspace and d != crate):
             why = verdict(classify(table, crate), classify(table, dep))
             if why and f"{crate} -> {dep}" not in allowed:
                 gate.fail(f"{rel(f)}: {why}. Declare it in "
@@ -236,61 +187,26 @@ def check_crates(gate: Gate, cfg: dict) -> None:
                           f"tracks removing it, or route it through the shell.")
 
 
-TEST_MOD = re.compile(r"^\s*#\[cfg\(test\)\]\s*\n\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+([a-z_0-9]+)\s*;", re.M)
-
-
-def test_only_modules(files: list[Path]) -> set[Path]:
-    """Files declared as `#[cfg(test)] mod x;` in their parent module.
-
-    production_lines only sees a `#[cfg(test)]` item inside the file it reads;
-    a module whose whole file is test-gated at its declaration looks like
-    production code from inside. The principle exempts test code, so the gate
-    has to find these rather than grandfather a fixture as if it shipped.
-    """
-    out: set[Path] = set()
-    for f in files:
-        if f.name not in ("mod.rs",) and f.parent.name != "commands":
-            continue
-        text = f.read_text(encoding="utf-8", errors="replace")
-        base = f.parent if f.name == "mod.rs" else f.parent / f.stem
-        for name in TEST_MOD.findall(text):
-            for cand in (base / f"{name}.rs", base / name / "mod.rs"):
-                out.add(cand)
-    return out
-
-
 def check_engine_modules(gate: Gate, cfg: dict) -> None:
-    """Commands and the domain-owned modules beside them, as sources and targets.
+    """Every engine module, as a source and as a target.
 
-    A module outside `commands/` that belongs to one domain is listed in
-    `engine_support`; it is checked as a source too, because the watcher and
-    the scan dispatcher live there and are substrate, and a support module that
-    is only ever a target is one whose own edges nobody reads.
+    Commands are classed by `engine_modules`. The modules beside them are
+    classed by `engine_support` and have no default: an unlisted one fails,
+    because skipping it is how `plugins` and `state` hid their edges while the
+    census called them shell.
     """
-    table = cfg["engine_modules"]
+    table = entries(cfg["engine_modules"])
+    support = entries(cfg["engine_support"])
     allowed = cfg["engine_allowed"]
-    crates = cfg["crates"]
-    support = {k: v for k, v in cfg.get("engine_support", {}).items()
-               if k != "_"}
-    root = "crates/cubical-engine/src/"
-    prefix = root + "commands/"
-    files = tracked(prefix, suffixes=(".rs",))
-    test_only = test_only_modules(files)
-    sources: list[tuple[Path, str, tuple[str, str]]] = []
-    for f in files:
-        if f in test_only:
-            continue
-        parts = rel(f)[len(prefix):].split("/")
-        src_name = parts[0] if len(parts) > 1 else parts[0][:-len(".rs")]
-        if src_name == "mod":
-            continue
-        sources.append((f, src_name, classify(table, src_name)))
-    for f in tracked(root, suffixes=(".rs",)):
-        parts = rel(f)[len(root):].split("/")
-        name = parts[0] if len(parts) > 1 else parts[0][:-len(".rs")]
-        if name in support:
-            sources.append((f, name, classify(support, name)))
-    for f, src_name, src in sources:
+    crates = entries(cfg["crates"])
+    workspace = workspace_crates()
+    sources, unlisted = engine_files(cfg)
+    for r in unlisted:
+        gate.fail(f"{r}: an engine module beside commands/ that the census "
+                  f"does not class. Add it to `engine_support` in "
+                  f"scripts/domain-boundaries.json as shell, plumbing, or the "
+                  f"domain it belongs to.")
+    for f, _, src_name, src in sources:
         text = f.read_text(encoding="utf-8", errors="replace")
         seen: set[tuple[int, str]] = set()
         for n, target in engine_edges(text):
@@ -300,7 +216,7 @@ def check_engine_modules(gate: Gate, cfg: dict) -> None:
             via = ""
             if target.startswith("crate:"):
                 dst_name = target[len("crate:"):]
-                if dst_name not in crates:
+                if dst_name not in workspace:
                     continue
                 dst = classify(crates, dst_name)
                 via = f" (names the {dst_name} crate)"
@@ -319,38 +235,11 @@ def check_engine_modules(gate: Gate, cfg: dict) -> None:
                 gate.fail(f"{rel(f)}:{n}: {why}{via}.")
 
 
-def ui_domain(path: str, table: dict | None = None) -> str | None:
-    """Census key of a ui/src path.
-
-    A directory is a domain; so is a bare file. A census key containing a
-    slash names a path prefix inside a directory (`editor/math` covers
-    `editor/math.ts` and `editor/mathDollar.ts`), and the longest such prefix
-    wins, so one directory can hold several domains without moving files.
-
-    posixpath, not Path: these are repo-relative keys with forward slashes,
-    and Path would resolve them against the filesystem root on Windows.
-    """
-    if not path.startswith("ui/src/"):
-        return None
-    inner = path[len("ui/src/"):]
-    for suffix in (".tsx", ".ts"):
-        if inner.endswith(suffix):
-            inner = inner[: -len(suffix)]
-    prefixes = [k for k in (table or {}) if "/" in k and inner.startswith(k)]
-    if prefixes:
-        return max(prefixes, key=len)
-    return inner.split("/")[0]
-
-
 def check_ui(gate: Gate, cfg: dict) -> None:
-    table = cfg["ui_domains"]
+    table = entries(cfg["ui_domains"])
     allowed = cfg["ui_allowed"]
-    for f in tracked("ui/src/", suffixes=(".ts", ".tsx")):
+    for f, src_name, src in ui_files(cfg):
         r = rel(f)
-        if ".test." in r:
-            continue
-        src_name = ui_domain(r, table)
-        src = classify(table, src_name)
         text = f.read_text(encoding="utf-8", errors="replace")
         # Whole text, not line by line: a braced import puts `from` several
         # lines below `import`, so a per-line match sees neither half. The
@@ -369,7 +258,7 @@ def check_ui(gate: Gate, cfg: dict) -> None:
 
 def run() -> int:
     gate = Gate("domain-boundary", "domain-scoped-dependencies.md")
-    cfg = json.loads(CONFIG.read_text(encoding="utf-8"))
+    cfg = load_census()
     check_crates(gate, cfg)
     check_engine_modules(gate, cfg)
     check_ui(gate, cfg)

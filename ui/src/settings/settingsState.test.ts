@@ -11,13 +11,17 @@ vi.mock("../styles/theme", () => ({
 }));
 
 import { getSetting, setSetting } from "../api/ipc";
+import { registerCommands } from "../core/commandRegistry";
+import { GRAPH_COMMAND, GRAPH_PLUGIN } from "../graph/registration";
 import { propertiesBlockSettings } from "../properties/formats";
 import { STATUSBAR_SEGMENTS, VAULT_PATH_SEGMENT } from "../statusbar/segments";
 import {
   registerStatusbarSegments,
   statusbarBlockSettings,
 } from "../statusbar/statusbarSettings";
+import { INTEGRITY_PLUGIN } from "../integrity/registration";
 import { registerBlockSettings } from "./blockSettings";
+import { registerCorePlugins } from "./corePlugins";
 import {
   registerLeftSidebarModes,
   registerSidebarPanels,
@@ -27,8 +31,18 @@ import { createSettingsState } from "./settingsState";
 registerSidebarPanels([
   { id: "first-panel", label: "First", order: 10, panel: () => null },
   { id: "second-panel", label: "Second", order: 20, panel: () => null },
+  {
+    id: "gated-panel",
+    label: "Gated",
+    order: 30,
+    panel: () => null,
+    plugin: INTEGRITY_PLUGIN.id,
+  },
 ]);
+registerCorePlugins([INTEGRITY_PLUGIN]);
 registerLeftSidebarModes(["first-mode", "second-mode"]);
+registerCorePlugins([GRAPH_PLUGIN]);
+registerCommands([GRAPH_COMMAND]);
 registerStatusbarSegments(STATUSBAR_SEGMENTS);
 registerBlockSettings([
   ...statusbarBlockSettings(),
@@ -174,6 +188,122 @@ describe("hydrate", () => {
     await s.hydrate("v1");
     expect(s.value("properties.default_currency")).toBe("eur");
   });
+
+  it("applies a falsy stored value rather than the fallback", async () => {
+    stored.mockImplementation((_v: string, key: string) =>
+      Promise.resolve(key === "wikilinks.rewrite_broken_links_on_rename" ? false : null),
+    );
+    const s = build();
+    await s.hydrate("v1");
+    expect(s.rewriteBrokenLinks()).toBe(false);
+  });
+
+  it("falls back to each plugin's and block's default on a rejected read", async () => {
+    stored.mockRejectedValue(new Error("index unavailable"));
+    registerCorePlugins([
+      {
+        id: "probe",
+        name: "Probe",
+        description: "",
+        settingKey: "plugins.dataview_enabled",
+        defaultEnabled: true,
+      },
+    ]);
+    const s = build();
+    await s.hydrate("v1");
+    expect(s.corePlugins()).toMatchObject({ probe: true });
+    expect(s.value("properties.default_currency")).toBe("usd");
+  });
+
+  it("issues every read before any of them resolves", async () => {
+    const pending: Array<() => void> = [];
+    stored.mockImplementation(
+      () => new Promise((resolve) => pending.push(() => resolve(null))),
+    );
+    const s = build();
+    const done = s.hydrate("v1");
+    await Promise.resolve();
+    expect(pending.length).toBe(stored.mock.calls.length);
+    expect(pending.length).toBeGreaterThan(1);
+    pending.forEach((resolve) => resolve());
+    await done;
+  });
+});
+
+describe("applyChanged", () => {
+  it("applies the one changed key from the event without re-reading any", () => {
+    const s = build();
+    s.applyChanged("properties.default_currency", "eur");
+    s.applyChanged("editor.live_tab_limit", 0);
+    s.applyChanged("appearance.theme_mode", "dark");
+    expect(s.value("properties.default_currency")).toBe("eur");
+    expect(s.liveTabLimit()).toBe(1);
+    expect(s.themeMode()).toBe("dark");
+    expect(stored).not.toHaveBeenCalled();
+    expect(written).not.toHaveBeenCalled();
+  });
+
+  it("restores the default when the event carries no value", () => {
+    const s = build();
+    s.applyChanged("properties.default_currency", "eur");
+    s.applyChanged("properties.default_currency", null);
+    expect(s.value("properties.default_currency")).toBe("usd");
+  });
+
+  it("ignores a key nothing registered", () => {
+    const s = build();
+    expect(() => s.applyChanged("nobody.owns_this", true)).not.toThrow();
+  });
+});
+
+describe("a right sidebar panel owned by a core plugin", () => {
+  const storedGated = (integrityOn: boolean) =>
+    stored.mockImplementation((_v: string, key: string) =>
+      Promise.resolve(
+        key === "ui.right_sidebar_panel"
+          ? "gated-panel"
+          : key === INTEGRITY_PLUGIN.settingKey
+            ? integrityOn
+            : null,
+      ),
+    );
+
+  it("falls back when the persisted panel's plugin is off, and keeps the choice", async () => {
+    storedGated(false);
+    const s = build();
+    await s.hydrate("v1");
+    expect(s.rightSidebarPanel()).toBe("first-panel");
+
+    s.setCorePlugin(INTEGRITY_PLUGIN.id, INTEGRITY_PLUGIN.settingKey, true);
+    expect(s.rightSidebarPanel()).toBe("gated-panel");
+  });
+
+  it("falls back the moment the plugin is switched off", async () => {
+    storedGated(true);
+    const s = build();
+    await s.hydrate("v1");
+    expect(s.rightSidebarPanel()).toBe("gated-panel");
+
+    s.setCorePlugin(INTEGRITY_PLUGIN.id, INTEGRITY_PLUGIN.settingKey, false);
+    expect(s.rightSidebarPanel()).toBe("first-panel");
+  });
+
+  it("refuses to select a panel whose plugin is off", async () => {
+    stored.mockImplementation((_v: string, key: string) =>
+      Promise.resolve(key === INTEGRITY_PLUGIN.settingKey ? false : null),
+    );
+    const s = build();
+    await s.hydrate("v1");
+    written.mockClear();
+
+    s.setRightSidebarPanelValue("gated-panel");
+    expect(s.rightSidebarPanel()).toBe("first-panel");
+    expect(written).not.toHaveBeenCalledWith(
+      "v1",
+      "ui.right_sidebar_panel",
+      "gated-panel",
+    );
+  });
 });
 
 describe("resetForVaultSwitch", () => {
@@ -210,5 +340,46 @@ describe("resetForVaultSwitch", () => {
     expect(s.corePlugins()).toEqual({});
     expect(s.value(VAULT_PATH_SEGMENT.settingKey)).toBe(true);
     expect(s.value("statusbar.enabled")).toBe(true);
+  });
+});
+
+describe("a block's commands follow its toggle", () => {
+  const graphKey = (s: ReturnType<typeof build>) =>
+    s.effectiveBindings().find((b) => b.command === GRAPH_COMMAND.id)?.key;
+
+  it("unbinds the command while the block is off and keeps the override", () => {
+    const s = build();
+    s.setShortcutOverridesValue({ [GRAPH_COMMAND.id]: "Mod-Shift-j" });
+    expect(graphKey(s)).toBe("Mod-Shift-j");
+    written.mockClear();
+
+    s.setCorePlugin(GRAPH_PLUGIN.id, GRAPH_PLUGIN.settingKey, false);
+
+    expect(graphKey(s)).toBeUndefined();
+    expect(s.activeCommands().some((c) => c.id === GRAPH_COMMAND.id)).toBe(
+      false,
+    );
+    expect(s.shortcutOverrides()).toEqual({ [GRAPH_COMMAND.id]: "Mod-Shift-j" });
+    expect(written).not.toHaveBeenCalledWith(
+      "v1",
+      "shortcuts.overrides",
+      expect.anything(),
+    );
+    expect(written).toHaveBeenCalledWith(
+      "v1",
+      GRAPH_PLUGIN.settingKey,
+      false,
+    );
+
+    s.setCorePlugin(GRAPH_PLUGIN.id, GRAPH_PLUGIN.settingKey, true);
+
+    expect(graphKey(s)).toBe("Mod-Shift-j");
+  });
+
+  it("hands out the same binding table when a toggle changes no binding", () => {
+    const s = build();
+    const before = s.effectiveBindings();
+    s.setCorePlugin("dataview", "plugins.dataview_enabled", false);
+    expect(s.effectiveBindings()).toBe(before);
   });
 });
