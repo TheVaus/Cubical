@@ -9,10 +9,9 @@ function noteLink(note: NoteRef): HTMLAnchorElement {
   return a;
 }
 
-function labelCell(note: NoteRef | null, text: string): HTMLTableCellElement {
+function labelCell(note: NoteRef | null): HTMLTableCellElement {
   const td = document.createElement("td");
   if (note) td.appendChild(noteLink(note));
-  else td.textContent = text;
   return td;
 }
 
@@ -73,7 +72,7 @@ export function renderDataview(result: DataviewResult): DocumentFragment {
   for (const row of result.rows) {
     const tr = document.createElement("tr");
     if (result.row_label !== null) {
-      tr.appendChild(labelCell(row.note, ""));
+      tr.appendChild(labelCell(row.note));
     }
     for (const cell of row.cells) {
       const td = document.createElement("td");

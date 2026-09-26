@@ -2,8 +2,6 @@ import { createEffect, createSignal, on, type Component } from "solid-js";
 
 import TextInput from "@ds/components/forms/TextInput/TextInput";
 
-import { truncateInt } from "./format";
-
 export interface NumberCellProps {
   value: number;
   onCommit: (next: number) => void;
@@ -30,7 +28,7 @@ const NumberCell: Component<NumberCellProps> = (props) => {
       setDraft(String(props.value));
       return;
     }
-    const final = props.integer ? truncateInt(parsed) : parsed;
+    const final = props.integer ? Math.trunc(parsed) : parsed;
     if (final !== props.value) props.onCommit(final);
     setDraft(String(final));
   };

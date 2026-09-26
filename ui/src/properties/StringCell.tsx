@@ -1,16 +1,9 @@
-import {
-  createEffect,
-  createSignal,
-  on,
-  onMount,
-  type Component,
-} from "solid-js";
+import { createEffect, createSignal, on, type Component } from "solid-js";
 
 import TextInput from "@ds/components/forms/TextInput/TextInput";
 
 export interface StringCellProps {
   value: string;
-  autoFocus?: boolean;
   onCommit: (next: string) => void;
 }
 
@@ -28,9 +21,6 @@ const StringCell: Component<StringCellProps> = (props) => {
   );
 
   let input!: HTMLInputElement;
-  onMount(() => {
-    if (props.autoFocus) input.focus();
-  });
 
   const commit = () => {
     if (draft() !== props.value) props.onCommit(draft());

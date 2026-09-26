@@ -139,12 +139,6 @@ function renameIn(
   return yaml.slice(0, range[0]) + text + yaml.slice(range[1]);
 }
 
-export function spliceFrontmatter(source: string, block: string): string {
-  const split = splitFrontmatter(source);
-  if (split.span === null) return block + source;
-  return block + source.slice(split.span.end);
-}
-
 export function hasUnmodelableYaml(yamlText: string): boolean {
   let doc: ReturnType<typeof parseDocument>;
   try {

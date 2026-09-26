@@ -9,7 +9,7 @@ export type CellKind =
   | "list-of-strings"
   | "raw";
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+export const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export function inferType(value: unknown): CellKind {
   if (typeof value === "boolean") return "boolean";

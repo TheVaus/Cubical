@@ -27,7 +27,3 @@ export function parseCurrencyInput(text: string): number | null {
   const n = Number(cleaned);
   return Number.isFinite(n) ? n : null;
 }
-
-export function truncateInt(value: number): number {
-  return Math.trunc(value);
-}
