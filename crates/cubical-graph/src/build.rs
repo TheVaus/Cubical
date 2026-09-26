@@ -9,41 +9,66 @@ use crate::model::{EdgeKind, GraphEdge, GraphModel, GraphNode, NodeId, NodeKind}
 
 const MARKDOWN_TYPE_ID: &str = "markdown";
 
+#[derive(Default)]
 struct Builder {
     nodes: Vec<GraphNode>,
-    index: HashMap<(NodeKind, String), NodeId>,
+    files: HashMap<String, NodeId>,
+    ghosts: HashMap<String, NodeId>,
+    tags: HashMap<String, NodeId>,
 }
 
 impl Builder {
-    fn new() -> Self {
-        Self {
-            nodes: Vec::new(),
-            index: HashMap::new(),
-        }
-    }
-
-    fn intern(&mut self, kind: NodeKind, key: &str, label: &str) -> NodeId {
-        if let Some(id) = self.index.get(&(kind, key.to_string())) {
-            return *id;
-        }
+    fn push(&mut self, kind: NodeKind, key: String, label: String) -> NodeId {
         let id = NodeId(self.nodes.len() as u32);
         self.nodes.push(GraphNode {
             id,
             kind,
-            key: key.to_string(),
-            label: label.to_string(),
+            key,
+            label,
         });
-        self.index.insert((kind, key.to_string()), id);
         id
     }
 
-    fn get(&self, kind: NodeKind, key: &str) -> Option<NodeId> {
-        self.index.get(&(kind, key.to_string())).copied()
+    fn add_file(&mut self, kind: NodeKind, path: String) {
+        let label = note_title(&path).to_string();
+        let id = self.push(kind, path.clone(), label);
+        self.files.insert(path, id);
+    }
+
+    fn file(&self, path: &str) -> Option<NodeId> {
+        self.files.get(path).copied()
+    }
+
+    fn note(&self, path: &str) -> Option<NodeId> {
+        self.file(path).filter(|id| {
+            self.nodes
+                .get(id.0 as usize)
+                .is_some_and(|n| n.kind == NodeKind::Note)
+        })
+    }
+
+    fn ghost(&mut self, target_raw: String) -> NodeId {
+        let key = fold_name(&target_raw);
+        if let Some(&id) = self.ghosts.get(&key) {
+            return id;
+        }
+        let id = self.push(NodeKind::Ghost, key.clone(), target_raw);
+        self.ghosts.insert(key, id);
+        id
+    }
+
+    fn tag(&mut self, tag_path: String) -> NodeId {
+        if let Some(&id) = self.tags.get(&tag_path) {
+            return id;
+        }
+        let id = self.push(NodeKind::Tag, tag_path.clone(), tag_path.clone());
+        self.tags.insert(tag_path, id);
+        id
     }
 }
 
 pub async fn build_model(conn: &IndexConn) -> Result<GraphModel, GraphError> {
-    let mut b = Builder::new();
+    let mut b = Builder::default();
     let mut edges: Vec<GraphEdge> = Vec::new();
 
     let mut rows = conn
@@ -58,8 +83,7 @@ pub async fn build_model(conn: &IndexConn) -> Result<GraphModel, GraphError> {
         } else {
             NodeKind::Attachment
         };
-        let label = note_title(&path).to_string();
-        b.intern(kind, &path, &label);
+        b.add_file(kind, path);
     }
 
     let mut rows = conn
@@ -75,18 +99,12 @@ pub async fn build_model(conn: &IndexConn) -> Result<GraphModel, GraphError> {
         let target_raw: String = r.get(1)?;
         let target_path: Option<String> = r.get(2)?;
         let is_embed: i64 = r.get(3)?;
-        let Some(source) = b
-            .get(NodeKind::Note, &source_path)
-            .or_else(|| b.get(NodeKind::Attachment, &source_path))
-        else {
+        let Some(source) = b.file(&source_path) else {
             continue;
         };
-        match target_path {
+        let (target, kind) = match target_path {
             Some(t) => {
-                let Some(target) = b
-                    .get(NodeKind::Note, &t)
-                    .or_else(|| b.get(NodeKind::Attachment, &t))
-                else {
+                let Some(target) = b.file(&t) else {
                     continue;
                 };
                 let kind = if is_embed == 0 {
@@ -94,22 +112,15 @@ pub async fn build_model(conn: &IndexConn) -> Result<GraphModel, GraphError> {
                 } else {
                     EdgeKind::Embed
                 };
-                edges.push(GraphEdge {
-                    source,
-                    target,
-                    kind,
-                });
+                (target, kind)
             }
-            None => {
-                let key = fold_name(&target_raw);
-                let target = b.intern(NodeKind::Ghost, &key, &target_raw);
-                edges.push(GraphEdge {
-                    source,
-                    target,
-                    kind: EdgeKind::Ghost,
-                });
-            }
-        }
+            None => (b.ghost(target_raw), EdgeKind::Ghost),
+        };
+        edges.push(GraphEdge {
+            source,
+            target,
+            kind,
+        });
     }
 
     let mut rows = conn
@@ -122,10 +133,10 @@ pub async fn build_model(conn: &IndexConn) -> Result<GraphModel, GraphError> {
     while let Some(r) = rows.next().await? {
         let file_path: String = r.get(0)?;
         let tag_path: String = r.get(1)?;
-        let Some(source) = b.get(NodeKind::Note, &file_path) else {
+        let Some(source) = b.note(&file_path) else {
             continue;
         };
-        let target = b.intern(NodeKind::Tag, &tag_path, &tag_path);
+        let target = b.tag(tag_path);
         edges.push(GraphEdge {
             source,
             target,
@@ -256,6 +267,23 @@ mod tests {
             .collect();
         assert_eq!(e.len(), 1);
         assert_eq!(m.degree(e[0].source), 1);
+    }
+
+    #[tokio::test]
+    async fn embeds_reach_attachments_but_attachments_carry_no_tags() {
+        let (_dir, conn) = open_test_index().await;
+        seed_file(&conn, "a.md", "markdown").await;
+        seed_file(&conn, "img.png", "image").await;
+        seed_tag(&conn, "img.png", "work").await;
+        let mut embed = link("img.png", Some("img.png"));
+        embed.is_embed = true;
+        replace_links_for_file(&conn, "a.md", &[embed])
+            .await
+            .expect("links");
+        let m = build_model(&conn).await.expect("build");
+        let kinds_of_edges: Vec<EdgeKind> = m.edges().iter().map(|e| e.kind).collect();
+        assert_eq!(kinds_of_edges, vec![EdgeKind::Embed]);
+        assert!(kinds(&m, NodeKind::Tag).is_empty());
     }
 
     #[tokio::test]
