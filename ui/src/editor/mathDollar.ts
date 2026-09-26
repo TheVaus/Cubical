@@ -8,6 +8,7 @@ import { syntaxTree } from "@codemirror/language";
 
 import { decorationField } from "./decorationField";
 import { mathEnabledFacet, renderMath } from "./math";
+import { BLOCK_CONTAINERS } from "./blockContainers";
 
 const FENCE = "$$";
 
@@ -95,14 +96,6 @@ export function scanDisplayMath(text: string): DisplayMathRegion[] {
   return regions;
 }
 
-const CODE_CONTAINERS = new Set([
-  "Document",
-  "Blockquote",
-  "BulletList",
-  "OrderedList",
-  "ListItem",
-]);
-
 function codeRanges(state: EditorState): Array<[number, number]> {
   const ranges: Array<[number, number]> = [];
   syntaxTree(state).iterate({
@@ -111,7 +104,7 @@ function codeRanges(state: EditorState): Array<[number, number]> {
         ranges.push([node.from, node.to]);
         return false;
       }
-      return CODE_CONTAINERS.has(node.name);
+      return BLOCK_CONTAINERS.has(node.name);
     },
   });
   return ranges;

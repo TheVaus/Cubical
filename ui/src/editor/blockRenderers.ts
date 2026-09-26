@@ -15,6 +15,7 @@ import {
 import { syntaxTree } from "@codemirror/language";
 
 import { renderGuarded } from "./widgetGuard";
+import { BLOCK_CONTAINERS } from "./blockContainers";
 
 export interface BlockRenderContext {
   language: string;
@@ -124,14 +125,6 @@ function revisionsOf(
 function sameRevisions(a: unknown[], b: unknown[]): boolean {
   return a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
 }
-
-const BLOCK_CONTAINERS = new Set([
-  "Document",
-  "Blockquote",
-  "BulletList",
-  "OrderedList",
-  "ListItem",
-]);
 
 function buildDecorations(
   state: EditorState,

@@ -71,10 +71,7 @@ export interface CursorState {
   to: number;
 }
 
-export interface DocRange {
-  from: number;
-  to: number;
-}
+export type DocRange = { from: number; to: number };
 
 function lineSpan(
   doc: Text,
@@ -167,12 +164,7 @@ function extendSpaces(doc: Text, from: number): number {
 }
 
 const HEADINGS = new Map<string, readonly [number, boolean]>([
-  ["ATXHeading1", [1, false]],
-  ["ATXHeading2", [2, false]],
-  ["ATXHeading3", [3, false]],
-  ["ATXHeading4", [4, false]],
-  ["ATXHeading5", [5, false]],
-  ["ATXHeading6", [6, false]],
+  ...[1, 2, 3, 4, 5, 6].map((n) => [`ATXHeading${n}`, [n, false]] as const),
   ["SetextHeading1", [1, true]],
   ["SetextHeading2", [2, true]],
 ]);
