@@ -1,6 +1,5 @@
 #![forbid(unsafe_code)]
 
-mod error;
 pub mod frontmatter;
 mod normalize;
 pub mod note_name;
@@ -8,7 +7,6 @@ pub mod tag;
 mod types;
 pub mod wikilink;
 
-pub use error::AstError;
 pub use frontmatter::parse_frontmatter;
 pub use note_name::{basename, note_title, strip_markdown_extension, FRONTMATTER_TITLE_KEY};
 pub use types::{Anchor, Block, Document, Frontmatter, Inline, ListItem, Span};
