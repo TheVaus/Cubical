@@ -226,7 +226,7 @@ fn keystrokes_reach_the_child_and_its_answer_comes_back() {
     assert!(text.contains("got:ping"), "unexpected output: {text:?}");
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[test]
 fn a_write_blocked_on_one_terminal_does_not_stall_the_others() {
     let registry = std::sync::Arc::new(TerminalRegistry::default());

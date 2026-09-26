@@ -652,6 +652,14 @@ flags, not an invariant a panic can break, so the only thing poisoning proved
 was that some unrelated thread died. This does not extend to a lock guarding a
 half-updated structure, where poisoning is the signal it was designed to be.
 
+The terminal registry follows the same rule: its sessions mutex is a lookup.
+A PTY write clones the session's writer handle out and writes after the lock is
+released, so a child that stops reading stdin blocks only its own writes, not
+every terminal's resize, busy check or close. The test for it runs on Linux
+only: a macOS PTY accepts a multi-megabyte write to a child that never reads
+without blocking the writer, so the stall it guards against cannot be staged
+there.
+
 ## Idempotent vault re-open
 
 Re-opening an already-open folder returns the existing session rather than
