@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
-use super::session::{ChunkSink, TerminalSession};
+use super::session::{write_to, ChunkSink, TerminalSession};
 use super::spawn::OpenSpec;
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
@@ -39,8 +39,8 @@ impl TerminalRegistry {
     }
 
     pub fn write(&self, terminal_id: &str, data: &[u8]) -> Result<(), String> {
-        let sessions = lock(&self.sessions);
-        entry(&sessions, terminal_id)?.session.write(data)
+        let writer = entry(&lock(&self.sessions), terminal_id)?.session.writer();
+        write_to(&writer, data)
     }
 
     pub fn resize(&self, terminal_id: &str, cols: u16, rows: u16) -> Result<(), String> {

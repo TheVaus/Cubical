@@ -228,6 +228,56 @@ fn keystrokes_reach_the_child_and_its_answer_comes_back() {
 
 #[cfg(unix)]
 #[test]
+fn a_write_blocked_on_one_terminal_does_not_stall_the_others() {
+    let registry = std::sync::Arc::new(TerminalRegistry::default());
+    let (stuck_sink, _stuck_rx) = sink();
+    let stuck = registry
+        .open(
+            "v1",
+            spec("/bin/sh", &["-c", "sleep 30"], PathBuf::from("/")),
+            stuck_sink,
+        )
+        .unwrap();
+    let (other_sink, _other_rx) = sink();
+    let other = registry
+        .open(
+            "v1",
+            spec("/bin/sh", &["-c", "sleep 30"], PathBuf::from("/")),
+            other_sink,
+        )
+        .unwrap();
+
+    let writer = {
+        let registry = std::sync::Arc::clone(&registry);
+        let stuck = stuck.clone();
+        std::thread::spawn(move || {
+            let _ = registry.write(&stuck, &vec![b'x'; 4 * 1024 * 1024]);
+        })
+    };
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(
+        !writer.is_finished(),
+        "the precondition failed: the pty accepted the whole write"
+    );
+
+    let (done_tx, done_rx) = channel();
+    {
+        let registry = std::sync::Arc::clone(&registry);
+        std::thread::spawn(move || {
+            let _ = done_tx.send(registry.resize(&other, 100, 30));
+        });
+    }
+    let resized = done_rx.recv_timeout(SETTLE);
+    assert!(
+        matches!(resized, Ok(Ok(()))),
+        "a blocked write stalled another terminal: {resized:?}"
+    );
+
+    drop(registry.drain_all());
+}
+
+#[cfg(unix)]
+#[test]
 fn resizing_reaches_the_pty_winsize() {
     let registry = TerminalRegistry::default();
     let (sink, _rx) = sink();
