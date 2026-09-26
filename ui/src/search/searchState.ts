@@ -72,17 +72,24 @@ export function createSearchState(deps: SearchStateDeps): SearchState {
   let statusTimer: ReturnType<typeof setInterval> | undefined;
   let latest = 0;
 
+  const stopPolling = () => {
+    if (statusTimer !== undefined) {
+      clearInterval(statusTimer);
+      statusTimer = undefined;
+    }
+  };
+
   const pollStatus = async () => {
     const id = deps.vaultId();
-    if (!id) return;
+    if (!id) {
+      stopPolling();
+      return;
+    }
     try {
       const s = await readStatus({ vault_id: id });
       if (deps.vaultId() !== id) return;
       setStatus(s);
-      if (s.state !== "building" && statusTimer !== undefined) {
-        clearInterval(statusTimer);
-        statusTimer = undefined;
-      }
+      if (s.state !== "building") stopPolling();
     } catch (e) {
       console.error("searchIndexStatus failed", e);
     }
@@ -159,7 +166,7 @@ export function createSearchState(deps: SearchStateDeps): SearchState {
 
   onCleanup(() => {
     debouncedQuery.cancel();
-    if (statusTimer !== undefined) clearInterval(statusTimer);
+    stopPolling();
   });
 
   return {
