@@ -1,3 +1,5 @@
+import { closestFromTarget } from "./closestFromTarget";
+
 export interface DataviewMousedownEvent {
   button: number;
   metaKey: boolean;
@@ -40,19 +42,9 @@ export function maybeInterceptDataviewMousedown(
 }
 
 export function closestDataviewLink(target: EventTarget | null): Element | null {
-  return closestMatching(target, ".cq-dataview-link");
+  return closestFromTarget(target, ".cq-dataview-link");
 }
 
 export function closestDataviewFrame(target: EventTarget | null): Element | null {
-  return closestMatching(target, ".cm-dataview-frame");
-}
-
-function closestMatching(target: EventTarget | null, selector: string): Element | null {
-  const el =
-    target instanceof Element
-      ? target
-      : target instanceof Node
-        ? target.parentElement
-        : null;
-  return el?.closest(selector) ?? null;
+  return closestFromTarget(target, ".cm-dataview-frame");
 }

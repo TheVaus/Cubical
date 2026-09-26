@@ -499,6 +499,14 @@ positions decorations need. The canonical-AST path is a separate, unaffected
 consumer. `collectDecorations` is the pure, view-independent core; the plugin
 is a thin wrapper.
 
+The plugin walks **only the viewport**, not the document. It rebuilds on every
+selection change, so a whole-document walk made each cursor move cost a pass
+over the note; scrolling already rebuilds it, so off-screen text is decorated
+when it arrives. The same walk asks the wiki-link resolver for each link it
+decorates and starts a fetch on a miss — there is no second tree pass for
+that. A swapped resolver facet is itself a rebuild trigger; without it a vault
+switch kept the old resolver's colouring until the next keystroke.
+
 Reveal has **two modes**: line-level markers (headings, fences, quotes, list
 dashes) reveal whenever the cursor shares their line; inline tokens (emphasis,
 code, link brackets and URL, wiki-links, tags, block ids) reveal only while the
@@ -767,7 +775,8 @@ dataview):
   target must be lifted to its parent first — otherwise the lookup silently
   returns null, nothing calls `preventDefault`, and the click falls through.
   That single omission kept one click bug alive through two prior fix attempts,
-  so keep the lift in one shared helper rather than per interceptor.
+  so keep the lift in one shared helper (`closestFromTarget`) rather than per
+  interceptor.
 
 ## Minimap
 
@@ -848,6 +857,10 @@ an alias prefix.
 The trigger fires only where a fence is actually being opened — it reuses
 `isOpenAbove` from `autoClose.ts` rather than matching backticks, so typing
 inside an open block does not offer to open another.
+
+Fence auto-close binds Enter (and the bracket keymap binds Backspace) at
+`Prec.high`: `defaultKeymap` is registered ahead of it and binds both keys, so
+at default precedence neither handler would ever run.
 
 ## Offset conversions
 

@@ -79,8 +79,6 @@ export function completeFence(view: EditorView): boolean {
   return true;
 }
 
-// defaultKeymap is registered ahead of this and binds Enter and Backspace, so
-// both handlers have to outrank it to ever run.
 export const autoCloseExtension: Extension = [
   bracketLanguageData,
   closeBrackets(),
