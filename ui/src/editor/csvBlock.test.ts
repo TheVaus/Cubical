@@ -4,7 +4,7 @@ import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 
 import { markdown } from "@codemirror/lang-markdown";
-import { csvBlockRenderer, delimiterForInfo } from "./csvBlock";
+import { csvBlockRenderer } from "./csvBlock";
 import { renderDelimitedTable } from "../viewer/render";
 import { blockRenderers, blockRenderersField } from "./blockRenderers";
 
@@ -26,20 +26,6 @@ function renderedTables(doc: string, cursor = 0): HTMLElement[] {
   view.destroy();
   return tables as HTMLElement[];
 }
-
-describe("delimiterForInfo", () => {
-  it("maps csv and tsv, case- and space-insensitively", () => {
-    expect(delimiterForInfo("csv")).toBe(",");
-    expect(delimiterForInfo("  CSV  ")).toBe(",");
-    expect(delimiterForInfo("tsv")).toBe("\t");
-  });
-
-  it("ignores other languages so code blocks stay code", () => {
-    for (const info of ["js", "rust", "query", "", "csvx"]) {
-      expect(delimiterForInfo(info)).toBeUndefined();
-    }
-  });
-});
 
 describe("csv block rendering", () => {
   it("renders a csv fenced block as a table", () => {

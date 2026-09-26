@@ -80,15 +80,6 @@ export function renderDelimitedTable(
   return frag;
 }
 
-export function renderWarning(message: string): DocumentFragment {
-  const frag = document.createDocumentFragment();
-  const div = document.createElement("div");
-  div.className = "viewer__inline-warning";
-  div.textContent = `⚠ ${message}`;
-  frag.appendChild(div);
-  return frag;
-}
-
 export function replaceChildren(
   host: HTMLElement,
   content: DocumentFragment,
