@@ -23,15 +23,20 @@ pub fn scan_wikilinks(input: &str) -> Vec<TokenizedRun> {
     let mut out: Vec<TokenizedRun> = Vec::new();
     let mut cursor: usize = 0;
     let mut i: usize = 0;
+    let mut last_close: Option<usize> = None;
     while i < bytes.len() {
         let (open_byte, content_start, is_embed) = match find_open(bytes, i) {
             Some(found) => found,
             None => break,
         };
-        let close = match find_close(bytes, content_start) {
+        let close = match last_close.filter(|&c| c >= content_start) {
             Some(c) => c,
-            None => break,
+            None => match find_close(bytes, content_start) {
+                Some(c) => c,
+                None => break,
+            },
         };
+        last_close = Some(close);
         let body = &input[content_start..close];
         match parse_body(body, is_embed) {
             Some(wl) => {
@@ -315,6 +320,14 @@ mod tests {
         assert_eq!(
             scan_wikilinks("text [[unclosed and more"),
             vec![text("text [[unclosed and more")]
+        );
+    }
+
+    #[test]
+    fn rejected_opens_share_one_close_with_the_link_that_follows() {
+        assert_eq!(
+            scan_wikilinks("[[#[[#[[ok]] tail"),
+            vec![text("[[#[[#"), wl("ok"), text(" tail")]
         );
     }
 
