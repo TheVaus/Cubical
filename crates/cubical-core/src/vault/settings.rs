@@ -111,7 +111,10 @@ fn insert_dotted(table: &mut toml::value::Table, dotted: &str, value: toml::Valu
         if !entry.is_table() {
             *entry = toml::Value::Table(toml::value::Table::new());
         }
-        cur = entry.as_table_mut().unwrap();
+        let Some(next) = entry.as_table_mut() else {
+            return;
+        };
+        cur = next;
     }
 }
 
