@@ -196,18 +196,17 @@ describe("buildStableTagRows", () => {
   const files = [md("one.md")];
 
   it("reuses row objects that did not change", () => {
-    const first = buildStableTagRows([], assignments, files, none);
-    const second = buildStableTagRows(first, assignments, files, none);
+    const first = buildStableTagRows([], buildTagTree(assignments, files), none);
+    const second = buildStableTagRows(first, buildTagTree(assignments, files), none);
     expect(second[0]).toBe(first[0]);
     expect(second[1]).toBe(first[1]);
   });
 
   it("replaces a row whose collapsed state changed", () => {
-    const first = buildStableTagRows([], assignments, files, none);
+    const first = buildStableTagRows([], buildTagTree(assignments, files), none);
     const second = buildStableTagRows(
       first,
-      assignments,
-      files,
+      buildTagTree(assignments, files),
       new Set(["work"]),
     );
     expect(second[0]).not.toBe(first[0]);
@@ -216,14 +215,18 @@ describe("buildStableTagRows", () => {
   it("keeps one tag's rows identical when a different tag gains a file", () => {
     const first = buildStableTagRows(
       [],
-      [at("work", "one.md"), at("home", "two.md")],
-      [md("one.md"), md("two.md")],
+      buildTagTree(
+        [at("work", "one.md"), at("home", "two.md")],
+        [md("one.md"), md("two.md")],
+      ),
       none,
     );
     const second = buildStableTagRows(
       first,
-      [at("work", "one.md"), at("home", "two.md"), at("home", "three.md")],
-      [md("one.md"), md("two.md"), md("three.md")],
+      buildTagTree(
+        [at("work", "one.md"), at("home", "two.md"), at("home", "three.md")],
+        [md("one.md"), md("two.md"), md("three.md")],
+      ),
       none,
     );
     const workRow = (rows: TagFlatRow[]) => rows.find((r) => r.id === "work")!;

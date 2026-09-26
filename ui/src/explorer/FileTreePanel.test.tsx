@@ -65,7 +65,6 @@ function panel(over: PanelOver = {}) {
     <FileTreePanel
       files={over.files ?? []}
       folders={over.folders ?? []}
-      vaultId="v1"
       selectedPath={over.selectedPath ?? null}
       actions={over.actions ?? stubActions()}
       onSelectFile={over.onSelectFile ?? (() => {})}
@@ -183,7 +182,6 @@ describe("FileTreePanel", () => {
         <FileTreePanel
           files={[entry("photo.png", "binary"), entry("archive.zip", "binary")]}
           folders={[]}
-          vaultId="v1"
           selectedPath={null}
           actions={stubActions()}
           onSelectFile={() => {}}

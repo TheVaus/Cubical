@@ -138,8 +138,8 @@ describe("flattenTree", () => {
 describe("buildStableTreeRows", () => {
   it("reuses every row's object reference when nothing changed", () => {
     const entries = [md("welcome.md"), md("projects/roadmap.md")];
-    const first = buildStableTreeRows([], entries, [], new Set());
-    const second = buildStableTreeRows(first, entries, [], new Set());
+    const first = buildStableTreeRows([], buildFileTree(entries), new Set());
+    const second = buildStableTreeRows(first, buildFileTree(entries), new Set());
 
     expect(second[0]).toBe(first[0]);
     expect(second[1]).toBe(first[1]);
@@ -147,11 +147,10 @@ describe("buildStableTreeRows", () => {
 
   it("gives a fresh reference only to the row that actually changed", () => {
     const entries = [md("welcome.md"), md("projects/roadmap.md")];
-    const first = buildStableTreeRows([], entries, [], new Set());
+    const first = buildStableTreeRows([], buildFileTree(entries), new Set());
     const second = buildStableTreeRows(
       first,
-      entries,
-      [],
+      buildFileTree(entries),
       new Set(["projects"]),
     );
 
@@ -168,11 +167,10 @@ describe("buildStableTreeRows", () => {
 
   it("gives a fresh reference to a newly added file without touching others", () => {
     const entries = [md("welcome.md")];
-    const first = buildStableTreeRows([], entries, [], new Set());
+    const first = buildStableTreeRows([], buildFileTree(entries), new Set());
     const second = buildStableTreeRows(
       first,
-      [...entries, md("second.md")],
-      [],
+      buildFileTree([...entries, md("second.md")]),
       new Set(),
     );
 

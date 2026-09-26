@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 
 const ipc = vi.hoisted(() => ({
@@ -153,5 +154,50 @@ describe("TagTreePanel tag rename", () => {
       "urgent",
       "one.md",
     ]);
+  });
+});
+
+describe("TagTreePanel across vaults", () => {
+  const mountWithVault = (vault: () => string | null) =>
+    mount(() => (
+      <TagTreePanel
+        files={[entry("one.md")]}
+        vaultId={vault()}
+        selectedPath={null}
+        reloadToken={0}
+        actions={stubActions()}
+        onSelectFile={() => {}}
+        onRenameCommit={() => {}}
+      />
+    ));
+
+  it("does not show the previous vault's tags while the new vault loads", async () => {
+    const [vault, setVault] = createSignal<string | null>("v1");
+    const host = mountWithVault(vault);
+    await flush();
+    expect(rowNames(host)).toContain("urgent");
+
+    ipc.listTagAssignments.mockReturnValueOnce(new Promise(() => {}));
+    setVault("v2");
+    await flush();
+
+    expect(rowNames(host)).not.toContain("urgent");
+  });
+
+  it("drops an assignment list that lands after the vault closed", async () => {
+    const [vault, setVault] = createSignal<string | null>("v1");
+    let release!: (v: { assignments: { tag_path: string; file_path: string }[] }) => void;
+    ipc.listTagAssignments.mockReturnValueOnce(
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+    );
+    const host = mountWithVault(vault);
+
+    setVault(null);
+    release({ assignments: [{ tag_path: "urgent", file_path: "one.md" }] });
+    await flush();
+
+    expect(rowNames(host)).not.toContain("urgent");
   });
 });
