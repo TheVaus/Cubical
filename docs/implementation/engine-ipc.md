@@ -121,7 +121,11 @@ the transport, keeping the pure handlers clean.
   event (complete or cancelled), updating the stored scan status so later
   `get_vault_info` calls agree. Every spawn passes the **open vault's own**
   cancellation token; a rebuild given a fresh one keeps scanning against a
-  closed vault's index because nothing can reach it to stop it.
+  closed vault's index because nothing can reach it to stop it. A token
+  `cancel_vault_scan` already spent is the other failure: `search_rebuild_index`
+  wipes the index before it spawns, so a rebuild under a cancelled token left
+  search empty until reopen. It therefore stores a fresh token on `OpenVault`
+  first — still the vault's own, so `close_vault` reaches it.
 - **Watcher dispatcher** — persists each event to the index, writes an
   `audit_log` row, and emits the file-changed event. Errors are logged and the
   loop continues; one failed event must not take the watcher down. It carries a
