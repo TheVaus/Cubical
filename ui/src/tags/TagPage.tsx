@@ -11,6 +11,7 @@ import Button from "@ds/components/forms/Button/Button";
 
 import { queryTagPage, type TagPageFile } from "../api/ipc";
 import { errorMessage } from "../core/errorMessage";
+import { createTargetTracker } from "../core/refreshTarget";
 
 type TagPageState =
   | { phase: "idle" }
@@ -30,19 +31,21 @@ const TagPage: Component<TagPageProps> = (props) => {
   const [state, setState] = createSignal<TagPageState>({ phase: "idle" });
 
   let token = 0;
+  const tracker = createTargetTracker();
   createEffect(() => {
     const vid = props.vaultId;
     const tag = props.tagPath;
     void props.refreshSignal;
 
     if (!vid) {
+      token++;
       setState({ phase: "idle" });
       return;
     }
 
     const my = ++token;
-    const prior = untrack(state);
-    if (prior.phase === "idle" || prior.phase === "error") {
+    const refresh = tracker.start(vid, tag).type === "refresh:start";
+    if (!refresh || untrack(state).phase !== "loaded") {
       setState({ phase: "loading" });
     }
     queryTagPage({ vault_id: vid, tag_path: tag })
