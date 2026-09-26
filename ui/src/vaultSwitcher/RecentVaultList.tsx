@@ -11,7 +11,7 @@ export interface RecentVaultListProps {
   onRemove: (path: string) => void;
 }
 
-function vaultName(path: string): string {
+export function vaultName(path: string): string {
   return path.split("/").filter(Boolean).pop() ?? path;
 }
 

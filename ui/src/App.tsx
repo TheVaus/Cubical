@@ -285,7 +285,7 @@ const App: Component = () => {
     return [...notes, ...tags, ...commands];
   });
   const recentNotes = createMemo<RankedItem[]>(() =>
-    [...files()]
+    files()
       .filter((f) => f.type_id === "markdown")
       .sort((a, b) => (b.mtime_unix ?? 0) - (a.mtime_unix ?? 0))
       .slice(0, 10)
@@ -333,10 +333,10 @@ const App: Component = () => {
     const p = viewerPath();
     return p === null || supportsSourceView(viewerKindForPath(p));
   });
-  const viewerEntry = (): FileEntry | undefined => {
+  const viewerEntry = createMemo((): FileEntry | undefined => {
     const path = viewerPath();
     return path === null ? undefined : files().find((f) => f.path === path);
-  };
+  });
   const editorApi = (): EditorApi | undefined => {
     const id = tabs().activeId;
     return id === null ? undefined : editorApis.get(id);
@@ -428,6 +428,7 @@ const App: Component = () => {
     if (!id) return;
     try {
       const resp = await listFiles({ vault_id: id });
+      if (vaultId() !== id) return;
       setFiles(resp.files);
       setFolders(resp.folders);
       if (scanStatus() === "complete") {
@@ -436,9 +437,6 @@ const App: Component = () => {
         if (dropped !== tabs()) {
           const before = tabs().activeId;
           setTabs(dropped);
-          setMru((m) =>
-            m.filter((mid) => dropped.tabs.some((t) => t.id === mid)),
-          );
           if (dropped.activeId !== before) {
             resetDocState();
             if (dropped.activeId !== null) await loadActiveTabContent();
@@ -486,6 +484,7 @@ const App: Component = () => {
     if (!id) return;
     try {
       const resp = await getBrokenBlockRefs({ vault_id: id });
+      if (vaultId() !== id) return;
       setBrokenBlockRefs(resp.refs);
     } catch (e) {
       console.error("broken block-ref refresh failed", e);
@@ -531,27 +530,21 @@ const App: Component = () => {
           to_path: target,
         });
       }
-      const renamedId = (oldId: string): string => {
-        if (!oldId.startsWith("file:")) return oldId;
-        const p = oldId.slice("file:".length);
-        const to = isFolder
+      const renamedPath = (p: string): string | null =>
+        isFolder
           ? reprefixNestedPath(p, fromPath, target)
           : p === fromPath
             ? target
             : null;
+      const renamedId = (oldId: string): string => {
+        if (!oldId.startsWith("file:")) return oldId;
+        const p = oldId.slice("file:".length);
+        const to = renamedPath(p);
         return to === null || to === p
           ? oldId
           : tabId({ kind: "file", path: to });
       };
-      setTabs((s) =>
-        remapTabPaths(s, (p) =>
-          isFolder
-            ? reprefixNestedPath(p, fromPath, target)
-            : p === fromPath
-              ? target
-              : null,
-        ),
-      );
+      setTabs((s) => remapTabPaths(s, renamedPath));
       setMru((m) => {
         const seen = new Set<string>();
         const out: string[] = [];
@@ -689,7 +682,6 @@ const App: Component = () => {
     const wasActive = tabs().activeId === id;
     if (wasActive) await flushAutosave();
     setTabs((s) => closeTab(s, id));
-    setMru((m) => m.filter((x) => x !== id));
     if (!wasActive) return;
     resetDocState();
     if (tabs().activeId !== null) await loadActiveTabContent();
@@ -728,15 +720,16 @@ const App: Component = () => {
     await loadActiveTabContent();
   };
 
-  const navigateToHistoryPath = (path: string) => {
-    const existing = files().find((f) => f.path === path);
-    const file: FileEntry = existing ?? {
+  const fileEntryFor = (path: string): FileEntry =>
+    files().find((f) => f.path === path) ?? {
       path,
       type_id: "markdown",
       size_bytes: 0,
       mtime_unix: 0,
     };
-    void handleSelectFile(file, undefined, { fromHistory: true });
+
+  const navigateToHistoryPath = (path: string) => {
+    void handleSelectFile(fileEntryFor(path), undefined, { fromHistory: true });
   };
   const goBack = () => {
     const path = nav.back();
@@ -756,15 +749,8 @@ const App: Component = () => {
     anchor: ResolvedAnchor | null,
     knownHash?: string,
   ) => {
-    const id = vaultId();
-    if (!id) return;
-    const existing = files().find((f) => f.path === path);
-    const file = existing ?? {
-      path,
-      type_id: "markdown",
-      size_bytes: 0,
-      mtime_unix: 0,
-    };
+    if (!vaultId()) return;
+    const file = fileEntryFor(path);
     const alreadyOpen = selectedPath() === path;
     if (anchor !== null && !alreadyOpen) {
       editorApi()?.requestAnchorScroll(anchor);
@@ -808,7 +794,6 @@ const App: Component = () => {
     }
     await activateTabById(target, { fromHistory: true });
     setTabs((s) => closeTab(s, id));
-    setMru((m) => m.filter((x) => x !== id));
   };
 
   const dismissCreateOffer = () => {
