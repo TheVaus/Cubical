@@ -87,7 +87,8 @@ where
         .unwrap_or_else(|_| Err(timed_out("timed out waiting for a framed message")))
 }
 
-pub async fn write_msg_timeout<W, T>(
+#[cfg(any(unix, test))]
+pub(crate) async fn write_msg_timeout<W, T>(
     w: &mut W,
     msg: &T,
     timeout: std::time::Duration,
