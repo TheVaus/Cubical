@@ -188,3 +188,13 @@ describe("blockRenderersField", () => {
     ]);
   });
 });
+
+describe("blockRenderersField — nested fences", () => {
+  it("finds a fence inside a blockquote and inside a list item", () => {
+    const doc = "top\n\n> ```x\n> a\n> ```\n\n- item\n\n  ```x\n  b\n  ```\n";
+    const set = stateWith(doc, [textRenderer("x", ["x"])]).field(
+      blockRenderersField,
+    ).deco;
+    expect(countRanges(set)).toBe(2);
+  });
+});

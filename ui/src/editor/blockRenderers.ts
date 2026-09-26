@@ -125,6 +125,14 @@ function sameRevisions(a: unknown[], b: unknown[]): boolean {
   return a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
 }
 
+const BLOCK_CONTAINERS = new Set([
+  "Document",
+  "Blockquote",
+  "BulletList",
+  "OrderedList",
+  "ListItem",
+]);
+
 function buildDecorations(
   state: EditorState,
   renderers: readonly BlockRenderer[],
@@ -137,14 +145,14 @@ function buildDecorations(
 
   tree.iterate({
     enter: (node) => {
-      if (node.name !== "FencedCode") return;
+      if (node.name !== "FencedCode") return BLOCK_CONTAINERS.has(node.name);
       const info = node.node.getChild("CodeInfo");
-      if (!info) return;
+      if (!info) return false;
       const match = matchRenderer(
         renderers,
         doc.sliceString(info.from, info.to),
       );
-      if (!match) return;
+      if (!match) return false;
 
       const fromLine = doc.lineAt(node.from);
       const toLine = doc.lineAt(Math.max(node.from, node.to - 1));
@@ -152,7 +160,7 @@ function buildDecorations(
         activeLineNumber >= fromLine.number &&
         activeLineNumber <= toLine.number
       ) {
-        return;
+        return false;
       }
 
       const body = node.node.getChild("CodeText");
@@ -169,6 +177,7 @@ function buildDecorations(
           block: true,
         }).range(fromLine.from, toLine.to),
       );
+      return false;
     },
   });
 
