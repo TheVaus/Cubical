@@ -984,7 +984,8 @@ pub(crate) async fn flush_target_for_link_mention(
     vault_id: &str,
     target_file: &str,
 ) -> Result<(), CubicalError> {
-    let vault = open_vault_cloned(state, vault_id).await?;
+    let (vault, _, flush_in_progress) = clone_vault_with_flush_state(state, vault_id).await?;
+    let _guard = flush_in_progress.lock().await;
     flush_pending_for_target(&vault, target_file, None)
         .await
         .map(|_| ())
@@ -1438,9 +1439,11 @@ async fn prune_materialized_journal_inner(vault: &cubical_core::Vault) -> Result
 
 pub async fn replay_rename_journal(
     vault: &cubical_core::Vault,
+    flush_in_progress: &tokio::sync::Mutex<()>,
     app: &dyn EventSink,
     vault_id: &str,
 ) {
+    let _guard = flush_in_progress.lock().await;
     if let Err(e) = replay_rename_journal_inner(vault, app, vault_id).await {
         tracing::warn!(vault_id = %vault_id, error = %e, "rename journal replay failed");
     }
@@ -2043,7 +2046,7 @@ mod tests {
         )
         .unwrap();
 
-        replay_rename_journal(&vault, &NoopEventSink, "v1").await;
+        replay_rename_journal(&vault, &Default::default(), &NoopEventSink, "v1").await;
 
         let bl = backlinks_for(vault.index(), "b.md").await.unwrap();
         assert!(
@@ -2097,7 +2100,7 @@ mod tests {
         )
         .unwrap();
 
-        replay_rename_journal(&vault, &NoopEventSink, "v1").await;
+        replay_rename_journal(&vault, &Default::default(), &NoopEventSink, "v1").await;
 
         let bl = backlinks_for(vault.index(), "b.md").await.unwrap();
         assert!(
@@ -2164,7 +2167,7 @@ mod tests {
         .expect("rescan");
         drain.await.unwrap();
 
-        replay_rename_journal(&vault, &NoopEventSink, "v1").await;
+        replay_rename_journal(&vault, &Default::default(), &NoopEventSink, "v1").await;
 
         let p = pending_for_target(vault.index(), "Project.md")
             .await
@@ -3972,7 +3975,7 @@ mod tests {
             .write()
             .await
             .insert("v1".to_string(), OpenVault::for_test(&vault).await);
-        replay_rename_journal(&vault, &NoopEventSink, "v1").await;
+        replay_rename_journal(&vault, &Default::default(), &NoopEventSink, "v1").await;
 
         let mut rows = vault
             .index()

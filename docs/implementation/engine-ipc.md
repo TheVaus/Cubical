@@ -187,10 +187,12 @@ Subtree matching compares a literal prefix, never `LIKE` — `LIKE` is
 case-insensitive and treats `_`/`%` in a folder or tag name as wildcards, which
 swept sibling folders and tags into the rename.
 
-In-app renames, the watcher's external-rename adoption and dangling-link
-repair hold `flush_in_progress` from enqueue through the fifty-per-file fuse. A flush reads a target's rows, writes, then deletes every row for that
-target; a rename coalescing into or inserting a row in between would be
-deleted unapplied.
+Every path that enqueues or flushes pending rewrites holds `flush_in_progress`
+across the whole operation: in-app renames through the fifty-per-file fuse, the
+watcher's external-rename adoption, dangling-link repair from its referrer read
+on, the scan-time journal replay, and `link_mention`'s pre-flush. A flush reads
+a target's rows, writes, then deletes every row for that target; a row
+coalesced or inserted in between would be deleted unapplied.
 
 Cross-filesystem folder moves (`EXDEV`) are unsupported — a recursive
 copy-then-remove fallback for a whole subtree is out of scope. For a single

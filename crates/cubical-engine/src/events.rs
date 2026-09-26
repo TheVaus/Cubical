@@ -216,8 +216,19 @@ pub fn spawn_scan_dispatcher<S: ScanSink + 'static>(
         let new_status = match scan_outcome {
             Ok(Ok(outcome)) => {
                 journal_renames_found_by_scan(&vault, &outcome, scan_started_secs).await;
-                crate::commands::rename::replay_rename_journal(&vault, sink.as_ref(), &vault_id)
-                    .await;
+                let flush_in_progress = state
+                    .read()
+                    .await
+                    .get(&vault_id)
+                    .map(|open| Arc::clone(&open.flush_in_progress))
+                    .unwrap_or_default();
+                crate::commands::rename::replay_rename_journal(
+                    &vault,
+                    &flush_in_progress,
+                    sink.as_ref(),
+                    &vault_id,
+                )
+                .await;
                 emit_scan_complete(
                     sink.as_ref(),
                     VaultScanComplete {
@@ -2097,7 +2108,13 @@ mod tests {
             .await
             .expect("rescan");
             journal_renames_found_by_scan(&vault, &outcome, scan_started_secs).await;
-            crate::commands::rename::replay_rename_journal(&vault, &NoopEventSink, VAULT_ID).await;
+            crate::commands::rename::replay_rename_journal(
+                &vault,
+                &Default::default(),
+                &NoopEventSink,
+                VAULT_ID,
+            )
+            .await;
             vault
         }
 
@@ -2182,7 +2199,13 @@ mod tests {
             .await
             .expect("rescan");
             journal_renames_found_by_scan(&vault, &outcome, scan_started_secs).await;
-            crate::commands::rename::replay_rename_journal(&vault, &NoopEventSink, VAULT_ID).await;
+            crate::commands::rename::replay_rename_journal(
+                &vault,
+                &Default::default(),
+                &NoopEventSink,
+                VAULT_ID,
+            )
+            .await;
 
             assert_eq!(
                 link_target(&vault, "Notes.md").await.as_deref(),

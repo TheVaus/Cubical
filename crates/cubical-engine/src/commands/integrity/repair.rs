@@ -33,6 +33,7 @@ pub async fn repair_dangling_link(
     let (vault, flush_own_writes, flush_in_progress) =
         clone_vault_with_flush_state(state, &req.vault_id).await?;
     let conn = vault.index().connection();
+    let _guard = flush_in_progress.lock().await;
 
     if !path_tracked(conn, &req.to_path).await? {
         return Err(CubicalError::FileNotFound(req.to_path.clone()));
@@ -51,7 +52,6 @@ pub async fn repair_dangling_link(
     let rename_op_id = mint_rename_op_id(&vault).await?;
     let now = unix_now_secs();
 
-    let _guard = flush_in_progress.lock().await;
     let tx = conn.transaction().await?;
     for source_path in &referrers {
         enqueue_coalesced(
