@@ -1,6 +1,5 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-import type { CanonicalDocument } from "../ast/types";
 import { invoke } from "./transport";
 
 export type ScanStatus = "in_progress" | "complete" | "cancelled";
@@ -38,25 +37,6 @@ export interface TabRecordDto {
 export interface TabSessionDto {
   tabs: TabRecordDto[];
   active_id: string | null;
-}
-
-export interface CancelVaultScanRequest {
-  vault_id: string;
-}
-
-export interface GetVaultInfoRequest {
-  vault_id: string;
-}
-
-export interface GetVaultInfoResponse {
-  path: string;
-  file_count: number;
-  markdown_count: number;
-  binary_count: number;
-  schema_version: number;
-  scan_status: ScanStatus;
-  watcher_live: boolean;
-  flush_timer_live: boolean;
 }
 
 export interface ListFilesRequest {
@@ -112,24 +92,6 @@ export interface DeleteFileRequest {
   path: string;
 }
 
-export interface CloseVaultRequest {
-  vault_id: string;
-}
-
-export interface GetFrontmatterRequest {
-  vault_id: string;
-  path: string;
-}
-
-export interface FrontmatterEntry {
-  key: string;
-  value: unknown;
-}
-
-export interface GetFrontmatterResponse {
-  entries: FrontmatterEntry[];
-}
-
 export interface ReadFileTextRequest {
   vault_id: string;
   path: string;
@@ -148,15 +110,6 @@ export interface ReadFileBytesResponse {
   base64: string;
   mime: string;
   size_bytes: number;
-}
-
-export interface GetCanonicalAstRequest {
-  vault_id: string;
-  path: string;
-}
-
-export interface GetCanonicalAstResponse {
-  document: CanonicalDocument;
 }
 
 export interface WriteFileTextRequest {
@@ -303,38 +256,13 @@ export interface RenameTagResponse {
   pending_count: number;
 }
 
-export interface RenameBlockIdRequest {
-  vault_id: string;
-  file_path: string;
-  old_id: string;
-  new_id: string;
-}
-
-export interface RenameBlockIdResponse {
-  rename_op_id: number;
-  pending_count: number;
-}
-
 export interface FlushPendingRewritesRequest {
   vault_id: string;
-}
-
-export interface FlushPendingRewritesForTargetRequest {
-  vault_id: string;
-  target_file: string;
 }
 
 export interface FlushPendingRewritesResponse {
   files_rewritten: number;
   refs_updated: number;
-}
-
-export interface GetPendingRewritesCountRequest {
-  vault_id: string;
-}
-
-export interface GetPendingRewritesCountResponse {
-  count: number;
 }
 
 export interface GetPendingRewritesBreakdownRequest {
@@ -401,16 +329,6 @@ export function saveTabSession(
   return invoke("save_tab_session", { vaultPath, session });
 }
 
-export function cancelVaultScan(req: CancelVaultScanRequest): Promise<void> {
-  return invoke("cancel_vault_scan", { req });
-}
-
-export function getVaultInfo(
-  req: GetVaultInfoRequest,
-): Promise<GetVaultInfoResponse> {
-  return invoke("get_vault_info", { req });
-}
-
 export function listFiles(req: ListFilesRequest): Promise<ListFilesResponse> {
   return invoke("list_files", { req });
 }
@@ -437,16 +355,6 @@ export function deleteFile(req: DeleteFileRequest): Promise<void> {
   return invoke("delete_path", { req });
 }
 
-export function closeVault(req: CloseVaultRequest): Promise<void> {
-  return invoke("close_vault", { req });
-}
-
-export function getFrontmatter(
-  req: GetFrontmatterRequest,
-): Promise<GetFrontmatterResponse> {
-  return invoke("get_frontmatter", { req });
-}
-
 export function readFileText(
   req: ReadFileTextRequest,
 ): Promise<ReadFileTextResponse> {
@@ -457,12 +365,6 @@ export function readFileBytes(
   req: ReadFileBytesRequest,
 ): Promise<ReadFileBytesResponse> {
   return invoke("read_file_bytes", { req });
-}
-
-export function getCanonicalAst(
-  req: GetCanonicalAstRequest,
-): Promise<GetCanonicalAstResponse> {
-  return invoke("get_canonical_ast", { req });
 }
 
 export function writeFileText(
@@ -620,28 +522,10 @@ export function renameTag(req: RenameTagRequest): Promise<RenameTagResponse> {
   return invoke("rename_tag", { req });
 }
 
-export function renameBlockId(
-  req: RenameBlockIdRequest,
-): Promise<RenameBlockIdResponse> {
-  return invoke("rename_block_id", { req });
-}
-
 export function flushPendingRewrites(
   req: FlushPendingRewritesRequest,
 ): Promise<FlushPendingRewritesResponse> {
   return invoke("flush_pending_rewrites", { req });
-}
-
-export function flushPendingRewritesForTarget(
-  req: FlushPendingRewritesForTargetRequest,
-): Promise<FlushPendingRewritesResponse> {
-  return invoke("flush_pending_rewrites_for_target", { req });
-}
-
-export function getPendingRewritesCount(
-  req: GetPendingRewritesCountRequest,
-): Promise<GetPendingRewritesCountResponse> {
-  return invoke("get_pending_rewrites_count", { req });
 }
 
 export function getPendingRewritesBreakdown(

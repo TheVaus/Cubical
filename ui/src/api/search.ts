@@ -57,13 +57,6 @@ export interface IndexStatus {
   last_commit_secs: number | null;
 }
 
-export interface IndexHealth {
-  schema_version: number;
-  segments: number;
-  doc_count: number;
-  disk_bytes: number;
-}
-
 export function search(req: SearchRequest): Promise<SearchResponse> {
   return invoke("search", { req });
 }
@@ -72,12 +65,4 @@ export function searchIndexStatus(
   req: SearchVaultRequest,
 ): Promise<IndexStatus> {
   return invoke("search_index_status", { req });
-}
-
-export function searchRebuildIndex(req: SearchVaultRequest): Promise<void> {
-  return invoke("search_rebuild_index", { req });
-}
-
-export function searchGetHealth(req: SearchVaultRequest): Promise<IndexHealth> {
-  return invoke("search_get_health", { req });
 }
