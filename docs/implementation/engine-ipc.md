@@ -174,6 +174,23 @@ Two ordering constraints are easy to break:
   pre-rename snapshot. `rename_folder` reuses the same per-file phases across a
   subtree in one transaction under a single shared op id, resolving referrers
   that are themselves being renamed to their final path first.
+- **Queued rows follow their target.** `pending_rewrites.target_file` has no FK,
+  so the rekey moves it explicitly — otherwise a self-link, or a referrer
+  renamed before its flush, strands its row at a path the flush finds missing
+  and silently drops. Rows already sitting at the destination belong to a
+  deleted file and are dropped first, or they would land on the newcomer.
+
+`rename_folder` commits its index transaction only **after** the directory
+move succeeds, rolling back on failure: the watcher never adopts a folder
+rename, so an index committed ahead of a failed move would never converge.
+Subtree matching compares a literal prefix, never `LIKE` — `LIKE` is
+case-insensitive and treats `_`/`%` in a folder or tag name as wildcards, which
+swept sibling folders and tags into the rename.
+
+In-app renames hold `flush_in_progress` from enqueue through the fifty-per-file
+fuse. A flush reads a target's rows, writes, then deletes every row for that
+target; a rename coalescing into or inserting a row in between would be
+deleted unapplied.
 
 Cross-filesystem folder moves (`EXDEV`) are unsupported — a recursive
 copy-then-remove fallback for a whole subtree is out of scope. For a single
@@ -327,6 +344,13 @@ disk, and pair them. A missed rename is recoverable; a wrong rewrite silently
 corrupts the user's markdown. Ambiguous inode matches are refused on the same
 grounds. Both mechanisms then re-check that the chosen source is genuinely
 absent from disk — a file that is still there did not move.
+
+Pairing renames a scan finds (made while the app was closed) applies the same
+rule from both ends: an identity must be unique among the vanished files *and*
+among the newly tracked ones, a hash shared with a surviving file never pairs,
+and a destination claimed by inode is not also given to a hash match. Each
+pair is journalled and replayed as a referrer rewrite, so a second claimant on
+one destination would redirect a deleted note's links to an unrelated file.
 
 Recovery cannot double-apply, because it reuses the same
 row-at-`from`/no-row-at-`to` predicate: a `Created` whose path is already tracked
