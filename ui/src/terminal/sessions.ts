@@ -2,7 +2,6 @@ export interface TerminalSessions {
   register: (tabId: string, terminalId: string) => void;
   forget: (tabId: string) => void;
   idFor: (tabId: string) => string | null;
-  size: () => number;
 }
 
 export function createTerminalSessions(): TerminalSessions {
@@ -15,6 +14,5 @@ export function createTerminalSessions(): TerminalSessions {
       ids.delete(tabId);
     },
     idFor: (tabId) => ids.get(tabId) ?? null,
-    size: () => ids.size,
   };
 }
