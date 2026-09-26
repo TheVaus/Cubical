@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use cubical_ast::{scan_wikilinks, Anchor, TokenizedRun};
 use cubical_index::{IndexConn, IndexError, PendingRewriteRow, RewriteKind};
 
-use crate::vault::mentions::extract_text_runs;
+use crate::vault::mentions::{extract_text_runs, locate_frontmatter};
 
 #[must_use]
 pub fn apply_pending(source: &str, rewrites: &[PendingRewriteRow]) -> String {
@@ -40,63 +40,76 @@ fn rewrite_wiki_link(source: &str, old_token: &str, new_token: &str) -> Option<S
     if old_token.is_empty() {
         return None;
     }
-    let runs = scan_wikilinks(source);
-    let mut hits = 0usize;
-    for run in &runs {
+    rewrite_link_runs(source, |run| {
+        let mut out = String::new();
         match run {
-            TokenizedRun::WikiLink { target, .. } if target == old_token => hits += 1,
-            TokenizedRun::PropertyRef {
-                note: Some(n),
-                property,
-            } if n == old_token || format!("{n}.{property}") == old_token => hits += 1,
-            _ => {}
-        }
-    }
-    if hits == 0 {
-        return None;
-    }
-
-    let mut out = String::with_capacity(source.len());
-    for run in runs {
-        match run {
-            TokenizedRun::Text(t) => out.push_str(&t),
             TokenizedRun::WikiLink {
                 target,
                 display,
                 anchor,
                 embed,
-            } => {
-                let effective_target = if target == old_token {
-                    new_token.to_string()
-                } else {
-                    target
-                };
-                emit_wikilink(&mut out, &effective_target, &display, &anchor, embed);
+            } if target == old_token => {
+                emit_wikilink(&mut out, new_token, display, anchor, *embed);
             }
-            TokenizedRun::PropertyRef { note, property } => {
-                let whole_is_file = note
-                    .as_ref()
-                    .is_some_and(|n| format!("{n}.{property}") == old_token);
-                if whole_is_file {
+            TokenizedRun::PropertyRef {
+                note: Some(n),
+                property,
+            } => {
+                if is_dotted_name(n, property, old_token) {
                     emit_wikilink(&mut out, new_token, &None, &None, false);
+                } else if n == old_token {
+                    emit_property_ref(&mut out, new_token, property);
                 } else {
-                    let effective_note = match &note {
-                        Some(n) if n == old_token => Some(new_token.to_string()),
-                        other => other.clone(),
-                    };
-                    emit_property_ref(&mut out, &effective_note, &property);
+                    return None;
                 }
             }
+            _ => return None,
         }
-    }
-    Some(out)
+        Some(out)
+    })
 }
 
-fn emit_property_ref(out: &mut String, note: &Option<String>, property: &str) {
-    out.push_str("[[");
-    if let Some(n) = note {
-        out.push_str(n);
+fn is_dotted_name(note: &str, property: &str, name: &str) -> bool {
+    name.strip_prefix(note)
+        .and_then(|rest| rest.strip_prefix('.'))
+        .is_some_and(|rest| rest == property)
+}
+
+fn rewrite_link_runs(
+    source: &str,
+    mut replace: impl FnMut(&TokenizedRun) -> Option<String>,
+) -> Option<String> {
+    let mut out = String::with_capacity(source.len());
+    let mut cursor = 0usize;
+    let mut changed = false;
+    for run in &scan_wikilinks(source) {
+        if let TokenizedRun::Text(t) = run {
+            out.push_str(t);
+            cursor += t.len();
+            continue;
+        }
+        let opener = if source[cursor..].starts_with('!') {
+            3
+        } else {
+            2
+        };
+        let content_start = cursor + opener;
+        let end = content_start + source.get(content_start..)?.find("]]")? + 2;
+        match replace(run) {
+            Some(rep) => {
+                out.push_str(&rep);
+                changed = true;
+            }
+            None => out.push_str(&source[cursor..end]),
+        }
+        cursor = end;
     }
+    changed.then_some(out)
+}
+
+fn emit_property_ref(out: &mut String, note: &str, property: &str) {
+    out.push_str("[[");
+    out.push_str(note);
     out.push('.');
     out.push_str(property);
     out.push_str("]]");
@@ -236,7 +249,7 @@ fn splice_edits(source: &str, edits: &[(usize, usize, String)]) -> String {
 }
 
 fn rewrite_tag_frontmatter(source: &str, old_token: &str, new_token: &str) -> Option<String> {
-    let (fm_body_start, fm_body_end) = locate_frontmatter_body(source)?;
+    let (fm_body_start, fm_body_end, _) = locate_frontmatter(source)?;
     let block = &source[fm_body_start..fm_body_end];
 
     let mut edits: Vec<(usize, usize, String)> = Vec::new();
@@ -281,9 +294,7 @@ fn rewrite_tag_frontmatter(source: &str, old_token: &str, new_token: &str) -> Op
                 while let Some(peek) = lines_iter.peek() {
                     let peek_trim = peek.trim_end_matches(['\n', '\r']);
                     let stripped = peek_trim.trim_start();
-                    if stripped.starts_with('-') {
-                        let dash_rel = peek_trim.find('-').unwrap();
-                        let after_dash = &peek_trim[dash_rel + 1..];
+                    if let Some(after_dash) = stripped.strip_prefix('-') {
                         let entry_text = after_dash.trim_start();
                         let entry_offset_in_line = peek_trim.len() - entry_text.len();
                         let entry_abs = next_pos + entry_offset_in_line;
@@ -329,34 +340,6 @@ fn rewrite_tag_frontmatter(source: &str, old_token: &str, new_token: &str) -> Op
     let mut sorted = edits;
     sorted.sort_by_key(|(off, _, _)| *off);
     Some(splice_edits(source, &sorted))
-}
-
-fn locate_frontmatter_body(source: &str) -> Option<(usize, usize)> {
-    let body_start = if source.starts_with("---\n") {
-        4
-    } else if source.starts_with("---\r\n") {
-        5
-    } else {
-        return None;
-    };
-    let bytes = source.as_bytes();
-    let len = bytes.len();
-    let mut probe = body_start;
-    while probe < len {
-        let line_start = probe;
-        while probe < len && bytes[probe] != b'\n' {
-            probe += 1;
-        }
-        let line = &source[line_start..probe];
-        let trimmed = line.trim_end_matches('\r');
-        if trimmed == "---" || trimmed == "..." {
-            return Some((body_start, line_start));
-        }
-        if probe < len {
-            probe += 1;
-        }
-    }
-    None
 }
 
 fn rewrite_inline_entries(
@@ -476,47 +459,22 @@ fn rewrite_block_ref(source: &str, old_token: &str, new_token: &str) -> Option<S
 }
 
 fn rewrite_block_ref_referrers(source: &str, old_token: &str, new_token: &str) -> Option<String> {
-    let runs = scan_wikilinks(source);
-    let mut hits = 0usize;
-    for run in &runs {
-        if let TokenizedRun::WikiLink {
+    rewrite_link_runs(source, |run| match run {
+        TokenizedRun::WikiLink {
+            target,
+            display,
             anchor: Some(Anchor::Block { value }),
-            ..
-        } = run
-        {
-            if value == old_token {
-                hits += 1;
-            }
+            embed,
+        } if value == old_token => {
+            let mut out = String::new();
+            let anchor = Some(Anchor::Block {
+                value: new_token.to_string(),
+            });
+            emit_wikilink(&mut out, target, display, &anchor, *embed);
+            Some(out)
         }
-    }
-    if hits == 0 {
-        return None;
-    }
-
-    let mut out = String::with_capacity(source.len());
-    for run in runs {
-        match run {
-            TokenizedRun::Text(t) => out.push_str(&t),
-            TokenizedRun::WikiLink {
-                target,
-                display,
-                anchor,
-                embed,
-            } => {
-                let new_anchor = match anchor {
-                    Some(Anchor::Block { value }) if value == old_token => Some(Anchor::Block {
-                        value: new_token.to_string(),
-                    }),
-                    other => other,
-                };
-                emit_wikilink(&mut out, &target, &display, &new_anchor, embed);
-            }
-            TokenizedRun::PropertyRef { note, property } => {
-                emit_property_ref(&mut out, &note, &property);
-            }
-        }
-    }
-    Some(out)
+        _ => None,
+    })
 }
 
 fn rewrite_block_ref_defining_line(
@@ -529,45 +487,27 @@ fn rewrite_block_ref_defining_line(
     }
     let mut out = String::with_capacity(source.len());
     let mut changed = false;
-    let mut cursor = 0usize;
-    for (line, eol_len) in iter_lines_with_eol(source) {
-        let line_text = &source[cursor..cursor + line];
-        let eol_str = &source[cursor + line..cursor + line + eol_len];
-
+    for line in source.split_inclusive('\n') {
+        let line_text = line.strip_suffix('\n').unwrap_or(line);
         let trimmed_end = line_text.trim_end();
-        let trailing_ws_len = line_text.len() - trimmed_end.len();
-
-        let last_ws_byte = trimmed_end
+        let token_start = trimmed_end
             .char_indices()
             .rfind(|(_, c)| c.is_whitespace())
-            .map(|(b, c)| b + c.len_utf8());
-        let token_start = last_ws_byte.unwrap_or(0);
-        let token = &trimmed_end[token_start..];
-
-        let matches = token
+            .map_or(0, |(b, c)| b + c.len_utf8());
+        let matches = trimmed_end[token_start..]
             .strip_prefix('^')
-            .map(|body| body == old_token)
-            .unwrap_or(false);
-
+            .is_some_and(|body| body == old_token);
         if matches {
             out.push_str(&line_text[..token_start]);
             out.push('^');
             out.push_str(new_token);
-            out.push_str(&line_text[trimmed_end.len()..line_text.len()]);
-            let _ = trailing_ws_len;
-            out.push_str(eol_str);
+            out.push_str(&line[trimmed_end.len()..]);
             changed = true;
         } else {
-            out.push_str(line_text);
-            out.push_str(eol_str);
+            out.push_str(line);
         }
-        cursor += line + eol_len;
     }
-    if changed {
-        Some(out)
-    } else {
-        None
-    }
+    changed.then_some(out)
 }
 
 fn is_allowed_block_id(s: &str) -> bool {
@@ -576,26 +516,6 @@ fn is_allowed_block_id(s: &str) -> bool {
     }
     s.chars()
         .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
-}
-
-fn iter_lines_with_eol(source: &str) -> Vec<(usize, usize)> {
-    let mut out = Vec::new();
-    let bytes = source.as_bytes();
-    let len = bytes.len();
-    let mut i = 0usize;
-    while i < len {
-        let start = i;
-        while i < len && bytes[i] != b'\n' {
-            i += 1;
-        }
-        let line_content_len = i - start;
-        let eol_len = if i < len { 1 } else { 0 };
-        out.push((line_content_len, eol_len));
-        if i < len {
-            i += 1;
-        }
-    }
-    out
 }
 
 #[cfg(test)]
@@ -697,6 +617,30 @@ mod tests {
         let src = "[[Daily#Heading|nice]]\n";
         let out = apply_pending(src, &[row(RewriteKind::WikiLink, "Daily", "Journal")]);
         assert_eq!(out, "[[Journal#Heading|nice]]\n");
+    }
+
+    #[test]
+    fn wikilink_rewrite_leaves_other_links_byte_identical() {
+        let src = "[[ Other | shown ]] [[Gandalf. age ]] [[Note#]] and [[Daily]]\n";
+        let out = apply_pending(src, &[row(RewriteKind::WikiLink, "Daily", "Journal")]);
+        assert_eq!(
+            out,
+            "[[ Other | shown ]] [[Gandalf. age ]] [[Note#]] and [[Journal]]\n"
+        );
+    }
+
+    #[test]
+    fn blockref_rewrite_leaves_other_links_byte_identical() {
+        let src = "![[ img.png ]] [[n#^keep ]] [[n#^old]]\n";
+        let out = apply_pending(src, &[row(RewriteKind::BlockRef, "old", "new")]);
+        assert_eq!(out, "![[ img.png ]] [[n#^keep ]] [[n#^new]]\n");
+    }
+
+    #[test]
+    fn adjacent_links_are_each_rewritten_in_place() {
+        let src = "[[Daily]][[Daily|d]]![[Daily]]\n";
+        let out = apply_pending(src, &[row(RewriteKind::WikiLink, "Daily", "Journal")]);
+        assert_eq!(out, "[[Journal]][[Journal|d]]![[Journal]]\n");
     }
 
     #[test]
