@@ -458,18 +458,16 @@ const Properties: Component<PropertiesProps> = (props) => {
   const keys = createMemo(() => entries().map(([k]) => k));
   const entryMap = createMemo(() => new Map(entries()));
 
-  const typeMap = createMemo(() => {
+  const yaml = createMemo(() => {
     void props.frontmatter;
-    return parseTypeComments(splitFrontmatter(props.getSource()).yaml ?? "");
+    return splitFrontmatter(props.getSource()).yaml;
   });
+
+  const typeMap = createMemo(() => parseTypeComments(yaml() ?? ""));
 
   const menu = createMemo(() => buildTypeMenu(props.dateDefault));
 
-  const modelable = createMemo(() => {
-    void props.frontmatter;
-    const split = splitFrontmatter(props.getSource());
-    return split.yaml === null || !hasUnmodelableYaml(split.yaml);
-  });
+  const modelable = createMemo(() => yaml() === null || !hasUnmodelableYaml(yaml()!));
 
   const commit = (edit: PropertyEdit) => {
     const source = props.getSource();
@@ -484,8 +482,7 @@ const Properties: Component<PropertiesProps> = (props) => {
   };
   const liveValue = (key: string): unknown =>
     liveEntries().find(([k]) => k === key)?.[1];
-  const liveHas = (key: string): boolean =>
-    liveEntries().some(([k]) => k === key);
+  const liveKeys = (): string[] => liveEntries().map(([k]) => k);
 
   const updateMap = <V,>(
     setter: (m: Map<string, V>) => void,
@@ -507,7 +504,7 @@ const Properties: Component<PropertiesProps> = (props) => {
   const renameKey = (oldKey: string, newKey: string): boolean => {
     const trimmed = newKey.trim();
     if (trimmed === "" || trimmed === oldKey) return false;
-    if (keys().includes(trimmed) || liveHas(trimmed)) return false;
+    if (keys().includes(trimmed) || liveKeys().includes(trimmed)) return false;
     commit({ op: "rename", from: oldKey, to: trimmed });
     return true;
   };
@@ -553,9 +550,10 @@ const Properties: Component<PropertiesProps> = (props) => {
   };
 
   const addProperty = () => {
+    const taken = new Set([...liveKeys(), ...keys()]);
     let key = "property";
     let n = 2;
-    while (keys().includes(key) || liveHas(key)) key = `property-${n++}`;
+    while (taken.has(key)) key = `property-${n++}`;
     setPendingFocusKey(key);
     commit({ op: "set", key, value: "" });
   };
@@ -613,7 +611,7 @@ const Properties: Component<PropertiesProps> = (props) => {
                   "overflow-x": "auto",
                 }}
               >
-                {splitFrontmatter(props.getSource()).yaml ?? ""}
+                {yaml() ?? ""}
               </pre>
               <Link
                 size="xs"
