@@ -9,13 +9,13 @@ use crate::plan::{plan, SqlParam};
 
 pub const NOTE_ROW_LABEL: &str = "File";
 
-fn to_sql_values(params: &[SqlParam]) -> Vec<SqlValue> {
+fn into_sql_values(params: Vec<SqlParam>) -> Vec<SqlValue> {
     params
-        .iter()
+        .into_iter()
         .map(|p| match p {
-            SqlParam::Text(s) => SqlValue::Text(s.clone()),
-            SqlParam::Real(f) => SqlValue::Real(*f),
-            SqlParam::Int(i) => SqlValue::Integer(*i),
+            SqlParam::Text(s) => SqlValue::Text(s),
+            SqlParam::Real(f) => SqlValue::Real(f),
+            SqlParam::Int(i) => SqlValue::Integer(i),
         })
         .collect()
 }
@@ -43,12 +43,13 @@ pub async fn run(conn: &IndexConn, q: &Query) -> Result<QueryResult, QueryError>
         _ => Vec::new(),
     };
     let p = plan(q, &source_tags);
-    let values = to_sql_values(&p.params);
-    let c = conn.connection();
+    let mut rows = conn
+        .connection()
+        .query(&p.sql, params_from_iter(into_sql_values(p.params)))
+        .await?;
 
     match &q.command {
         Command::Count => {
-            let mut rows = c.query(&p.sql, params_from_iter(values)).await?;
             let count = match rows.next().await? {
                 Some(row) => usize::try_from(row.get::<i64>(0)?).unwrap_or(0),
                 None => 0,
@@ -56,7 +57,6 @@ pub async fn run(conn: &IndexConn, q: &Query) -> Result<QueryResult, QueryError>
             Ok(QueryResult::Count { count })
         }
         Command::List => {
-            let mut rows = c.query(&p.sql, params_from_iter(values)).await?;
             let mut items = Vec::new();
             while let Some(row) = rows.next().await? {
                 let note = note_ref(row.get(0)?);
@@ -68,7 +68,6 @@ pub async fn run(conn: &IndexConn, q: &Query) -> Result<QueryResult, QueryError>
             Ok(QueryResult::List { items })
         }
         Command::Table(cols) => {
-            let mut rows = c.query(&p.sql, params_from_iter(values)).await?;
             let mut out = Vec::new();
             while let Some(row) = rows.next().await? {
                 let note = note_ref(row.get(0)?);
