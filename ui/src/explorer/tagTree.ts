@@ -77,13 +77,15 @@ export function buildTagTree(
     files: [],
   };
   const known = new Map(files.map((f) => [f.path, f.type_id]));
+  const byPath = new Map<string, TagNode>();
+  const filesOf = new Map<TagNode, Set<string>>();
 
   const ensureTag = (tagPath: string): TagNode => {
     let cursor = root;
     let cursorPath = "";
     for (const seg of tagPath.split("/").filter((s) => s.length > 0)) {
       cursorPath = cursorPath ? `${cursorPath}/${seg}` : seg;
-      let next = cursor.folders.find((f) => f.name === seg);
+      let next = byPath.get(cursorPath);
       if (!next) {
         next = {
           name: seg,
@@ -93,6 +95,7 @@ export function buildTagTree(
           files: [],
         };
         cursor.folders.push(next);
+        byPath.set(cursorPath, next);
       }
       cursor = next;
     }
@@ -106,7 +109,13 @@ export function buildTagTree(
     const typeId = known.get(a.file_path);
     if (typeId === undefined) continue;
     tagged.add(a.file_path);
-    if (node.files.some((f) => f.path === a.file_path)) continue;
+    let seen = filesOf.get(node);
+    if (!seen) {
+      seen = new Set();
+      filesOf.set(node, seen);
+    }
+    if (seen.has(a.file_path)) continue;
+    seen.add(a.file_path);
     node.files.push({
       path: a.file_path,
       name: baseName(a.file_path),
@@ -184,10 +193,9 @@ function rowEqual(a: TagFlatRow, b: TagFlatRow): boolean {
 
 export function buildStableTagRows(
   prevRows: readonly TagFlatRow[],
-  assignments: ReadonlyArray<TagAssignment>,
-  files: ReadonlyArray<{ path: string; type_id: string }>,
+  root: TagNode,
   collapsed: ReadonlySet<string>,
 ): TagFlatRow[] {
-  const next = flattenTagTree(buildTagTree(assignments, files), collapsed);
+  const next = flattenTagTree(root, collapsed);
   return stabilizeByKey(prevRows, next, rowKey, rowEqual);
 }

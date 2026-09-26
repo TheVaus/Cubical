@@ -252,22 +252,16 @@ describe("an external change to the open file", () => {
     expect(read).not.toHaveBeenCalled();
   });
 
-  it("recognises its own echo through isOwnWriteEchoOf", async () => {
-    const { session } = build();
-    session.markDirty();
-    await session.flush();
-
-    expect(session.isOwnWriteEchoOf("note.md", "h-written")).toBe(true);
-    expect(session.isOwnWriteEchoOf("note.md", "h-other")).toBe(false);
-    expect(session.isOwnWriteEchoOf("elsewhere.md", "h-written")).toBe(false);
-    expect(session.isOwnWriteEchoOf("note.md", null)).toBe(false);
-  });
-
-  it("treats a seeded hash as its own write, so a fresh create is not a conflict", () => {
-    const { session } = build();
+  it("treats a seeded hash as its own write, so a fresh create is not a conflict", async () => {
+    const { session, editor } = build();
     session.adopt("h-created");
+    session.markDirty();
 
-    expect(session.isOwnWriteEchoOf("note.md", "h-created")).toBe(true);
+    session.applyExternalChange("note.md", "h-created");
+    await settle();
+
+    expect(session.conflictHash()).toBeNull();
+    expect(editor.replaceContent).not.toHaveBeenCalled();
   });
 
   it("ignores a change to some other file", async () => {
@@ -369,6 +363,26 @@ describe("an external change to the open file", () => {
     expect(read).not.toHaveBeenCalled();
     expect(editor.replaceContent).not.toHaveBeenCalled();
   });
+
+  it("raises a conflict instead of reloading over edits typed while the read was in flight", async () => {
+    const { session, editor } = build();
+    let land: (v: { content: string }) => void = () => {};
+    read.mockReturnValueOnce(
+      new Promise((r) => {
+        land = r;
+      }),
+    );
+    session.applyExternalChange("note.md", "h-external");
+
+    session.markDirty();
+    session.scheduleWrite();
+    land({ content: "from disk" });
+    await advance(AUTOSAVE_MS * 4);
+
+    expect(editor.replaceContent).not.toHaveBeenCalled();
+    expect(session.conflictHash()).toBe("h-external");
+    expect(wrote).not.toHaveBeenCalled();
+  });
 });
 
 describe("resolving a conflict", () => {
@@ -406,8 +420,12 @@ describe("resolving a conflict", () => {
     session.applyExternalChange("note.md", "h-external");
 
     await session.takeDisk();
+    read.mockClear();
 
-    expect(session.isOwnWriteEchoOf("note.md", "h-written")).toBe(false);
+    session.applyExternalChange("note.md", "h-written");
+    await settle();
+
+    expect(read).toHaveBeenCalledTimes(1);
   });
 
   it("keep-mine clears the conflict and lets the write through", async () => {
@@ -435,13 +453,15 @@ describe("reset, on switching documents", () => {
     expect(wrote.mock.calls[0]?.[0]).not.toHaveProperty("expected_seen_hash");
   });
 
-  it("forgets the last written hash, so the next document cannot inherit an echo", () => {
+  it("forgets the last written hash, so the next document cannot inherit an echo", async () => {
     const { session } = build();
     session.adopt("h-previous");
 
     session.reset();
+    session.applyExternalChange("note.md", "h-previous");
+    await settle();
 
-    expect(session.isOwnWriteEchoOf("note.md", "h-previous")).toBe(false);
+    expect(read).toHaveBeenCalledTimes(1);
   });
 
   it("drops a queued autosave belonging to the outgoing document", async () => {
@@ -606,6 +626,24 @@ describe("refreshFromDisk", () => {
 
     expect(h.editor.replaceContent).not.toHaveBeenCalled();
     expect(h.onContentReplaced).not.toHaveBeenCalled();
+  });
+
+  it("does not discard edits typed while the read was in flight", async () => {
+    const h = build();
+    let land: (v: { content: string }) => void = () => {};
+    read.mockReturnValueOnce(
+      new Promise((r) => {
+        land = r;
+      }),
+    );
+    const refreshing = h.session.refreshFromDisk();
+
+    h.session.markDirty();
+    land({ content: "see [[Journal]]" });
+    await refreshing;
+
+    expect(h.editor.replaceContent).not.toHaveBeenCalled();
+    expect(h.session.isDirty()).toBe(true);
   });
 
   it("reports a read failure instead of throwing", async () => {

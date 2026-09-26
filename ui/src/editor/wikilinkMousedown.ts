@@ -1,3 +1,5 @@
+import { closestFromTarget } from "./closestFromTarget";
+
 export interface WikiLinkMousedownEvent {
   button: number;
   metaKey: boolean;
@@ -35,13 +37,8 @@ export function maybeInterceptWikiLinkMousedown(
 export function closestWikiLinkSpan(
   target: EventTarget | null,
 ): Element | null {
-  const el =
-    target instanceof Element
-      ? target
-      : target instanceof Node
-        ? target.parentElement
-        : null;
-  return (
-    el?.closest(".cm-md-wikilink, .cm-md-wikilink-unresolved") ?? null
+  return closestFromTarget(
+    target,
+    ".cm-md-wikilink, .cm-md-wikilink-unresolved",
   );
 }

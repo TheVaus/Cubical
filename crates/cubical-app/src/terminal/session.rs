@@ -11,11 +11,12 @@ const READ_BUF: usize = 8192;
 
 pub type ChunkSink = Box<dyn FnMut(TerminalChunk) -> bool + Send + 'static>;
 pub type ExitHook = Box<dyn FnOnce() -> TerminalExit + Send + 'static>;
+pub type PtyWriter = Arc<Mutex<Box<dyn Write + Send>>>;
 
 pub struct TerminalSession {
     reaper: ChildReaper,
     master: SharedMaster,
-    writer: Mutex<Box<dyn Write + Send>>,
+    writer: PtyWriter,
 }
 
 impl TerminalSession {
@@ -54,7 +55,7 @@ impl TerminalSession {
         Ok(Self {
             reaper,
             master,
-            writer: Mutex::new(writer),
+            writer: Arc::new(Mutex::new(writer)),
         })
     }
 
@@ -81,12 +82,8 @@ impl TerminalSession {
         false
     }
 
-    pub fn write(&self, data: &[u8]) -> Result<(), String> {
-        let mut writer = lock(&self.writer);
-        writer
-            .write_all(data)
-            .and_then(|()| writer.flush())
-            .map_err(|e| format!("could not write to the terminal: {e}"))
+    pub fn writer(&self) -> PtyWriter {
+        Arc::clone(&self.writer)
     }
 
     pub fn resize(&self, cols: u16, rows: u16) -> Result<(), String> {
@@ -109,6 +106,14 @@ impl TerminalSession {
             .map(|s| (s.cols, s.rows))
             .map_err(|e| e.to_string())
     }
+}
+
+pub fn write_to(writer: &PtyWriter, data: &[u8]) -> Result<(), String> {
+    let mut writer = lock(writer);
+    writer
+        .write_all(data)
+        .and_then(|()| writer.flush())
+        .map_err(|e| format!("could not write to the terminal: {e}"))
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {

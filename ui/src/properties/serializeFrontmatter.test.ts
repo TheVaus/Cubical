@@ -5,7 +5,6 @@ import {
   planPropertyEdit,
   type PropertyEdit,
   serializeFrontmatter,
-  spliceFrontmatter,
 } from "./serializeFrontmatter";
 import { parseFrontmatterYaml, splitFrontmatter } from "../ast/frontmatter";
 import type { FrontmatterEntry } from "../ast/types";
@@ -107,27 +106,6 @@ describe("parse → edit → serialize → re-parse round-trip", () => {
       ["tags", ["a", "b"]],
       ["count", 7],
     ]);
-  });
-});
-
-describe("spliceFrontmatter", () => {
-  it("replaces an existing frontmatter block, keeping the body", () => {
-    const source = "---\ntitle: old\n---\n\nbody text\n";
-    const block = serializeFrontmatter([["title", "new"]]);
-    const result = spliceFrontmatter(source, block);
-    expect(result).toBe("---\ntitle: new\n---\n\nbody text\n");
-  });
-
-  it("inserts a block at offset 0 for a frontmatter-less file", () => {
-    const source = "just body text\n";
-    const block = serializeFrontmatter([["title", "new"]]);
-    const result = spliceFrontmatter(source, block);
-    expect(result).toBe("---\ntitle: new\n---\njust body text\n");
-  });
-
-  it("inserts into an empty file", () => {
-    const block = serializeFrontmatter([["title", "new"]]);
-    expect(spliceFrontmatter("", block)).toBe("---\ntitle: new\n---\n");
   });
 });
 

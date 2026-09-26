@@ -35,13 +35,16 @@ fn cell_matches(cell: &Cell, cond: &Cond) -> bool {
     }
 }
 
-fn row_matches(table: &Table, row: &[Cell], conds: &[Cond]) -> bool {
-    conds
-        .iter()
-        .all(|cond| match table.column_index(&cond.key) {
-            Some(idx) => row.get(idx).is_some_and(|cell| cell_matches(cell, cond)),
-            None => false,
-        })
+fn row_matches(row: &[Cell], conds: &[(Option<usize>, &Cond)]) -> bool {
+    conds.iter().all(|(idx, cond)| {
+        idx.and_then(|i| row.get(i))
+            .is_some_and(|cell| cell_matches(cell, cond))
+    })
+}
+
+fn text_at(row: &[Cell], idx: Option<usize>) -> String {
+    idx.and_then(|i| row.get(i))
+        .map_or_else(String::new, |cell| cell.text.clone())
 }
 
 fn sort_rank(cell: Option<&Cell>) -> u8 {
@@ -75,19 +78,17 @@ fn compare_for_sort(a: Option<&Cell>, b: Option<&Cell>, dir: SortDir) -> Orderin
     }
 }
 
-fn cell_text_at(table: &Table, row: &[Cell], column: &str) -> String {
-    table
-        .column_index(column)
-        .and_then(|idx| row.get(idx))
-        .map_or_else(String::new, |cell| cell.text.clone())
-}
-
 #[must_use]
 pub fn run(table: &Table, q: &Query) -> QueryResult {
+    let conds: Vec<(Option<usize>, &Cond)> = q
+        .conds
+        .iter()
+        .map(|cond| (table.column_index(&cond.key), cond))
+        .collect();
     let mut selected: Vec<&Vec<Cell>> = table
         .rows
         .iter()
-        .filter(|row| row_matches(table, row, &q.conds))
+        .filter(|row| row_matches(row, &conds))
         .collect();
 
     if let Some(sort) = &q.sort {
@@ -103,31 +104,32 @@ pub fn run(table: &Table, q: &Query) -> QueryResult {
             count: selected.len(),
         },
         Command::List => {
-            let first = table.columns.first();
+            let first = (!table.columns.is_empty()).then_some(0);
             QueryResult::List {
                 items: selected
                     .iter()
                     .map(|row| ListItem {
-                        text: first.map_or_else(String::new, |c| cell_text_at(table, row, c)),
+                        text: text_at(row, first),
                         note: None,
                     })
                     .collect(),
             }
         }
-        Command::Table(cols) => QueryResult::Table {
-            columns: cols.clone(),
-            rows: selected
-                .iter()
-                .map(|row| Row {
-                    note: None,
-                    cells: cols
-                        .iter()
-                        .map(|col| cell_text_at(table, row, col))
-                        .collect(),
-                })
-                .collect(),
-            row_label: None,
-        },
+        Command::Table(cols) => {
+            let indices: Vec<Option<usize>> =
+                cols.iter().map(|col| table.column_index(col)).collect();
+            QueryResult::Table {
+                columns: cols.clone(),
+                rows: selected
+                    .iter()
+                    .map(|row| Row {
+                        note: None,
+                        cells: indices.iter().map(|&idx| text_at(row, idx)).collect(),
+                    })
+                    .collect(),
+                row_label: None,
+            }
+        }
     }
 }
 

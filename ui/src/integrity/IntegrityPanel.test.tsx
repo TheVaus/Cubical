@@ -258,3 +258,66 @@ describe("IntegrityPanel — a refresh must not blank the list", () => {
     expect(host.textContent).not.toContain("notes/plan.md");
   });
 });
+
+describe("IntegrityPanel — responses outliving their vault", () => {
+  it("drops a list response that lands after the vault closed", async () => {
+    const [vault, setVault] = createSignal<string | null>("v1");
+    let release!: (v: { groups: DanglingLinkGroup[]; truncated: boolean }) => void;
+    listDanglingLinks.mockReturnValueOnce(
+      new Promise((resolve) => {
+        release = resolve as never;
+      }),
+    );
+    const host = mount(() => (
+      <IntegrityPanel vaultId={vault()} refreshSignal={0} onRowClick={noop} />
+    ));
+    await flush();
+
+    setVault(null);
+    release({ groups: [GROUP], truncated: false });
+    await flush();
+
+    expect(host.textContent).toContain("Open a vault");
+    expect(host.textContent).not.toContain("[[plan]]");
+  });
+
+  it("does not reload the old vault when a repair finishes after a switch", async () => {
+    const [vault, setVault] = createSignal("v1");
+    const onRepaired = vi.fn();
+    const host = mount(() => (
+      <IntegrityPanel
+        vaultId={vault()}
+        refreshSignal={0}
+        onRowClick={noop}
+        onRepaired={onRepaired}
+      />
+    ));
+    await flush();
+
+    let finish!: (v: unknown) => void;
+    repairDanglingLink.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    const toggle = [...host.querySelectorAll("button")].find(
+      (b) => b.textContent === "Reattach to…",
+    )!;
+    toggle.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    host
+      .querySelector('[aria-label="Reattach [[plan]] to notes/planning.md"]')!
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    listDanglingLinks.mockResolvedValue({ groups: [], truncated: false });
+    setVault("v2");
+    await flush();
+    listDanglingLinks.mockClear();
+
+    finish({ files_rewritten: 1, refs_updated: 2, pending_count: 0 });
+    await flush();
+
+    expect(listDanglingLinks).not.toHaveBeenCalled();
+    expect(onRepaired).not.toHaveBeenCalled();
+    expect(host.textContent).toContain("No dangling links");
+  });
+});

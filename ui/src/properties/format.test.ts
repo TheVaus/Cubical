@@ -5,7 +5,6 @@ import {
   formatCurrency,
   isKnownCurrency,
   parseCurrencyInput,
-  truncateInt,
 } from "./format";
 
 describe("formatCurrency", () => {
@@ -40,13 +39,5 @@ describe("parseCurrencyInput", () => {
   it("returns null for non-numeric input", () => {
     expect(parseCurrencyInput("")).toBeNull();
     expect(parseCurrencyInput("abc")).toBeNull();
-  });
-});
-
-describe("truncateInt", () => {
-  it("truncates toward zero", () => {
-    expect(truncateInt(3.7)).toBe(3);
-    expect(truncateInt(-3.7)).toBe(-3);
-    expect(truncateInt(5)).toBe(5);
   });
 });

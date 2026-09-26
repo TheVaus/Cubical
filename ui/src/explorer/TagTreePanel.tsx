@@ -17,7 +17,7 @@ import FileRow from "./FileRow";
 import FolderRow from "./FolderRow";
 import type { FileActions } from "./fileActions";
 import { FILE_LIST_OVERSCAN, FILE_ROW_HEIGHT } from "./rowMetrics";
-import { buildStableTagRows, type TagFlatRow } from "./tagTree";
+import { buildStableTagRows, buildTagTree, type TagFlatRow } from "./tagTree";
 import { canUndoTagRename, undoResultMessage } from "./tagRenameUndo";
 
 export interface TagTreePanelProps {
@@ -50,17 +50,19 @@ const TagTreePanel: Component<TagTreePanelProps> = (props) => {
     });
 
   let token = 0;
+  let loadedVault: string | null = null;
   createEffect(() => {
     const vid = props.vaultId;
     void props.reloadToken;
     void selfReload();
 
-    if (!vid) {
+    const my = ++token;
+    if (vid !== loadedVault) {
+      loadedVault = vid;
       setAssignments([]);
       setLoaded(false);
-      return;
     }
-    const my = ++token;
+    if (!vid) return;
     listTagAssignments({ vault_id: vid })
       .then((resp) => {
         if (my !== token) return;
@@ -74,14 +76,10 @@ const TagTreePanel: Component<TagTreePanelProps> = (props) => {
       });
   });
 
+  const tree = createMemo(() => buildTagTree(assignments(), props.files));
   let prevRows: TagFlatRow[] = [];
   const rows = createMemo<TagFlatRow[]>(() => {
-    prevRows = buildStableTagRows(
-      prevRows,
-      assignments(),
-      props.files,
-      collapsedTags(),
-    );
+    prevRows = buildStableTagRows(prevRows, tree(), collapsedTags());
     return prevRows;
   });
 

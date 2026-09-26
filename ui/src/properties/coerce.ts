@@ -1,11 +1,10 @@
-import type { CellKind } from "./inferType";
+import { ISO_DATE, type CellKind } from "./inferType";
 
 export interface Coercion {
   value: unknown;
   lossy: boolean;
 }
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const TRUTHY = new Set(["true", "yes", "1", "on"]);
 const FALSY = new Set(["false", "no", "0", "off", ""]);
 

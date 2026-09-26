@@ -16,28 +16,9 @@ pub fn extract_text_runs(source: &str) -> Vec<TextRun<'_>> {
     let mut in_fence = false;
     let mut fence_marker: &str = "";
 
-    if source.starts_with("---\n") || source.starts_with("---\r\n") {
-        let after_open = if source.starts_with("---\r\n") { 5 } else { 4 };
-        let mut probe = after_open;
-        while probe < len {
-            let line_start = probe;
-            while probe < len && bytes[probe] != b'\n' {
-                probe += 1;
-            }
-            let line = &source[line_start..probe];
-            let trimmed = line.trim_end_matches('\r');
-            if trimmed == "---" || trimmed == "..." {
-                cursor = probe + if probe < len { 1 } else { 0 };
-                i = cursor;
-                break;
-            }
-            if probe < len {
-                probe += 1;
-            }
-        }
-        if cursor == 0 {
-            return Vec::new();
-        }
+    if let Some((_, _, body_start)) = locate_frontmatter(source) {
+        cursor = body_start;
+        i = body_start;
     }
 
     #[allow(unused_assignments)]
@@ -200,6 +181,25 @@ pub fn extract_text_runs(source: &str) -> Vec<TextRun<'_>> {
     out
 }
 
+pub(crate) fn locate_frontmatter(source: &str) -> Option<(usize, usize, usize)> {
+    let yaml_start = if source.starts_with("---\n") {
+        4
+    } else if source.starts_with("---\r\n") {
+        5
+    } else {
+        return None;
+    };
+    let mut line_start = yaml_start;
+    for line in source[yaml_start..].split_inclusive('\n') {
+        let content = line.trim_end_matches(['\n', '\r']);
+        if content == "---" || content == "..." {
+            return Some((yaml_start, line_start, line_start + line.len()));
+        }
+        line_start += line.len();
+    }
+    None
+}
+
 fn push_run<'a>(out: &mut Vec<TextRun<'a>>, source: &'a str, start: usize, end: usize) {
     if end > start {
         out.push(TextRun {
@@ -217,7 +217,7 @@ pub struct MentionHit {
 }
 
 pub fn find_mention_occurrences(source: &str, needles: &[&str]) -> Vec<MentionHit> {
-    let prepared: Vec<(usize, String, usize)> = needles
+    let prepared: Vec<(usize, String)> = needles
         .iter()
         .enumerate()
         .filter_map(|(idx, n)| {
@@ -225,7 +225,7 @@ pub fn find_mention_occurrences(source: &str, needles: &[&str]) -> Vec<MentionHi
             if trimmed.is_empty() {
                 return None;
             }
-            Some((idx, trimmed.to_lowercase(), trimmed.len()))
+            Some((idx, trimmed.to_lowercase()))
         })
         .collect();
     if prepared.is_empty() {
@@ -235,7 +235,7 @@ pub fn find_mention_occurrences(source: &str, needles: &[&str]) -> Vec<MentionHi
     let mut out = Vec::new();
     for run in extract_text_runs(source) {
         let run_lower = run.slice.to_lowercase();
-        for (needle_idx, needle_lower, _needle_byte_len) in &prepared {
+        for (needle_idx, needle_lower) in &prepared {
             let mut search_from = 0usize;
             while search_from <= run_lower.len() {
                 let Some(rel) = run_lower[search_from..].find(needle_lower) else {
@@ -290,46 +290,23 @@ fn map_lower_span_to_original(
     match_start: usize,
     match_end: usize,
 ) -> (usize, usize) {
-    let mut orig_iter = original.char_indices();
-    let mut lower_iter = lower.char_indices();
-    let mut orig_start = 0usize;
-    let mut orig_end = original.len();
-    let mut found_start = false;
-    loop {
-        match (orig_iter.next(), lower_iter.next()) {
-            (Some((oi, oc)), Some((li, _))) => {
-                if !found_start && li >= match_start {
-                    orig_start = oi;
-                    found_start = true;
-                }
-                if li >= match_end {
-                    orig_end = oi;
-                    break;
-                }
-                let lowered_len: usize = oc.to_lowercase().map(|c| c.len_utf8()).sum();
-                if lowered_len > oc.len_utf8() {
-                    let extra = lowered_len - oc.len_utf8();
-                    let mut skipped = 0usize;
-                    while skipped < extra {
-                        if let Some((_, lc)) = lower_iter.next() {
-                            skipped += lc.len_utf8();
-                        } else {
-                            break;
-                        }
-                    }
-                }
-            }
-            (Some((oi, _)), None) => {
-                orig_end = oi;
-                break;
-            }
-            (None, _) => break,
+    if original.len() == lower.len() && original.is_ascii() {
+        return (match_start, match_end - match_start);
+    }
+    let mut lower_pos = 0usize;
+    let mut orig_start = None;
+    for (oi, oc) in original.char_indices() {
+        if orig_start.is_none() && lower_pos >= match_start {
+            orig_start = Some(oi);
         }
+        if lower_pos >= match_end {
+            let start = orig_start.unwrap_or(oi);
+            return (start, oi - start);
+        }
+        lower_pos += oc.to_lowercase().map(char::len_utf8).sum::<usize>();
     }
-    if !found_start {
-        orig_start = original.len();
-    }
-    (orig_start, orig_end.saturating_sub(orig_start))
+    let start = orig_start.unwrap_or(original.len());
+    (start, original.len() - start)
 }
 
 #[cfg(test)]
@@ -509,6 +486,30 @@ mod tests {
         let src = "alpha\u{00A0}Daily\u{00A0}omega\n";
         let hits = find_mention_occurrences(src, &["Daily"]);
         assert_eq!(hits.len(), 1);
+    }
+
+    #[test]
+    fn a_letter_whose_lowercase_is_longer_does_not_shift_later_hits() {
+        let src = "\u{023A} Daily here\n";
+        let hits = find_mention_occurrences(src, &["daily"]);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hit_slice(src, &hits[0]), "Daily");
+    }
+
+    #[test]
+    fn a_letter_whose_lowercase_is_shorter_does_not_shift_later_hits() {
+        let src = "\u{212A}elvin met Daily\n";
+        let hits = find_mention_occurrences(src, &["daily"]);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hit_slice(src, &hits[0]), "Daily");
+    }
+
+    #[test]
+    fn an_unterminated_frontmatter_opener_is_body_text() {
+        let src = "---\nDaily notes start here\n";
+        let hits = find_mention_occurrences(src, &["Daily"]);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hit_slice(src, &hits[0]), "Daily");
     }
 
     #[test]

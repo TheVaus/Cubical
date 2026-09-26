@@ -165,7 +165,6 @@ const ExplorerPanel: Component<ExplorerPanelProps> = (props) => {
                 <FileTreePanel
                   files={props.files}
                   folders={props.folders}
-                  vaultId={props.vaultId}
                   selectedPath={props.selectedPath}
                   actions={props.actions}
                   onSelectFile={props.onSelectFile}

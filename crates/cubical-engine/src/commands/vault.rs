@@ -173,13 +173,6 @@ pub async fn list_files(
     })
 }
 
-fn normalize_parent_dir(
-    vault: &Vault,
-    parent_dir: &str,
-) -> Result<(String, PathBuf), CubicalError> {
-    paths::vault_dir(vault, parent_dir)
-}
-
 fn first_free_path(
     parent_rel: &str,
     parent_abs: &std::path::Path,
@@ -208,10 +201,6 @@ fn first_free_path(
     Err(CubicalError::Io(format!(
         "could not find a free name for '{base}' in '{parent_rel}'"
     )))
-}
-
-fn normalize_rel_file_path(vault: &Vault, path: &str) -> Result<(String, PathBuf), CubicalError> {
-    paths::vault_file(vault, path)
 }
 
 async fn create_empty_markdown(vault: &Vault, rel_path: &str) -> Result<String, CubicalError> {
@@ -250,7 +239,7 @@ pub async fn create_file(
     req: CreateFileRequest,
 ) -> Result<CreateFileResponse, CubicalError> {
     let vault = open_vault_cloned(state, &req.vault_id).await?;
-    let (parent_rel, parent_abs) = normalize_parent_dir(&vault, &req.parent_dir)?;
+    let (parent_rel, parent_abs) = paths::vault_dir(&vault, &req.parent_dir)?;
 
     let rel_path = first_free_path(&parent_rel, &parent_abs, "Untitled", Some("md"))?;
     let content_hash = create_empty_markdown(&vault, &rel_path).await?;
@@ -265,7 +254,7 @@ pub async fn create_file_at_path(
     req: CreateFileAtPathRequest,
 ) -> Result<CreateFileAtPathResponse, CubicalError> {
     let vault = open_vault_cloned(state, &req.vault_id).await?;
-    let (rel_path, abs_path) = normalize_rel_file_path(&vault, &req.path)?;
+    let (rel_path, abs_path) = paths::vault_file(&vault, &req.path)?;
     if abs_path.exists() {
         return Err(CubicalError::InvalidRequest(format!(
             "path already exists: {rel_path}"
@@ -283,7 +272,7 @@ pub async fn create_folder(
     req: CreateFolderRequest,
 ) -> Result<CreateFolderResponse, CubicalError> {
     let vault = open_vault_cloned(state, &req.vault_id).await?;
-    let (parent_rel, parent_abs) = normalize_parent_dir(&vault, &req.parent_dir)?;
+    let (parent_rel, parent_abs) = paths::vault_dir(&vault, &req.parent_dir)?;
 
     let rel_path = first_free_path(&parent_rel, &parent_abs, "Untitled Folder", None)?;
     let abs_path = vault.root().join(&rel_path);
@@ -300,7 +289,7 @@ pub async fn create_folder(
 
 pub async fn delete_path(state: &AppState, req: DeletePathRequest) -> Result<(), CubicalError> {
     let vault = open_vault_cloned(state, &req.vault_id).await?;
-    let (rel_path, abs_path) = normalize_rel_file_path(&vault, &req.path)?;
+    let (rel_path, abs_path) = paths::vault_file(&vault, &req.path)?;
     if !abs_path.exists() {
         return Err(CubicalError::InvalidRequest(format!(
             "path does not exist: {rel_path}"
@@ -467,12 +456,7 @@ pub async fn read_file_text(
 pub const MAX_READ_FILE_BYTES: u64 = 64 * 1024 * 1024;
 
 pub fn mime_for_extension(path: &str) -> &'static str {
-    let ext = std::path::Path::new(path)
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(str::to_ascii_lowercase)
-        .unwrap_or_default();
-    match ext.as_str() {
+    match extension_of(path).as_str() {
         "png" => "image/png",
         "jpg" | "jpeg" => "image/jpeg",
         "gif" => "image/gif",
@@ -699,16 +683,17 @@ pub async fn set_setting(
     if !cubical_core::vault::settings::is_workspace_key(&req.key) {
         let root = vault.root().to_path_buf();
 
-        let snapshot = {
-            let mut map = settings.write().await;
-            map.insert(req.key.clone(), req.value.clone());
-            map.clone()
-        };
+        let mut map = settings.write().await;
+        let mut next = map.clone();
+        next.insert(req.key, req.value);
 
-        tokio::task::spawn_blocking(move || cubical_core::vault::settings::save(&root, &snapshot))
-            .await
-            .map_err(|e| CubicalError::InvalidRequest(format!("settings save task panicked: {e}")))?
-            .map_err(|e| CubicalError::InvalidRequest(format!("save settings: {e}")))?;
+        let next = tokio::task::spawn_blocking(move || {
+            cubical_core::vault::settings::save(&root, &next).map(|()| next)
+        })
+        .await
+        .map_err(|e| CubicalError::InvalidRequest(format!("settings save task panicked: {e}")))?
+        .map_err(|e| CubicalError::InvalidRequest(format!("save settings: {e}")))?;
+        *map = next;
 
         return Ok(SetSettingResponse {});
     }
@@ -2207,6 +2192,68 @@ mod tests {
         .await
         .expect("get ok");
         assert_eq!(resp.value, Some(serde_json::json!("dark")));
+    }
+
+    #[tokio::test]
+    async fn a_setting_that_fails_to_save_is_not_served_from_memory() {
+        let (dir, _vault, state) = fresh_state_with_vault("v1").await;
+        std::fs::create_dir_all(cubical_core::vault::settings::settings_path(dir.path())).unwrap();
+
+        set_setting(
+            &state,
+            SetSettingRequest {
+                vault_id: "v1".into(),
+                key: "appearance.theme_mode".into(),
+                value: serde_json::json!("dark"),
+            },
+        )
+        .await
+        .expect_err("config.toml is a directory, so the save must fail");
+
+        let resp = get_setting(
+            &state,
+            GetSettingRequest {
+                vault_id: "v1".into(),
+                key: "appearance.theme_mode".into(),
+            },
+        )
+        .await
+        .expect("get ok");
+        assert_eq!(resp.value, None);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_setting_writes_all_reach_the_file() {
+        let (dir, _vault, state) = fresh_state_with_vault("v1").await;
+        let state = Arc::new(state);
+        let writers: Vec<_> = (0..16)
+            .map(|i| {
+                let state = Arc::clone(&state);
+                tokio::spawn(async move {
+                    set_setting(
+                        &state,
+                        SetSettingRequest {
+                            vault_id: "v1".into(),
+                            key: format!("test.key{i}"),
+                            value: serde_json::json!(i),
+                        },
+                    )
+                    .await
+                })
+            })
+            .collect();
+        for w in writers {
+            w.await.unwrap().expect("set ok");
+        }
+
+        let on_disk = cubical_core::vault::settings::load(dir.path()).unwrap();
+        for i in 0..16 {
+            assert_eq!(
+                on_disk.get(&format!("test.key{i}")),
+                Some(&serde_json::json!(i)),
+                "test.key{i} was lost by an out-of-order save",
+            );
+        }
     }
 
     #[tokio::test]

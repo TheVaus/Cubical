@@ -57,9 +57,12 @@ fn parse_atx_heading(line: &str) -> Option<(usize, &str)> {
 }
 
 pub fn extract_block(source: &str, byte_offset: u64) -> String {
-    let pos = byte_offset as usize;
+    let mut pos = byte_offset as usize;
     if pos >= source.len() {
         return String::new();
+    }
+    while !source.is_char_boundary(pos) {
+        pos -= 1;
     }
     let line_start = source[..pos].rfind('\n').map_or(0, |i| i + 1);
     let mut block_start = line_start;
@@ -163,6 +166,13 @@ mod tests {
         let src = "- a\n- b ^id\n- c\n\nafter\n";
         let offset = src.find("- b ^id").unwrap() as u64;
         assert_eq!(extract_block(src, offset), "- a\n- b ^id\n- c\n");
+    }
+
+    #[test]
+    fn extract_block_tolerates_an_offset_inside_a_multibyte_char() {
+        let src = "café au lait ^id\n\nnext\n";
+        let inside_e_acute = src.find('é').unwrap() as u64 + 1;
+        assert_eq!(extract_block(src, inside_e_acute), "café au lait ^id\n");
     }
 
     #[test]

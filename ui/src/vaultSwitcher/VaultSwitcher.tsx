@@ -3,7 +3,7 @@ import { Show } from "solid-js";
 import Button from "@ds/components/forms/Button/Button";
 import Popover from "@ds/components/overlay/Popover/Popover";
 
-import { RecentVaultList } from "./RecentVaultList";
+import { RecentVaultList, vaultName } from "./RecentVaultList";
 import type { RecentVault } from "../api/ipc";
 import "./vaultSwitcher.css";
 
@@ -14,10 +14,6 @@ export interface VaultSwitcherProps {
   onRemove: (path: string) => void;
   onOpenFolder: () => void;
   onDismiss: () => void;
-}
-
-function vaultName(path: string): string {
-  return path.split("/").filter(Boolean).pop() ?? path;
 }
 
 export function VaultSwitcher(props: VaultSwitcherProps) {

@@ -95,6 +95,10 @@ export function FileViewer(props: FileViewerProps): JSXElement {
 
   createEffect(() => {
     if (stage === undefined) return;
+    if (payload.state === "errored") {
+      replaceChildren(stage, document.createDocumentFragment());
+      return;
+    }
     if (payload.state !== "ready") return;
     const p = payload();
     if (p === undefined) return;

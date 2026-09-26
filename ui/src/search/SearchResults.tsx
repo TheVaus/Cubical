@@ -34,7 +34,7 @@ const SearchResults: Component<SearchResultsProps> = (props) => {
     });
 
   const [focusedIdx, setFocusedIdx] = createSignal(-1);
-  let rowEls: (HTMLButtonElement | null)[] = [];
+  const rowEls = new WeakMap<FileGroup, HTMLButtonElement>();
   const tabStopIdx = () => (focusedIdx() === -1 ? 0 : focusedIdx());
   createEffect(() => {
     groups();
@@ -48,7 +48,8 @@ const SearchResults: Component<SearchResultsProps> = (props) => {
     const next = nextSearchNavIndex(e.key, focusedIdx(), groups().length);
     if (next < 0) return;
     setFocusedIdx(next);
-    rowEls[next]?.focus();
+    const group = groups()[next];
+    if (group) rowEls.get(group)?.focus();
   };
 
   const hitCount = () => props.state.hits().length;
@@ -147,7 +148,7 @@ const SearchResults: Component<SearchResultsProps> = (props) => {
                 collapsed={collapsed().has(group.path)}
                 tabStop={tabStopIdx() === i()}
                 registerRef={(el) => {
-                  rowEls[i()] = el;
+                  if (el) rowEls.set(group, el);
                 }}
                 onFocus={() => setFocusedIdx(i())}
                 onToggle={() => toggleCollapsed(group.path)}

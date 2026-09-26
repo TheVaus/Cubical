@@ -6,10 +6,8 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
-use tantivy::collector::DocSetCollector;
-use tantivy::query::AllQuery;
-use tantivy::schema::{Schema, TantivyDocument, Value};
-use tantivy::{doc, Index, IndexReader, IndexWriter, ReloadPolicy, Term};
+use tantivy::schema::{IndexRecordOption, Schema};
+use tantivy::{doc, DocSet, Index, IndexReader, IndexWriter, ReloadPolicy, Term, TERMINATED};
 
 pub const SCHEMA_VERSION: u32 = 2;
 
@@ -172,22 +170,37 @@ impl SearchIndex {
 
     pub fn retain_paths(&self, keep: &HashSet<String>) -> Result<usize, SearchError> {
         let searcher = self.reader.searcher();
-        let addrs = searcher.search(&AllQuery, &DocSetCollector)?;
+        let mut orphans: HashSet<String> = HashSet::new();
+        for segment in searcher.segment_readers() {
+            let inverted = segment.inverted_index(self.fields.path)?;
+            let mut terms = inverted.terms().stream()?;
+            while terms.advance() {
+                let Ok(path) = std::str::from_utf8(terms.key()) else {
+                    continue;
+                };
+                if keep.contains(path) || orphans.contains(path) {
+                    continue;
+                }
+                let mut postings = inverted
+                    .read_postings_from_terminfo(terms.value(), IndexRecordOption::Basic)?;
+                let mut doc = postings.doc();
+                while doc != TERMINATED {
+                    if !segment.is_deleted(doc) {
+                        orphans.insert(path.to_string());
+                        break;
+                    }
+                    doc = postings.advance();
+                }
+            }
+        }
         let writer = self
             .writer
             .lock()
             .map_err(|_| SearchError::WriterPoisoned)?;
-        let mut removed = 0;
-        for addr in addrs {
-            let doc: TantivyDocument = searcher.doc(addr)?;
-            if let Some(path) = doc.get_first(self.fields.path).and_then(|v| v.as_str()) {
-                if !keep.contains(path) {
-                    writer.delete_term(Term::from_field_text(self.fields.path, path));
-                    removed += 1;
-                }
-            }
+        for path in &orphans {
+            writer.delete_term(Term::from_field_text(self.fields.path, path));
         }
-        Ok(removed)
+        Ok(orphans.len())
     }
 
     pub fn commit(&self) -> Result<(), SearchError> {
@@ -348,6 +361,25 @@ mod tests {
         std::fs::remove_file(tmp.path().join("schema.json")).unwrap();
         let idx = SearchIndex::open(tmp.path()).unwrap();
         assert_eq!(idx.doc_count().unwrap(), 0);
+    }
+
+    #[test]
+    fn retain_paths_drops_only_live_orphans() {
+        let tmp = TempDir::new().unwrap();
+        let idx = SearchIndex::open(tmp.path()).unwrap();
+        for p in ["a.md", "b.md", "c.md"] {
+            idx.upsert(&doc_fixture(p, "body", &[])).unwrap();
+        }
+        idx.commit().unwrap();
+        idx.delete_path("b.md").unwrap();
+        idx.upsert(&doc_fixture("c.md", "body v2", &[])).unwrap();
+        idx.commit().unwrap();
+
+        let keep: HashSet<String> = ["a.md".to_string()].into_iter().collect();
+        assert_eq!(idx.retain_paths(&keep).unwrap(), 1);
+        idx.commit().unwrap();
+        assert_eq!(idx.doc_count().unwrap(), 1);
+        assert_eq!(idx.retain_paths(&keep).unwrap(), 0);
     }
 
     #[test]

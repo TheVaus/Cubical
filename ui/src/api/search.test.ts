@@ -9,8 +9,6 @@ import { listTags } from "./ipc";
 import {
   search,
   searchIndexStatus,
-  searchRebuildIndex,
-  searchGetHealth,
   type SearchRequest,
   type SearchVaultRequest,
 } from "./search";
@@ -69,31 +67,6 @@ describe("search ipc wrappers", () => {
     expect(s.indexed_files).toBe(2);
     expect(s.last_commit_secs).toBe(1717);
     expect(mockInvoke).toHaveBeenCalledWith("search_index_status", {
-      req: { vault_id: "vault-1" },
-    });
-  });
-
-  it("searchRebuildIndex invokes the rebuild command with `{ req: { vault_id } }`", async () => {
-    mockInvoke.mockResolvedValueOnce(undefined);
-    await searchRebuildIndex({ vault_id: "vault-1" });
-    expect(mockInvoke).toHaveBeenCalledWith("search_rebuild_index", {
-      req: { vault_id: "vault-1" },
-    });
-  });
-
-  it("searchGetHealth returns schema_version + segment/doc/disk fields", async () => {
-    mockInvoke.mockResolvedValueOnce({
-      schema_version: 1,
-      segments: 1,
-      doc_count: 2,
-      disk_bytes: 100,
-    });
-    const h = await searchGetHealth({ vault_id: "vault-1" });
-    expect(h.schema_version).toBe(1);
-    expect(h.segments).toBe(1);
-    expect(h.doc_count).toBe(2);
-    expect(h.disk_bytes).toBe(100);
-    expect(mockInvoke).toHaveBeenCalledWith("search_get_health", {
       req: { vault_id: "vault-1" },
     });
   });

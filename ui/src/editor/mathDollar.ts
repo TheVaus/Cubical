@@ -3,15 +3,12 @@ import {
   WidgetType,
   type DecorationSet,
 } from "@codemirror/view";
-import {
-  type EditorState,
-  type Extension,
-  type Range,
-} from "@codemirror/state";
+import { type EditorState, type Range } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
 
 import { decorationField } from "./decorationField";
 import { mathEnabledFacet, renderMath } from "./math";
+import { BLOCK_CONTAINERS } from "./blockContainers";
 
 const FENCE = "$$";
 
@@ -105,7 +102,9 @@ function codeRanges(state: EditorState): Array<[number, number]> {
     enter: (node) => {
       if (node.name === "FencedCode" || node.name === "CodeBlock") {
         ranges.push([node.from, node.to]);
+        return false;
       }
+      return BLOCK_CONTAINERS.has(node.name);
     },
   });
   return ranges;
@@ -138,12 +137,15 @@ class DisplayMathWidget extends WidgetType {
 
 function buildDecorations(state: EditorState): DecorationSet {
   if (!state.facet(mathEnabledFacet)) return Decoration.none;
-  const doc = state.doc;
+  const text = state.doc.toString();
+  if (!text.includes(FENCE)) return Decoration.none;
+  const regions = scanDisplayMath(text);
+  if (regions.length === 0) return Decoration.none;
   const head = state.selection.main.head;
   const excluded = codeRanges(state);
   const ranges: Range<Decoration>[] = [];
 
-  for (const region of scanDisplayMath(doc.toString())) {
+  for (const region of regions) {
     if (excluded.some(([from, to]) => region.from < to && from < region.to)) {
       continue;
     }
@@ -164,5 +166,3 @@ export const displayMathField = decorationField({
   build: buildDecorations,
   watch: [(s) => s.facet(mathEnabledFacet)],
 });
-
-export const displayMathExtension: Extension = [displayMathField];

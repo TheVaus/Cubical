@@ -1,6 +1,7 @@
 use cubical_ast::{Block, Document, Inline, ListItem};
 use cubical_index::{replace_tags_for_file, TagRow, TagSource};
 
+use crate::vault::links::map_index_err;
 use crate::vault::parse::parse_off_executor;
 use crate::vault::Vault;
 
@@ -124,11 +125,10 @@ pub async fn refresh_tags(
     rel_path_str: &str,
     source: &str,
 ) -> Result<u32, libsql::Error> {
-    let extractions = match parse_off_executor(source).await {
-        Some(doc) => extract_tags(&doc),
-        None => Vec::new(),
-    };
-    write_rows(vault, rel_path_str, extractions).await
+    match parse_off_executor(source).await {
+        Some(doc) => refresh_tags_with_doc(vault, rel_path_str, &doc).await,
+        None => Ok(0),
+    }
 }
 
 pub async fn refresh_tags_with_doc(
@@ -157,13 +157,6 @@ async fn write_rows(
         .await
         .map_err(map_index_err)?;
     Ok(inserted)
-}
-
-fn map_index_err(e: cubical_index::IndexError) -> libsql::Error {
-    match e {
-        cubical_index::IndexError::LibSql(inner) => inner,
-        other => libsql::Error::Misuse(other.to_string()),
-    }
 }
 
 #[cfg(test)]

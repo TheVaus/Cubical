@@ -18,6 +18,18 @@ impl TagSource {
             TagSource::Frontmatter => "frontmatter",
         }
     }
+
+    fn from_column(value: &str) -> Result<Self, IndexError> {
+        match value {
+            "inline" => Ok(TagSource::Inline),
+            "frontmatter" => Ok(TagSource::Frontmatter),
+            other => Err(IndexError::UnknownEnum {
+                table: "tags",
+                column: "source",
+                value: other.to_string(),
+            }),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -141,18 +153,11 @@ pub async fn tags_for_file(conn: &IndexConn, file_path: &str) -> Result<Vec<TagR
         .await?;
     let mut out = Vec::new();
     while let Some(row) = rows.next().await? {
-        let tag_path: String = row.get(0)?;
-        let source_str: String = row.get(1)?;
-        let source = match source_str.as_str() {
-            "inline" => TagSource::Inline,
-            "frontmatter" => TagSource::Frontmatter,
-            other => {
-                return Err(IndexError::LibSql(libsql::Error::Misuse(format!(
-                    "unknown tags.source: {other}"
-                ))));
-            }
-        };
-        out.push(TagRow { tag_path, source });
+        let source: String = row.get(1)?;
+        out.push(TagRow {
+            tag_path: row.get(0)?,
+            source: TagSource::from_column(&source)?,
+        });
     }
     Ok(out)
 }
@@ -588,6 +593,36 @@ mod tests {
         .unwrap();
         let got = tag_paths_for_prefix(&conn, "my_", 50).await.unwrap();
         assert_eq!(got, vec!["my_tag".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn unknown_source_in_row_is_an_unknown_enum_error() {
+        let (_dir, conn) = open_test_index().await;
+        seed_file(&conn, "a.md").await;
+        conn.connection()
+            .execute(
+                "INSERT INTO tags (file_path, tag_path, source) VALUES ('a.md', 'x', 'bogus')",
+                (),
+            )
+            .await
+            .expect("raw insert");
+        match tags_for_file(&conn, "a.md").await {
+            Err(IndexError::UnknownEnum {
+                table,
+                column,
+                value,
+            }) => {
+                assert_eq!((table, column, value.as_str()), ("tags", "source", "bogus"));
+            }
+            other => panic!("expected UnknownEnum, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn tag_source_string_round_trips() {
+        for s in [TagSource::Inline, TagSource::Frontmatter] {
+            assert_eq!(TagSource::from_column(s.as_str()).unwrap(), s);
+        }
     }
 
     #[tokio::test]

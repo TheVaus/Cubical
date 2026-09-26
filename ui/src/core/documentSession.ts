@@ -2,7 +2,6 @@ import { createSignal } from "solid-js";
 
 import { readFileText, writeFileText } from "../api/ipc";
 import { errorMessage } from "./errorMessage";
-import { isOwnWriteEcho } from "./ownWrite";
 import { createDebounced } from "./debounce";
 
 export interface DocumentEditor {
@@ -33,10 +32,6 @@ export interface DocumentSession {
     changedPath: string,
     incomingHash: string | null | undefined,
   ) => void;
-  readonly isOwnWriteEchoOf: (
-    changedPath: string,
-    incomingHash: string | null | undefined,
-  ) => boolean;
   readonly refreshFromDisk: () => Promise<void>;
   readonly takeDisk: () => Promise<void>;
   readonly keepMine: () => void;
@@ -129,6 +124,7 @@ export function createDocumentSession(
     try {
       const resp = await readFileText({ vault_id: id, path });
       if (readingFor !== generation) return;
+      if (dirty || conflictHash() !== null) return;
       if (resp.content === editor.getContent()) return;
       editor.replaceContent(resp.content);
       deps.onContentReplaced(resp.content);
@@ -160,6 +156,12 @@ export function createDocumentSession(
     readFileText({ vault_id: id, path })
       .then((resp) => {
         if (readingFor !== generation) return;
+        if (conflictHash() !== null) return;
+        if (dirty) {
+          setConflictHash(incomingHash);
+          autosave.cancel();
+          return;
+        }
         deps.editor()?.replaceContent(resp.content);
         deps.onContentReplaced(resp.content);
         seenHash = incomingHash;
@@ -195,16 +197,6 @@ export function createDocumentSession(
       lastWrittenHash = knownHash;
     },
     applyExternalChange,
-    isOwnWriteEchoOf: (
-      changedPath: string,
-      incomingHash: string | null | undefined,
-    ) =>
-      isOwnWriteEcho({
-        changedPath,
-        selectedPath: deps.path(),
-        incomingHash,
-        lastWrittenHash,
-      }),
     refreshFromDisk,
     takeDisk,
     keepMine: () => {

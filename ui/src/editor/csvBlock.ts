@@ -5,10 +5,6 @@ const DELIMITER_BY_INFO: Record<string, string> = {
   tsv: "\t",
 };
 
-export function delimiterForInfo(infoText: string): string | undefined {
-  return DELIMITER_BY_INFO[infoText.trim().toLowerCase()];
-}
-
 export type DelimitedTableRenderer = (text: string, delimiter: string) => Node;
 
 export function csvBlockRenderer(

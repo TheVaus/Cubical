@@ -67,23 +67,6 @@ pub async fn links_from(conn: &IndexConn, source_path: &str) -> Result<Vec<LinkR
     Ok(out)
 }
 
-pub async fn links_to(conn: &IndexConn, target_path: &str) -> Result<Vec<LinkRow>, IndexError> {
-    let mut rows = conn
-        .connection()
-        .query(
-            "SELECT target_raw, target_path, anchor_kind, anchor_value, \
-                    display_text, is_embed, position \
-             FROM links WHERE target_path = ?1 ORDER BY source_path, position",
-            params![target_path],
-        )
-        .await?;
-    let mut out = Vec::new();
-    while let Some(row) = rows.next().await? {
-        out.push(row_to_link(&row)?);
-    }
-    Ok(out)
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct BacklinkRow {
     pub source_path: String,
@@ -236,23 +219,6 @@ mod tests {
             .expect("replace");
         let got = links_from(&conn, "a.md").await.expect("lookup");
         assert_eq!(got, rows);
-    }
-
-    #[tokio::test]
-    async fn links_to_returns_backlinks() {
-        let (_dir, conn) = open_test_index().await;
-        seed_file(&conn, "a.md").await;
-        seed_file(&conn, "b.md").await;
-        let rows_a = vec![row("Target", Some("target.md"))];
-        let rows_b = vec![row("Target", Some("target.md"))];
-        replace_links_for_file(&conn, "a.md", &rows_a)
-            .await
-            .expect("a");
-        replace_links_for_file(&conn, "b.md", &rows_b)
-            .await
-            .expect("b");
-        let back = links_to(&conn, "target.md").await.expect("backlinks");
-        assert_eq!(back.len(), 2);
     }
 
     #[tokio::test]

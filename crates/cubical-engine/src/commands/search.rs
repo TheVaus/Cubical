@@ -1,5 +1,5 @@
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError};
 
 use cubical_search::{query::run_search, IndexHealth, IndexState, IndexStatus};
 use serde::Deserialize;
@@ -26,6 +26,7 @@ use crate::error::CubicalError;
 use crate::events::{spawn_scan_dispatcher, EventSink};
 use crate::search_handle::open_search_cloned;
 use crate::state::AppState;
+use tokio_util::sync::CancellationToken;
 
 pub async fn search(state: &AppState, req: SearchRequest) -> Result<SearchResponse, CubicalError> {
     crate::plugins::require(state, &req.vault_id, crate::plugins::Feature::Search).await?;
@@ -76,20 +77,27 @@ pub async fn search_rebuild_index(
     app: std::sync::Arc<dyn EventSink>,
     req: SearchVaultRequest,
 ) -> Result<(), CubicalError> {
-    let (vault, search, cancel, search_state) = with_open_vault(state, &req.vault_id, |open| {
+    let (vault, search, cancel, search_state) = {
+        let mut guard = state.vaults().write().await;
+        let open = guard
+            .get_mut(&req.vault_id)
+            .ok_or_else(|| CubicalError::VaultNotOpen(req.vault_id.clone()))?;
+        if open.cancel.is_cancelled() {
+            open.cancel = CancellationToken::new();
+        }
         (
             open.vault.clone(),
             open.search.clone(),
             open.cancel.clone(),
             Arc::clone(&open.search_state),
         )
-    })
-    .await?;
+    };
 
     let index = search.index()?;
-    if let Ok(mut cell) = search_state.lock() {
-        cell.state = IndexState::Building;
-    }
+    search_state
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .state = IndexState::Building;
 
     index.delete_all()?;
     index.commit()?;
@@ -324,18 +332,38 @@ mod tests {
             .scan_status
     }
 
-    #[tokio::test]
-    async fn a_rebuild_runs_under_the_vaults_own_cancellation_token() {
-        let (_dir, _handle, state) = fresh_state_with_vault("v1").await;
-        let cancel = state
+    async fn stored_cancel(state: &AppState, vault_id: &str) -> CancellationToken {
+        state
             .vaults()
             .read()
             .await
-            .get("v1")
+            .get(vault_id)
             .unwrap()
             .cancel
-            .clone();
-        cancel.cancel();
+            .clone()
+    }
+
+    async fn wait_for_scan_status(state: &AppState, vault_id: &str, want: ScanStatusBackend) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while scan_status(state, vault_id).await != want {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "scan never reached {want:?}",
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn a_rebuild_runs_under_the_vaults_own_cancellation_token() {
+        let (_dir, _handle, state) = fresh_state_with_vault("v1").await;
+        state
+            .vaults()
+            .write()
+            .await
+            .get_mut("v1")
+            .unwrap()
+            .scan_status = ScanStatusBackend::InProgress;
 
         search_rebuild_index(
             &state,
@@ -347,17 +375,52 @@ mod tests {
         .await
         .expect("rebuild dispatches");
 
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        loop {
-            if scan_status(&state, "v1").await == ScanStatusBackend::Cancelled {
-                break;
-            }
-            assert!(
-                std::time::Instant::now() < deadline,
-                "a cancelled vault must stop its rebuild, not scan on regardless",
-            );
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
+        let stored = stored_cancel(&state, "v1").await;
+        assert!(
+            !stored.is_cancelled(),
+            "the rebuild's token is the one close_vault will cancel",
+        );
+        wait_for_scan_status(&state, "v1", ScanStatusBackend::Complete).await;
+    }
+
+    #[tokio::test]
+    async fn a_rebuild_after_a_cancelled_scan_still_rebuilds() {
+        let (_dir, _handle, state) = fresh_state_with_vault("v1").await;
+        let first = stored_cancel(&state, "v1").await;
+        first.cancel();
+        state
+            .vaults()
+            .write()
+            .await
+            .get_mut("v1")
+            .unwrap()
+            .scan_status = ScanStatusBackend::Cancelled;
+
+        search_rebuild_index(
+            &state,
+            std::sync::Arc::new(crate::events::NoopEventSink),
+            SearchVaultRequest {
+                vault_id: "v1".into(),
+            },
+        )
+        .await
+        .expect("rebuild dispatches");
+
+        let replaced = stored_cancel(&state, "v1").await;
+        assert!(
+            !replaced.is_cancelled(),
+            "a cancelled scan token must not doom every later rebuild",
+        );
+        wait_for_scan_status(&state, "v1", ScanStatusBackend::Complete).await;
+        let status = search_index_status(
+            &state,
+            SearchVaultRequest {
+                vault_id: "v1".into(),
+            },
+        )
+        .await
+        .expect("status");
+        assert!(matches!(status.state, IndexState::Ready));
     }
 
     #[tokio::test]

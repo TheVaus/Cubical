@@ -3,6 +3,8 @@ use cubical_core::vault::links::read_source_off_executor;
 use cubical_core::vault::mentions::{find_mention_occurrences, MentionHit};
 use cubical_core::vault::pending::materialize_on_read;
 use cubical_core::{atomic_write, sha256_bytes_hex};
+use cubical_index::{pending_count_for_target, pending_targets};
+use std::collections::HashSet;
 
 use crate::api::types::{
     GetUnlinkedMentionsRequest, GetUnlinkedMentionsResponse, LinkMentionRequest,
@@ -40,6 +42,7 @@ pub async fn get_unlinked_mentions(
     }
 
     let candidates = list_markdown_candidates(&conn, &req.path).await?;
+    let pending: HashSet<String> = pending_targets(vault.index()).await?.into_iter().collect();
 
     let mut out: Vec<Mention> = Vec::new();
     let needle_refs: Vec<&str> = needles.iter().map(|s| s.as_str()).collect();
@@ -48,7 +51,17 @@ pub async fn get_unlinked_mentions(
         let Some(on_disk) = read_source_off_executor(&abs).await else {
             continue;
         };
-        let source = materialize_on_read(vault.index(), &path, &on_disk).await?;
+        let source = if pending.contains(&path) {
+            match materialize_on_read(vault.index(), &path, &on_disk).await {
+                Ok(source) => source,
+                Err(e) => {
+                    tracing::warn!(path = %path, error = %e, "unlinked mentions: materialize_on_read failed; scanning the raw source");
+                    on_disk
+                }
+            }
+        } else {
+            on_disk
+        };
         let hits = find_mention_occurrences(&source, &needle_refs);
         for MentionHit {
             needle_index,
@@ -83,20 +96,7 @@ pub async fn link_mention(
     let conn = vault.index().connection().clone();
     let (source_path, abs) = crate::commands::paths::vault_file(&vault, &req.source_path)?;
 
-    let pending_count = {
-        let mut rows = conn
-            .query(
-                "SELECT COUNT(*) FROM pending_rewrites WHERE target_file = ?1",
-                libsql::params![source_path.clone()],
-            )
-            .await?;
-        let row = rows
-            .next()
-            .await?
-            .ok_or_else(|| CubicalError::Db("pending count query returned no row".into()))?;
-        row.get::<i64>(0)?
-    };
-    if pending_count > 0 {
+    if pending_count_for_target(vault.index(), &source_path).await? > 0 {
         crate::commands::rename::flush_target_for_link_mention(state, &req.vault_id, &source_path)
             .await?;
     }
@@ -163,10 +163,9 @@ pub async fn link_mention(
 
     let new_bytes = new_contents.into_bytes();
     let new_hash = sha256_bytes_hex(&new_bytes);
+    let new_size = new_bytes.len() as i64;
 
-    let abs_for_write = abs.clone();
-    let bytes_for_write = new_bytes.clone();
-    tokio::task::spawn_blocking(move || atomic_write(&abs_for_write, &bytes_for_write))
+    tokio::task::spawn_blocking(move || atomic_write(&abs, &new_bytes))
         .await
         .map_err(|e| CubicalError::Io(format!("write task join error: {e}")))??;
 
@@ -174,11 +173,7 @@ pub async fn link_mention(
         if let Err(e) = conn
             .execute(
                 "UPDATE files SET content_hash = ?1, size_bytes = ?2 WHERE path = ?3",
-                libsql::params![
-                    new_hash.clone(),
-                    new_bytes.len() as i64,
-                    source_path.clone(),
-                ],
+                libsql::params![new_hash.clone(), new_size, source_path,],
             )
             .await
         {

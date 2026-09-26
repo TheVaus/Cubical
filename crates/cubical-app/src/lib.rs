@@ -262,7 +262,7 @@ fn load_tab_session(app: tauri::AppHandle, vault_path: String) -> tab_sessions::
 #[tauri::command]
 fn save_tab_session(app: tauri::AppHandle, vault_path: String, session: tab_sessions::TabSession) {
     if let Some(p) = tab_sessions_store(&app) {
-        tab_sessions::save(&p, &vault_path, &session);
+        tab_sessions::save(&p, &vault_path, session);
     }
 }
 

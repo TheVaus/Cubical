@@ -45,21 +45,11 @@ function scalarToDisplay(value: unknown): string | null {
   return null;
 }
 
-export function frontmatterEntries(docText: string): Map<string, unknown> {
+function frontmatterEntries(docText: string): Map<string, unknown> {
   const split = splitFrontmatter(docText);
   if (split.yaml === null || split.span === null) return new Map();
   const fm = parseFrontmatterYaml(split.yaml, split.span);
   return new Map(fm?.entries ?? []);
-}
-
-export function selfPropertyValue(docText: string, property: string): unknown {
-  const entries = frontmatterEntries(docText);
-  return entries.has(property) ? entries.get(property) : undefined;
-}
-
-function selfValue(docText: string, property: string): string | null {
-  const value = selfPropertyValue(docText, property);
-  return value === undefined ? null : scalarToDisplay(value);
 }
 
 class PropertyRefWidget extends WidgetType {
@@ -83,11 +73,14 @@ class PropertyRefWidget extends WidgetType {
 function renderStateFor(
   tok: { note: string | null; property: string },
   raw: string,
-  getDocText: () => string,
+  ownEntries: () => Map<string, unknown>,
   resolver: PropertyResolver | null,
 ): PropertyRefRenderState {
   if (tok.note === null) {
-    const v = selfValue(getDocText(), tok.property);
+    const entries = ownEntries();
+    const v = entries.has(tok.property)
+      ? scalarToDisplay(entries.get(tok.property))
+      : null;
     return v === null ? { status: "broken", raw } : { status: "resolved", value: v };
   }
   const hit = resolver?.get(tok.note, tok.property);
@@ -107,8 +100,8 @@ export function buildPropertyDecorations(state: EditorState): DecorationSet {
   const resolver = state.facet(propertyResolverFacet);
   const tree = syntaxTree(state);
   const doc = state.doc;
-  let docText: string | undefined;
-  const getDocText = () => (docText ??= doc.toString());
+  let own: Map<string, unknown> | undefined;
+  const ownEntries = () => (own ??= frontmatterEntries(doc.toString()));
   const activeLine = doc.lineAt(state.selection.main.head).number;
   const ranges: Range<Decoration>[] = [];
 
@@ -119,7 +112,7 @@ export function buildPropertyDecorations(state: EditorState): DecorationSet {
       const tok = scanWikilinks(raw)[0];
       if (!tok || tok.kind !== "property_ref") return;
       if (doc.lineAt(node.from).number === activeLine) return;
-      const rstate = renderStateFor(tok, raw, getDocText, resolver);
+      const rstate = renderStateFor(tok, raw, ownEntries, resolver);
       ranges.push(
         Decoration.replace({
           widget: new PropertyRefWidget(rstate),

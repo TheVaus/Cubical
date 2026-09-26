@@ -41,6 +41,13 @@ registries (tests, headless tooling) may omit it and accept `None`.
   unspecified order (APFS hash order, not alphabetical), so two files linking
   to each other would otherwise leave whichever was visited first unresolved.
   Both must resolve on the very first scan regardless of walk order.
+  Every file that parsed enters pass 2, including one with no links left:
+  `replace_links_for_file` is the only thing that clears a file's old rows, so
+  skipping link-free files kept links deleted while the app was closed alive
+  across every rescan.
+- **One read per Markdown file.** The content hash and the parsed source come
+  from the same bytes, so they cannot disagree about a file edited mid-scan, and
+  the file is read once instead of once to hash and again to parse.
 - **Stale sweep.** Pass 1 stamps every on-disk file with `last_seen`; rows
   still older afterwards vanished from disk while the app wasn't watching and
   are deleted so they stop surfacing in the tree. Skipped under cancellation,
@@ -235,7 +242,8 @@ is a separate concern that happens to be substrate too.
 
 The `_with_doc` arms are the load-bearing ones; the source-taking wrappers exist
 for single-file callers that have no `Document` in hand. Both must stay
-behaviourally identical — `parse` and `parse_frontmatter` return the same
+behaviourally identical, a failed parse included (it leaves the rows alone) —
+`parse` and `parse_frontmatter` return the same
 frontmatter for the same source, which is what makes `Document::frontmatter`
 a safe substitute for a second parse.
 
@@ -262,7 +270,9 @@ change detection.
 
 Ambiguity at levels 2–3 resolves to `None`. The bulk scan builds the resolver
 index once; exact and basename lookups are O(1) and the suffix stage is a
-linear fallback that only runs when the first two miss.
+linear fallback that only runs when the first two miss. `resolve_target` answers one
+token, so it walks the list directly instead of building that index; the
+equivalence test keeps the two in step.
 
 A dotted target (`[[Report v1.2]]`) is classified by the tokenizer as a
 property-ref and is persisted as a link **only** if it resolves to a real file
@@ -300,7 +310,11 @@ source. Each rewrite produces a new full string feeding the next, i.e.
 O(rewrites × len) — fine under the per-file ceiling.
 
 - **WikiLink** — re-emits matching targets through the tokenizer, preserving
-  the embed flag, `|display` and `#anchor`.
+  the embed flag, `|display` and `#anchor`. Every link that does not match is
+  copied byte-for-byte from the source, never re-emitted: re-emission
+  normalises whitespace and empty anchors, and the flush writes the result to
+  disk, so it would silently rewrite links the rename never touched. The same
+  holds for BlockRef referrers.
 - **Tag** — two passes: a targeted rewrite of `tags:` entries operating on the
   **raw frontmatter block text** (so key order, quoting and comments survive —
   never reparse and re-emit YAML), then an inline body pass applying the tag
@@ -384,7 +398,9 @@ the vault: see [`search-index.md`](search-index.md) → Full-text search.
 
 Pure, on-demand, no index table: walk the source for plain-text regions
 (skipping frontmatter, fenced and inline code, wiki-links and markdown links),
-then match needles whole-word and case-insensitively. Matching operates on a
+then match needles whole-word and case-insensitively. An opening `---` with no
+closing fence is body text, as it is to the parser, rather than hiding the
+whole file. Matching operates on a
 lowercased copy and maps back through the original's `char_indices`, so
 casefolding that changes byte length stays correct. One linear scan per needle
 — the needle set is small (a title plus a few aliases).

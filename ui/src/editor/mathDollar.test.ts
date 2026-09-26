@@ -86,6 +86,11 @@ describe("displayMathField", () => {
     const doc = "```rust\nlet a = 1;\n$$\nnot math\n$$\n```\n\ntrailing\n";
     expect(rendered(doc, doc.length - 2)).toHaveLength(0);
   });
+
+  it("leaves $$ inside a fenced code block nested in a list as code", () => {
+    const doc = "- item\n\n  ```\n  $$\n  not math\n  $$\n  ```\n\ntrailing\n";
+    expect(rendered(doc, doc.length - 2)).toHaveLength(0);
+  });
 });
 
 describe("displayMathField recomputes per line, not per cursor position", () => {

@@ -176,7 +176,53 @@ pub fn keeps_link_row(from_property_ref: bool, target_path: &Option<String>) -> 
 }
 
 pub fn resolve_target(target_raw: &str, files: &[String]) -> Option<String> {
-    PathResolver::build(files.to_vec()).resolve(target_raw)
+    if target_raw.is_empty() {
+        return None;
+    }
+    if let Some(f) = files.iter().find(|f| f.as_str() == target_raw) {
+        return Some(f.clone());
+    }
+    if let Some(f) = files.iter().rev().find(|f| {
+        let stem = strip_markdown_extension(f);
+        stem.len() != f.len() && stem == target_raw
+    }) {
+        return Some(f.clone());
+    }
+    let target_lower = fold_name(target_raw);
+    let mut by_basename = files.iter().filter(|f| basename_matches(f, &target_lower));
+    match (by_basename.next(), by_basename.next()) {
+        (Some(f), None) => return Some(f.clone()),
+        (Some(_), Some(_)) => return None,
+        _ => {}
+    }
+    unique(
+        files
+            .iter()
+            .filter(|f| is_folded_suffix(&fold_name(f), &target_lower)),
+    )
+    .cloned()
+}
+
+fn basename_matches(path: &str, target_lower: &str) -> bool {
+    let base = basename(path);
+    let base_no_ext = strip_markdown_extension(base);
+    fold_name(base_no_ext) == target_lower
+        || (base != base_no_ext && fold_name(base) == target_lower)
+}
+
+fn is_folded_suffix(folded_path: &str, target_lower: &str) -> bool {
+    if !folded_path.ends_with(target_lower) {
+        return false;
+    }
+    let prefix_len = folded_path.len() - target_lower.len();
+    prefix_len == 0 || folded_path.as_bytes()[prefix_len - 1] == b'/'
+}
+
+fn unique<T>(mut it: impl Iterator<Item = T>) -> Option<T> {
+    match (it.next(), it.next()) {
+        (Some(only), None) => Some(only),
+        _ => None,
+    }
 }
 
 pub async fn refresh_links(
@@ -184,11 +230,10 @@ pub async fn refresh_links(
     rel_path_str: &str,
     source: &str,
 ) -> Result<u32, libsql::Error> {
-    let extractions = match parse_off_executor(source).await {
-        Some(doc) => extract_links(&doc),
-        None => Vec::new(),
-    };
-    write_rows(vault, rel_path_str, extractions).await
+    match parse_off_executor(source).await {
+        Some(doc) => refresh_links_with_doc(vault, rel_path_str, &doc).await,
+        None => Ok(0),
+    }
 }
 
 pub async fn refresh_links_with_doc(
@@ -207,10 +252,19 @@ async fn write_rows(
     let files = cubical_index::all_file_paths(vault.index())
         .await
         .map_err(map_index_err)?;
-    let rows: Vec<LinkRow> = extractions
+    let rows = link_rows(extractions, &PathResolver::build(files));
+    let inserted = rows.len() as u32;
+    replace_links_for_file(vault.index(), rel_path_str, &rows)
+        .await
+        .map_err(map_index_err)?;
+    Ok(inserted)
+}
+
+pub(crate) fn link_rows(extractions: Vec<LinkExtraction>, resolver: &PathResolver) -> Vec<LinkRow> {
+    extractions
         .into_iter()
         .filter_map(|e| {
-            let target_path = resolve_target(&e.target_raw, &files);
+            let target_path = resolver.resolve(&e.target_raw);
             if !keeps_link_row(e.from_property_ref, &target_path) {
                 return None;
             }
@@ -229,13 +283,7 @@ async fn write_rows(
                 position: e.position,
             })
         })
-        .collect();
-
-    let inserted = rows.len() as u32;
-    replace_links_for_file(vault.index(), rel_path_str, &rows)
-        .await
-        .map_err(map_index_err)?;
-    Ok(inserted)
+        .collect()
 }
 
 pub async fn read_source_off_executor(abs_path: &Path) -> Option<String> {
@@ -259,6 +307,7 @@ pub(crate) fn map_index_err(e: cubical_index::IndexError) -> libsql::Error {
 
 pub struct PathResolver {
     all: Vec<String>,
+    folded: Vec<String>,
     by_basename: HashMap<String, Vec<usize>>,
     exact: HashMap<String, usize>,
     exact_stem: HashMap<String, usize>,
@@ -270,6 +319,7 @@ impl PathResolver {
         let mut by_basename: HashMap<String, Vec<usize>> = HashMap::new();
         let mut exact: HashMap<String, usize> = HashMap::new();
         let mut exact_stem: HashMap<String, usize> = HashMap::new();
+        let folded: Vec<String> = paths.iter().map(|f| fold_name(f)).collect();
         for (i, f) in paths.iter().enumerate() {
             exact.insert(f.clone(), i);
             let stem = strip_markdown_extension(f);
@@ -292,6 +342,7 @@ impl PathResolver {
         }
         Self {
             all: paths,
+            folded,
             by_basename,
             exact,
             exact_stem,
@@ -317,19 +368,13 @@ impl PathResolver {
                 return None;
             }
         }
-        let mut suffix_matches = self.all.iter().filter(|f| {
-            let fl = fold_name(f);
-            if !fl.ends_with(&target_lower) {
-                return false;
-            }
-            let prefix_len = fl.len() - target_lower.len();
-            prefix_len == 0 || fl.as_bytes()[prefix_len - 1] == b'/'
-        });
-        let first = suffix_matches.next();
-        match (first, suffix_matches.next()) {
-            (Some(f), None) => Some(f.clone()),
-            _ => None,
-        }
+        unique(
+            self.folded
+                .iter()
+                .enumerate()
+                .filter(|(_, fl)| is_folded_suffix(fl, &target_lower)),
+        )
+        .map(|(i, _)| self.all[i].clone())
     }
 }
 
@@ -346,11 +391,15 @@ mod tests {
             "notes/sub/c.md".to_string(),
             "Dup.md".to_string(),
             "other/Dup.md".to_string(),
+            "loud/Shout.MD".to_string(),
+            "x.md".to_string(),
+            "x.md.md".to_string(),
+            "p/x".to_string(),
         ];
         let r = PathResolver::build(files.clone());
         for target in [
             "a", "a.md", "b", "notes/b", "c", "sub/c.md", "Dup", "dup", "missing", "", "  ", "B",
-            "NOTES/B",
+            "NOTES/B", "Shout", "shout.md", "shout.MD", "x.md", "x", "x.md.md", "p/x", "ote",
         ] {
             assert_eq!(
                 r.resolve(target),

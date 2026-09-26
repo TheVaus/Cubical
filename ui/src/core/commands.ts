@@ -164,12 +164,14 @@ export function eventToChord(e: KeyEventLike): KeyChord {
   };
 }
 
-export function chordMatches(spec: string, e: KeyEventLike): boolean {
-  const a = parseKeySpec(spec);
-  const b = eventToChord(e);
+function sameChord(a: KeyChord, b: KeyChord): boolean {
   return (
     a.mod === b.mod && a.shift === b.shift && a.alt === b.alt && a.key === b.key
   );
+}
+
+export function chordMatches(spec: string, e: KeyEventLike): boolean {
+  return sameChord(parseKeySpec(spec), eventToChord(e));
 }
 
 export function findConflict(
@@ -182,15 +184,7 @@ export function findConflict(
   for (const b of bindings) {
     if (b.scope !== scope) continue;
     if (b.command === excludeCommandId) continue;
-    const other = parseKeySpec(b.key);
-    if (
-      other.mod === chord.mod &&
-      other.shift === chord.shift &&
-      other.alt === chord.alt &&
-      other.key === chord.key
-    ) {
-      return b.command;
-    }
+    if (sameChord(parseKeySpec(b.key), chord)) return b.command;
   }
   return undefined;
 }

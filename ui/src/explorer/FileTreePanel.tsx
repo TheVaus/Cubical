@@ -5,14 +5,13 @@ import { renameTarget } from "../vault/fileRename";
 import { computeWindow } from "../core/virtualList";
 import FileRow from "./FileRow";
 import FolderRow from "./FolderRow";
-import { buildStableTreeRows, type FlatRow } from "./fileTree";
+import { buildFileTree, buildStableTreeRows, type FlatRow } from "./fileTree";
 import type { FileActions } from "./fileActions";
 import { FILE_LIST_OVERSCAN, FILE_ROW_HEIGHT } from "./rowMetrics";
 
 export interface FileTreePanelProps {
   files: FileEntry[];
   folders: string[];
-  vaultId: string | null;
   selectedPath: string | null;
   actions: FileActions;
   onSelectFile: (entry: FileEntry) => void;
@@ -33,14 +32,10 @@ const FileTreePanel: Component<FileTreePanelProps> = (props) => {
       return next;
     });
 
+  const tree = createMemo(() => buildFileTree(props.files, props.folders));
   let prevTreeRows: FlatRow[] = [];
   const treeRows = createMemo<FlatRow[]>(() => {
-    prevTreeRows = buildStableTreeRows(
-      prevTreeRows,
-      props.files,
-      props.folders,
-      collapsedFolders(),
-    );
+    prevTreeRows = buildStableTreeRows(prevTreeRows, tree(), collapsedFolders());
     return prevTreeRows;
   });
   const fileWindow = createMemo(() =>

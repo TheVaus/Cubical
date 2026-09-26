@@ -212,9 +212,10 @@ pub fn settle_after_scan(open: &OpenVault, completed: bool) {
     } else {
         IndexState::Error
     };
-    if let Ok(mut cell) = open.search_state.lock() {
-        cell.state = settled;
-    }
+    open.search_state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .state = settled;
 }
 
 pub(crate) async fn open_search_cloned(

@@ -97,16 +97,8 @@ pub fn run_search(idx: &SearchIndex, q: &SearchQuery) -> Result<SearchResponse, 
     let reader = idx.reader_clone();
     let searcher = reader.searcher();
 
-    let scope_fields: Option<Vec<Field>> = match &q.fields {
-        FieldScope::Default => Some(vec![f.title, f.headings, f.body, f.tags, f.frontmatter]),
-        FieldScope::HeadingsOnly => Some(vec![f.headings]),
-        FieldScope::BodyOnly => Some(vec![f.body]),
-        FieldScope::CodeOnly => Some(vec![f.code]),
-        FieldScope::Tags { .. } => None,
-    };
-
-    let parsed: Box<dyn Query> = match (&q.fields, &scope_fields) {
-        (FieldScope::Tags { tags }, _) => {
+    let (parsed, scope_fields): (Box<dyn Query>, Option<Vec<Field>>) = match &q.fields {
+        FieldScope::Tags { tags } => {
             let clauses: Vec<(Occur, Box<dyn Query>)> = tags
                 .iter()
                 .map(|t| {
@@ -116,11 +108,17 @@ pub fn run_search(idx: &SearchIndex, q: &SearchQuery) -> Result<SearchResponse, 
                     (Occur::Must, q)
                 })
                 .collect();
-            Box::new(BooleanQuery::new(clauses))
+            (Box::new(BooleanQuery::new(clauses)), None)
         }
-        (_, Some(scope_fields)) => {
+        scope => {
+            let scope_fields = match scope {
+                FieldScope::HeadingsOnly => vec![f.headings],
+                FieldScope::BodyOnly => vec![f.body],
+                FieldScope::CodeOnly => vec![f.code],
+                _ => vec![f.title, f.headings, f.body, f.tags, f.frontmatter],
+            };
             let mut p = QueryParser::for_index(idx.index(), scope_fields.clone());
-            if matches!(q.fields, FieldScope::Default) {
+            if matches!(scope, FieldScope::Default) {
                 p.set_field_boost(f.title, 3.0);
                 p.set_field_boost(f.headings, 2.0);
                 p.set_field_boost(f.tags, 2.0);
@@ -129,18 +127,18 @@ pub fn run_search(idx: &SearchIndex, q: &SearchQuery) -> Result<SearchResponse, 
                 .parse_query(&prepare_query_text(&q.text))
                 .map_err(|e| SearchError::QueryParse(e.to_string()))?;
 
-            match simple_terms(&q.text) {
+            let query: Box<dyn Query> = match simple_terms(&q.text) {
                 Some(terms) => {
-                    let prefix = build_prefix_query(&searcher, &terms, scope_fields)?;
+                    let prefix = build_prefix_query(&searcher, &terms, &scope_fields)?;
                     Box::new(BooleanQuery::new(vec![
                         (Occur::Should, exact),
                         (Occur::Should, prefix),
                     ]))
                 }
                 None => exact,
-            }
+            };
+            (query, Some(scope_fields))
         }
-        (_, None) => unreachable!("only the tags scope has no scope fields"),
     };
 
     let final_query: Box<dyn Query> = match (q.fuzzy, &scope_fields, single_term(&q.text)) {
@@ -154,14 +152,18 @@ pub fn run_search(idx: &SearchIndex, q: &SearchQuery) -> Result<SearchResponse, 
         _ => parsed,
     };
 
+    let offset = q
+        .offset
+        .min(usize::try_from(searcher.num_docs()).unwrap_or(usize::MAX));
+    let window = limit + offset;
     let pulled: Vec<(f32, DocAddress)> = match q.sort {
         SortMode::Relevance => {
-            let top = TopDocs::with_limit(limit + q.offset).order_by_score();
+            let top = TopDocs::with_limit(window).order_by_score();
             searcher.search(final_query.as_ref(), &top)?
         }
         SortMode::RecencyDesc => {
-            let top = TopDocs::with_limit(limit + q.offset)
-                .order_by_fast_field::<i64>("mtime_secs", Order::Desc);
+            let top =
+                TopDocs::with_limit(window).order_by_fast_field::<i64>("mtime_secs", Order::Desc);
             let raw: Vec<(Option<i64>, DocAddress)> =
                 searcher.search(final_query.as_ref(), &top)?;
             raw.into_iter()
@@ -172,8 +174,9 @@ pub fn run_search(idx: &SearchIndex, q: &SearchQuery) -> Result<SearchResponse, 
 
     let total_estimated = pulled.len() as u64;
 
+    let snippets = snippet_generators(&searcher, final_query.as_ref(), f);
     let mut hits = Vec::new();
-    for (score, addr) in pulled.into_iter().skip(q.offset).take(limit) {
+    for (score, addr) in pulled.into_iter().skip(offset).take(limit) {
         let doc: TantivyDocument = searcher.doc(addr)?;
         let path = doc
             .get_first(f.path)
@@ -194,7 +197,7 @@ pub fn run_search(idx: &SearchIndex, q: &SearchQuery) -> Result<SearchResponse, 
             .filter_map(|v| v.as_str().map(|s| s.to_string()))
             .collect();
 
-        let matched_fields = collect_snippets(&searcher, final_query.as_ref(), &doc, f)?;
+        let matched_fields = collect_snippets(&snippets, &doc);
         hits.push(SearchHit {
             path,
             title,
@@ -323,41 +326,47 @@ fn single_term(text: &str) -> Option<String> {
     }
 }
 
-fn collect_snippets(
+fn snippet_generators(
     searcher: &Searcher,
     q: &dyn Query,
-    doc: &TantivyDocument,
     f: Fields,
-) -> Result<Vec<MatchedField>, SearchError> {
-    let mut out = Vec::new();
-    for (name, field) in [
+) -> Vec<(&'static str, SnippetGenerator)> {
+    [
         ("title", f.title),
         ("headings", f.headings),
         ("body", f.body),
         ("code", f.code),
         ("frontmatter", f.frontmatter),
-    ] {
-        let mut generator = match SnippetGenerator::create(searcher, q, field) {
-            Ok(g) => g,
-            Err(_) => continue,
-        };
+    ]
+    .into_iter()
+    .filter_map(|(name, field)| {
+        let mut generator = SnippetGenerator::create(searcher, q, field).ok()?;
         generator.set_max_num_chars(150);
-        let snippet = generator.snippet_from_doc(doc);
-        if snippet.is_empty() {
-            continue;
-        }
-        let html = snippet
-            .to_html()
-            .replace("<b>", "<mark>")
-            .replace("</b>", "</mark>");
-        if !html.is_empty() {
-            out.push(MatchedField {
-                field: name.to_string(),
-                snippet: html,
-            });
-        }
-    }
-    Ok(out)
+        Some((name, generator))
+    })
+    .collect()
+}
+
+fn collect_snippets(
+    generators: &[(&'static str, SnippetGenerator)],
+    doc: &TantivyDocument,
+) -> Vec<MatchedField> {
+    generators
+        .iter()
+        .filter_map(|(name, generator)| {
+            let snippet = generator.snippet_from_doc(doc);
+            if snippet.is_empty() {
+                return None;
+            }
+            Some(MatchedField {
+                field: (*name).to_string(),
+                snippet: snippet
+                    .to_html()
+                    .replace("<b>", "<mark>")
+                    .replace("</b>", "</mark>"),
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -512,6 +521,25 @@ mod tests {
         .unwrap();
         assert!(r.hits.is_empty());
         assert_eq!(r.total_estimated, 0);
+    }
+
+    #[test]
+    fn an_offset_past_the_index_returns_no_hits_instead_of_panicking() {
+        let (_t, idx) = fixture_index();
+        let r = run_search(
+            &idx,
+            &SearchQuery {
+                text: "fox".into(),
+                limit: 0,
+                offset: usize::MAX,
+                fields: FieldScope::Default,
+                fuzzy: false,
+                sort: SortMode::Relevance,
+            },
+        )
+        .unwrap();
+        assert!(r.hits.is_empty());
+        assert_eq!(r.total_estimated, 1);
     }
 
     #[test]

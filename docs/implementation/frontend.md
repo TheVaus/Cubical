@@ -93,7 +93,9 @@ flight.** `reset` bumps a generation counter that `performWrite`, `takeDisk`,
 `refreshFromDisk` and the silent external-change reload capture before
 awaiting, so a response arriving after a vault or file switch cannot repopulate
 `seenHash`, `lastWrittenHash` or `dirty` from the outgoing document, nor pour
-its text into the incoming one's editor.
+its text into the incoming one's editor. A reload also re-checks `dirty` once
+its read lands: the user can type while it is in flight, and the silent reload
+then raises the conflict banner rather than overwrite what they typed.
 
 **Seed both hashes when the caller already knows the on-disk hash** (e.g. a
 file it just created). Otherwise the watcher's created-echo arrives as an
@@ -105,11 +107,11 @@ from the watcher's disk-move echo. So the rename handlers proactively run the
 same invalidation a file change would, or open views keep resolving stale
 wiki-link targets and showing the old name.
 
-**Skip resolver invalidation on the open file's own autosave echo.** An own
-write cannot have changed another file, so cached embed and wiki-link
-resolutions stay valid; invalidating anyway only thrashes embed-card height and
-jumps the viewport. Other-file changes and genuine external edits still
-invalidate.
+**Every file change marks the resolvers stale, own writes included.** Their
+caches are per vault, so an own write can change what another note's
+`[[note.prop]]` resolves to. `markStale` keeps the cached value rendering and
+refetches in the background, so an autosave does not flash every widget through
+its loading state.
 
 ## Tabs
 
@@ -365,6 +367,12 @@ leaving them meant the new vault ran the old vault's feature set. Clearing to an
 empty record is the right reset because empty already means "every default",
 which is exactly the state the app boots in.
 
+The reset also disowns any `hydrate` still in flight. Hydrate is a chain of
+reads, and one started for the outgoing vault — by the switch itself or by a
+`vault:setting-changed` event — would otherwise keep landing the old vault's
+values after the reset, interleaved with the incoming vault's own hydrate. A
+generation counter bumped by the reset and captured by `hydrate` drops them.
+
 ## A core plugin's runtime is derived from its toggle
 
 **Anchors:** createDataviewWiring · createTerminalWiring · createGraphWiring · corePluginActive · corePluginEnabled
@@ -496,6 +504,14 @@ canonical Rust-mirrored AST, which abstracts away the byte-precise marker token
 positions decorations need. The canonical-AST path is a separate, unaffected
 consumer. `collectDecorations` is the pure, view-independent core; the plugin
 is a thin wrapper.
+
+The plugin walks **only the viewport**, not the document. It rebuilds on every
+selection change, so a whole-document walk made each cursor move cost a pass
+over the note; scrolling already rebuilds it, so off-screen text is decorated
+when it arrives. The same walk asks the wiki-link resolver for each link it
+decorates and starts a fetch on a miss — there is no second tree pass for
+that. A swapped resolver facet is itself a rebuild trigger; without it a vault
+switch kept the old resolver's colouring until the next keystroke.
 
 Reveal has **two modes**: line-level markers (headings, fences, quotes, list
 dashes) reveal whenever the cursor shares their line; inline tokens (emphasis,
@@ -765,7 +781,8 @@ dataview):
   target must be lifted to its parent first — otherwise the lookup silently
   returns null, nothing calls `preventDefault`, and the click falls through.
   That single omission kept one click bug alive through two prior fix attempts,
-  so keep the lift in one shared helper rather than per interceptor.
+  so keep the lift in one shared helper (`closestFromTarget`) rather than per
+  interceptor.
 
 ## Minimap
 
@@ -846,6 +863,10 @@ an alias prefix.
 The trigger fires only where a fence is actually being opened — it reuses
 `isOpenAbove` from `autoClose.ts` rather than matching backticks, so typing
 inside an open block does not offer to open another.
+
+Fence auto-close binds Enter (and the bracket keymap binds Backspace) at
+`Prec.high`: `defaultKeymap` is registered ahead of it and binds both keys, so
+at default precedence neither handler would ever run.
 
 ## Offset conversions
 

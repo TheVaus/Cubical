@@ -1,4 +1,4 @@
-import { isMap, isScalar, isSeq, parseDocument, type Pair } from "yaml";
+import { isMap, isScalar, parseDocument, type Pair } from "yaml";
 
 import { isKnownDateFormat } from "./dateFormats";
 import type { CellKind } from "./inferType";
@@ -110,5 +110,3 @@ export function pairType(pair: Pair): PropertyType | undefined {
     parseTypeToken(keyComment)
   );
 }
-
-export { isMap, isScalar, isSeq };

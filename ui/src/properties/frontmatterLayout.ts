@@ -1,7 +1,10 @@
 import {
   Document,
   isCollection,
+  isMap,
   isNode,
+  isScalar,
+  isSeq,
   Pair,
   parseDocument,
   type Node,
@@ -10,9 +13,6 @@ import {
 } from "yaml";
 
 import {
-  isMap,
-  isScalar,
-  isSeq,
   isTypeComment,
   pairType,
   type PropertyType,

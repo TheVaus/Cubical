@@ -89,6 +89,7 @@ impl TableCache {
         let clock = state.clock;
         let entry = state.entries.get_mut(key)?;
         if entry.stamp != stamp {
+            drop_entry(&mut state, key);
             return None;
         }
         entry.used = clock;
@@ -317,6 +318,27 @@ mod tests {
         rewrite_in_place(&two, &format!("{HEADER}Delta,1\n"));
         assert_eq!(first_cell(&load(&cache, &two)), "Carla");
         assert_eq!(first_cell(&load(&cache, &one)), "Bravo");
+    }
+
+    #[test]
+    fn a_failed_re_decode_does_not_keep_the_stale_table() {
+        let dir = temp();
+        let path = fixture(&dir, "t.csv", &format!("{HEADER}Alpha,1\n"));
+        let cache = TableCache::new(1 << 20);
+        load(&cache, &path);
+        let later = mtime(&path) + Duration::from_secs(5);
+        match fs::write(&path, b"name,qty\n\xff\xfe,1\n") {
+            Ok(()) => (),
+            Err(err) => panic!("write failed: {err}"),
+        }
+        set_mtime(&path, later);
+        assert!(matches!(
+            cache.load(&path, None),
+            Err(TableError::Decode(_))
+        ));
+        let state = cache.guard();
+        assert!(state.entries.is_empty());
+        assert_eq!(state.bytes, 0);
     }
 
     #[test]

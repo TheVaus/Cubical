@@ -7,7 +7,6 @@ import type { TerminalAppearance } from "./theme";
 
 export interface Emulator {
   write(bytes: Uint8Array): void;
-  resize(cols: number, rows: number): void;
   fit(): TerminalSize | null;
   size(): TerminalSize;
   applyAppearance(appearance: TerminalAppearance): void;
@@ -40,7 +39,6 @@ export const createEmulator: CreateEmulator = (container, appearance) => {
 
   return {
     write: (bytes) => term.write(bytes),
-    resize: (cols, rows) => term.resize(cols, rows),
     fit: () => {
       const proposed = fitAddon.proposeDimensions();
       if (proposed === undefined) return null;

@@ -17,7 +17,6 @@ describe("createTerminalSessions", () => {
     sessions.forget("terminal:1");
 
     expect(sessions.idFor("terminal:1")).toBeNull();
-    expect(sessions.size()).toBe(0);
   });
 
   it("keeps each terminal separate", () => {
@@ -27,6 +26,5 @@ describe("createTerminalSessions", () => {
     sessions.forget("terminal:1");
 
     expect(sessions.idFor("terminal:2")).toBe("term-99-2");
-    expect(sessions.size()).toBe(1);
   });
 });

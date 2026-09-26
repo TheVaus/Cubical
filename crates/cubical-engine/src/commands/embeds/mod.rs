@@ -74,11 +74,16 @@ pub async fn get_embed(
     };
     if target_type.as_deref() != Some("markdown") {
         let abs = vault.root().join(&target_path);
-        let bytes = tokio::task::spawn_blocking(move || std::fs::read(&abs))
-            .await
-            .ok()
-            .and_then(Result::ok)
-            .filter(|b| b.len() as u64 <= MAX_EMBEDDED_FILE_BYTES);
+        let bytes = tokio::task::spawn_blocking(move || {
+            if std::fs::metadata(&abs).ok()?.len() > MAX_EMBEDDED_FILE_BYTES {
+                return None;
+            }
+            std::fs::read(&abs).ok()
+        })
+        .await
+        .ok()
+        .flatten()
+        .filter(|b| b.len() as u64 <= MAX_EMBEDDED_FILE_BYTES);
         return Ok(GetEmbedResponse {
             kind: EmbedKind::File,
             mime: Some(mime_for_extension(&target_path).to_string()),

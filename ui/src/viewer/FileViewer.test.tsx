@@ -176,6 +176,23 @@ describe("FileViewer", () => {
     expect(readFileBytes).toHaveBeenCalledTimes(2);
   });
 
+  it("drops the previous render when a re-read fails", async () => {
+    const { createSignal } = await import("solid-js");
+    respond("QUJD", "image/png");
+    const [mtime, setMtime] = createSignal(100);
+    const host = mount(() => (
+      <FileViewer vaultId="v1" path="gradient.png" sizeBytes={10} mtimeUnix={mtime()} />
+    ));
+    await flush();
+    expect(host.querySelector("img")).not.toBeNull();
+
+    readFileBytes.mockRejectedValue({ message: "gone" });
+    setMtime(200);
+    await flush();
+    expect(host.textContent).toContain("Could not open this file");
+    expect(host.querySelector("img")).toBeNull();
+  });
+
   it("requests the file it was given", async () => {
     respond("QUJD", "image/png");
     mount(() => (

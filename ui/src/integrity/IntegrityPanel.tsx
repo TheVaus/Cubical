@@ -69,6 +69,7 @@ const IntegrityPanel: Component<IntegrityPanelProps> = (props) => {
     const vid = props.vaultId;
     void props.refreshSignal;
     if (!vid) {
+      token++;
       setState(reduceIntegrityState(untrack(state), { type: "vault:cleared" }));
       return;
     }
@@ -88,10 +89,12 @@ const IntegrityPanel: Component<IntegrityPanelProps> = (props) => {
         target_raw: group.target_raw,
         to_path: candidate.path,
       });
+      if (props.vaultId !== vid) return;
       setOpenGroup(null);
       props.onRepaired?.(group, candidate);
       load(vid);
     } catch (e: unknown) {
+      if (props.vaultId !== vid) return;
       setState(
         reduceIntegrityState(untrack(state), {
           type: "fetch:error",
@@ -138,61 +141,57 @@ const IntegrityPanel: Component<IntegrityPanelProps> = (props) => {
         <Muted>No dangling links.</Muted>
       </Show>
       <Show when={error()}>
-        {(s) => {
-          return (
-            <p
-              role="alert"
-              style={{
-                margin: 0,
-                color: "var(--c-error)",
-                "font-size": "var(--text-xs)",
-              }}
-            >
-              {s().message}
-            </p>
-          );
-        }}
+        {(s) => (
+          <p
+            role="alert"
+            style={{
+              margin: 0,
+              color: "var(--c-error)",
+              "font-size": "var(--text-xs)",
+            }}
+          >
+            {s().message}
+          </p>
+        )}
       </Show>
 
       <Show when={loaded()}>
-        {(s) => {
-          return (
-            <>
-              <Show when={s().truncated}>
-                <Muted>Showing the most-referenced groups only.</Muted>
-              </Show>
-              <ul
-                role="list"
-                style={{
-                  margin: 0,
-                  padding: 0,
-                  "list-style": "none",
-                  display: "flex",
-                  "flex-direction": "column",
-                  gap: "var(--space-2)",
-                }}
-              >
-                <For each={s().groups}>
-                  {(group) => (
-                    <GroupCard
-                      group={group}
-                      open={openGroup() === group.target_raw}
-                      busyKey={busy()}
-                      onToggle={() =>
-                        setOpenGroup((cur) =>
-                          cur === group.target_raw ? null : group.target_raw,
-                        )
-                      }
-                      onClose={() => setOpenGroup(null)}
-                      onOpenSource={props.onRowClick}
-                      onPick={(candidate) => void reattach(group, candidate)}
-                    />
-                  )}
-                </For>
-              </ul>
-            </>
-          );
-        }}
+        {(s) => (
+          <>
+            <Show when={s().truncated}>
+              <Muted>Showing the most-referenced groups only.</Muted>
+            </Show>
+            <ul
+              role="list"
+              style={{
+                margin: 0,
+                padding: 0,
+                "list-style": "none",
+                display: "flex",
+                "flex-direction": "column",
+                gap: "var(--space-2)",
+              }}
+            >
+              <For each={s().groups}>
+                {(group) => (
+                  <GroupCard
+                    group={group}
+                    open={openGroup() === group.target_raw}
+                    busyKey={busy()}
+                    onToggle={() =>
+                      setOpenGroup((cur) =>
+                        cur === group.target_raw ? null : group.target_raw,
+                      )
+                    }
+                    onClose={() => setOpenGroup(null)}
+                    onOpenSource={props.onRowClick}
+                    onPick={(candidate) => void reattach(group, candidate)}
+                  />
+                )}
+              </For>
+            </ul>
+          </>
+        )}
       </Show>
     </section>
   );

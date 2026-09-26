@@ -115,9 +115,10 @@ pub fn render_to(outcome: &Outcome, json: bool, out: &mut dyn Write, err: &mut d
 }
 
 pub fn render(outcome: &Outcome, json: bool) -> i32 {
-    let mut out = std::io::stdout();
-    let mut err = std::io::stderr();
-    render_to(outcome, json, &mut out, &mut err)
+    let mut out = std::io::BufWriter::new(std::io::stdout().lock());
+    let code = render_to(outcome, json, &mut out, &mut std::io::stderr());
+    let _ = out.flush();
+    code
 }
 
 #[cfg(test)]

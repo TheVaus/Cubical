@@ -18,10 +18,11 @@ import { syntaxTree } from "@codemirror/language";
 import { type SyntaxNode, type Tree } from "@lezer/common";
 
 import { measurePerf } from "../core/perf";
-import { scanWikilinks, type TokenizedRun } from "../ast/wikilink";
+import { scanWikilinks } from "../ast/wikilink";
 import { TRAILING_BLOCK_ID } from "./blockId";
 import type { WikiLinkResolution } from "./wikilinkResolver";
 import { withinLines } from "./withinLines";
+import { wikiLinkTargetRaw } from "./wikilinkTarget";
 
 export type DecoKind =
   | "line-h1"
@@ -68,6 +69,20 @@ export interface CursorState {
   head: number;
   from: number;
   to: number;
+}
+
+export type DocRange = { from: number; to: number };
+
+function lineSpan(
+  doc: Text,
+  from: number,
+  to: number,
+  range: DocRange | undefined,
+): [number, number] {
+  const last = Math.max(from, to - 1);
+  const lo = range ? Math.min(Math.max(from, range.from), last) : from;
+  const hi = range ? Math.max(lo, Math.min(last, range.to)) : last;
+  return [doc.lineAt(lo).number, doc.lineAt(hi).number];
 }
 
 function cursorTouches(
@@ -120,9 +135,12 @@ export function findBlockIds(
   doc: Text,
   tree: Tree,
   cursor: CursorState,
+  range?: DocRange,
 ): DecoEntry[] {
   const out: DecoEntry[] = [];
-  for (let ln = 1; ln <= doc.lines; ln++) {
+  const first = range ? doc.lineAt(range.from).number : 1;
+  const last = range ? doc.lineAt(range.to).number : doc.lines;
+  for (let ln = first; ln <= last; ln++) {
     const line = doc.line(ln);
     const m = TRAILING_BLOCK_ID.exec(line.text);
     if (!m) continue;
@@ -145,32 +163,32 @@ function extendSpaces(doc: Text, from: number): number {
   return p;
 }
 
-function resolverKey(
-  tok: Extract<TokenizedRun, { kind: "wiki_link" }>,
-): string {
-  if (tok.anchor === null) return tok.target;
-  const prefix = tok.anchor.kind === "block" ? "#^" : "#";
-  return `${tok.target}${prefix}${tok.anchor.value}`;
-}
+const HEADINGS = new Map<string, readonly [number, boolean]>([
+  ...[1, 2, 3, 4, 5, 6].map((n) => [`ATXHeading${n}`, [n, false]] as const),
+  ["SetextHeading1", [1, true]],
+  ["SetextHeading2", [2, true]],
+]);
 
 export function collectDecorations(
   tree: Tree,
   doc: Text,
   cursor: CursorState,
   resolverLookup?: (targetRaw: string) => WikiLinkResolution | undefined,
+  range?: DocRange,
 ): DecoEntry[] {
   const visible: DecoEntry[] = [];
   const markers: Marker[] = [];
   const activeLine = doc.lineAt(cursor.head).number;
 
   tree.iterate({
+    from: range?.from ?? 0,
+    to: range?.to ?? doc.length,
     enter: (node) => {
       const name = node.name;
 
-      const heading = /^(ATX|Setext)Heading([1-6])$/.exec(name);
+      const heading = HEADINGS.get(name);
       if (heading) {
-        const level = Number(heading[2]);
-        const isSetext = heading[1] === "Setext";
+        const [level, isSetext] = heading;
         const contentLine = doc.lineAt(node.from);
         visible.push({
           from: contentLine.from,
@@ -231,8 +249,7 @@ export function collectDecorations(
       }
 
       if (name === "FencedCode" || name === "CodeBlock") {
-        const startLn = doc.lineAt(node.from).number;
-        const endLn = doc.lineAt(Math.max(node.from, node.to - 1)).number;
+        const [startLn, endLn] = lineSpan(doc, node.from, node.to, range);
         for (let ln = startLn; ln <= endLn; ln++) {
           const line = doc.line(ln);
           visible.push({ from: line.from, to: line.from, kind: "line-code" });
@@ -252,8 +269,7 @@ export function collectDecorations(
       }
 
       if (name === "Blockquote") {
-        const startLn = doc.lineAt(node.from).number;
-        const endLn = doc.lineAt(Math.max(node.from, node.to - 1)).number;
+        const [startLn, endLn] = lineSpan(doc, node.from, node.to, range);
         for (let ln = startLn; ln <= endLn; ln++) {
           const line = doc.line(ln);
           visible.push({ from: line.from, to: line.from, kind: "line-quote" });
@@ -338,6 +354,7 @@ export function collectDecorations(
         const tok = scanWikilinks(raw).find((t) => t.kind === "wiki_link");
         if (!tok || tok.kind !== "wiki_link") return;
 
+        const resolution = resolverLookup?.(wikiLinkTargetRaw(tok));
         const revealed = cursorTouches(cursor, node.from, node.to);
         if (revealed) {
           visible.push({
@@ -372,7 +389,6 @@ export function collectDecorations(
         if (visibleFrom > node.from) {
           visible.push({ from: node.from, to: visibleFrom, kind: "hide" });
         }
-        const resolution = resolverLookup?.(resolverKey(tok));
         const visibleKind: DecoKind =
           resolution && resolution.target_path === null
             ? "mark-wikilink-unresolved"
@@ -503,33 +519,17 @@ function buildDecorations(view: EditorView): DecorationSet {
   const sel = view.state.selection.main;
   const cursor: CursorState = { head: sel.head, from: sel.from, to: sel.to };
   const resolver = view.state.facet(wikilinkResolverFacet);
-  const entries = collectDecorations(
-    tree,
-    view.state.doc,
-    cursor,
-    resolver ? (t) => resolver.get(t) : undefined,
-  );
-  const blockIds = findBlockIds(view.state.doc, tree, cursor);
+  const range: DocRange = view.viewport;
+  const lookup = resolver
+    ? (t: string) => {
+        const hit = resolver.get(t);
+        if (hit === undefined) resolver.fetch(t);
+        return hit;
+      }
+    : undefined;
+  const entries = collectDecorations(tree, view.state.doc, cursor, lookup, range);
+  const blockIds = findBlockIds(view.state.doc, tree, cursor, range);
   return buildDecorationSet([...entries, ...blockIds]);
-}
-
-function kickResolverFetches(view: EditorView): void {
-  const resolver = view.state.facet(wikilinkResolverFacet);
-  if (!resolver) return;
-  const tree = syntaxTree(view.state);
-  const seen = new Set<string>();
-  tree.iterate({
-    enter: (node) => {
-      if (node.name !== "WikiLink") return;
-      const raw = view.state.doc.sliceString(node.from, node.to);
-      const tok = scanWikilinks(raw).find((t) => t.kind === "wiki_link");
-      if (!tok || tok.kind !== "wiki_link") return;
-      const key = resolverKey(tok);
-      if (seen.has(key)) return;
-      seen.add(key);
-      if (resolver.get(key) === undefined) resolver.fetch(key);
-    },
-  });
 }
 
 const livePreviewPlugin = ViewPlugin.fromClass(
@@ -538,7 +538,6 @@ const livePreviewPlugin = ViewPlugin.fromClass(
 
     constructor(view: EditorView) {
       this.decorations = buildFor(view);
-      kickResolverFetches(view);
     }
 
     update(update: ViewUpdate): void {
@@ -550,10 +549,11 @@ const livePreviewPlugin = ViewPlugin.fromClass(
         update.viewportChanged ||
         update.selectionSet ||
         syntaxTree(update.startState) !== syntaxTree(update.state) ||
+        update.startState.facet(wikilinkResolverFacet) !==
+          update.state.facet(wikilinkResolverFacet) ||
         resolverChanged
       ) {
         this.decorations = buildFor(update.view);
-        kickResolverFetches(update.view);
       }
     }
   },

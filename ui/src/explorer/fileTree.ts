@@ -44,16 +44,18 @@ export function buildFileTree(
   folderPaths: ReadonlyArray<string> = [],
 ): FolderNode {
   const root: FolderNode = { name: "", path: "", folders: [], files: [] };
+  const byPath = new Map<string, FolderNode>();
 
   const ensureFolder = (segments: string[]): FolderNode => {
     let cursor = root;
     let cursorPath = "";
     for (const seg of segments) {
       cursorPath = cursorPath ? `${cursorPath}/${seg}` : seg;
-      let next = cursor.folders.find((f) => f.name === seg);
+      let next = byPath.get(cursorPath);
       if (!next) {
         next = { name: seg, path: cursorPath, folders: [], files: [] };
         cursor.folders.push(next);
+        byPath.set(cursorPath, next);
       }
       cursor = next;
     }
@@ -127,11 +129,10 @@ function flatRowEqual(a: FlatRow, b: FlatRow): boolean {
 
 export function buildStableTreeRows(
   prevRows: readonly FlatRow[],
-  entries: ReadonlyArray<{ path: string; type_id: string }>,
-  folderPaths: ReadonlyArray<string>,
+  root: FolderNode,
   collapsed: ReadonlySet<string>,
 ): FlatRow[] {
-  const next = flattenTree(buildFileTree(entries, folderPaths), collapsed);
+  const next = flattenTree(root, collapsed);
   return stabilizeByKey(prevRows, next, flatRowKey, flatRowEqual);
 }
 

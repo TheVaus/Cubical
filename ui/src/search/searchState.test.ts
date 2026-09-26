@@ -108,3 +108,24 @@ describe("a vault switch", () => {
     h.dispose();
   });
 });
+
+describe("index status polling", () => {
+  it("stops polling once the vault closes", async () => {
+    const h = build();
+    h.readStatus.mockImplementation(async () => ({
+      state: "building" as never,
+      indexed_files: 1,
+      total_files: 2,
+      last_commit_secs: null,
+    }));
+    h.setVault("b");
+    await vi.advanceTimersByTimeAsync(500);
+    expect(vi.getTimerCount()).toBe(1);
+
+    h.setVault(null);
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(vi.getTimerCount()).toBe(0);
+    h.dispose();
+  });
+});

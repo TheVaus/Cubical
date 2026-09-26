@@ -121,7 +121,11 @@ the transport, keeping the pure handlers clean.
   event (complete or cancelled), updating the stored scan status so later
   `get_vault_info` calls agree. Every spawn passes the **open vault's own**
   cancellation token; a rebuild given a fresh one keeps scanning against a
-  closed vault's index because nothing can reach it to stop it.
+  closed vault's index because nothing can reach it to stop it. A token
+  `cancel_vault_scan` already spent is the other failure: `search_rebuild_index`
+  wipes the index before it spawns, so a rebuild under a cancelled token left
+  search empty until reopen. It therefore stores a fresh token on `OpenVault`
+  first — still the vault's own, so `close_vault` reaches it.
 - **Watcher dispatcher** — persists each event to the index, writes an
   `audit_log` row, and emits the file-changed event. Errors are logged and the
   loop continues; one failed event must not take the watcher down. It carries a
@@ -170,6 +174,25 @@ Two ordering constraints are easy to break:
   pre-rename snapshot. `rename_folder` reuses the same per-file phases across a
   subtree in one transaction under a single shared op id, resolving referrers
   that are themselves being renamed to their final path first.
+- **Queued rows follow their target.** `pending_rewrites.target_file` has no FK,
+  so the rekey moves it explicitly — otherwise a self-link, or a referrer
+  renamed before its flush, strands its row at a path the flush finds missing
+  and silently drops. Rows already sitting at the destination belong to a
+  deleted file and are dropped first, or they would land on the newcomer.
+
+`rename_folder` commits its index transaction only **after** the directory
+move succeeds, rolling back on failure: the watcher never adopts a folder
+rename, so an index committed ahead of a failed move would never converge.
+Subtree matching compares a literal prefix, never `LIKE` — `LIKE` is
+case-insensitive and treats `_`/`%` in a folder or tag name as wildcards, which
+swept sibling folders and tags into the rename.
+
+Every path that enqueues or flushes pending rewrites holds `flush_in_progress`
+across the whole operation: in-app renames through the fifty-per-file fuse, the
+watcher's external-rename adoption, dangling-link repair from its referrer read
+on, the scan-time journal replay, and `link_mention`'s pre-flush. A flush reads
+a target's rows, writes, then deletes every row for that target; a row
+coalesced or inserted in between would be deleted unapplied.
 
 Cross-filesystem folder moves (`EXDEV`) are unsupported — a recursive
 copy-then-remove fallback for a whole subtree is out of scope. For a single
@@ -323,6 +346,13 @@ disk, and pair them. A missed rename is recoverable; a wrong rewrite silently
 corrupts the user's markdown. Ambiguous inode matches are refused on the same
 grounds. Both mechanisms then re-check that the chosen source is genuinely
 absent from disk — a file that is still there did not move.
+
+Pairing renames a scan finds (made while the app was closed) applies the same
+rule from both ends: an identity must be unique among the vanished files *and*
+among the newly tracked ones, a hash shared with a surviving file never pairs,
+and a destination claimed by inode is not also given to a hash match. Each
+pair is journalled and replayed as a referrer rewrite, so a second claimant on
+one destination would redirect a deleted note's links to an unrelated file.
 
 Recovery cannot double-apply, because it reuses the same
 row-at-`from`/no-row-at-`to` predicate: a `Created` whose path is already tracked
@@ -624,6 +654,14 @@ flags, not an invariant a panic can break, so the only thing poisoning proved
 was that some unrelated thread died. This does not extend to a lock guarding a
 half-updated structure, where poisoning is the signal it was designed to be.
 
+The terminal registry follows the same rule: its sessions mutex is a lookup.
+A PTY write clones the session's writer handle out and writes after the lock is
+released, so a child that stops reading stdin blocks only its own writes, not
+every terminal's resize, busy check or close. The test for it runs on Linux
+only: a macOS PTY accepts a multi-megabyte write to a child that never reads
+without blocking the writer, so the stall it guards against cannot be staged
+there.
+
 ## Idempotent vault re-open
 
 Re-opening an already-open folder returns the existing session rather than
@@ -704,7 +742,9 @@ retries rather than ending the loop, and a panicking handler is caught, so
 neither can silently take CLI attach offline for the app's lifetime. Both
 sides of a connection read under a deadline (`cubical_ipc::IO_TIMEOUT`): a
 local process that connects and sends nothing would otherwise wedge the
-sequential loop for every later `cubical` invocation.
+sequential loop for every later `cubical` invocation. The server writes its
+reply under the same deadline, because a client that sends a request and never
+reads a large reply would otherwise wedge the loop the same way.
 
 Routing an attached command through the app's real `AppState` and a real
 `TauriEventSink` — instead of a second engine — is what keeps the app's

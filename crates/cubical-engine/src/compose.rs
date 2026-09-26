@@ -113,6 +113,7 @@ pub async fn open_vault(
         WatchedVault {
             vault: vault.clone(),
             changes: Arc::new(search),
+            flush_in_progress: flush_in_progress.clone(),
         },
         watch_rx,
         flush_own_writes.clone(),

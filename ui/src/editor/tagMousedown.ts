@@ -1,3 +1,5 @@
+import { closestFromTarget } from "./closestFromTarget";
+
 export interface TagMousedownEvent {
   button: number;
   metaKey: boolean;
@@ -33,13 +35,7 @@ export function maybeInterceptTagMousedown(
 }
 
 export function closestTagSpan(target: EventTarget | null): Element | null {
-  const el =
-    target instanceof Element
-      ? target
-      : target instanceof Node
-        ? target.parentElement
-        : null;
-  return el?.closest(".cm-md-tag") ?? null;
+  return closestFromTarget(target, ".cm-md-tag");
 }
 
 export function tagPathFromSlice(raw: string): string | null {

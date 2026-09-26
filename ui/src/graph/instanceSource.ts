@@ -32,24 +32,30 @@ export interface InstanceSource {
 export function createInstanceSource(host: Element): InstanceSource {
   let palette: ReturnType<typeof readPalette> | null = null;
   let folderColours: ReturnType<typeof readFolderColours> | null = null;
+  let coloursFor: GraphSnapshot | null = null;
+  let colours = new Uint32Array(0);
 
   return {
     invalidateTheme: () => {
       palette = null;
       folderColours = null;
+      coloursFor = null;
     },
     build: (snapshot, positions, adjacency, degree, hovered, visible) => {
       if (palette === null || folderColours === null) {
         palette = readPalette(host);
         folderColours = readFolderColours(host);
       }
-      const colours = new Uint32Array(snapshot.nodes.length);
-      for (let i = 0; i < snapshot.nodes.length; i++) {
-        const node = snapshot.nodes[i]!;
-        colours[i] =
-          node.kind === "note"
-            ? colourForFolder(folderOf(node.key), folderColours)
-            : palette[node.kind];
+      if (coloursFor !== snapshot) {
+        coloursFor = snapshot;
+        colours = new Uint32Array(snapshot.nodes.length);
+        for (let i = 0; i < snapshot.nodes.length; i++) {
+          const node = snapshot.nodes[i]!;
+          colours[i] =
+            node.kind === "note"
+              ? colourForFolder(folderOf(node.key), folderColours)
+              : palette[node.kind];
+        }
       }
       return {
         nodes: buildNodeInstances(

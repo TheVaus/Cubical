@@ -71,14 +71,7 @@ impl Default for FileTypeRegistry {
 }
 
 pub fn sha256_bytes_hex(bytes: &[u8]) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(bytes);
-    let digest = hasher.finalize();
-    let mut hex = String::with_capacity(digest.len() * 2);
-    for byte in digest.iter() {
-        let _ = write!(hex, "{:02x}", byte);
-    }
-    hex
+    to_hex(&Sha256::digest(bytes))
 }
 
 pub(crate) fn sha256_file_hex(path: &Path) -> Result<String, FileTypeError> {
@@ -92,12 +85,15 @@ pub(crate) fn sha256_file_hex(path: &Path) -> Result<String, FileTypeError> {
         }
         hasher.update(&buf[..n]);
     }
-    let digest = hasher.finalize();
+    Ok(to_hex(&hasher.finalize()))
+}
+
+fn to_hex(digest: &[u8]) -> String {
     let mut hex = String::with_capacity(digest.len() * 2);
-    for byte in digest.iter() {
-        let _ = write!(hex, "{:02x}", byte);
+    for byte in digest {
+        let _ = write!(hex, "{byte:02x}");
     }
-    Ok(hex)
+    hex
 }
 
 #[cfg(test)]

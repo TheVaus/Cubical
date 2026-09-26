@@ -443,3 +443,48 @@ describe("findBlockIds", () => {
     expect(runBlockIds("word^attached\n", at("word^attached\n", 2))).toHaveLength(0);
   });
 });
+
+describe("collectDecorations — limited to a range", () => {
+  it("emits nothing for nodes wholly outside the range", () => {
+    const src = "# Top\n\ntext\n\n# Bottom\n";
+    const tree = parser.parse(src);
+    const doc = Text.of(src.split("\n"));
+    const range = { from: 0, to: at(src, 2) };
+    const entries = collectDecorations(tree, doc, toCursor(at(src, 3)), undefined, range);
+    expect(ofKind(entries, "line-h1").map((e) => e.from)).toEqual([0]);
+  });
+
+  it("clamps a long code block's line decorations to the range", () => {
+    const body = Array.from({ length: 50 }, (_, i) => `line ${i}`);
+    const src = ["```", ...body, "```", ""].join("\n");
+    const tree = parser.parse(src);
+    const doc = Text.of(src.split("\n"));
+    const range = { from: at(src, 10), to: doc.line(12).to };
+    const lines = ofKind(
+      collectDecorations(tree, doc, toCursor(0), undefined, range),
+      "line-code",
+    ).map((e) => doc.lineAt(e.from).number);
+    expect(lines).toEqual([10, 11, 12]);
+  });
+
+  it("findBlockIds only scans the range's lines", () => {
+    const src = "a ^one\n\nb ^two\n";
+    const tree = parser.parse(src);
+    const doc = Text.of(src.split("\n"));
+    const got = findBlockIds(doc, tree, toCursor(doc.length), {
+      from: at(src, 3),
+      to: doc.line(3).to,
+    });
+    expect(got.map((e) => slice(src, e))).toEqual(["^two"]);
+  });
+
+  it("looks up every wiki-link, including the one the cursor reveals", () => {
+    const src = "[[a]] [[b#^x]]\n";
+    const seen: string[] = [];
+    run(src, 1, (t) => {
+      seen.push(t);
+      return undefined;
+    });
+    expect(seen).toEqual(["a", "b#^x"]);
+  });
+});

@@ -19,6 +19,7 @@ import type { EmbedResolution, EmbedResolver } from "./embedResolver";
 import { renderEmbedBody, type EmbedFileRenderer } from "./embedRender";
 import { updateSubscriptionExtension } from "./updateSubscription";
 import { renderGuarded } from "./widgetGuard";
+import { wikiLinkTargetRaw } from "./wikilinkTarget";
 
 export const embedResolverFacet = Facet.define<
   EmbedResolver | null,
@@ -39,14 +40,6 @@ export const openNotePathFacet = Facet.define<string | null, string | null>({
 });
 
 export const embedResolverUpdated = StateEffect.define<null>();
-
-function targetRawOf(
-  tok: Extract<ReturnType<typeof scanWikilinks>[number], { kind: "wiki_link" }>,
-): string {
-  if (tok.anchor === null) return tok.target;
-  const prefix = tok.anchor.kind === "block" ? "#^" : "#";
-  return `${tok.target}${prefix}${tok.anchor.value}`;
-}
 
 const renderedFrom = new WeakMap<HTMLElement, EmbedWidget>();
 
@@ -132,7 +125,7 @@ function buildDecorations(state: EditorState): DecorationSet {
       const line = doc.lineAt(node.from);
       if (line.text.trim() !== raw.trim()) return;
       if (line.number === activeLineNumber) return;
-      const targetRaw = targetRawOf(tok);
+      const targetRaw = wikiLinkTargetRaw(tok);
       const widget = new EmbedWidget(
         resolver,
         targetRaw,
