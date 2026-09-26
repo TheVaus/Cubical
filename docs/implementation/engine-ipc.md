@@ -732,7 +732,9 @@ retries rather than ending the loop, and a panicking handler is caught, so
 neither can silently take CLI attach offline for the app's lifetime. Both
 sides of a connection read under a deadline (`cubical_ipc::IO_TIMEOUT`): a
 local process that connects and sends nothing would otherwise wedge the
-sequential loop for every later `cubical` invocation.
+sequential loop for every later `cubical` invocation. The server writes its
+reply under the same deadline, because a client that sends a request and never
+reads a large reply would otherwise wedge the loop the same way.
 
 Routing an attached command through the app's real `AppState` and a real
 `TauriEventSink` — instead of a second engine — is what keeps the app's

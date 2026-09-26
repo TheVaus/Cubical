@@ -82,13 +82,27 @@ where
     R: AsyncRead + Unpin,
     T: DeserializeOwned,
 {
-    match tokio::time::timeout(timeout, read_msg(r)).await {
-        Ok(res) => res,
-        Err(_) => Err(TransportError::Io(std::io::Error::new(
-            std::io::ErrorKind::TimedOut,
-            "timed out waiting for a framed message",
-        ))),
-    }
+    tokio::time::timeout(timeout, read_msg(r))
+        .await
+        .unwrap_or_else(|_| Err(timed_out("timed out waiting for a framed message")))
+}
+
+pub(crate) async fn write_msg_timeout<W, T>(
+    w: &mut W,
+    msg: &T,
+    timeout: std::time::Duration,
+) -> TransportResult<()>
+where
+    W: AsyncWrite + Unpin,
+    T: Serialize,
+{
+    tokio::time::timeout(timeout, write_msg(w, msg))
+        .await
+        .unwrap_or_else(|_| Err(timed_out("timed out writing a framed message")))
+}
+
+fn timed_out(msg: &'static str) -> TransportError {
+    TransportError::Io(std::io::Error::new(std::io::ErrorKind::TimedOut, msg))
 }
 
 pub fn app_socket_path(pid: u32) -> PathBuf {
@@ -134,7 +148,7 @@ pub async fn handle_connection(
         Some((_, ScanStatus::Cancelled)) => Response::Err("vault scan was cancelled".to_string()),
         None => Response::Err("vault not open".to_string()),
     };
-    write_msg(&mut stream, &response).await
+    write_msg_timeout(&mut stream, &response, IO_TIMEOUT).await
 }
 
 #[cfg(test)]
@@ -176,6 +190,19 @@ mod tests {
         assert!(
             matches!(&err, TransportError::Io(e) if e.kind() == std::io::ErrorKind::TimedOut),
             "a silent peer is an I/O condition, not a protocol one: {err:?}",
+        );
+    }
+
+    #[tokio::test]
+    async fn write_msg_timeout_gives_up_on_a_peer_that_never_reads() {
+        let (mut a, _b) = tokio::io::duplex(64);
+        let big = "x".repeat(4096);
+        let err = write_msg_timeout(&mut a, &big, std::time::Duration::from_millis(20))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(&err, TransportError::Io(e) if e.kind() == std::io::ErrorKind::TimedOut),
+            "{err:?}",
         );
     }
 
