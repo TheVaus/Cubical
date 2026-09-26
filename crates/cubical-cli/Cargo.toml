@@ -19,7 +19,5 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 anyhow = { workspace = true }
 
 [dev-dependencies]
-cubical-engine = { path = "../cubical-engine" }
-cubical-ipc = { path = "../cubical-ipc" }
 serde_json = { workspace = true }
 tempfile = "3"
