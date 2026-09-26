@@ -206,8 +206,16 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
     persistSetting(vid(), "shortcuts.overrides", next);
   };
 
+  let generation = 0;
+
   const resetForVaultSwitch = () => {
+    generation += 1;
     setRawOverride(null);
+    setRawDefault(SETTINGS_DEFAULTS.rawSourceDefault);
+    setMinimapEnabled(SETTINGS_DEFAULTS.minimapEnabled);
+    setColorizeSource(SETTINGS_DEFAULTS.colorizeSource);
+    setLiveTabLimit(SETTINGS_DEFAULTS.liveTabLimit);
+    setRewriteBrokenLinks(SETTINGS_DEFAULTS.rewriteBrokenLinks);
     setRightSidebarCollapsed(false);
     setRightSidebarPanel(defaultSidebarPanel());
     setLeftSidebarMode(defaultLeftSidebarMode());
@@ -217,42 +225,33 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
   };
 
   const hydrate = async (vaultId: string) => {
+    const mine = generation;
+    const live = () => mine === generation;
+    const seed = <K extends SettingKey>(
+      key: K,
+      fallback: SettingValue<K>,
+      apply: (value: SettingValue<K>) => void,
+    ) => seedSetting(vaultId, key, fallback, (v) => live() && apply(v));
+
     try {
       const mode =
         (await getSetting(vaultId, "appearance.theme_mode")) ??
         SETTINGS_DEFAULTS.themeMode;
-      setThemeMode(mode);
-      setResolvedTheme(applyTheme(mode));
+      if (live()) {
+        setThemeMode(mode);
+        setResolvedTheme(applyTheme(mode));
+      }
     } catch (e) {
       console.error("loading theme_mode failed", e);
     }
 
-    await seedSetting(
-      vaultId,
-      "editor.raw_source_default",
-      SETTINGS_DEFAULTS.rawSourceDefault,
-      setRawDefault,
+    await seed("editor.raw_source_default", SETTINGS_DEFAULTS.rawSourceDefault, setRawDefault);
+    await seed("editor.minimap_enabled", SETTINGS_DEFAULTS.minimapEnabled, setMinimapEnabled);
+    await seed("editor.live_tab_limit", SETTINGS_DEFAULTS.liveTabLimit, (v) =>
+      setLiveTabLimit(clampLimit(v)),
     );
-    await seedSetting(
-      vaultId,
-      "editor.minimap_enabled",
-      SETTINGS_DEFAULTS.minimapEnabled,
-      setMinimapEnabled,
-    );
-    await seedSetting(
-      vaultId,
-      "editor.live_tab_limit",
-      SETTINGS_DEFAULTS.liveTabLimit,
-      (v) => setLiveTabLimit(clampLimit(v)),
-    );
-    await seedSetting(
-      vaultId,
-      "editor.colorize_raw_source",
-      SETTINGS_DEFAULTS.colorizeSource,
-      setColorizeSource,
-    );
-    await seedSetting(
-      vaultId,
+    await seed("editor.colorize_raw_source", SETTINGS_DEFAULTS.colorizeSource, setColorizeSource);
+    await seed(
       "wikilinks.rewrite_broken_links_on_rename",
       SETTINGS_DEFAULTS.rewriteBrokenLinks,
       setRewriteBrokenLinks,
@@ -267,6 +266,7 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
         enabled[p.id] = p.defaultEnabled;
       }
     }
+    if (!live()) return;
     setCorePlugins(enabled);
 
     const stored: Record<string, Setting["value"]> = {};
@@ -279,28 +279,21 @@ export function createSettingsState(deps: SettingsStateDeps): SettingsState {
         stored[setting.key] = setting.fallback;
       }
     }
+    if (!live()) return;
     setBlockValues(stored);
 
-    await seedSetting(
-      vaultId,
+    await seed(
       "ui.right_sidebar_collapsed",
       SETTINGS_DEFAULTS.rightSidebarCollapsed,
       setRightSidebarCollapsed,
     );
-    await seedSetting(
-      vaultId,
-      "ui.right_sidebar_panel",
-      defaultSidebarPanel(),
-      (id) => setRightSidebarPanel(isSidebarPanel(id) ? id : defaultSidebarPanel()),
+    await seed("ui.right_sidebar_panel", defaultSidebarPanel(), (id) =>
+      setRightSidebarPanel(isSidebarPanel(id) ? id : defaultSidebarPanel()),
     );
-    await seedSetting(
-      vaultId,
-      "ui.left_sidebar_mode",
-      defaultLeftSidebarMode(),
-      (id) =>
-        setLeftSidebarMode(isLeftSidebarMode(id) ? id : defaultLeftSidebarMode()),
+    await seed("ui.left_sidebar_mode", defaultLeftSidebarMode(), (id) =>
+      setLeftSidebarMode(isLeftSidebarMode(id) ? id : defaultLeftSidebarMode()),
     );
-    await seedSetting(vaultId, "shortcuts.overrides", {}, setShortcutOverrides);
+    await seed("shortcuts.overrides", {}, setShortcutOverrides);
   };
 
   return {

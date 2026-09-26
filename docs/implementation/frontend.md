@@ -367,6 +367,12 @@ leaving them meant the new vault ran the old vault's feature set. Clearing to an
 empty record is the right reset because empty already means "every default",
 which is exactly the state the app boots in.
 
+The reset also disowns any `hydrate` still in flight. Hydrate is a chain of
+reads, and one started for the outgoing vault — by the switch itself or by a
+`vault:setting-changed` event — would otherwise keep landing the old vault's
+values after the reset, interleaved with the incoming vault's own hydrate. A
+generation counter bumped by the reset and captured by `hydrate` drops them.
+
 ## A core plugin's runtime is derived from its toggle
 
 **Anchors:** createDataviewWiring · createTerminalWiring · createGraphWiring · corePluginActive · corePluginEnabled

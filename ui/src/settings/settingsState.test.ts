@@ -22,6 +22,7 @@ import {
   registerLeftSidebarModes,
   registerSidebarPanels,
 } from "./sidebarPanels";
+import { SETTINGS_DEFAULTS } from "./defaults";
 import { createSettingsState } from "./settingsState";
 
 registerSidebarPanels([
@@ -210,5 +211,68 @@ describe("resetForVaultSwitch", () => {
     expect(s.corePlugins()).toEqual({});
     expect(s.value(VAULT_PATH_SEGMENT.settingKey)).toBe(true);
     expect(s.value("statusbar.enabled")).toBe(true);
+  });
+});
+
+describe("hydrate across a vault switch", () => {
+  it("drops the outgoing vault's reads that land after the switch", async () => {
+    const release: (() => void)[] = [];
+    stored.mockImplementation(
+      (v: string, key: string) =>
+        new Promise((resolve) => {
+          const value =
+            v !== "v1"
+              ? null
+              : key === "appearance.theme_mode"
+                ? "dark"
+                : key === "editor.minimap_enabled"
+                  ? true
+                  : key === "plugins.dataview_enabled"
+                    ? false
+                    : null;
+          release.push(() => resolve(value));
+        }),
+    );
+    const s = build();
+    const first = s.hydrate("v1");
+
+    s.resetForVaultSwitch();
+    while (release.length > 0) {
+      release.shift()!();
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+    await first;
+
+    expect(s.themeMode()).toBe("system");
+    expect(s.minimapEnabled()).toBe(false);
+    expect(s.corePlugins()).toEqual({});
+  });
+
+  it("returns every per-vault editor setting to its default", async () => {
+    stored.mockImplementation((_v: string, key: string) =>
+      Promise.resolve(
+        key === "editor.minimap_enabled" ||
+          key === "editor.colorize_raw_source" ||
+          key === "editor.raw_source_default"
+          ? true
+          : key === "wikilinks.rewrite_broken_links_on_rename"
+            ? false
+            : key === "editor.live_tab_limit"
+              ? 3
+              : null,
+      ),
+    );
+    const s = build();
+    await s.hydrate("v1");
+    expect(s.minimapEnabled()).toBe(true);
+
+    s.resetForVaultSwitch();
+
+    expect(s.rawDefault()).toBe(false);
+    expect(s.minimapEnabled()).toBe(false);
+    expect(s.colorizeSource()).toBe(false);
+    expect(s.rewriteBrokenLinks()).toBe(true);
+    expect(s.liveTabLimit()).toBe(SETTINGS_DEFAULTS.liveTabLimit);
   });
 });
