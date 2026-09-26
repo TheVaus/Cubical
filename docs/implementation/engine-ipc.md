@@ -187,8 +187,8 @@ Subtree matching compares a literal prefix, never `LIKE` — `LIKE` is
 case-insensitive and treats `_`/`%` in a folder or tag name as wildcards, which
 swept sibling folders and tags into the rename.
 
-In-app renames hold `flush_in_progress` from enqueue through the fifty-per-file
-fuse. A flush reads a target's rows, writes, then deletes every row for that
+In-app renames, the watcher's external-rename adoption and dangling-link
+repair hold `flush_in_progress` from enqueue through the fifty-per-file fuse. A flush reads a target's rows, writes, then deletes every row for that
 target; a rename coalescing into or inserting a row in between would be
 deleted unapplied.
 

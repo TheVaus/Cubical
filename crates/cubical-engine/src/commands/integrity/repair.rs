@@ -51,6 +51,7 @@ pub async fn repair_dangling_link(
     let rename_op_id = mint_rename_op_id(&vault).await?;
     let now = unix_now_secs();
 
+    let _guard = flush_in_progress.lock().await;
     let tx = conn.transaction().await?;
     for source_path in &referrers {
         enqueue_coalesced(
@@ -70,7 +71,6 @@ pub async fn repair_dangling_link(
         .await?;
     tx.commit().await?;
 
-    let _guard = flush_in_progress.lock().await;
     let mut files_rewritten: i64 = 0;
     let mut refs_updated: i64 = 0;
     for source_path in &referrers {

@@ -271,6 +271,7 @@ pub(crate) struct WatchContext<'a> {
     pub sink: &'a dyn EventSink,
     pub vault_id: &'a str,
     pub flush_own_writes: &'a FlushOwnWrites,
+    pub flush_in_progress: &'a Mutex<()>,
     pub settings: &'a RwLock<SettingsMap>,
     pub tombstones: &'a Tombstones,
 }
@@ -278,6 +279,7 @@ pub(crate) struct WatchContext<'a> {
 pub struct WatchedVault {
     pub vault: Vault,
     pub changes: Arc<dyn ChangeSink>,
+    pub flush_in_progress: Arc<Mutex<()>>,
 }
 
 pub struct WatcherLifetime {
@@ -318,7 +320,11 @@ pub fn spawn_watcher_dispatcher(
     settings: Arc<RwLock<SettingsMap>>,
     lifetime: WatcherLifetime,
 ) {
-    let WatchedVault { vault, changes } = watched;
+    let WatchedVault {
+        vault,
+        changes,
+        flush_in_progress,
+    } = watched;
     tokio::spawn(async move {
         let tombstones = new_tombstones();
         while let Some(first) = events_rx.recv().await {
@@ -331,6 +337,7 @@ pub fn spawn_watcher_dispatcher(
             let batch_vault = vault.clone();
             let batch_changes = Arc::clone(&changes);
             let flush_own_writes = Arc::clone(&flush_own_writes);
+            let flush_in_progress = Arc::clone(&flush_in_progress);
             let settings = Arc::clone(&settings);
             let tombstones = Arc::clone(&tombstones);
             let batch_task = tokio::spawn(async move {
@@ -338,6 +345,7 @@ pub fn spawn_watcher_dispatcher(
                     sink: sink.as_ref(),
                     vault_id: &batch_vault_id,
                     flush_own_writes: &flush_own_writes,
+                    flush_in_progress: &flush_in_progress,
                     settings: settings.as_ref(),
                     tombstones: &tombstones,
                 };
@@ -688,6 +696,7 @@ async fn try_adopt_external_rename(
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(true);
 
+    let _flush_guard = ctx.flush_in_progress.lock().await;
     match crate::commands::rename::adopt_external_rename(
         ctx.sink,
         crate::commands::rename::AdoptExternalRenameInput {
@@ -956,6 +965,7 @@ mod tests {
             WatchedVault {
                 vault: vault.clone(),
                 changes: Arc::new(crate::search_handle::SearchHandle::open(vault).await),
+                flush_in_progress: Arc::new(Mutex::new(())),
             },
             rx,
             Arc::new(Mutex::new(HashSet::new())),
@@ -1859,6 +1869,7 @@ mod tests {
                 SettingsMap::new(),
             );
             let flush_own_writes = open.flush_own_writes.clone();
+            let flush_in_progress = open.flush_in_progress.clone();
             let settings = open.settings.clone();
             let lifetime = WatcherLifetime {
                 cancel: open.watcher_cancel.clone(),
@@ -1875,6 +1886,7 @@ mod tests {
                 WatchedVault {
                     vault: vault.clone(),
                     changes: Arc::new(search.clone()),
+                    flush_in_progress,
                 },
                 rx,
                 flush_own_writes,
@@ -1918,10 +1930,12 @@ mod tests {
             settings: &'a RwLock<SettingsMap>,
             tombstones: &'a Tombstones,
         ) -> WatchContext<'a> {
+            static FLUSH_IN_PROGRESS: Mutex<()> = Mutex::const_new(());
             WatchContext {
                 sink: &NoopEventSink,
                 vault_id: VAULT_ID,
                 flush_own_writes,
+                flush_in_progress: &FLUSH_IN_PROGRESS,
                 settings,
                 tombstones,
             }
