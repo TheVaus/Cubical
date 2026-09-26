@@ -76,9 +76,15 @@ impl State {
         match event {
             Event::Start(tag) => self.start(tag, range),
             Event::End(tag) => self.end(tag, range),
-            Event::Text(s) => self.push_inline(Inline::Text {
-                value: s.to_string(),
-            }),
+            Event::Text(s) => {
+                if let Some(Container::CodeBlockBody { content, .. }) = self.stack.last_mut() {
+                    content.push_str(&s);
+                } else {
+                    self.push_inline(Inline::Text {
+                        value: s.to_string(),
+                    });
+                }
+            }
             Event::Code(s) => self.push_inline(Inline::Code {
                 value: s.to_string(),
             }),
@@ -308,13 +314,6 @@ impl State {
     }
 
     fn push_inline(&mut self, inline: Inline) {
-        if let Some(Container::CodeBlockBody { content, .. }) = self.stack.last_mut() {
-            if let Inline::Text { value } = inline {
-                content.push_str(&value);
-            }
-            return;
-        }
-
         if matches!(self.stack.last(), Some(Container::Item { .. })) {
             self.stack.push(Container::Paragraph {
                 inlines: Vec::new(),
