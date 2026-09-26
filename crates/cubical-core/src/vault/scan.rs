@@ -1,21 +1,19 @@
+use std::path::Path;
 use std::time::SystemTime;
 
-use cubical_ast::{Anchor, Document};
-use cubical_index::{
-    replace_links_for_file, sweep_stale_folders, upsert_folder, IndexError, LinkRow,
-};
+use cubical_ast::Document;
+use cubical_index::{replace_links_for_file, sweep_stale_folders, upsert_folder, IndexError};
 use libsql::params;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use walkdir::WalkDir;
 
+use crate::file_type::{sha256_bytes_hex, FileTypeError, FileTypeRegistry};
 use crate::time::unix_now_secs;
 use crate::vault::{
     blocks::{refresh_block_refs_for_file, refresh_blocks},
     frontmatter::refresh_frontmatter_with_doc,
-    links::{
-        extract_links, keeps_link_row, read_source_off_executor, LinkExtraction, PathResolver,
-    },
+    links::{extract_links, link_rows, LinkExtraction, PathResolver},
     parse::parse_off_executor,
     pending::materialize_on_read,
     tags::refresh_tags_with_doc,
@@ -112,13 +110,13 @@ pub(crate) struct ScannedMarkdown<'a> {
 pub(crate) async fn refresh_scanned_markdown(
     md: ScannedMarkdown<'_>,
     doc: Option<&Document>,
-) -> Vec<LinkExtraction> {
+) -> Option<Vec<LinkExtraction>> {
     let Some(doc) = doc else {
         tracing::warn!(
             path = md.path,
             "markdown parse failed; derived tables left untouched"
         );
-        return Vec::new();
+        return None;
     };
     if let Err(e) = refresh_frontmatter_with_doc(md.vault, md.path, doc).await {
         tracing::warn!(path = md.path, error = %e, "frontmatter refresh failed");
@@ -129,7 +127,7 @@ pub(crate) async fn refresh_scanned_markdown(
     if let Err(e) = refresh_blocks(md.vault, md.path, md.source).await {
         tracing::warn!(path = md.path, error = %e, "blocks refresh failed");
     }
-    extract_links(doc)
+    Some(extract_links(doc))
 }
 
 pub async fn scan<S: ScanSink>(
@@ -216,24 +214,22 @@ pub async fn scan<S: ScanSink>(
             }
         };
 
-        let abs_for_hash = abs_path.clone();
+        let abs_for_read = abs_path.clone();
         let registry_for_hash = registry.clone();
-        let hash_result = tokio::task::spawn_blocking(move || {
-            let handler = registry_for_hash
-                .handler_for(&abs_for_hash)
-                .expect("handler matched in foreground; same registry, same path");
-            handler.content_hash(&abs_for_hash)
+        let is_markdown = type_id == "markdown";
+        let read_result = tokio::task::spawn_blocking(move || {
+            read_and_hash(&registry_for_hash, &abs_for_read, is_markdown)
         })
         .await;
 
-        let content_hash = match hash_result {
-            Ok(Ok(h)) => h,
+        let (content_hash, raw_source) = match read_result {
+            Ok(Ok(read)) => read,
             Ok(Err(e)) => {
-                tracing::warn!(path = %abs_path.display(), error = %e, "content hash failed; skipping");
+                tracing::warn!(path = %abs_path.display(), error = %e, "content read failed; skipping");
                 continue;
             }
             Err(join_err) => {
-                tracing::warn!(path = %abs_path.display(), error = %join_err, "hash task join failed; skipping");
+                tracing::warn!(path = %abs_path.display(), error = %join_err, "read task join failed; skipping");
                 continue;
             }
         };
@@ -262,10 +258,7 @@ pub async fn scan<S: ScanSink>(
             continue;
         }
 
-        if type_id == "markdown" {
-            let raw_source = read_source_off_executor(&abs_path)
-                .await
-                .unwrap_or_default();
+        if let Some(raw_source) = raw_source {
             let source = match materialize_on_read(vault.index(), &path_str, &raw_source).await {
                 Ok(s) => s,
                 Err(e) => {
@@ -284,7 +277,7 @@ pub async fn scan<S: ScanSink>(
                 doc.as_ref(),
             )
             .await;
-            if !extractions.is_empty() {
+            if let Some(extractions) = extractions {
                 pending_links.push((path_str.clone(), extractions));
             }
             if !cancel.is_cancelled() {
@@ -355,29 +348,7 @@ pub async fn scan<S: ScanSink>(
             link_tx.commit().await.map_err(IndexError::from)?;
             return Err(VaultError::ScanCancelled);
         }
-        let rows: Vec<LinkRow> = extractions
-            .into_iter()
-            .filter_map(|e| {
-                let target_path = resolver.resolve(&e.target_raw);
-                if !keeps_link_row(e.from_property_ref, &target_path) {
-                    return None;
-                }
-                let (anchor_kind, anchor_value) = match e.anchor {
-                    Some(Anchor::Heading { value }) => (Some("heading".to_string()), Some(value)),
-                    Some(Anchor::Block { value }) => (Some("block".to_string()), Some(value)),
-                    None => (None, None),
-                };
-                Some(LinkRow {
-                    target_raw: e.target_raw,
-                    target_path,
-                    anchor_kind,
-                    anchor_value,
-                    display_text: e.display,
-                    is_embed: e.is_embed,
-                    position: e.position,
-                })
-            })
-            .collect();
+        let rows = link_rows(extractions, &resolver);
         if let Err(e) = replace_links_for_file(vault.index(), &source_path, &rows).await {
             tracing::warn!(path = %source_path, error = %e, "links resolve/write failed");
         }
@@ -398,6 +369,24 @@ pub async fn scan<S: ScanSink>(
         file_count: files_processed,
         vanished,
     })
+}
+
+fn read_and_hash(
+    registry: &FileTypeRegistry,
+    abs_path: &Path,
+    is_markdown: bool,
+) -> Result<(String, Option<String>), FileTypeError> {
+    if is_markdown {
+        let bytes = std::fs::read(abs_path)?;
+        let hash = sha256_bytes_hex(&bytes);
+        let source = String::from_utf8(bytes)
+            .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned());
+        return Ok((hash, Some(source)));
+    }
+    let handler = registry
+        .handler_for(abs_path)
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "no file-type handler"))?;
+    Ok((handler.content_hash(abs_path)?, None))
 }
 
 fn mtime_secs(meta: &std::fs::Metadata) -> i64 {
@@ -427,7 +416,6 @@ pub fn inode_of(_meta: &std::fs::Metadata) -> Option<i64> {
 mod tests {
     use super::*;
     use libsql::Value;
-    use sha2::{Digest, Sha256};
     use std::fs;
     use std::time::Duration;
     use tempfile::tempdir;
@@ -447,16 +435,6 @@ mod tests {
         }
         let vault = Vault::open(dir.path()).await.expect("open");
         (dir, vault)
-    }
-
-    fn sha256_hex(bytes: &[u8]) -> String {
-        let digest = Sha256::digest(bytes);
-        let mut s = String::with_capacity(digest.len() * 2);
-        for b in digest.iter() {
-            use std::fmt::Write as _;
-            let _ = write!(s, "{b:02x}");
-        }
-        s
     }
 
     async fn scalar_i64(vault: &Vault, sql: &str) -> i64 {
@@ -548,7 +526,7 @@ mod tests {
         for i in 0..10 {
             let p = dir.path().join(format!("note-{i:03}.md"));
             let bytes = fs::read(&p).unwrap();
-            before.push((format!("note-{i:03}.md"), sha256_hex(&bytes)));
+            before.push((format!("note-{i:03}.md"), sha256_bytes_hex(&bytes)));
         }
 
         let (tx, _rx) = mpsc::channel::<ScanProgress>(64);
@@ -570,7 +548,11 @@ mod tests {
 
         for (rel, expected_hash) in before {
             let bytes = fs::read(dir.path().join(&rel)).unwrap();
-            assert_eq!(sha256_hex(&bytes), expected_hash, "{rel} byte-changed");
+            assert_eq!(
+                sha256_bytes_hex(&bytes),
+                expected_hash,
+                "{rel} byte-changed"
+            );
 
             let conn = vault.index().connection();
             let mut rows = conn
@@ -1006,6 +988,60 @@ mod tests {
         assert!(to_c.target_path.is_none());
     }
 
+    #[tokio::test]
+    async fn rescan_clears_links_and_block_refs_of_a_file_that_dropped_them_all() {
+        use cubical_index::{broken_block_refs, links_from};
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("a.md"), "see [[b]] and [[b#^gone]]\n").unwrap();
+        fs::write(dir.path().join("b.md"), "body\n").unwrap();
+        let vault = Vault::open(dir.path()).await.expect("open");
+
+        let (tx, _rx) = mpsc::channel::<ScanProgress>(64);
+        scan(vault.clone(), CancellationToken::new(), tx, NoScanSink)
+            .await
+            .expect("scan1");
+        assert_eq!(links_from(vault.index(), "a.md").await.unwrap().len(), 2);
+        assert_eq!(broken_block_refs(vault.index()).await.unwrap().len(), 1);
+
+        fs::write(dir.path().join("a.md"), "no links any more\n").unwrap();
+        let (tx2, _rx2) = mpsc::channel::<ScanProgress>(64);
+        scan(vault.clone(), CancellationToken::new(), tx2, NoScanSink)
+            .await
+            .expect("scan2");
+
+        assert!(
+            links_from(vault.index(), "a.md").await.unwrap().is_empty(),
+            "links removed while the app was closed must not survive a rescan",
+        );
+        assert!(broken_block_refs(vault.index()).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn scan_hashes_the_same_bytes_it_indexes() {
+        let (dir, vault) = fixture_vault(0, &[("note.md", b"caf\xc3\xa9 #tag\n")]).await;
+        let (tx, _rx) = mpsc::channel::<ScanProgress>(64);
+        scan(vault.clone(), CancellationToken::new(), tx, NoScanSink)
+            .await
+            .expect("scan");
+
+        let conn = vault.index().connection();
+        let mut rows = conn
+            .query("SELECT content_hash FROM files WHERE path = 'note.md'", ())
+            .await
+            .unwrap();
+        let stored: String = rows.next().await.unwrap().unwrap().get(0).unwrap();
+        let on_disk = fs::read(dir.path().join("note.md")).unwrap();
+        assert_eq!(stored, sha256_bytes_hex(&on_disk));
+        assert_eq!(
+            scalar_i64(
+                &vault,
+                "SELECT COUNT(*) FROM tags WHERE file_path = 'note.md'"
+            )
+            .await,
+            1
+        );
+    }
+
     #[derive(Default)]
     struct Recorded {
         markdown: Vec<(String, bool)>,
@@ -1130,7 +1166,7 @@ mod tests {
         .await;
 
         assert!(
-            extractions.is_empty(),
+            extractions.is_none(),
             "a failed parse yields no link extractions",
         );
         assert_eq!(

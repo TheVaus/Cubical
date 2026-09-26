@@ -11,10 +11,7 @@ pub async fn refresh_frontmatter(
 ) -> Result<u32, libsql::Error> {
     match parse_off_executor(source).await {
         Some(doc) => refresh_frontmatter_with_doc(vault, rel_path_str, &doc).await,
-        None => {
-            delete_rows(vault, rel_path_str).await?;
-            Ok(0)
-        }
+        None => Ok(0),
     }
 }
 
@@ -28,8 +25,8 @@ pub async fn refresh_frontmatter_with_doc(
         return Ok(0);
     };
 
-    let conn = vault.index().connection();
     delete_rows(vault, rel_path_str).await?;
+    let conn = vault.index().connection();
 
     if parsed.entries.is_empty() {
         return Ok(0);
