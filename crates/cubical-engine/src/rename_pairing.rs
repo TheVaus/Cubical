@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -496,30 +496,90 @@ pub(crate) async fn pair_vanished_after_scan(
         return Vec::new();
     }
 
-    let by_inode = index_by(&appeared, |row| row.inode.map(|i| i.to_string()));
-    let by_hash = index_by(&appeared, |row| {
-        (!row.content_hash.is_empty()).then(|| row.content_hash.clone())
-    });
+    let new_by_inode = index_by(appeared.iter().map(|row| (row.inode, row.path.as_str())));
+    let new_by_hash = index_by(
+        appeared
+            .iter()
+            .map(|row| (non_empty(&row.content_hash), row.path.as_str())),
+    );
+    let gone_by_inode = index_by(vanished.iter().map(|gone| (gone.inode, gone.path.as_str())));
+    let gone_by_hash = index_by(
+        vanished
+            .iter()
+            .map(|gone| (non_empty(&gone.content_hash), gone.path.as_str())),
+    );
 
-    let mut pairs = Vec::new();
+    let mut by_inode: BTreeMap<&str, &str> = BTreeMap::new();
+    let mut by_hash: Vec<(&str, &str, &str)> = Vec::new();
     for gone in vanished {
-        let by_inode_key = gone.inode.map(|i| i.to_string());
-        let to = by_inode_key
-            .and_then(|k| unique(&by_inode, &k))
-            .or_else(|| {
-                (!gone.content_hash.is_empty())
-                    .then(|| unique(&by_hash, &gone.content_hash))
-                    .flatten()
-            });
-        let Some(to) = to else {
-            continue;
-        };
-        if to == gone.path || exists_on_disk(vault, &gone.path, &to) {
+        let inode_match = gone.inode.and_then(|inode| {
+            unique(&gone_by_inode, &inode)?;
+            unique(&new_by_inode, &inode)
+        });
+        if let Some(to) = inode_match {
+            by_inode.insert(to, gone.path.as_str());
             continue;
         }
-        pairs.push((gone.path.clone(), to));
+        let Some(hash) = non_empty(&gone.content_hash) else {
+            continue;
+        };
+        if unique(&gone_by_hash, &hash).is_none() {
+            continue;
+        }
+        if let Some(to) = unique(&new_by_hash, &hash) {
+            by_hash.push((gone.path.as_str(), to, hash));
+        }
+    }
+
+    let survivors = if by_hash.is_empty() {
+        BTreeSet::new()
+    } else {
+        surviving_hashes(vault, scan_started_secs).await
+    };
+    let hash_pairs = by_hash
+        .into_iter()
+        .filter(|(_, to, hash)| !by_inode.contains_key(to) && !survivors.contains(*hash));
+
+    let mut pairs = Vec::new();
+    for (from, to) in by_inode
+        .iter()
+        .map(|(to, from)| (*from, *to))
+        .chain(hash_pairs.map(|(from, to, _)| (from, to)))
+    {
+        if to == from || exists_on_disk(vault, from, to) {
+            continue;
+        }
+        pairs.push((from.to_string(), to.to_string()));
     }
     pairs
+}
+
+fn non_empty(hash: &str) -> Option<&str> {
+    (!hash.is_empty()).then_some(hash)
+}
+
+async fn surviving_hashes(vault: &Vault, scan_started_secs: i64) -> BTreeSet<String> {
+    let conn = vault.index().connection();
+    let mut rows = match conn
+        .query(
+            "SELECT DISTINCT content_hash FROM files WHERE created_at < ?1 AND content_hash <> ''",
+            params![scan_started_secs],
+        )
+        .await
+    {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::warn!(error = %e, "rename pairing: could not read surviving file hashes");
+            return BTreeSet::new();
+        }
+    };
+    let mut out = BTreeSet::new();
+    while let Ok(Some(row)) = rows.next().await {
+        if let Ok(hash) = row.get::<String>(0) {
+            out.insert(hash);
+        }
+    }
+    out
 }
 
 struct AppearedFile {
@@ -557,27 +617,29 @@ async fn appeared_since(vault: &Vault, scan_started_secs: i64) -> Vec<AppearedFi
     out
 }
 
-fn index_by(
-    rows: &[AppearedFile],
-    key: impl Fn(&AppearedFile) -> Option<String>,
-) -> BTreeMap<String, Vec<String>> {
-    let mut out: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for row in rows {
-        if let Some(k) = key(row) {
-            out.entry(k).or_default().push(row.path.clone());
+fn index_by<'a, K: Ord>(
+    rows: impl Iterator<Item = (Option<K>, &'a str)>,
+) -> BTreeMap<K, Vec<&'a str>> {
+    let mut out: BTreeMap<K, Vec<&'a str>> = BTreeMap::new();
+    for (key, path) in rows {
+        if let Some(key) = key {
+            out.entry(key).or_default().push(path);
         }
     }
     out
 }
 
-fn unique(index: &BTreeMap<String, Vec<String>>, key: &str) -> Option<String> {
-    match index.get(key) {
-        Some(paths) if paths.len() == 1 => Some(paths[0].clone()),
+fn unique<'a, K: Ord + std::fmt::Debug>(
+    index: &BTreeMap<K, Vec<&'a str>>,
+    key: &K,
+) -> Option<&'a str> {
+    match index.get(key).map(Vec::as_slice) {
+        Some([path]) => Some(path),
         Some(paths) => {
             tracing::debug!(
-                key = %key,
+                key = ?key,
                 candidates = paths.len(),
-                "rename pairing: several new files share this identity; not adopting",
+                "rename pairing: several files share this identity; not adopting",
             );
             None
         }
@@ -663,6 +725,64 @@ mod scan_pairing_tests {
             pair_vanished_after_scan(&vault, &[gone], 100).await,
             vec![("Gone.md".to_string(), "Right.md".to_string())],
             "the hash is ambiguous but the inode is not",
+        );
+    }
+
+    fn gone(path: &str, inode: Option<i64>, hash: &str) -> VanishedFile {
+        VanishedFile {
+            path: path.into(),
+            inode,
+            content_hash: hash.into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_hash_shared_by_two_vanished_files_pairs_neither() {
+        let (_d, vault) = vault_with_rows(&[("New.md", None, "shared", 100)]).await;
+        let vanished = [gone("A.md", None, "shared"), gone("B.md", None, "shared")];
+        assert!(
+            pair_vanished_after_scan(&vault, &vanished, 100)
+                .await
+                .is_empty(),
+            "either vanished file could be the one that moved",
+        );
+    }
+
+    #[tokio::test]
+    async fn a_hash_shared_with_a_surviving_file_is_not_paired() {
+        let (_d, vault) = vault_with_rows(&[
+            ("Kept.md", None, "shared", 10),
+            ("New.md", None, "shared", 100),
+        ])
+        .await;
+        assert!(
+            pair_vanished_after_scan(&vault, &[gone("Gone.md", None, "shared")], 100)
+                .await
+                .is_empty(),
+            "New.md may be a copy of Kept.md rather than Gone.md moved",
+        );
+    }
+
+    #[tokio::test]
+    async fn an_inode_claim_beats_a_hash_claim_on_the_same_destination() {
+        let (_d, vault) = vault_with_rows(&[("New.md", Some(7), "h", 100)]).await;
+        let vanished = [
+            gone("Moved.md", Some(7), "other"),
+            gone("Deleted.md", Some(9), "h"),
+        ];
+        assert_eq!(
+            pair_vanished_after_scan(&vault, &vanished, 100).await,
+            vec![("Moved.md".to_string(), "New.md".to_string())],
+            "one destination can only be the rename of one vanished file",
+        );
+    }
+
+    #[tokio::test]
+    async fn a_unique_hash_pairs_a_cross_volume_move() {
+        let (_d, vault) = vault_with_rows(&[("New.md", Some(3), "h", 100)]).await;
+        assert_eq!(
+            pair_vanished_after_scan(&vault, &[gone("Gone.md", Some(9), "h")], 100).await,
+            vec![("Gone.md".to_string(), "New.md".to_string())],
         );
     }
 }
