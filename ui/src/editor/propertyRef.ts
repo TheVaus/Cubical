@@ -52,7 +52,6 @@ function frontmatterEntries(docText: string): Map<string, unknown> {
   return new Map(fm?.entries ?? []);
 }
 
-
 class PropertyRefWidget extends WidgetType {
   constructor(private readonly render: PropertyRefRenderState) {
     super();
