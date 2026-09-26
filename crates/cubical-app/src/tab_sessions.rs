@@ -30,12 +30,12 @@ pub fn load(store: &Path, vault_path: &str) -> TabSession {
     read_all(store).remove(vault_path).unwrap_or_default()
 }
 
-pub fn save(store: &Path, vault_path: &str, session: &TabSession) {
+pub fn save(store: &Path, vault_path: &str, session: TabSession) {
     let mut all = read_all(store);
     if session.tabs.is_empty() {
         all.remove(vault_path);
     } else {
-        all.insert(vault_path.to_string(), session.clone());
+        all.insert(vault_path.to_string(), session);
     }
     crate::app_store::write_json(store, &all);
 }
@@ -74,7 +74,7 @@ mod tests {
             tabs: vec![file_tab("a.md"), file_tab("b.md")],
             active_id: Some("file:b.md".into()),
         };
-        save(&store, "/vaults/a", &session);
+        save(&store, "/vaults/a", session.clone());
         assert_eq!(load(&store, "/vaults/a"), session);
     }
 
@@ -90,8 +90,8 @@ mod tests {
             tabs: vec![file_tab("b.md")],
             active_id: Some("file:b.md".into()),
         };
-        save(&store, "/vaults/a", &a);
-        save(&store, "/vaults/b", &b);
+        save(&store, "/vaults/a", a.clone());
+        save(&store, "/vaults/b", b.clone());
         assert_eq!(load(&store, "/vaults/a"), a);
         assert_eq!(load(&store, "/vaults/b"), b);
     }
@@ -103,12 +103,12 @@ mod tests {
         save(
             &store,
             "/vaults/a",
-            &TabSession {
+            TabSession {
                 tabs: vec![file_tab("a.md")],
                 active_id: Some("file:a.md".into()),
             },
         );
-        save(&store, "/vaults/a", &TabSession::default());
+        save(&store, "/vaults/a", TabSession::default());
         assert_eq!(load(&store, "/vaults/a"), TabSession::default());
     }
 
