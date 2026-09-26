@@ -99,40 +99,33 @@ fn is_image_target(target: &str) -> bool {
     IMAGE_EXTS.iter().any(|ext| lower.ends_with(ext))
 }
 
-fn strip_block_id_markers(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
+fn push_without_block_ids(out: &mut String, text: &str) {
     let mut prev_was_boundary = true;
-    let mut chars = text.chars().peekable();
-    while let Some(c) = chars.next() {
+    let mut chars = text.char_indices().peekable();
+    while let Some((start, c)) = chars.next() {
         if c == '^' && prev_was_boundary {
-            let mut body = String::new();
-            while let Some(&p) = chars.peek() {
+            let mut end = start + 1;
+            while let Some(&(i, p)) = chars.peek() {
                 if p.is_alphanumeric() || p == '_' || p == '-' {
-                    body.push(p);
+                    end = i + p.len_utf8();
                     chars.next();
                 } else {
                     break;
                 }
             }
-            let next_is_boundary = chars.peek().map(|c| c.is_whitespace()).unwrap_or(true);
-            if !body.is_empty() && next_is_boundary {
+            let next_is_boundary = chars.peek().is_none_or(|(_, c)| c.is_whitespace());
+            if end > start + 1 && next_is_boundary {
                 out.push(' ');
                 prev_was_boundary = true;
-                continue;
+            } else {
+                out.push_str(&text[start..end]);
+                prev_was_boundary = false;
             }
-            out.push('^');
-            out.push_str(&body);
-            prev_was_boundary = body
-                .chars()
-                .last()
-                .map(|c| c.is_whitespace())
-                .unwrap_or(false);
             continue;
         }
         prev_was_boundary = c.is_whitespace();
         out.push(c);
     }
-    out
 }
 
 impl Walker {
@@ -185,7 +178,7 @@ impl Walker {
     fn walk_inline(&mut self, inline: &Inline) {
         match inline {
             Inline::Text { value } => {
-                self.body.push_str(&strip_block_id_markers(value));
+                push_without_block_ids(&mut self.body, value);
                 self.body.push(' ');
             }
             Inline::Emph { children } | Inline::Strong { children } => {
@@ -233,7 +226,7 @@ impl Walker {
     fn collect_inline_text(inlines: &[Inline], out: &mut String) {
         for inline in inlines {
             match inline {
-                Inline::Text { value } => out.push_str(&strip_block_id_markers(value)),
+                Inline::Text { value } => push_without_block_ids(out, value),
                 Inline::Emph { children }
                 | Inline::Strong { children }
                 | Inline::Link { children, .. } => {
@@ -268,12 +261,17 @@ impl Walker {
     }
 
     fn finish_body(&mut self) -> String {
-        std::mem::take(&mut self.body).trim_end().to_string()
+        trimmed_end(std::mem::take(&mut self.body))
     }
 
     fn finish_code(&mut self) -> String {
-        std::mem::take(&mut self.code).trim_end().to_string()
+        trimmed_end(std::mem::take(&mut self.code))
     }
+}
+
+fn trimmed_end(mut s: String) -> String {
+    s.truncate(s.trim_end().len());
+    s
 }
 
 #[cfg(test)]
@@ -296,6 +294,13 @@ mod tests {
                 "projection diverged for {src:?}"
             );
         }
+    }
+
+    #[test]
+    fn block_id_stripping_keeps_non_markers_verbatim() {
+        let mut out = String::new();
+        push_without_block_ids(&mut out, "a ^id b^c ^ x ^é-1 ^q! end ^tail");
+        assert_eq!(out, "a   b^c ^ x   ^q! end  ");
     }
 
     #[test]
