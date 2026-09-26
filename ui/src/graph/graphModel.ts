@@ -83,11 +83,13 @@ export const DEFAULT_FILTER: GraphViewFilter = {
   scope: "",
 };
 
-export function nodeMatches(node: GraphNode, filter: GraphViewFilter): boolean {
-  if (filter.kinds[node.kind] === false) return false;
-  const scope = filter.scope.trim().toLowerCase();
-  if (scope === "") return true;
-  return node.key.toLowerCase().includes(scope);
+function nodeMatches(
+  node: GraphNode,
+  kinds: GraphViewFilter["kinds"],
+  scope: string,
+): boolean {
+  if (kinds[node.kind] === false) return false;
+  return scope === "" || node.key.toLowerCase().includes(scope);
 }
 
 export function visibleNodes(
@@ -96,12 +98,13 @@ export function visibleNodes(
 ): Uint8Array {
   if (snapshot === null) return new Uint8Array(0);
   const count = snapshot.nodes.length;
+  const scope = filter.scope.trim().toLowerCase();
   const mask = new Uint8Array(count);
   for (let i = 0; i < count; i++) {
-    mask[i] = nodeMatches(snapshot.nodes[i]!, filter) ? 1 : 0;
+    mask[i] = nodeMatches(snapshot.nodes[i]!, filter.kinds, scope) ? 1 : 0;
   }
 
-  if (filter.scope.trim() === "") return mask;
+  if (scope === "") return mask;
 
   const attached = new Uint8Array(count);
   for (const e of snapshot.edges) {

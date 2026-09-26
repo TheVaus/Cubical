@@ -45,6 +45,7 @@ export function createGraphRenderLoop(deps: RenderLoopDeps): RenderLoop {
   let camera: Camera = { x: 0, y: 0, zoom: 1 };
   let fitted = false;
   let lastPositions: Float32Array | null = null;
+  let lastSnapshot: GraphSnapshot | null = null;
   let lastTheme = "";
   let viewport: Viewport = { width: 1, height: 1 };
   let adjacency: Adjacency = buildAdjacency(0, []);
@@ -160,8 +161,11 @@ export function createGraphRenderLoop(deps: RenderLoopDeps): RenderLoop {
       lastPositions = positions;
       lastTheme = theme;
       if (structureChanged) {
-        adjacency = buildAdjacency(snapshot.nodes.length, snapshot.edges);
-        degree = degrees(snapshot.nodes.length, snapshot.edges);
+        if (snapshot !== lastSnapshot) {
+          lastSnapshot = snapshot;
+          adjacency = buildAdjacency(snapshot.nodes.length, snapshot.edges);
+          degree = degrees(snapshot.nodes.length, snapshot.edges);
+        }
         grid = buildPickGrid(
           positions,
           radiiFor(
