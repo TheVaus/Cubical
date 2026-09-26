@@ -45,6 +45,7 @@ const UnlinkedMentions: Component<UnlinkedMentionsProps> = (props) => {
     void props.refreshSignal;
 
     if (!vid || !p) {
+      token++;
       setState(reduceMentionsState(untrack(state), { type: "file:cleared" }));
       return;
     }
@@ -75,6 +76,7 @@ const UnlinkedMentions: Component<UnlinkedMentionsProps> = (props) => {
     const openPath = props.path;
     if (!vid || !openPath) return;
     const k = mentionKey(m);
+    const my = token;
     setLinkError(null);
     setPending(k);
     try {
@@ -86,12 +88,13 @@ const UnlinkedMentions: Component<UnlinkedMentionsProps> = (props) => {
         target_title: noteTitle(openPath),
         needle: m.needle,
       });
+      if (my !== token) return;
       setState(
         reduceMentionsState(untrack(state), { type: "mention:linked", mention: m }),
       );
     } catch (e) {
-      const message = errorMessage(e);
-      setLinkError({ key: k, message });
+      if (my !== token) return;
+      setLinkError({ key: k, message: errorMessage(e) });
     } finally {
       setPending(null);
     }
@@ -158,113 +161,109 @@ const UnlinkedMentions: Component<UnlinkedMentionsProps> = (props) => {
           </p>
         </Show>
         <Show when={error()}>
-          {(s) => {
-            return (
-              <p
-                role="alert"
-                style={{
-                  margin: 0,
-                  color: "var(--c-error)",
-                  "font-size": "var(--text-xs)",
-                }}
-              >
-                {s().message}
-              </p>
-            );
-          }}
+          {(s) => (
+            <p
+              role="alert"
+              style={{
+                margin: 0,
+                color: "var(--c-error)",
+                "font-size": "var(--text-xs)",
+              }}
+            >
+              {s().message}
+            </p>
+          )}
         </Show>
         <Show when={loaded()}>
-          {(s) => {
-            return (
-              <ul
-                role="list"
-                style={{
-                  margin: 0,
-                  padding: 0,
-                  "list-style": "none",
-                  display: "flex",
-                  "flex-direction": "column",
-                  gap: "var(--space-2)",
-                }}
-              >
-                <For each={s().mentions}>
-                  {(m) => {
-                    const k = mentionKey(m);
-                    const isPending = () => pending() === k;
-                    return (
-                      <li
-                        role="listitem"
-                        data-key={k}
+          {(s) => (
+            <ul
+              role="list"
+              style={{
+                margin: 0,
+                padding: 0,
+                "list-style": "none",
+                display: "flex",
+                "flex-direction": "column",
+                gap: "var(--space-2)",
+              }}
+            >
+              <For each={s().mentions}>
+                {(m) => {
+                  const k = mentionKey(m);
+                  const isPending = () => pending() === k;
+                  return (
+                    <li
+                      role="listitem"
+                      data-key={k}
+                      style={{
+                        display: "flex",
+                        "flex-direction": "column",
+                        gap: "var(--space-1)",
+                        padding: "var(--space-2) var(--space-3)",
+                        border: "1px solid var(--c-border-subtle)",
+                        "border-radius": "var(--radius-sm, var(--radius-md))",
+                        background: "var(--c-bg-secondary)",
+                      }}
+                    >
+                      <span
+                        onClick={() => props.onRowClick(m.source_path)}
+                        title={m.source_path}
                         style={{
-                          display: "flex",
-                          "flex-direction": "column",
-                          gap: "var(--space-1)",
-                          padding: "var(--space-2) var(--space-3)",
-                          border: "1px solid var(--c-border-subtle)",
-                          "border-radius": "var(--radius-sm, var(--radius-md))",
-                          background: "var(--c-bg-secondary)",
+                          "font-size": "var(--text-sm)",
+                          "font-family": "var(--font-body)",
+                          color: "var(--c-fg-primary)",
+                          cursor: "pointer",
+                          overflow: "hidden",
+                          "text-overflow": "ellipsis",
+                          "white-space": "nowrap",
                         }}
                       >
+                        {noteTitle(m.source_path)}
+                      </span>
+                      <span
+                        style={{
+                          "font-size": "var(--text-xs)",
+                          "font-family": "var(--font-mono)",
+                          color: "var(--c-fg-secondary)",
+                          "line-height": "var(--leading-base)",
+                        }}
+                      >
+                        {m.context || "—"}
+                      </span>
+                      <Show when={linkError()?.key === k}>
                         <span
-                          onClick={() => props.onRowClick(m.source_path)}
-                          title={m.source_path}
+                          role="alert"
                           style={{
-                            "font-size": "var(--text-sm)",
-                            "font-family": "var(--font-body)",
-                            color: "var(--c-fg-primary)",
-                            cursor: "pointer",
-                            overflow: "hidden",
-                            "text-overflow": "ellipsis",
-                            "white-space": "nowrap",
-                          }}
-                        >
-                          {noteTitle(m.source_path)}
-                        </span>
-                        <span
-                          style={{
+                            margin: 0,
+                            color: "var(--c-error)",
                             "font-size": "var(--text-xs)",
-                            "font-family": "var(--font-mono)",
-                            color: "var(--c-fg-secondary)",
-                            "line-height": "var(--leading-base)",
                           }}
                         >
-                          {m.context || "—"}
+                          {linkError()!.message}
                         </span>
-                        <Show when={linkError()?.key === k}>
-                          <span
-                            role="alert"
-                            style={{
-                              margin: 0,
-                              color: "var(--c-error)",
-                              "font-size": "var(--text-xs)",
-                            }}
-                          >
-                            {linkError()!.message}
-                          </span>
-                        </Show>
-                        <div
-                          style={{ display: "flex", "justify-content": "flex-end" }}
+                      </Show>
+                      <div
+                        style={{ display: "flex", "justify-content": "flex-end" }}
+                      >
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          disabled={isPending()}
+                          ariaLabel={`Link this mention to ${
+                            noteTitle(props.path ?? "") ||
+                            "the open note"
+                          }`}
+                          onClick={() => void handleLink(m)}
                         >
-                          <Button
-                            variant="primary"
-                            size="sm"
-                            disabled={isPending()}
-                            ariaLabel={`Link this mention to ${
-                              noteTitle(props.path ?? "") ||
-                              "the open note"
-                            }`}
-                            onClick={() => void handleLink(m)}
-                          >
-                            {isPending() ? "Linking…" : "Link it"}
-                          </Button>
-                        </div>
-                      </li>
-                    );
-                  }}
-                </For>
-              </ul>
-            );
-          }}
+                          {isPending() ? "Linking…" : "Link it"}
+                        </Button>
+                      </div>
+                    </li>
+                  );
+                }}
+              </For>
+            </ul>
+          )}
         </Show>
       </Show>
     </section>

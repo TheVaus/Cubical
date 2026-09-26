@@ -38,6 +38,7 @@ const Backlinks: Component<BacklinksProps> = (props) => {
     void props.refreshSignal;
 
     if (!vid || !p) {
+      token++;
       setState(reduceBacklinksState(untrack(state), { type: "file:cleared" }));
       return;
     }
