@@ -93,7 +93,9 @@ flight.** `reset` bumps a generation counter that `performWrite`, `takeDisk`,
 `refreshFromDisk` and the silent external-change reload capture before
 awaiting, so a response arriving after a vault or file switch cannot repopulate
 `seenHash`, `lastWrittenHash` or `dirty` from the outgoing document, nor pour
-its text into the incoming one's editor.
+its text into the incoming one's editor. A reload also re-checks `dirty` once
+its read lands: the user can type while it is in flight, and the silent reload
+then raises the conflict banner rather than overwrite what they typed.
 
 **Seed both hashes when the caller already knows the on-disk hash** (e.g. a
 file it just created). Otherwise the watcher's created-echo arrives as an
@@ -105,11 +107,11 @@ from the watcher's disk-move echo. So the rename handlers proactively run the
 same invalidation a file change would, or open views keep resolving stale
 wiki-link targets and showing the old name.
 
-**Skip resolver invalidation on the open file's own autosave echo.** An own
-write cannot have changed another file, so cached embed and wiki-link
-resolutions stay valid; invalidating anyway only thrashes embed-card height and
-jumps the viewport. Other-file changes and genuine external edits still
-invalidate.
+**Every file change marks the resolvers stale, own writes included.** Their
+caches are per vault, so an own write can change what another note's
+`[[note.prop]]` resolves to. `markStale` keeps the cached value rendering and
+refetches in the background, so an autosave does not flash every widget through
+its loading state.
 
 ## Tabs
 
