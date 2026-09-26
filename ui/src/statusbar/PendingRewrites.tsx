@@ -1,4 +1,6 @@
 import {
+  createEffect,
+  createMemo,
   createSignal,
   For,
   Show,
@@ -65,19 +67,13 @@ const PendingRewrites: Component<PendingRewritesProps> = (props) => {
       })
       .catch((e: unknown) => {
         if (my !== token) return;
-        const message = errorMessage(e);
         setState(
           reducePendingRewritesPopover(untrack(state), {
             type: "fetch:error",
-            message,
+            message: errorMessage(e),
           }),
         );
       });
-  };
-
-  const open = () => {
-    if (!props.vaultId) return;
-    refetch();
   };
 
   const close = () => {
@@ -85,16 +81,25 @@ const PendingRewrites: Component<PendingRewritesProps> = (props) => {
     setState(reducePendingRewritesPopover(untrack(state), { type: "close" }));
   };
 
+  const isOpen = () => untrack(state).kind !== "closed";
+
+  const pending = createMemo(() =>
+    props.vaultId === null ? null : formatPendingRewrites(props.count),
+  );
+
+  createEffect(() => {
+    if (pending() === null && isOpen()) close();
+  });
+
   const handleFlushAll = async () => {
     const vid = props.vaultId;
     if (!vid) return;
     setFlushing(true);
     try {
       await flushPendingRewrites({ vault_id: vid });
-      refetch();
+      if (isOpen()) refetch();
     } catch (e) {
-      const message = errorMessage(e);
-      props.onError(message);
+      props.onError(errorMessage(e));
     } finally {
       setFlushing(false);
     }
@@ -106,17 +111,16 @@ const PendingRewrites: Component<PendingRewritesProps> = (props) => {
     setPendingUndoId(rename_op_id);
     try {
       await undoRename({ vault_id: vid, rename_op_id });
-      refetch();
+      if (isOpen()) refetch();
     } catch (e) {
-      const message = errorMessage(e);
-      props.onError(message);
+      props.onError(errorMessage(e));
     } finally {
       setPendingUndoId(null);
     }
   };
 
   return (
-    <Show when={props.vaultId !== null && formatPendingRewrites(props.count)}>
+    <Show when={pending()}>
       {(display) => (
         <span style={{ position: "relative" }}>
           <span style={{ color: "var(--c-accent)" }}>
@@ -125,7 +129,7 @@ const PendingRewrites: Component<PendingRewritesProps> = (props) => {
               size="sm"
               ariaLabel={`${display().label} — open details`}
               ariaExpanded={state().kind !== "closed"}
-              onClick={() => (state().kind === "closed" ? open() : close())}
+              onClick={() => (state().kind === "closed" ? refetch() : close())}
             >
               {display().label}
             </Button>
@@ -158,185 +162,181 @@ const PendingRewrites: Component<PendingRewritesProps> = (props) => {
                 </p>
               </Show>
               <Show when={error()}>
-                {(s) => {
-                  return (
-                    <p
-                      role="alert"
-                      style={{
-                        margin: 0,
-                        color: "var(--c-error)",
-                        "font-size": "var(--text-xs)",
-                      }}
-                    >
-                      {s().message}
-                    </p>
-                  );
-                }}
+                {(s) => (
+                  <p
+                    role="alert"
+                    style={{
+                      margin: 0,
+                      color: "var(--c-error)",
+                      "font-size": "var(--text-xs)",
+                    }}
+                  >
+                    {s().message}
+                  </p>
+                )}
               </Show>
               <Show when={loaded()}>
-                {(s) => {
-                  return (
-                    <>
-                      <section
-                        aria-label="Per-target breakdown"
-                        style={{
-                          display: "flex",
-                          "flex-direction": "column",
-                          gap: "var(--space-1)",
-                        }}
-                      >
-                        <Show
-                          when={s().breakdown.length > 0}
-                          fallback={
-                            <p
-                              style={{
-                                margin: 0,
-                                color: "var(--c-fg-muted)",
-                                "font-size": "var(--text-xs)",
-                              }}
-                            >
-                              No pending changes.
-                            </p>
-                          }
-                        >
-                          <ul
-                            role="list"
+                {(s) => (
+                  <>
+                    <section
+                      aria-label="Per-target breakdown"
+                      style={{
+                        display: "flex",
+                        "flex-direction": "column",
+                        gap: "var(--space-1)",
+                      }}
+                    >
+                      <Show
+                        when={s().breakdown.length > 0}
+                        fallback={
+                          <p
                             style={{
                               margin: 0,
-                              padding: 0,
-                              "list-style": "none",
-                              display: "flex",
-                              "flex-direction": "column",
-                              gap: "var(--space-1)",
+                              color: "var(--c-fg-muted)",
+                              "font-size": "var(--text-xs)",
                             }}
                           >
-                            <For each={s().breakdown}>
-                              {(b) => (
+                            No pending changes.
+                          </p>
+                        }
+                      >
+                        <ul
+                          role="list"
+                          style={{
+                            margin: 0,
+                            padding: 0,
+                            "list-style": "none",
+                            display: "flex",
+                            "flex-direction": "column",
+                            gap: "var(--space-1)",
+                          }}
+                        >
+                          <For each={s().breakdown}>
+                            {(b) => (
+                              <li
+                                data-key={breakdownKey(b)}
+                                style={{
+                                  display: "flex",
+                                  "justify-content": "space-between",
+                                  gap: "var(--space-3)",
+                                  "font-size": "var(--text-xs)",
+                                  "font-family": "var(--font-mono)",
+                                  color: "var(--c-fg-secondary)",
+                                }}
+                              >
+                                <span
+                                  title={b.target_file}
+                                  style={{
+                                    overflow: "hidden",
+                                    "text-overflow": "ellipsis",
+                                    "white-space": "nowrap",
+                                  }}
+                                >
+                                  {b.target_file}
+                                </span>
+                                <span style={{ "flex-shrink": 0 }}>
+                                  {b.count}
+                                </span>
+                              </li>
+                            )}
+                          </For>
+                        </ul>
+                      </Show>
+                    </section>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      fullWidth
+                      onClick={() => void handleFlushAll()}
+                      disabled={flushing() || s().breakdown.length === 0}
+                    >
+                      {flushing() ? "Saving…" : "Save all pending changes"}
+                    </Button>
+                    <section
+                      aria-label="Recent renames"
+                      style={{
+                        display: "flex",
+                        "flex-direction": "column",
+                        gap: "var(--space-1)",
+                      }}
+                    >
+                      <header
+                        style={{
+                          color: "var(--c-fg-secondary)",
+                          "font-size": "var(--text-xs)",
+                          "text-transform": "uppercase",
+                          "letter-spacing": "0.05em",
+                        }}
+                      >
+                        Recent renames
+                      </header>
+                      <Show
+                        when={s().ops.length > 0}
+                        fallback={
+                          <p
+                            style={{
+                              margin: 0,
+                              color: "var(--c-fg-muted)",
+                              "font-size": "var(--text-xs)",
+                            }}
+                          >
+                            No recent renames.
+                          </p>
+                        }
+                      >
+                        <ul
+                          role="list"
+                          style={{
+                            margin: 0,
+                            padding: 0,
+                            "list-style": "none",
+                            display: "flex",
+                            "flex-direction": "column",
+                            gap: "var(--space-1)",
+                          }}
+                        >
+                          <For each={s().ops}>
+                            {(op) => {
+                              const isPending = () =>
+                                pendingUndoId() === op.rename_op_id;
+                              return (
                                 <li
-                                  data-key={breakdownKey(b)}
+                                  data-key={renameOpKey(op)}
                                   style={{
                                     display: "flex",
                                     "justify-content": "space-between",
+                                    "align-items": "center",
                                     gap: "var(--space-3)",
                                     "font-size": "var(--text-xs)",
-                                    "font-family": "var(--font-mono)",
-                                    color: "var(--c-fg-secondary)",
                                   }}
                                 >
                                   <span
-                                    title={b.target_file}
                                     style={{
-                                      overflow: "hidden",
-                                      "text-overflow": "ellipsis",
-                                      "white-space": "nowrap",
+                                      "font-family": "var(--font-mono)",
+                                      color: "var(--c-fg-secondary)",
                                     }}
                                   >
-                                    {b.target_file}
+                                    #{op.rename_op_id} · {op.kind} ·{" "}
+                                    {op.row_count} row
+                                    {op.row_count === 1 ? "" : "s"}
                                   </span>
-                                  <span style={{ "flex-shrink": 0 }}>
-                                    {b.count}
-                                  </span>
+                                  <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={() => void handleUndo(op.rename_op_id)}
+                                    disabled={isPending()}
+                                  >
+                                    {isPending() ? "Undoing…" : "Undo"}
+                                  </Button>
                                 </li>
-                              )}
-                            </For>
-                          </ul>
-                        </Show>
-                      </section>
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        fullWidth
-                        onClick={() => void handleFlushAll()}
-                        disabled={flushing() || s().breakdown.length === 0}
-                      >
-                        {flushing() ? "Saving…" : "Save all pending changes"}
-                      </Button>
-                      <section
-                        aria-label="Recent renames"
-                        style={{
-                          display: "flex",
-                          "flex-direction": "column",
-                          gap: "var(--space-1)",
-                        }}
-                      >
-                        <header
-                          style={{
-                            color: "var(--c-fg-secondary)",
-                            "font-size": "var(--text-xs)",
-                            "text-transform": "uppercase",
-                            "letter-spacing": "0.05em",
-                          }}
-                        >
-                          Recent renames
-                        </header>
-                        <Show
-                          when={s().ops.length > 0}
-                          fallback={
-                            <p
-                              style={{
-                                margin: 0,
-                                color: "var(--c-fg-muted)",
-                                "font-size": "var(--text-xs)",
-                              }}
-                            >
-                              No recent renames.
-                            </p>
-                          }
-                        >
-                          <ul
-                            role="list"
-                            style={{
-                              margin: 0,
-                              padding: 0,
-                              "list-style": "none",
-                              display: "flex",
-                              "flex-direction": "column",
-                              gap: "var(--space-1)",
+                              );
                             }}
-                          >
-                            <For each={s().ops}>
-                              {(op) => {
-                                const isPending = () =>
-                                  pendingUndoId() === op.rename_op_id;
-                                return (
-                                  <li
-                                    data-key={renameOpKey(op)}
-                                    style={{
-                                      display: "flex",
-                                      "justify-content": "space-between",
-                                      "align-items": "center",
-                                      gap: "var(--space-3)",
-                                      "font-size": "var(--text-xs)",
-                                    }}
-                                  >
-                                    <span
-                                      style={{
-                                        "font-family": "var(--font-mono)",
-                                        color: "var(--c-fg-secondary)",
-                                      }}
-                                    >
-                                      #{op.rename_op_id} · {op.kind} ·{" "}
-                                      {op.row_count} row
-                                      {op.row_count === 1 ? "" : "s"}
-                                    </span>
-                                    <Button
-                                      variant="secondary"
-                                      size="sm"
-                                      onClick={() => void handleUndo(op.rename_op_id)}
-                                      disabled={isPending()}
-                                    >
-                                      {isPending() ? "Undoing…" : "Undo"}
-                                    </Button>
-                                  </li>
-                                );
-                              }}
-                            </For>
-                          </ul>
-                        </Show>
-                      </section>
-                    </>
-                  );
-                }}
+                          </For>
+                        </ul>
+                      </Show>
+                    </section>
+                  </>
+                )}
               </Show>
             </>
           </Popover>
