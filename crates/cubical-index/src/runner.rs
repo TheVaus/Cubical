@@ -57,17 +57,9 @@ async fn run_migrations(conn: &Connection, migrations: &[Migration]) -> Result<(
     }
 
     let pending: Vec<&Migration> = migrations.iter().filter(|m| m.version > current).collect();
-    if pending.is_empty() {
+    let Some(new_version) = pending.last().map(|m| m.version) else {
         return Ok(());
-    }
-
-    let mut pending = pending;
-    pending.sort_by_key(|m| m.version);
-
-    let new_version = pending
-        .last()
-        .map(|m| m.version)
-        .expect("pending is non-empty; checked above");
+    };
 
     let tx = conn.transaction().await?;
     for m in &pending {
