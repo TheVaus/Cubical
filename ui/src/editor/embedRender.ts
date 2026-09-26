@@ -1,5 +1,6 @@
 import { scanWikilinks } from "../ast/wikilink";
 import type { EmbedResolver } from "./embedResolver";
+import { wikiLinkTargetRaw, type WikiLinkToken } from "./wikilinkTarget";
 
 export const MAX_EMBED_DEPTH = 4;
 
@@ -109,10 +110,10 @@ function appendContentWithNestedEmbeds(
       continue;
     }
     if (!run.embed) {
-      host.appendChild(document.createTextNode(reconstructLiteral(run, false)));
+      host.appendChild(document.createTextNode(linkLiteral(run)));
       continue;
     }
-    const nestedTargetRaw = reconstructTargetRaw(run);
+    const nestedTargetRaw = wikiLinkTargetRaw(run);
     const sub = renderEmbedBody({
       resolver: ctx.resolver,
       targetRaw: nestedTargetRaw,
@@ -124,26 +125,9 @@ function appendContentWithNestedEmbeds(
   }
 }
 
-function reconstructTargetRaw(
-  tok: Extract<ReturnType<typeof scanWikilinks>[number], { kind: "wiki_link" }>,
-): string {
-  if (tok.anchor === null) return tok.target;
-  const prefix = tok.anchor.kind === "block" ? "#^" : "#";
-  return `${tok.target}${prefix}${tok.anchor.value}`;
-}
-
-function reconstructLiteral(
-  tok: Extract<ReturnType<typeof scanWikilinks>[number], { kind: "wiki_link" }>,
-  embed: boolean,
-): string {
-  const open = embed ? "![[" : "[[";
-  const target = tok.target;
-  const anchor =
-    tok.anchor === null
-      ? ""
-      : (tok.anchor.kind === "block" ? "#^" : "#") + tok.anchor.value;
+function linkLiteral(tok: WikiLinkToken): string {
   const display = tok.display === null ? "" : `|${tok.display}`;
-  return `${open}${target}${anchor}${display}]]`;
+  return `[[${wikiLinkTargetRaw(tok)}${display}]]`;
 }
 
 function plainEmbedLink(

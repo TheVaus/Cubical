@@ -28,11 +28,7 @@ import { syntaxTree } from "@codemirror/language";
 import { normalize } from "../ast/normalize";
 import { scanWikilinks } from "../ast/wikilink";
 import type { CanonicalDocument } from "../ast/types";
-import {
-  wikilinkResolverFacet,
-  wikilinkResolverUpdated,
-  type WikiLinkResolverFacetValue,
-} from "./decorations";
+import { wikilinkResolverFacet, wikilinkResolverUpdated } from "./decorations";
 import { tagExtension } from "./tag";
 import {
   closestTagSpan,
@@ -41,6 +37,7 @@ import {
 } from "./tagMousedown";
 import { wikilinkExtension } from "./wikilink";
 import { handleWikiLinkClick } from "./wikilinkClick";
+import { wikiLinkTargetRaw } from "./wikilinkTarget";
 import {
   findBlockDefinitionOffset,
   findHeadingOffset,
@@ -85,15 +82,23 @@ const propertyResolverCompartment = new Compartment();
 
 const keymapCompartment = new Compartment();
 
-const facetValueFor = (
-  resolver: WikiLinkResolver | null | undefined,
-): WikiLinkResolverFacetValue | null =>
-  resolver
-    ? {
-        get: (t) => resolver.get(t),
-        fetch: (t) => resolver.fetch(t),
+function nodeSpanAt(
+  state: EditorState,
+  pos: number,
+  name: string,
+): { from: number; to: number } | null {
+  let hit: { from: number; to: number } | null = null;
+  syntaxTree(state).iterate({
+    from: pos,
+    to: pos,
+    enter: (node) => {
+      if (node.name === name && node.from <= pos && pos <= node.to) {
+        hit = { from: node.from, to: node.to };
       }
-    : null;
+    },
+  });
+  return hit;
+}
 
 export interface EditorApi {
   getContent: () => string;
@@ -195,31 +200,15 @@ const Editor: Component<EditorProps> = (props) => {
   };
 
   const handleClickAtPos = (clickView: EditorView, pos: number): boolean => {
-    const tree = syntaxTree(clickView.state);
-    let hit: { from: number; to: number } | null = null;
-    tree.iterate({
-      from: pos,
-      to: pos,
-      enter: (node) => {
-        if (node.name === "WikiLink" && node.from <= pos && pos <= node.to) {
-          hit = { from: node.from, to: node.to };
-        }
-      },
-    });
-    if (!hit) return false;
-    const region = hit as { from: number; to: number };
+    const region = nodeSpanAt(clickView.state, pos, "WikiLink");
+    if (!region) return false;
     const raw = clickView.state.sliceDoc(region.from, region.to);
     const tok = scanWikilinks(raw).find((t) => t.kind === "wiki_link");
     if (!tok || tok.kind !== "wiki_link") return false;
-    const targetWithAnchor =
-      tok.anchor === null
-        ? tok.target
-        : `${tok.target}${tok.anchor.kind === "block" ? "#^" : "#"}${tok.anchor.value}`;
-
     const resolverObj = props.wikilinkResolver ?? null;
     if (!resolverObj) return false;
 
-    void handleWikiLinkClick(targetWithAnchor, {
+    void handleWikiLinkClick(wikiLinkTargetRaw(tok), {
       resolver: resolverObj,
       onNavigate: (path, anchor) =>
         props.onNavigateWikilink?.(path, anchor),
@@ -230,19 +219,8 @@ const Editor: Component<EditorProps> = (props) => {
 
   const handleTagClickAtPos = (clickView: EditorView, pos: number): boolean => {
     if (!props.onNavigateTag) return false;
-    const tree = syntaxTree(clickView.state);
-    let hit: { from: number; to: number } | null = null;
-    tree.iterate({
-      from: pos,
-      to: pos,
-      enter: (node) => {
-        if (node.name === "Tag" && node.from <= pos && pos <= node.to) {
-          hit = { from: node.from, to: node.to };
-        }
-      },
-    });
-    if (!hit) return false;
-    const region = hit as { from: number; to: number };
+    const region = nodeSpanAt(clickView.state, pos, "Tag");
+    if (!region) return false;
     const raw = clickView.state.sliceDoc(region.from, region.to);
     const path = tagPathFromSlice(raw);
     if (path === null) return false;
@@ -320,7 +298,7 @@ const Editor: Component<EditorProps> = (props) => {
             props.rawSource && props.colorizeSource ? colorSourceHighlight : [],
           ),
           wikilinkResolverCompartment.of(
-            wikilinkResolverFacet.of(facetValueFor(props.wikilinkResolver)),
+            wikilinkResolverFacet.of(props.wikilinkResolver ?? null),
           ),
           propertyResolverCompartment.of(
             propertyResolverFacet.of(props.propertyResolver ?? null),
@@ -500,7 +478,7 @@ const Editor: Component<EditorProps> = (props) => {
       (resolver) => {
         view?.dispatch({
           effects: wikilinkResolverCompartment.reconfigure(
-            wikilinkResolverFacet.of(facetValueFor(resolver)),
+            wikilinkResolverFacet.of(resolver ?? null),
           ),
         });
         subscribeResolver(resolver, view);
