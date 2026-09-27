@@ -7,7 +7,6 @@ use std::time::Instant;
 use serde::Serialize;
 use tokio::sync::{mpsc, Mutex, RwLock};
 
-use cubical_core::vault::links::read_source_off_executor;
 use cubical_core::vault::pending::materialize_on_read;
 use cubical_core::vault::settings::SettingsMap;
 use cubical_core::{
@@ -37,8 +36,6 @@ pub const VAULT_FILE_CHANGED: &str = "vault:file-changed";
 pub const VAULT_PENDING_REWRITES_CHANGED: &str = "vault:pending-rewrites-changed";
 
 pub const VAULT_FLUSH_COMPLETE: &str = "vault:flush-complete";
-
-pub const VAULT_AUDIT: &str = "vault:audit";
 
 pub const VAULT_SETTING_CHANGED: &str = "vault:setting-changed";
 
@@ -82,13 +79,6 @@ pub enum VaultFileChangeKind {
 }
 
 #[derive(Serialize, Clone)]
-pub struct VaultAudit {
-    pub level: String,
-    pub category: String,
-    pub message: String,
-}
-
-#[derive(Serialize, Clone)]
 pub struct VaultPendingRewritesChanged {
     pub vault_id: String,
     pub count: i64,
@@ -114,7 +104,6 @@ pub enum AppEvent {
     ScanComplete(VaultScanComplete),
     ScanCancelled(VaultScanCancelled),
     FileChanged(VaultFileChanged),
-    Audit(VaultAudit),
     PendingRewritesChanged(VaultPendingRewritesChanged),
     FlushComplete(VaultFlushComplete),
     SettingChanged(VaultSettingChanged),
@@ -128,7 +117,6 @@ impl AppEvent {
             AppEvent::ScanComplete(_) => VAULT_SCAN_COMPLETE,
             AppEvent::ScanCancelled(_) => VAULT_SCAN_CANCELLED,
             AppEvent::FileChanged(_) => VAULT_FILE_CHANGED,
-            AppEvent::Audit(_) => VAULT_AUDIT,
             AppEvent::PendingRewritesChanged(_) => VAULT_PENDING_REWRITES_CHANGED,
             AppEvent::FlushComplete(_) => VAULT_FLUSH_COMPLETE,
             AppEvent::SettingChanged(_) => VAULT_SETTING_CHANGED,
@@ -160,10 +148,6 @@ pub fn emit_scan_cancelled(sink: &dyn EventSink, payload: VaultScanCancelled) {
 
 pub fn emit_file_changed(sink: &dyn EventSink, payload: VaultFileChanged) {
     sink.emit(AppEvent::FileChanged(payload));
-}
-
-pub fn emit_audit(sink: &dyn EventSink, payload: VaultAudit) {
-    sink.emit(AppEvent::Audit(payload));
 }
 
 pub fn emit_pending_rewrites_changed(sink: &dyn EventSink, payload: VaultPendingRewritesChanged) {
@@ -521,29 +505,30 @@ pub(crate) async fn apply_watch_event_to_db(
         WatchEvent::Created(rel) | WatchEvent::Modified(rel) => {
             let abs = vault.root().join(rel);
             let path_str = rel.clone();
-            let stats = read_file_stats(&abs, vault).await.unwrap_or_default();
+            let Some(stats) = read_file_stats(&abs, vault).await else {
+                tracing::debug!(path = %path_str, "watcher: file unreadable; index rows left untouched");
+                record_watch_audit(vault, ev, now).await;
+                return None;
+            };
 
             if matches!(ev, WatchEvent::Created(_)) {
                 try_pair_created_as_rename(vault, changes, ctx, &path_str, &stats, now).await;
             }
 
             let FileStats {
+                type_id,
                 size,
                 mtime,
                 hash,
                 inode,
+                source: raw_source,
             } = stats;
-            let type_id = vault
-                .registry()
-                .handler_for(&abs)
-                .map(|h| h.type_id().to_string())
-                .unwrap_or_else(|| "binary".into());
 
             if let Err(e) = cubical_index::upsert_file(
                 vault.index(),
                 &cubical_index::FileRow {
                     path: &path_str,
-                    type_id: &type_id,
+                    type_id,
                     size_bytes: size,
                     mtime_unix: mtime,
                     content_hash: &hash,
@@ -556,8 +541,7 @@ pub(crate) async fn apply_watch_event_to_db(
                 tracing::warn!(path = %path_str, error = %e, "watcher: files upsert failed");
             }
 
-            if type_id == "markdown" {
-                let raw_source = read_source_off_executor(&abs).await.unwrap_or_default();
+            if let Some(raw_source) = raw_source {
                 let source = match materialize_on_read(vault.index(), &path_str, &raw_source).await
                 {
                     Ok(s) => s,
@@ -628,6 +612,12 @@ pub(crate) async fn apply_watch_event_to_db(
         }
     };
 
+    record_watch_audit(vault, ev, now).await;
+
+    new_content_hash
+}
+
+async fn record_watch_audit(vault: &Vault, ev: &WatchEvent, now: i64) {
     let (message, detail) = audit_payload_for(ev);
     if let Err(e) = cubical_index::append_audit(
         vault.index(),
@@ -641,8 +631,6 @@ pub(crate) async fn apply_watch_event_to_db(
     {
         tracing::warn!(error = %e, "watcher: audit_log insert failed");
     }
-
-    new_content_hash
 }
 
 async fn try_pair_created_as_rename(
@@ -754,12 +742,13 @@ pub(crate) async fn apply_watch_events_batch(
     hashes
 }
 
-#[derive(Default)]
 struct FileStats {
+    type_id: &'static str,
     size: i64,
     mtime: i64,
     hash: String,
     inode: Option<i64>,
+    source: Option<String>,
 }
 
 async fn read_file_stats(abs: &std::path::Path, vault: &Vault) -> Option<FileStats> {
@@ -779,19 +768,21 @@ async fn read_file_stats(abs: &std::path::Path, vault: &Vault) -> Option<FileSta
         .unwrap_or(0);
     let inode = cubical_core::vault::inode_of(&metadata);
 
-    let abs_for_hash = abs.to_path_buf();
+    let Some(type_id) = vault.registry().handler_for(abs).map(|h| h.type_id()) else {
+        tracing::debug!(path = %abs.display(), "watcher: no file-type handler");
+        return None;
+    };
+    let abs_for_read = abs.to_path_buf();
     let registry = vault.registry_arc();
-    let hash = tokio::task::spawn_blocking(move || {
-        registry
-            .handler_for(&abs_for_hash)
-            .ok_or_else(|| "no handler".to_string())
-            .and_then(|h| h.content_hash(&abs_for_hash).map_err(|e| e.to_string()))
+    let is_markdown = type_id == "markdown";
+    let read = tokio::task::spawn_blocking(move || {
+        cubical_core::vault::read_and_hash(&registry, &abs_for_read, is_markdown)
     })
     .await;
-    let hash = match hash {
-        Ok(Ok(h)) => h,
+    let (hash, source) = match read {
+        Ok(Ok(read)) => read,
         Ok(Err(e)) => {
-            tracing::debug!(path = %abs.display(), error = %e, "watcher: hash failed");
+            tracing::debug!(path = %abs.display(), error = %e, "watcher: read failed");
             return None;
         }
         Err(e) => {
@@ -800,10 +791,12 @@ async fn read_file_stats(abs: &std::path::Path, vault: &Vault) -> Option<FileSta
         }
     };
     Some(FileStats {
+        type_id,
         size,
         mtime,
         hash,
         inode,
+        source,
     })
 }
 
@@ -1225,11 +1218,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn created_event_on_missing_file_leaves_inode_null() {
+    async fn created_event_on_missing_file_writes_no_files_row() {
         let (_dir, vault) = fresh_vault_with_one_md("note.md").await;
         let search = crate::search_handle::SearchHandle::open(&vault).await;
 
-        apply_watch_event_to_db(
+        let hash = apply_watch_event_to_db(
             &vault,
             &search,
             &WatchEvent::Created("ghost.md".into()),
@@ -1237,17 +1230,88 @@ mod tests {
         )
         .await;
 
+        assert_eq!(hash, None);
+        assert_eq!(
+            count(&vault, "SELECT COUNT(*) FROM files WHERE path = 'ghost.md'").await,
+            0,
+            "an unreadable file must not leave a phantom row in the tree",
+        );
+        assert!(audit_categories(&vault)
+            .await
+            .iter()
+            .any(|c| c == "watcher"));
+    }
+
+    #[tokio::test]
+    async fn modified_event_on_unreadable_file_keeps_its_rows() {
+        let (dir, vault) = watched_fixture().await;
+        let search = crate::search_handle::SearchHandle::open(&vault).await;
+        let before = watched_derived_counts(&vault).await;
+        let hash_before = stored_hash(&vault, "a.md").await;
+
+        std::fs::remove_file(dir.path().join("a.md")).unwrap();
+        let hash =
+            apply_watch_event_to_db(&vault, &search, &WatchEvent::Modified("a.md".into()), None)
+                .await;
+
+        assert_eq!(hash, None);
+        assert_eq!(
+            watched_derived_counts(&vault).await,
+            before,
+            "a failed read is not evidence the file is empty",
+        );
+        assert_eq!(stored_hash(&vault, "a.md").await, hash_before);
+    }
+
+    async fn stored_hash(vault: &Vault, path: &str) -> Option<String> {
         let conn = vault.index().connection();
         let mut rows = conn
-            .query("SELECT inode FROM files WHERE path = 'ghost.md'", ())
+            .query(
+                "SELECT content_hash FROM files WHERE path = ?1",
+                params![path.to_string()],
+            )
             .await
             .unwrap();
-        let row = rows.next().await.unwrap().expect("files row");
-        let inode: Option<i64> = row.get(0).unwrap();
+        rows.next().await.unwrap().map(|r| r.get(0).unwrap())
+    }
+
+    #[tokio::test]
+    async fn watcher_stores_the_hash_of_the_bytes_it_indexed() {
+        use cubical_core::sha256_bytes_hex;
+
+        let dir = tempdir().unwrap();
+        let p = dir.path().join("note.md");
+        std::fs::write(&p, "---\ntitle: Old\n---\n").unwrap();
+        let vault = Vault::open(dir.path()).await.expect("vault open");
+        let search = crate::search_handle::SearchHandle::open(&vault).await;
+
+        let content = "---\ntitle: New\n---\n\nbody\n";
+        std::fs::write(&p, content).unwrap();
+        let returned = apply_watch_event_to_db(
+            &vault,
+            &search,
+            &WatchEvent::Modified("note.md".into()),
+            None,
+        )
+        .await
+        .expect("Modified hash");
+
+        let stored = stored_hash(&vault, "note.md").await.expect("files row");
+        assert_eq!(stored, returned);
+        assert_eq!(stored, sha256_bytes_hex(content.as_bytes()));
         assert_eq!(
-            inode, None,
-            "a NULL inode stays legal when stats are absent"
+            count(
+                &vault,
+                "SELECT COUNT(*) FROM frontmatter WHERE file_path = 'note.md' AND value = '\"New\"'",
+            )
+            .await,
+            1,
+            "the indexed frontmatter comes from the hashed bytes",
         );
+
+        let stats = read_file_stats(&p, &vault).await.expect("readable");
+        let source = stats.source.expect("markdown carries its source");
+        assert_eq!(stats.hash, sha256_bytes_hex(source.as_bytes()));
     }
 
     #[tokio::test]
