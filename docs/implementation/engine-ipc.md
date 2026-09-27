@@ -76,7 +76,9 @@ including the index-gated writers, so the rule needs no exemption to state.
 index — `relpath::is_excluded`, the skip set owned by
 [`vault-core.md`](vault-core.md#watcher). Creating, renaming into, writing or
 deleting under a hidden component would otherwise produce a file the index
-cannot see, or let a request reach `.cubical/` itself.
+cannot see, or let a request reach `.cubical/` itself. The check runs on the
+resolved path too, so a visible symlink into a hidden folder is refused
+alongside the literal hidden path.
 
 The drive-letter rule is deliberately **minimal**: a segment that is exactly
 `C:` is refused everywhere, and anything longer is left to the host's own path
@@ -400,7 +402,7 @@ graph's ghost interning and every tag match all fold through the same
 page, tag autocomplete and dataview's `FROM #tag` plan all start from that set
 of stored spellings. The graph interns tags the same way: `build_model` keys
 one tag node per folded path, so `#Work` and `#work` are one node with one edge
-per note, as in Obsidian. The label is the spelling carried by the most notes,
+per note, as in Obsidian. The label is the spelling on the most (note, spelling) rows,
 ties to the first in byte order. Obsidian documents the fold but not which
 casing it displays; a count-then-byte-order rule keeps the label stable across
 rebuilds, which an encounter-order rule would not. A nested tag stays its own

@@ -15,12 +15,23 @@ pub(crate) fn rel_dir(raw: &str) -> Result<String, CubicalError> {
 
 pub(crate) fn vault_file(vault: &Vault, raw: &str) -> Result<(String, PathBuf), CubicalError> {
     let (rel, abs) = relpath::contained_join(vault.root(), raw).map_err(reject)?;
-    if relpath::is_excluded(Path::new(&rel)) {
+    if relpath::is_excluded(Path::new(&rel)) || resolves_into_excluded(vault.root(), &abs) {
         return Err(CubicalError::InvalidRequest(format!(
             "path is hidden from the vault: {rel}"
         )));
     }
     Ok((rel, abs))
+}
+
+fn resolves_into_excluded(root: &Path, abs: &Path) -> bool {
+    let Ok(base) = std::fs::canonicalize(root) else {
+        return false;
+    };
+    let anchor = abs.ancestors().find_map(|p| std::fs::canonicalize(p).ok());
+    anchor
+        .as_deref()
+        .and_then(|a| a.strip_prefix(&base).ok())
+        .is_some_and(relpath::is_excluded)
 }
 
 pub(crate) fn is_vacant(counterpart_rel: &str, rel: &str, abs: &Path) -> bool {
@@ -48,6 +59,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let vault = Vault::open(dir.path()).await.unwrap();
         (dir, vault)
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_visible_symlink_into_a_hidden_folder_is_refused() {
+        let (dir, vault) = open_vault().await;
+        std::os::unix::fs::symlink(dir.path().join(".cubical"), dir.path().join("meta")).unwrap();
+        assert!(vault_file(&vault, "meta/index.db").is_err());
+        assert!(vault_file(&vault, "meta").is_err());
+        assert!(vault_file(&vault, "notes/new.md").is_ok());
     }
 
     #[tokio::test]
