@@ -1,19 +1,7 @@
 use cubical_ast::Document;
 use libsql::params;
 
-use crate::vault::parse::parse_off_executor;
 use crate::vault::Vault;
-
-pub async fn refresh_frontmatter(
-    vault: &Vault,
-    rel_path_str: &str,
-    source: &str,
-) -> Result<u32, libsql::Error> {
-    match parse_off_executor(source).await {
-        Some(doc) => refresh_frontmatter_with_doc(vault, rel_path_str, &doc).await,
-        None => Ok(0),
-    }
-}
 
 pub async fn refresh_frontmatter_with_doc(
     vault: &Vault,
@@ -67,6 +55,14 @@ mod tests {
         let mut rows = conn.query(sql, ()).await.expect("query");
         let row = rows.next().await.expect("next").expect("row");
         row.get::<i64>(0).expect("get")
+    }
+
+    async fn refresh_frontmatter(
+        vault: &Vault,
+        rel: &str,
+        source: &str,
+    ) -> Result<u32, libsql::Error> {
+        refresh_frontmatter_with_doc(vault, rel, &cubical_ast::parse(source)).await
     }
 
     async fn seed_files_row(vault: &Vault, rel: &str) {
