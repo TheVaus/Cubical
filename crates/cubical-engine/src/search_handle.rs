@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use cubical_ast::Document;
@@ -21,6 +22,7 @@ const SEARCH_COMMIT_EVERY: usize = 5_000;
 #[derive(Clone)]
 pub struct SearchHandle {
     index: Option<Arc<SearchIndex>>,
+    scan_indexed: Arc<AtomicU64>,
 }
 
 impl SearchHandle {
@@ -31,9 +33,7 @@ impl SearchHandle {
                 if let Some(reason) = index.rebuilt_reason() {
                     record_rebuild(vault, &dir, reason).await;
                 }
-                Self {
-                    index: Some(Arc::new(index)),
-                }
+                Self::with_index(Some(Arc::new(index)))
             }
             Err(e) => {
                 tracing::error!(
@@ -48,9 +48,21 @@ impl SearchHandle {
                     &e.to_string(),
                 )
                 .await;
-                Self { index: None }
+                Self::with_index(None)
             }
         }
+    }
+
+    fn with_index(index: Option<Arc<SearchIndex>>) -> Self {
+        Self {
+            index,
+            scan_indexed: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    #[must_use]
+    pub fn indexed_files(&self) -> u64 {
+        self.scan_indexed.load(Ordering::Relaxed)
     }
 
     #[must_use]
@@ -110,6 +122,7 @@ impl SearchHandle {
 
     #[must_use]
     pub fn scan_sink(&self) -> SearchScanSink {
+        self.scan_indexed.store(0, Ordering::Relaxed);
         SearchScanSink {
             search: self.clone(),
             seen: HashSet::new(),
@@ -150,8 +163,12 @@ impl ScanSink for SearchScanSink {
         let Some(doc) = doc else {
             return;
         };
-        if let Err(e) = self.search.upsert_doc(path, doc, mtime_unix, size_bytes) {
-            tracing::warn!(path, error = %e, "search index refresh failed");
+        match self.search.upsert_doc(path, doc, mtime_unix, size_bytes) {
+            Ok(()) if self.search.is_available() => {
+                self.search.scan_indexed.fetch_add(1, Ordering::Relaxed);
+            }
+            Ok(()) => {}
+            Err(e) => tracing::warn!(path, error = %e, "search index refresh failed"),
         }
         self.since_commit += 1;
         if self.since_commit >= SEARCH_COMMIT_EVERY {
@@ -417,6 +434,42 @@ mod tests {
         assert_eq!(after[0].path, "live.md");
     }
 
+    #[tokio::test]
+    async fn the_scan_reports_how_many_files_it_has_indexed() {
+        let dir = tempdir().unwrap();
+        for i in 0..3 {
+            std::fs::write(dir.path().join(format!("n{i}.md")), "body\n").unwrap();
+        }
+        std::fs::write(dir.path().join("data.csv"), "a,b\n1,2\n").unwrap();
+        let vault = Vault::open(dir.path()).await.expect("open");
+        let search = SearchHandle::open(&vault).await;
+        assert_eq!(search.indexed_files(), 0);
+
+        full_scan(&vault, &search).await;
+        assert_eq!(search.indexed_files(), 3, "only markdown lands in search");
+        assert_eq!(
+            search.clone().indexed_files(),
+            3,
+            "every clone of the handle reads the same counter",
+        );
+
+        drop(search.scan_sink());
+        assert_eq!(search.indexed_files(), 0, "a new scan starts from zero");
+    }
+
+    #[tokio::test]
+    async fn an_unavailable_index_reports_nothing_indexed() {
+        let dir = tempdir().unwrap();
+        let vault = Vault::open(dir.path()).await.expect("open");
+        std::fs::write(dir.path().join(".cubical").join("search"), b"not a dir").unwrap();
+        std::fs::write(dir.path().join("a.md"), "body\n").unwrap();
+        let search = SearchHandle::open(&vault).await;
+
+        full_scan(&vault, &search).await;
+
+        assert_eq!(search.indexed_files(), 0);
+    }
+
     #[test]
     fn an_unparseable_file_still_counts_as_seen_by_the_reconcile() {
         let dir = tempdir().unwrap();
@@ -425,9 +478,7 @@ mod tests {
             .upsert(&cubical_search::doc::project("broken.md", "kept", 0, 4))
             .unwrap();
         index.commit().unwrap();
-        let search = SearchHandle {
-            index: Some(Arc::new(index)),
-        };
+        let search = SearchHandle::with_index(Some(Arc::new(index)));
 
         let mut sink = search.scan_sink();
         sink.markdown("broken.md", None, 0, 4);

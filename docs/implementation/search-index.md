@@ -172,7 +172,7 @@ spreadsheet row.
 
 ## Full-text search (`cubical-search`)
 
-**Anchors:** SearchIndex · rebuilt_reason · is_recoverable_by_wipe · SearchHandle · SearchScanSink · settle_after_scan · change_sink · SEARCH_REBUILT · SEARCH_UNAVAILABLE
+**Anchors:** SearchIndex · rebuilt_reason · is_recoverable_by_wipe · SearchHandle · SearchScanSink · settle_after_scan · indexed_files · change_sink · SEARCH_REBUILT · SEARCH_UNAVAILABLE
 
 Every byte in the search directory is derived from the `.md` files, so wiping
 it costs a rescan and nothing else. `SearchIndex::open` therefore wipes and
@@ -209,6 +209,13 @@ required argument, so a path that forgets search fails to compile rather than
 quietly leaving the index stale. The sink owns what used to live inline in the
 walk: the commit every 5,000 documents that bounds `IndexWriter` memory, and
 the end-of-scan `retain_paths` reconcile over every path it was handed.
+
+`search_index_status` reports `indexed_files`: the documents the current scan
+has upserted, a counter shared by every clone of the handle and reset to zero
+when `scan_sink` hands out a new sink. There is no total beside it. The walk
+counts files as it meets them, so any "of N" would be the same running number
+dressed as a denominator, and the search panel's banner shows the count alone.
+An unavailable index counts nothing, since nothing was written.
 
 Tantivy holds one writer lock per directory, so a second `SearchHandle::open`
 on a directory whose handle is still alive fails with `LockFailure` and yields

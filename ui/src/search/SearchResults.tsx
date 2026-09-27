@@ -83,7 +83,7 @@ const SearchResults: Component<SearchResultsProps> = (props) => {
               "border-bottom": "1px solid var(--c-border-subtle)",
             }}
           >
-            Indexing… {s().indexed_files} / {s().total_files}
+            Indexing… {s().indexed_files} notes so far
           </div>
         )}
       </Show>

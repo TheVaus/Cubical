@@ -53,8 +53,6 @@ export type IndexState = "building" | "ready" | "error";
 export interface IndexStatus {
   state: IndexState;
   indexed_files: number;
-  total_files: number;
-  last_commit_secs: number | null;
 }
 
 export function search(req: SearchRequest): Promise<SearchResponse> {

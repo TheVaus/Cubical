@@ -58,14 +58,11 @@ describe("search ipc wrappers", () => {
     mockInvoke.mockResolvedValueOnce({
       state: "ready",
       indexed_files: 2,
-      total_files: 2,
-      last_commit_secs: 1717,
     });
     const req: SearchVaultRequest = { vault_id: "vault-1" };
     const s = await searchIndexStatus(req);
     expect(s.state).toBe("ready");
     expect(s.indexed_files).toBe(2);
-    expect(s.last_commit_secs).toBe(1717);
     expect(mockInvoke).toHaveBeenCalledWith("search_index_status", {
       req: { vault_id: "vault-1" },
     });

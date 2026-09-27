@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createSignal } from "solid-js";
 import { render } from "solid-js/web";
 
-import type { SearchHit } from "../api/search";
+import type { IndexStatus, SearchHit } from "../api/search";
 import SearchResults from "./SearchResults";
 import type { SearchState } from "./searchState";
 
@@ -23,12 +23,12 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-function mount(hits: () => SearchHit[]) {
+function mount(hits: () => SearchHit[], status: () => IndexStatus | null = () => null) {
   const state = {
     hits,
     total: () => hits().length,
     error: () => null,
-    status: () => null,
+    status,
   } as unknown as SearchState;
   const host = document.createElement("div");
   document.body.appendChild(host);
@@ -46,5 +46,25 @@ describe("SearchResults keyboard navigation", () => {
     list.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
 
     expect(document.activeElement?.getAttribute("title")).toBe("b.md");
+  });
+});
+
+describe("SearchResults indexing banner", () => {
+  it("shows the live indexed count while the index builds", () => {
+    const host = mount(
+      () => [],
+      () => ({ state: "building", indexed_files: 42 }),
+    );
+    expect(host.querySelector('[role="status"]')?.textContent).toBe(
+      "Indexing… 42 notes so far",
+    );
+  });
+
+  it("hides once the index is ready", () => {
+    const host = mount(
+      () => [],
+      () => ({ state: "ready", indexed_files: 42 }),
+    );
+    expect(host.querySelector('[role="status"]')).toBeNull();
   });
 });
