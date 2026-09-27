@@ -47,7 +47,7 @@ vault or index handle, so they moved whole into `commands/embeds/extract.rs`.
 
 ## Caller-supplied paths
 
-**Anchors:** validate_rel_file · validate_rel_dir · contained_join · vault_file · vault_dir
+**Anchors:** validate_rel_file · validate_rel_dir · contained_join · vault_file · vault_dir · is_excluded
 
 A path arriving in a request is untrusted input. The vault root is the
 containment boundary, and `commands::paths` is the only way a request path
@@ -71,6 +71,12 @@ the `cubical-ipc` socket. Commands that resolve a path through the index first
 with `follow_links(false)`, so no key in `files` can escape the root. Anything
 that joins a request path directly routes through `commands::paths` regardless,
 including the index-gated writers, so the rule needs no exemption to state.
+
+`vault_file` (and so `vault_dir`) also refuses any path the scan would never
+index — `relpath::is_excluded`, the skip set owned by
+[`vault-core.md`](vault-core.md#watcher). Creating, renaming into, writing or
+deleting under a hidden component would otherwise produce a file the index
+cannot see, or let a request reach `.cubical/` itself.
 
 The drive-letter rule is deliberately **minimal**: a segment that is exactly
 `C:` is refused everywhere, and anything longer is left to the host's own path

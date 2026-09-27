@@ -14,7 +14,13 @@ pub(crate) fn rel_dir(raw: &str) -> Result<String, CubicalError> {
 }
 
 pub(crate) fn vault_file(vault: &Vault, raw: &str) -> Result<(String, PathBuf), CubicalError> {
-    relpath::contained_join(vault.root(), raw).map_err(reject)
+    let (rel, abs) = relpath::contained_join(vault.root(), raw).map_err(reject)?;
+    if relpath::is_excluded(Path::new(&rel)) {
+        return Err(CubicalError::InvalidRequest(format!(
+            "path is hidden from the vault: {rel}"
+        )));
+    }
+    Ok((rel, abs))
 }
 
 pub(crate) fn is_vacant(counterpart_rel: &str, rel: &str, abs: &Path) -> bool {
@@ -37,6 +43,39 @@ pub(crate) fn vault_dir(vault: &Vault, raw: &str) -> Result<(String, PathBuf), C
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    async fn open_vault() -> (tempfile::TempDir, Vault) {
+        let dir = tempfile::tempdir().unwrap();
+        let vault = Vault::open(dir.path()).await.unwrap();
+        (dir, vault)
+    }
+
+    #[tokio::test]
+    async fn a_path_with_a_hidden_component_is_refused() {
+        let (_dir, vault) = open_vault().await;
+        for raw in [
+            ".note.md",
+            "sub/.note.md",
+            ".cubical/index.db",
+            ".git",
+            "node_modules/x.md",
+            "note.md.cubical-tmp",
+        ] {
+            assert!(
+                matches!(
+                    vault_file(&vault, raw),
+                    Err(CubicalError::InvalidRequest(_))
+                ),
+                "{raw} must be refused",
+            );
+        }
+        assert!(matches!(
+            vault_dir(&vault, ".cubical"),
+            Err(CubicalError::InvalidRequest(_))
+        ));
+        assert_eq!(vault_file(&vault, "sub/note.md").unwrap().0, "sub/note.md");
+        assert_eq!(vault_dir(&vault, "").unwrap().0, "");
+    }
 
     #[test]
     fn a_path_whose_only_occupant_is_its_counterpart_under_another_spelling_is_vacant() {

@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use cubical_core::vault::relpath::contained_join;
+use cubical_core::vault::relpath::{contained_join, is_excluded};
 use cubical_query::{Query, Relation, Source};
 use cubical_table::TableCache;
 use serde::{Deserialize, Serialize};
@@ -114,6 +114,11 @@ async fn data_file_result(
     query: &Query,
 ) -> Option<DataviewResult> {
     let abs = match contained_join(root, path) {
+        Ok((rel, _)) if is_excluded(Path::new(&rel)) => {
+            return Some(DataviewResult::Error {
+                message: format!("no such file in this vault: {path}"),
+            })
+        }
         Ok((_, abs)) => abs,
         Err(e) => {
             return Some(DataviewResult::Error {
@@ -302,6 +307,17 @@ mod tests {
         let (_d, state) = state_with_data_file("data/sales.csv", SALES_CSV).await;
         match run_query(&state, "v1", r#"LIST FROM "data/ghost.csv""#).await {
             DataviewResult::Error { message } => assert!(message.contains("data/ghost.csv")),
+            other => panic!("expected an error, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_data_file_under_a_hidden_folder_is_not_readable() {
+        let (_d, state) = state_with_data_file(".cubical/sales.csv", SALES_CSV).await;
+        match run_query(&state, "v1", r#"LIST FROM ".cubical/sales.csv""#).await {
+            DataviewResult::Error { message } => {
+                assert!(message.contains("no such file in this vault"))
+            }
             other => panic!("expected an error, got {other:?}"),
         }
     }

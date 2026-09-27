@@ -152,17 +152,10 @@ pub async fn scan<S: ScanSink>(
 
     let walker = WalkDir::new(&root).follow_links(false).into_iter();
     let walker = walker.filter_entry(|entry| {
-        if entry.depth() == 0 {
-            return true;
-        }
-        if !entry.file_type().is_dir() {
-            return true;
-        }
-        let name = entry.file_name().to_string_lossy();
-        if name == "node_modules" {
-            return false;
-        }
-        !name.starts_with('.')
+        entry.depth() == 0
+            || !crate::vault::relpath::is_excluded(
+                entry.path().strip_prefix(&root).unwrap_or(entry.path()),
+            )
     });
 
     for entry_result in walker {
@@ -188,9 +181,6 @@ pub async fn scan<S: ScanSink>(
                     tracing::warn!(path = %rel, error = %e, "folder upsert failed; skipping");
                 }
             }
-            continue;
-        }
-        if entry.path().extension().is_some_and(|e| e == "cubical-tmp") {
             continue;
         }
 
@@ -371,7 +361,7 @@ pub async fn scan<S: ScanSink>(
     })
 }
 
-fn read_and_hash(
+pub fn read_and_hash(
     registry: &FileTypeRegistry,
     abs_path: &Path,
     is_markdown: bool,
@@ -603,6 +593,63 @@ mod tests {
             .await,
             1,
         );
+    }
+
+    #[tokio::test]
+    async fn scan_skips_dot_prefixed_files_at_any_depth() {
+        let (_dir, vault) = fixture_vault(
+            1,
+            &[
+                (".note.md", b"hidden\n"),
+                ("sub/.draft.md", b"hidden\n"),
+                ("sub/visible.md", b"shown\n"),
+            ],
+        )
+        .await;
+
+        let (tx, _rx) = mpsc::channel::<ScanProgress>(64);
+        scan(vault.clone(), CancellationToken::new(), tx, NoScanSink)
+            .await
+            .expect("scan");
+
+        assert_eq!(
+            scalar_i64(
+                &vault,
+                "SELECT COUNT(*) FROM files WHERE path IN ('.note.md', 'sub/.draft.md')"
+            )
+            .await,
+            0,
+        );
+        assert_eq!(scalar_i64(&vault, "SELECT COUNT(*) FROM files").await, 2);
+    }
+
+    #[tokio::test]
+    async fn rescan_sweeps_rows_an_older_scan_indexed_for_hidden_files() {
+        let (_dir, vault) = fixture_vault(1, &[(".note.md", b"hidden\n")]).await;
+        vault
+            .index()
+            .connection()
+            .execute(
+                "INSERT INTO files (
+                    path, type_id, size_bytes, mtime_unix, content_hash,
+                    inode, last_seen, created_at, updated_at
+                 ) VALUES ('.note.md', 'markdown', 7, 0, '', NULL, 0, 0, 0)",
+                (),
+            )
+            .await
+            .unwrap();
+
+        let (tx, _rx) = mpsc::channel::<ScanProgress>(64);
+        let outcome = scan(vault.clone(), CancellationToken::new(), tx, NoScanSink)
+            .await
+            .expect("scan");
+
+        assert_eq!(
+            scalar_i64(&vault, "SELECT COUNT(*) FROM files WHERE path = '.note.md'").await,
+            0,
+            "a hidden file still on disk must lose the row an older scan gave it",
+        );
+        assert!(outcome.vanished.iter().any(|v| v.path == ".note.md"));
     }
 
     #[tokio::test]
