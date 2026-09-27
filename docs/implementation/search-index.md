@@ -211,8 +211,10 @@ walk: the commit every 5,000 documents that bounds `IndexWriter` memory, and
 the end-of-scan `retain_paths` reconcile over every path it was handed.
 
 `search_index_status` reports `indexed_files`: the documents the current scan
-has upserted, a counter shared by every clone of the handle and reset to zero
-when `scan_sink` hands out a new sink. There is no total beside it. The walk
+has upserted. Each `scan_sink` gets its own counter and publishes it as the
+handle's current one, so every clone reads the newest scan's count and a scan
+that a rebuild superseded while still running keeps counting into a counter
+nobody reads, instead of inflating the new one. There is no total beside it. The walk
 counts files as it meets them, so any "of N" would be the same running number
 dressed as a denominator, and the search panel's banner shows the count alone.
 An unavailable index counts nothing, since nothing was written.

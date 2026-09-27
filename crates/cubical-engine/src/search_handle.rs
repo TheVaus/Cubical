@@ -22,7 +22,7 @@ const SEARCH_COMMIT_EVERY: usize = 5_000;
 #[derive(Clone)]
 pub struct SearchHandle {
     index: Option<Arc<SearchIndex>>,
-    scan_indexed: Arc<AtomicU64>,
+    scan_indexed: Arc<std::sync::Mutex<Arc<AtomicU64>>>,
 }
 
 impl SearchHandle {
@@ -56,13 +56,16 @@ impl SearchHandle {
     fn with_index(index: Option<Arc<SearchIndex>>) -> Self {
         Self {
             index,
-            scan_indexed: Arc::new(AtomicU64::new(0)),
+            scan_indexed: Arc::default(),
         }
     }
 
     #[must_use]
     pub fn indexed_files(&self) -> u64 {
-        self.scan_indexed.load(Ordering::Relaxed)
+        self.scan_indexed
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .load(Ordering::Relaxed)
     }
 
     #[must_use]
@@ -122,9 +125,14 @@ impl SearchHandle {
 
     #[must_use]
     pub fn scan_sink(&self) -> SearchScanSink {
-        self.scan_indexed.store(0, Ordering::Relaxed);
+        let indexed = Arc::new(AtomicU64::new(0));
+        *self
+            .scan_indexed
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Arc::clone(&indexed);
         SearchScanSink {
             search: self.clone(),
+            indexed,
             seen: HashSet::new(),
             since_commit: 0,
         }
@@ -153,6 +161,7 @@ async fn record_rebuild(vault: &Vault, dir: &Path, reason: &str) {
 
 pub struct SearchScanSink {
     search: SearchHandle,
+    indexed: Arc<AtomicU64>,
     seen: HashSet<String>,
     since_commit: usize,
 }
@@ -165,7 +174,7 @@ impl ScanSink for SearchScanSink {
         };
         match self.search.upsert_doc(path, doc, mtime_unix, size_bytes) {
             Ok(()) if self.search.is_available() => {
-                self.search.scan_indexed.fetch_add(1, Ordering::Relaxed);
+                self.indexed.fetch_add(1, Ordering::Relaxed);
             }
             Ok(()) => {}
             Err(e) => tracing::warn!(path, error = %e, "search index refresh failed"),
@@ -455,6 +464,18 @@ mod tests {
 
         drop(search.scan_sink());
         assert_eq!(search.indexed_files(), 0, "a new scan starts from zero");
+    }
+
+    #[tokio::test]
+    async fn a_superseded_scan_does_not_add_to_the_current_count() {
+        let dir = tempdir().unwrap();
+        let vault = Vault::open(dir.path()).await.expect("open");
+        let search = SearchHandle::open(&vault).await;
+        let stale = search.scan_sink();
+        let current = search.scan_sink();
+        stale.indexed.fetch_add(5, Ordering::Relaxed);
+        current.indexed.fetch_add(2, Ordering::Relaxed);
+        assert_eq!(search.indexed_files(), 2);
     }
 
     #[tokio::test]
