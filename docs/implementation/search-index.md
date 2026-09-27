@@ -239,6 +239,48 @@ parser's default fields, and single-term queries in the default scope can be
 rewritten to a fuzzy query against the title. Plain word queries also get
 search-as-you-type prefix matching OR'd with the exact term.
 
+### Prefix expansion
+
+**Anchors:** build_prefix_query · expand_prefix · PREFIX_MIN_LEN · PREFIX_EXPANSIONS_MAX
+
+A prefix has no postings of its own: it is rewritten into one scored term query
+per dictionary term it starts, in every scoped field. Unbounded, a one- or
+two-letter prefix becomes thousands of clauses, every one of them scored, and
+each snippet generator then asks every one for its document frequency. Three
+rules bound it, after Meilisearch (only the last word is a prefix), Elasticsearch
+`bool_prefix` and Lucene's `top_terms_N` rewrite (keep the N most frequent
+expansions):
+
+- **Only the last word is a prefix.** It is the only one the user may still be
+  typing; every earlier word is finished, so it must match as a whole term,
+  run through the field's own analyzer so that it meets the stored stem. A
+  finished word treated as a prefix both multiplies the cost and matches
+  words the user did not write.
+- **A last word shorter than `PREFIX_MIN_LEN` is not expanded.** One letter
+  starts a large fraction of the vocabulary and says almost nothing about
+  intent; it still matches as a whole term through the exact query.
+- **At most `PREFIX_EXPANSIONS_MAX` expansions per field**, ranked by document
+  frequency summed across segments, ties broken by byte order so the same
+  index always yields the same set. The scan stays one sequential read of each
+  segment's dictionary range, merged in key order, into a bounded heap: its
+  cost is the size of that range, and what it hands on is capped. Most-frequent
+  is the right cut because a common completion is the likeliest word being
+  typed, and a rare one is recovered one keystroke later, when the prefix
+  narrows.
+
+The last word's own analyzed form is always in its clause set beside the
+expansions, so a complete word that stems differently from what was typed
+(`notes` → `note`) still satisfies the all-words-present clause.
+
+Snippet generators are built from the exact query plus this capped prefix
+query and nothing else. The fuzzy clause contributes no enumerable terms, so
+there is no uncapped term list anywhere for a generator to price. Kept
+expansions keep their BM25 score and their highlight; dropped ones do neither.
+
+Known gap: expansion walks the stemmed dictionary with the raw typed prefix, so
+a prefix longer than a word's stem misses it — `runni` does not reach the
+stored `run`.
+
 ### Field projection rules
 
 `project_with_doc` is the real projector; `project(path, source, …)` is the
@@ -300,3 +342,7 @@ and reports p50/p99/mean latency. It requires
 `CUBICAL_SEARCH_BENCH_VAULT=<absolute-vault-path>` — there is deliberately no
 default, so the driver never depends on one machine's directory layout. Without
 it (or without a built index at that path) it prints what to set and exits 0.
+
+`prefix_bench` builds its own synthetic index and times the prefix query mix;
+it is the `search_prefix` perf benchmark, whose bar is owned by
+[`../architecture/foundation.md`](../architecture/foundation.md) §1.

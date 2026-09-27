@@ -56,6 +56,19 @@
         { "size": 10000, "runs": 3, "max_median_secs": 5.5 }
       ],
       "default_size": 10000
+    },
+
+    "search_prefix": {
+      "crate": "cubical-search",
+      "example": "prefix_bench",
+      "args": ["{tmpdir}", "{size}", "{runs}"],
+      "median_pattern": "^prefix\\s*:.*?median\\s+([0-9.]+)\\s*s",
+      "label": "search-as-you-type prefix mix",
+      "unit": "notes",
+      "budgets": [
+        { "size": 10000, "runs": 5, "max_median_secs": 0.2 }
+      ],
+      "default_size": 10000
     }
   }
 }
