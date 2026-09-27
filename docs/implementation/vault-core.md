@@ -200,7 +200,8 @@ parent. A **read** failure never reaches the refreshers: the scan skips the
 file, and the watcher leaves its `files` row and every derived row untouched
 (it still writes the `audit_log` row), because an unreadable file is no
 evidence the file is empty — typically it vanished between the event and the
-read, and the `Removed` that follows or the next scan settles it. The watcher
+read, and the `Removed` that follows, the next modification, or the next scan (on open or
+rebuild) settles it. The watcher
 used to substitute an empty source for a failed read, which wiped the rows and,
 on a `Created`, inserted a phantom `files` row with no hash. An empty source
 that *was* read really does parse to a document with no keys, so its rows are
