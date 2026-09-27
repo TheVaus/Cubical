@@ -2,6 +2,8 @@ use crate::error::SearchError;
 use crate::index::SearchIndex;
 use crate::schema::Fields;
 use serde::{Deserialize, Serialize};
+use std::cmp::Reverse;
+use std::collections::BinaryHeap;
 use tantivy::collector::TopDocs;
 use tantivy::query::{BooleanQuery, FuzzyTermQuery, Occur, Query, QueryParser, TermQuery};
 use tantivy::schema::{Field, IndexRecordOption, TantivyDocument, Value};
@@ -11,6 +13,8 @@ use tantivy::{DocAddress, Order, Searcher, Term};
 pub const LIMIT_MAX: usize = 500;
 pub const LIMIT_DEFAULT: usize = 50;
 pub const FUZZY_MIN_LEN: usize = 4;
+pub const PREFIX_MIN_LEN: usize = 2;
+pub const PREFIX_EXPANSIONS_MAX: usize = 64;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SearchQuery {
@@ -127,19 +131,22 @@ pub fn run_search(idx: &SearchIndex, q: &SearchQuery) -> Result<SearchResponse, 
                 .parse_query(&prepare_query_text(&q.text))
                 .map_err(|e| SearchError::QueryParse(e.to_string()))?;
 
-            let query: Box<dyn Query> = match simple_terms(&q.text) {
-                Some(terms) => {
-                    let prefix = build_prefix_query(&searcher, &terms, &scope_fields)?;
-                    Box::new(BooleanQuery::new(vec![
-                        (Occur::Should, exact),
-                        (Occur::Should, prefix),
-                    ]))
-                }
+            let prefix = match simple_terms(&q.text) {
+                Some(terms) => build_prefix_query(idx, &searcher, &terms, &scope_fields)?,
+                None => None,
+            };
+            let query: Box<dyn Query> = match prefix {
+                Some(prefix) => Box::new(BooleanQuery::new(vec![
+                    (Occur::Should, exact),
+                    (Occur::Should, prefix),
+                ])),
                 None => exact,
             };
             (query, Some(scope_fields))
         }
     };
+
+    let snippets = snippet_generators(&searcher, parsed.as_ref(), f);
 
     let final_query: Box<dyn Query> = match (q.fuzzy, &scope_fields, single_term(&q.text)) {
         (true, Some(scope_fields), Some(term)) if term.chars().count() >= FUZZY_MIN_LEN => {
@@ -174,7 +181,6 @@ pub fn run_search(idx: &SearchIndex, q: &SearchQuery) -> Result<SearchResponse, 
 
     let total_estimated = pulled.len() as u64;
 
-    let snippets = snippet_generators(&searcher, final_query.as_ref(), f);
     let mut hits = Vec::new();
     for (score, addr) in pulled.into_iter().skip(offset).take(limit) {
         let doc: TantivyDocument = searcher.doc(addr)?;
@@ -233,22 +239,55 @@ fn simple_terms(text: &str) -> Option<Vec<String>> {
 }
 
 fn build_prefix_query(
+    idx: &SearchIndex,
     searcher: &Searcher,
     terms: &[String],
     fields: &[Field],
-) -> Result<Box<dyn Query>, SearchError> {
+) -> Result<Option<Box<dyn Query>>, SearchError> {
+    let Some((last, earlier)) = terms.split_last() else {
+        return Ok(None);
+    };
+    if last.chars().count() < PREFIX_MIN_LEN {
+        return Ok(None);
+    }
     let mut must: Vec<(Occur, Box<dyn Query>)> = Vec::with_capacity(terms.len());
-    for term in terms {
+    for word in earlier {
         let mut per_field: Vec<(Occur, Box<dyn Query>)> = Vec::new();
         for &field in fields {
-            for expanded in expand_prefix(searcher, field, term)? {
-                let tq = TermQuery::new(expanded, IndexRecordOption::WithFreqs);
-                per_field.push((Occur::Should, Box::new(tq)));
+            for term in analyzed_terms(idx, field, word)? {
+                per_field.push((Occur::Should, term_query(term)));
             }
         }
         must.push((Occur::Must, Box::new(BooleanQuery::new(per_field))));
     }
-    Ok(Box::new(BooleanQuery::new(must)))
+    let mut per_field: Vec<(Occur, Box<dyn Query>)> = Vec::new();
+    for &field in fields {
+        let mut field_terms = analyzed_terms(idx, field, last)?;
+        for expanded in expand_prefix(searcher, field, last, PREFIX_EXPANSIONS_MAX)? {
+            if !field_terms.contains(&expanded) {
+                field_terms.push(expanded);
+            }
+        }
+        for term in field_terms {
+            per_field.push((Occur::Should, term_query(term)));
+        }
+    }
+    must.push((Occur::Must, Box::new(BooleanQuery::new(per_field))));
+    Ok(Some(Box::new(BooleanQuery::new(must))))
+}
+
+fn term_query(term: Term) -> Box<dyn Query> {
+    Box::new(TermQuery::new(term, IndexRecordOption::WithFreqs))
+}
+
+fn analyzed_terms(idx: &SearchIndex, field: Field, word: &str) -> Result<Vec<Term>, SearchError> {
+    let mut analyzer = idx.index().tokenizer_for_field(field)?;
+    let mut stream = analyzer.token_stream(word);
+    let mut out = Vec::new();
+    while let Some(token) = stream.next() {
+        out.push(Term::from_field_text(field, &token.text));
+    }
+    Ok(out)
 }
 
 fn build_fuzzy_query(fields: &[Field], term: &str) -> Box<dyn Query> {
@@ -264,30 +303,67 @@ fn build_fuzzy_query(fields: &[Field], term: &str) -> Box<dyn Query> {
     Box::new(BooleanQuery::new(clauses))
 }
 
+type Ranked = Reverse<(u64, Reverse<Vec<u8>>)>;
+
 fn expand_prefix(
     searcher: &Searcher,
     field: Field,
     prefix: &str,
+    keep: usize,
 ) -> Result<Vec<Term>, SearchError> {
-    let mut seen = std::collections::HashSet::new();
-    let mut out = Vec::new();
-    for reader in searcher.segment_readers() {
-        let inverted = reader.inverted_index(field)?;
-        let dict = inverted.terms();
-        let mut stream = dict.range().ge(prefix.as_bytes()).into_stream()?;
-        while stream.advance() {
-            let key = stream.key();
-            if !key.starts_with(prefix.as_bytes()) {
-                break;
-            }
-            if let Ok(s) = std::str::from_utf8(key) {
-                if seen.insert(s.to_string()) {
-                    out.push(Term::from_field_text(field, s));
+    if keep == 0 {
+        return Ok(Vec::new());
+    }
+    let prefix = prefix.as_bytes();
+    let inverted = searcher
+        .segment_readers()
+        .iter()
+        .map(|reader| reader.inverted_index(field))
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut cursors = Vec::with_capacity(inverted.len());
+    for reader in &inverted {
+        let mut stream = reader.terms().range().ge(prefix).into_stream()?;
+        if stream.advance() && stream.key().starts_with(prefix) {
+            cursors.push(stream);
+        }
+    }
+    let mut heap: BinaryHeap<Ranked> = BinaryHeap::with_capacity(keep + 1);
+    let mut key = Vec::new();
+    while let Some(min) = cursors.iter().map(|c| c.key()).min() {
+        key.clear();
+        key.extend_from_slice(min);
+        let mut doc_freq = 0u64;
+        let mut i = 0;
+        while i < cursors.len() {
+            if cursors[i].key() == key.as_slice() {
+                doc_freq += u64::from(cursors[i].value().doc_freq);
+                if !(cursors[i].advance() && cursors[i].key().starts_with(prefix)) {
+                    cursors.swap_remove(i);
+                    continue;
                 }
+            }
+            i += 1;
+        }
+        let beats_weakest = match heap.peek() {
+            Some(Reverse((df, Reverse(k)))) if heap.len() >= keep => {
+                doc_freq > *df || (doc_freq == *df && key.as_slice() < k.as_slice())
+            }
+            _ => true,
+        };
+        if beats_weakest {
+            heap.push(Reverse((doc_freq, Reverse(key.clone()))));
+            if heap.len() > keep {
+                heap.pop();
             }
         }
     }
-    Ok(out)
+    let mut kept: Vec<Vec<u8>> = heap.into_iter().map(|Reverse((_, Reverse(k)))| k).collect();
+    kept.sort();
+    Ok(kept
+        .iter()
+        .filter_map(|k| std::str::from_utf8(k).ok())
+        .map(|s| Term::from_field_text(field, s))
+        .collect())
 }
 
 fn prepare_query_text(text: &str) -> String {
@@ -478,6 +554,130 @@ mod tests {
         assert_eq!(run("qui"), 1, "prefix of a body word matches");
         assert_eq!(run("brow"), 1, "prefix of another body word matches");
         assert_eq!(run("zzz"), 0, "non-matching prefix returns nothing");
+    }
+
+    fn hit_paths(idx: &SearchIndex, text: &str) -> Vec<String> {
+        run_search(
+            idx,
+            &SearchQuery {
+                text: text.into(),
+                limit: 0,
+                offset: 0,
+                fields: FieldScope::Default,
+                fuzzy: false,
+                sort: SortMode::Relevance,
+            },
+        )
+        .unwrap()
+        .hits
+        .into_iter()
+        .map(|h| h.path)
+        .collect()
+    }
+
+    #[test]
+    fn only_the_last_word_of_a_multi_word_query_is_a_prefix() {
+        let (_t, idx) = fixture_index();
+        assert_eq!(hit_paths(&idx, "brown qui"), vec!["a.md"]);
+        assert!(
+            hit_paths(&idx, "bro qui").is_empty(),
+            "an earlier word must match as a whole term, never as a prefix"
+        );
+    }
+
+    #[test]
+    fn a_one_character_last_word_is_not_expanded() {
+        let (_t, idx) = fixture_index();
+        assert!(hit_paths(&idx, "q").is_empty());
+        assert_eq!(hit_paths(&idx, "qu"), vec!["a.md"]);
+        assert_eq!(hit_paths(&idx, "fox q"), vec!["a.md"]);
+    }
+
+    fn body_doc(path: &str, body: String) -> IndexDoc {
+        IndexDoc {
+            path: path.into(),
+            title: String::new(),
+            headings: String::new(),
+            body,
+            code: String::new(),
+            tags: vec![],
+            frontmatter: String::new(),
+            mtime_secs: 1_717_000_000,
+            size_bytes: 64,
+        }
+    }
+
+    #[test]
+    fn prefix_expansion_keeps_the_most_frequent_terms_across_segments() {
+        let tmp = TempDir::new().unwrap();
+        let idx = SearchIndex::open(tmp.path()).unwrap();
+        let total = PREFIX_EXPANSIONS_MAX + 6;
+        for d in 0..total {
+            let body = (d..total)
+                .map(|i| format!("pfx{i:03}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+            idx.upsert(&body_doc(&format!("{d:03}.md"), body)).unwrap();
+            if d % 10 == 9 {
+                idx.commit().unwrap();
+            }
+        }
+        idx.commit().unwrap();
+        let searcher = idx.reader_clone().searcher();
+        assert!(searcher.segment_readers().len() > 1);
+
+        let kept =
+            expand_prefix(&searcher, idx.fields().body, "pfx", PREFIX_EXPANSIONS_MAX).unwrap();
+        let texts: Vec<String> = kept
+            .iter()
+            .filter_map(|t| t.value().as_str().map(str::to_string))
+            .collect();
+        let expected: Vec<String> = (total - PREFIX_EXPANSIONS_MAX..total)
+            .map(|i| format!("pfx{i:03}"))
+            .collect();
+        assert_eq!(texts, expected);
+    }
+
+    #[test]
+    fn prefix_expansion_breaks_frequency_ties_by_byte_order() {
+        let tmp = TempDir::new().unwrap();
+        let idx = SearchIndex::open(tmp.path()).unwrap();
+        idx.upsert(&body_doc("t.md", "zqc zqa zqb".into())).unwrap();
+        idx.commit().unwrap();
+        let searcher = idx.reader_clone().searcher();
+        let kept = expand_prefix(&searcher, idx.fields().body, "zq", 2).unwrap();
+        let texts: Vec<String> = kept
+            .iter()
+            .filter_map(|t| t.value().as_str().map(str::to_string))
+            .collect();
+        assert_eq!(texts, vec!["zqa", "zqb"]);
+    }
+
+    #[test]
+    fn snippet_highlights_a_kept_prefix_expansion() {
+        let (_t, idx) = fixture_index();
+        let r = run_search(
+            &idx,
+            &SearchQuery {
+                text: "brown qui".into(),
+                limit: 0,
+                offset: 0,
+                fields: FieldScope::Default,
+                fuzzy: false,
+                sort: SortMode::Relevance,
+            },
+        )
+        .unwrap();
+        let body = r.hits[0]
+            .matched_fields
+            .iter()
+            .find(|m| m.field == "body")
+            .map(|m| m.snippet.as_str())
+            .expect("body snippet");
+        assert!(
+            body.contains("<mark>quick</mark>"),
+            "expanded term should be highlighted, got: {body}"
+        );
     }
 
     #[test]

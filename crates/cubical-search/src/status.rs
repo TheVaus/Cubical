@@ -12,8 +12,6 @@ pub enum IndexState {
 pub struct IndexStatus {
     pub state: IndexState,
     pub indexed_files: u64,
-    pub total_files: u64,
-    pub last_commit_secs: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

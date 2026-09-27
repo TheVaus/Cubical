@@ -6,7 +6,7 @@ use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use cubical_core::{vault::settings::SettingsMap, Vault, WatcherHandle};
-use cubical_search::{IndexState, IndexStatus};
+use cubical_search::IndexState;
 
 use crate::search_handle::SearchHandle;
 
@@ -30,31 +30,6 @@ pub struct OpenVault {
 #[derive(Debug, Clone)]
 pub struct SearchStateInner {
     pub state: IndexState,
-    pub indexed_files: u64,
-    pub total_files: u64,
-    pub last_commit_secs: Option<i64>,
-}
-
-impl Default for SearchStateInner {
-    fn default() -> Self {
-        Self {
-            state: IndexState::Building,
-            indexed_files: 0,
-            total_files: 0,
-            last_commit_secs: None,
-        }
-    }
-}
-
-impl SearchStateInner {
-    pub fn to_status(&self) -> IndexStatus {
-        IndexStatus {
-            state: self.state,
-            indexed_files: self.indexed_files,
-            total_files: self.total_files,
-            last_commit_secs: self.last_commit_secs,
-        }
-    }
 }
 
 impl OpenVault {
@@ -77,7 +52,6 @@ impl OpenVault {
             } else {
                 IndexState::Error
             },
-            ..SearchStateInner::default()
         };
         Self {
             vault,

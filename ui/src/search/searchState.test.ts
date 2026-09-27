@@ -28,8 +28,6 @@ const build = () => {
   const readStatus = vi.fn(async () => ({
     state: "ready" as const,
     indexed_files: 0,
-    total_files: 0,
-    last_commit_secs: null,
   }));
   let dispose!: () => void;
   const [vault, setVault] = createSignal<string | null>("a");
@@ -115,8 +113,6 @@ describe("index status polling", () => {
     h.readStatus.mockImplementation(async () => ({
       state: "building" as never,
       indexed_files: 1,
-      total_files: 2,
-      last_commit_secs: null,
     }));
     h.setVault("b");
     await vi.advanceTimersByTimeAsync(500);

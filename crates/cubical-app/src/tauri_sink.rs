@@ -20,7 +20,6 @@ impl<R: Runtime> EventSink for TauriEventSink<R> {
             AppEvent::ScanComplete(p) => self.app.emit(name, p),
             AppEvent::ScanCancelled(p) => self.app.emit(name, p),
             AppEvent::FileChanged(p) => self.app.emit(name, p),
-            AppEvent::Audit(p) => self.app.emit(name, p),
             AppEvent::PendingRewritesChanged(p) => self.app.emit(name, p),
             AppEvent::FlushComplete(p) => self.app.emit(name, p),
             AppEvent::SettingChanged(p) => self.app.emit(name, p),

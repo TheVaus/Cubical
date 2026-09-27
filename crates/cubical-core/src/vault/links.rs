@@ -7,7 +7,6 @@ use cubical_ast::{
 };
 use cubical_index::{replace_links_for_file, LinkRow};
 
-use crate::vault::parse::parse_off_executor;
 use crate::vault::Vault;
 use cubical_index::fold_name;
 
@@ -222,17 +221,6 @@ fn unique<T>(mut it: impl Iterator<Item = T>) -> Option<T> {
     match (it.next(), it.next()) {
         (Some(only), None) => Some(only),
         _ => None,
-    }
-}
-
-pub async fn refresh_links(
-    vault: &Vault,
-    rel_path_str: &str,
-    source: &str,
-) -> Result<u32, libsql::Error> {
-    match parse_off_executor(source).await {
-        Some(doc) => refresh_links_with_doc(vault, rel_path_str, &doc).await,
-        None => Ok(0),
     }
 }
 

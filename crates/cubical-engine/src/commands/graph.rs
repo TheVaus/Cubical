@@ -353,6 +353,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn tags_differing_only_in_case_reach_the_snapshot_as_one_node() {
+        let (_dir, vault, state) = fresh_state_with_vault("v1").await;
+        seed_md(&vault, "a.md").await;
+        seed_md(&vault, "b.md").await;
+        seed_tag(&vault, "a.md", "Work").await;
+        seed_tag(&vault, "b.md", "work").await;
+
+        let snap = graph_snapshot(&state, snapshot_request("v1", GraphFilter::default()))
+            .await
+            .expect("snapshot");
+
+        let tags: Vec<&GraphNode> = snap
+            .nodes
+            .iter()
+            .filter(|n| n.kind == NodeKind::Tag)
+            .collect();
+        assert_eq!(tags.len(), 1);
+        assert_eq!(tags[0].key, "work");
+        assert_eq!(snap.edges.len(), 2);
+    }
+
+    #[tokio::test]
     async fn snapshot_on_an_unopened_vault_is_an_error() {
         let (_dir, _vault, state) = fresh_state_with_vault("v1").await;
         let err = graph_snapshot(&state, snapshot_request("nope", GraphFilter::default()))

@@ -1592,7 +1592,7 @@ mod tests {
         let bob = "---\noffsprings:\n  - \"[[Jack]]\"\n---\nbody\n";
         std::fs::write(vault.root().join("Bob.md"), bob).unwrap();
         std::fs::write(vault.root().join("Jack.md"), "body\n").unwrap();
-        cubical_core::vault::links::refresh_links(&vault, "Bob.md", bob)
+        cubical_core::refresh_links_with_doc(&vault, "Bob.md", &cubical_ast::parse(bob))
             .await
             .expect("extract");
 
@@ -2389,7 +2389,7 @@ mod tests {
             "after flush, Ref.md on disk points at [[b]]",
         );
         let src = std::fs::read_to_string(vault.root().join("Ref.md")).unwrap();
-        cubical_core::refresh_links(&vault, "Ref.md", &src)
+        cubical_core::refresh_links_with_doc(&vault, "Ref.md", &cubical_ast::parse(&src))
             .await
             .unwrap();
 

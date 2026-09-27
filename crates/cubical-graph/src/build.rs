@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use cubical_ast::note_title;
 use cubical_index::{fold_name, IndexConn};
@@ -57,14 +57,37 @@ impl Builder {
         id
     }
 
-    fn tag(&mut self, tag_path: String) -> NodeId {
-        if let Some(&id) = self.tags.get(&tag_path) {
+    fn tag(&mut self, key: &str, label: &str) -> NodeId {
+        if let Some(&id) = self.tags.get(key) {
             return id;
         }
-        let id = self.push(NodeKind::Tag, tag_path.clone(), tag_path.clone());
-        self.tags.insert(tag_path, id);
+        let id = self.push(NodeKind::Tag, key.to_string(), label.to_string());
+        self.tags.insert(key.to_string(), id);
         id
     }
+}
+
+fn tag_labels(rows: &[(String, String)]) -> HashMap<String, String> {
+    let mut counts: HashMap<String, BTreeMap<&str, usize>> = HashMap::new();
+    for (_, tag_path) in rows {
+        *counts
+            .entry(fold_name(tag_path))
+            .or_default()
+            .entry(tag_path.as_str())
+            .or_default() += 1;
+    }
+    counts
+        .into_iter()
+        .filter_map(|(key, spellings)| {
+            let mut best: Option<(&str, usize)> = None;
+            for (spelling, n) in spellings {
+                if best.is_none_or(|(_, top)| n > top) {
+                    best = Some((spelling, n));
+                }
+            }
+            best.map(|(spelling, _)| (key, spelling.to_string()))
+        })
+        .collect()
 }
 
 pub async fn build_model(conn: &IndexConn) -> Result<GraphModel, GraphError> {
@@ -130,13 +153,26 @@ pub async fn build_model(conn: &IndexConn) -> Result<GraphModel, GraphError> {
             params![],
         )
         .await?;
+    let mut tag_rows: Vec<(String, String)> = Vec::new();
     while let Some(r) = rows.next().await? {
         let file_path: String = r.get(0)?;
-        let tag_path: String = r.get(1)?;
-        let Some(source) = b.note(&file_path) else {
+        if b.note(&file_path).is_none() {
+            continue;
+        }
+        tag_rows.push((file_path, r.get(1)?));
+    }
+    let labels = tag_labels(&tag_rows);
+    let mut seen: HashSet<(NodeId, NodeId)> = HashSet::new();
+    for (file_path, tag_path) in &tag_rows {
+        let Some(source) = b.note(file_path) else {
             continue;
         };
-        let target = b.tag(tag_path);
+        let key = fold_name(tag_path);
+        let label = labels.get(&key).map_or(tag_path.as_str(), String::as_str);
+        let target = b.tag(&key, label);
+        if !seen.insert((source, target)) {
+            continue;
+        }
         edges.push(GraphEdge {
             source,
             target,
@@ -249,6 +285,56 @@ mod tests {
             m.edges().iter().filter(|e| e.kind == EdgeKind::Tag).count(),
             1
         );
+    }
+
+    fn tag_nodes(m: &GraphModel) -> Vec<(String, String)> {
+        m.nodes()
+            .iter()
+            .filter(|n| n.kind == NodeKind::Tag)
+            .map(|n| (n.key.clone(), n.label.clone()))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn tags_differing_only_in_case_share_one_node_and_one_edge_per_note() {
+        let (_dir, conn) = open_test_index().await;
+        seed_file(&conn, "a.md", "markdown").await;
+        seed_file(&conn, "b.md", "markdown").await;
+        seed_file(&conn, "c.md", "markdown").await;
+        seed_tag(&conn, "a.md", "Work").await;
+        seed_tag(&conn, "a.md", "work").await;
+        seed_tag(&conn, "b.md", "work").await;
+        seed_tag(&conn, "c.md", "WORK").await;
+        let m = build_model(&conn).await.expect("build");
+        assert_eq!(tag_nodes(&m), vec![("work".into(), "work".into())]);
+        assert_eq!(
+            m.edges().iter().filter(|e| e.kind == EdgeKind::Tag).count(),
+            3
+        );
+    }
+
+    #[tokio::test]
+    async fn a_tie_between_spellings_labels_the_node_with_the_first_in_byte_order() {
+        let (_dir, conn) = open_test_index().await;
+        seed_file(&conn, "a.md", "markdown").await;
+        seed_file(&conn, "b.md", "markdown").await;
+        seed_tag(&conn, "a.md", "project/alpha").await;
+        seed_tag(&conn, "b.md", "Project/Alpha").await;
+        let m = build_model(&conn).await.expect("build");
+        assert_eq!(
+            tag_nodes(&m),
+            vec![("project/alpha".into(), "Project/Alpha".into())]
+        );
+    }
+
+    #[tokio::test]
+    async fn nested_tags_stay_distinct_nodes_from_their_parent() {
+        let (_dir, conn) = open_test_index().await;
+        seed_file(&conn, "a.md", "markdown").await;
+        seed_tag(&conn, "a.md", "Area").await;
+        seed_tag(&conn, "a.md", "area/Sub").await;
+        let m = build_model(&conn).await.expect("build");
+        assert_eq!(kinds(&m, NodeKind::Tag), vec!["area", "area/sub"]);
     }
 
     #[tokio::test]

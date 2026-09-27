@@ -47,7 +47,7 @@ vault or index handle, so they moved whole into `commands/embeds/extract.rs`.
 
 ## Caller-supplied paths
 
-**Anchors:** validate_rel_file · validate_rel_dir · contained_join · vault_file · vault_dir
+**Anchors:** validate_rel_file · validate_rel_dir · contained_join · vault_file · vault_dir · is_excluded
 
 A path arriving in a request is untrusted input. The vault root is the
 containment boundary, and `commands::paths` is the only way a request path
@@ -71,6 +71,14 @@ the `cubical-ipc` socket. Commands that resolve a path through the index first
 with `follow_links(false)`, so no key in `files` can escape the root. Anything
 that joins a request path directly routes through `commands::paths` regardless,
 including the index-gated writers, so the rule needs no exemption to state.
+
+`vault_file` (and so `vault_dir`) also refuses any path the scan would never
+index — `relpath::is_excluded`, the skip set owned by
+[`vault-core.md`](vault-core.md#watcher). Creating, renaming into, writing or
+deleting under a hidden component would otherwise produce a file the index
+cannot see, or let a request reach `.cubical/` itself. The check runs on the
+resolved path too, so a visible symlink into a hidden folder is refused
+alongside the literal hidden path.
 
 The drive-letter rule is deliberately **minimal**: a segment that is exactly
 `C:` is refused everywhere, and anything longer is left to the host's own path
@@ -392,8 +400,14 @@ layer exists to prevent — extend `link_match`, never re-derive.
 graph's ghost interning and every tag match all fold through the same
 `fold_name`. Tags resolve once, in `cubical_index::tag_paths_under`: the tag
 page, tag autocomplete and dataview's `FROM #tag` plan all start from that set
-of stored spellings. It cannot be SQL: `LOWER()` in libSQL is ASCII-only under
-the core-only pin ([`Cargo.toml`](../../Cargo.toml)), so a SQL-side fold would
+of stored spellings. The graph interns tags the same way: `build_model` keys
+one tag node per folded path, so `#Work` and `#work` are one node with one edge
+per note, as in Obsidian. The label is the spelling on the most (note, spelling) rows,
+ties to the first in byte order. Obsidian documents the fold but not which
+casing it displays; a count-then-byte-order rule keeps the label stable across
+rebuilds, which an encounter-order rule would not. A nested tag stays its own
+node, not linked to its parent. It cannot be SQL: `LOWER()` in libSQL is
+ASCII-only under the core-only pin ([`Cargo.toml`](../../Cargo.toml)), so a SQL-side fold would
 resolve `[[CAFÉ]]` to `café.md` when rendering and then fail to reattach that
 referrer on rename — a stale link produced by the fold, not by a missing
 rewrite. Every query that folds therefore reads its candidates and folds them in

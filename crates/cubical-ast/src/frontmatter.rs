@@ -130,13 +130,6 @@ fn yaml_value_to_string_key(v: &YamlValue) -> String {
     }
 }
 
-#[must_use]
-pub fn parse_frontmatter(source: &str) -> Option<Frontmatter> {
-    let (yaml_opt, _body, body_offset) = split_with_offset(source);
-    let yaml_str = yaml_opt?;
-    parse_with_span(yaml_str, body_offset).ok().flatten()
-}
-
 impl Frontmatter {
     #[must_use]
     pub fn get_string(&self, key: &str) -> Option<&str> {
@@ -297,16 +290,18 @@ mod tests {
     }
 
     #[test]
-    fn parse_frontmatter_returns_some_for_valid_block() {
+    fn parse_yields_frontmatter_for_valid_block() {
         let src = "---\ntitle: Hello\n---\n\nbody\n";
-        let fm = parse_frontmatter(src).expect("some");
+        let fm = crate::parse(src).frontmatter.expect("some");
         assert_eq!(fm.get_string("title"), Some("Hello"));
     }
 
     #[test]
-    fn parse_frontmatter_returns_none_for_missing_or_malformed() {
-        assert!(parse_frontmatter("# just body\n").is_none());
-        assert!(parse_frontmatter("---\ntitle: : :\n  - bad\n---\n").is_none());
+    fn parse_yields_no_frontmatter_for_missing_or_malformed() {
+        assert!(crate::parse("# just body\n").frontmatter.is_none());
+        assert!(crate::parse("---\ntitle: : :\n  - bad\n---\n")
+            .frontmatter
+            .is_none());
     }
 
     #[test]

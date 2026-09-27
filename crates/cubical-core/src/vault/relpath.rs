@@ -23,6 +23,19 @@ pub(crate) fn to_vault_relative(rel: &Path) -> String {
         .join("/")
 }
 
+const TMP_EXTENSION: &str = "cubical-tmp";
+
+#[must_use]
+pub fn is_excluded(rel: &Path) -> bool {
+    rel.components().any(|c| match c {
+        Component::Normal(part) => {
+            let name = part.to_string_lossy();
+            name.starts_with('.') || name == "node_modules"
+        }
+        _ => false,
+    }) || rel.extension().is_some_and(|ext| ext == TMP_EXTENSION)
+}
+
 fn segment_ok(seg: &str) -> bool {
     if seg.is_empty() || seg == "." || seg == ".." {
         return false;
@@ -110,6 +123,23 @@ mod tests {
     fn a_nested_path_uses_forward_slashes_on_every_platform() {
         let rel: PathBuf = ["projects", "2026", "note.md"].iter().collect();
         assert_eq!(to_vault_relative(&rel), "projects/2026/note.md");
+    }
+
+    #[test]
+    fn any_hidden_component_excludes_the_path() {
+        for rel in [
+            ".note.md",
+            "sub/.note.md",
+            ".cubical/index.db",
+            "a/.git/HEAD",
+            "node_modules/x/index.js",
+            "note.md.cubical-tmp",
+        ] {
+            assert!(is_excluded(Path::new(rel)), "{rel} must be excluded");
+        }
+        for rel in ["note.md", "a/b/note.md", "v1.2/notes.md", "a./b.md"] {
+            assert!(!is_excluded(Path::new(rel)), "{rel} must be kept");
+        }
     }
 
     #[test]

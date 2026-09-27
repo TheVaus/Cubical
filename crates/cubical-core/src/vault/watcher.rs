@@ -169,7 +169,7 @@ fn relativize(root: &Path, abs: &Path) -> Option<String> {
     if rel.as_os_str().is_empty() {
         return None;
     }
-    if is_excluded(rel) {
+    if super::relpath::is_excluded(rel) {
         return None;
     }
     let rel = super::relpath::to_vault_relative(rel);
@@ -177,16 +177,6 @@ fn relativize(root: &Path, abs: &Path) -> Option<String> {
         return None;
     }
     Some(rel)
-}
-
-fn is_excluded(rel: &Path) -> bool {
-    if rel.components().any(|c| {
-        let s = c.as_os_str().to_string_lossy();
-        s == "node_modules" || s.starts_with('.')
-    }) {
-        return true;
-    }
-    rel.extension().is_some_and(|ext| ext == "cubical-tmp")
 }
 
 #[cfg(test)]
@@ -382,11 +372,26 @@ mod tests {
                 PathBuf::from("/v/.git/HEAD"),
                 PathBuf::from("/v/node_modules/foo/index.js"),
                 PathBuf::from("/v/.obsidian/config.json"),
+                PathBuf::from("/v/notes/.hidden.md"),
                 PathBuf::from("/v/notes/keep.md"),
             ],
         );
         let out = translate_event(root, &ev);
         assert_eq!(out, vec![WatchEvent::Created("notes/keep.md".into())]);
+    }
+
+    #[test]
+    fn a_vault_root_inside_a_hidden_directory_is_not_itself_excluded() {
+        let root = Path::new("/home/me/.vaults/main");
+        let ev = synth_event(
+            EventKind::Create(notify::event::CreateKind::File),
+            vec![
+                PathBuf::from("/home/me/.vaults/main/keep.md"),
+                PathBuf::from("/home/me/.vaults/main/.cubical/index.db"),
+            ],
+        );
+        let out = translate_event(root, &ev);
+        assert_eq!(out, vec![WatchEvent::Created("keep.md".into())]);
     }
 
     #[test]

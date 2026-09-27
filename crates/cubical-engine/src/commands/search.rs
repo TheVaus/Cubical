@@ -57,16 +57,13 @@ pub async fn search_index_status(
     state: &AppState,
     req: SearchVaultRequest,
 ) -> Result<IndexStatus, CubicalError> {
-    let status = with_open_vault(state, &req.vault_id, |open| {
-        open.search_state
+    let status = with_open_vault(state, &req.vault_id, |open| IndexStatus {
+        state: open
+            .search_state
             .lock()
-            .map(|s| s.to_status())
-            .unwrap_or_else(|_| IndexStatus {
-                state: IndexState::Error,
-                indexed_files: 0,
-                total_files: 0,
-                last_commit_secs: None,
-            })
+            .map(|s| s.state)
+            .unwrap_or(IndexState::Error),
+        indexed_files: open.search.indexed_files(),
     })
     .await?;
     Ok(status)
@@ -381,6 +378,41 @@ mod tests {
             "the rebuild's token is the one close_vault will cancel",
         );
         wait_for_scan_status(&state, "v1", ScanStatusBackend::Complete).await;
+    }
+
+    #[tokio::test]
+    async fn status_counts_the_files_a_rebuild_indexed() {
+        let (dir, _handle, state) = fresh_state_with_vault("v1").await;
+        std::fs::write(dir.path().join("a.md"), "alpha\n").unwrap();
+        std::fs::write(dir.path().join("b.md"), "beta\n").unwrap();
+        state
+            .vaults()
+            .write()
+            .await
+            .get_mut("v1")
+            .unwrap()
+            .scan_status = ScanStatusBackend::InProgress;
+
+        search_rebuild_index(
+            &state,
+            std::sync::Arc::new(crate::events::NoopEventSink),
+            SearchVaultRequest {
+                vault_id: "v1".into(),
+            },
+        )
+        .await
+        .expect("rebuild dispatches");
+        wait_for_scan_status(&state, "v1", ScanStatusBackend::Complete).await;
+
+        let status = search_index_status(
+            &state,
+            SearchVaultRequest {
+                vault_id: "v1".into(),
+            },
+        )
+        .await
+        .expect("status");
+        assert_eq!(status.indexed_files, 2);
     }
 
     #[tokio::test]

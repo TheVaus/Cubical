@@ -2,7 +2,6 @@ use cubical_ast::{Block, Document, Inline, ListItem};
 use cubical_index::{replace_tags_for_file, TagRow, TagSource};
 
 use crate::vault::links::map_index_err;
-use crate::vault::parse::parse_off_executor;
 use crate::vault::Vault;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -118,17 +117,6 @@ fn push_unique(seen: &mut Vec<(String, String)>, candidate: &str) {
         return;
     }
     seen.push((lc, trimmed.to_string()));
-}
-
-pub async fn refresh_tags(
-    vault: &Vault,
-    rel_path_str: &str,
-    source: &str,
-) -> Result<u32, libsql::Error> {
-    match parse_off_executor(source).await {
-        Some(doc) => refresh_tags_with_doc(vault, rel_path_str, &doc).await,
-        None => Ok(0),
-    }
 }
 
 pub async fn refresh_tags_with_doc(

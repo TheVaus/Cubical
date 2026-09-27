@@ -31,7 +31,7 @@ registries (tests, headless tooling) may omit it and accept `None`.
 
 ## Scan
 
-**Anchors:** scan · open_vault · last_seen · ScanSink · NoScanSink · ChangeSink · NoChangeSink
+**Anchors:** scan · open_vault · last_seen · ScanSink · NoScanSink · ChangeSink · NoChangeSink · read_and_hash
 
 - **Batched commits.** Autocommitting per file means one `fsync` per file —
   tens of thousands on a large vault, the difference between seconds and
@@ -47,7 +47,10 @@ registries (tests, headless tooling) may omit it and accept `None`.
   across every rescan.
 - **One read per Markdown file.** The content hash and the parsed source come
   from the same bytes, so they cannot disagree about a file edited mid-scan, and
-  the file is read once instead of once to hash and again to parse.
+  the file is read once instead of once to hash and again to parse. The
+  watcher's `Created`/`Modified` refresh reads through the same
+  `read_and_hash`, so a bulk flush pays one read per file and the stored
+  `files.content_hash` is the hash of exactly the text that was indexed.
 - **Stale sweep.** Pass 1 stamps every on-disk file with `last_seen`; rows
   still older afterwards vanished from disk while the app wasn't watching and
   are deleted so they stop surfacing in the tree. Skipped under cancellation,
@@ -122,7 +125,7 @@ makes the invariant hold, not discipline at each call site.
 
 ## Watcher
 
-**Anchors:** WatchEvent · Vault · scan
+**Anchors:** WatchEvent · Vault · scan · is_excluded
 
 Wraps `notify` behind `notify-debouncer-full` for inode-based rename
 correlation and event coalescing. **`notify` types never leak across the crate
@@ -144,13 +147,28 @@ tests, so it measured the machine. Observed values ranged past 6 s under gate
 load. The remaining `timeout` is a **liveness** bound set far clear of
 scheduling noise — if it ever fires, the bridge genuinely did not close.
 
-**Exclusions** mirror the scan's skip set: anything under `.cubical/`, `.git/`,
-`node_modules/`, or any dot-prefixed directory. Without this every libSQL write
-under `.cubical/` echoes back as an event and re-triggers a write.
+**Exclusions** are one predicate, `relpath::is_excluded`, which the scan's
+`filter_entry` and the watcher's `relativize` both call on the vault-relative
+path. A path is excluded when **any** component starts with `.` (so `.cubical/`,
+`.git/`, `.obsidian/` and a lone `.note.md` alike) or is `node_modules`, or when
+it ends in `.cubical-tmp`. Hidden means ignored, for files as much as
+directories: the two sets used to be written separately and drifted — the scan
+skipped only dot-prefixed *directories* while the watcher dropped dot-prefixed
+files too, so `.note.md` was indexed once by a scan and never refreshed.
+Sharing the predicate is what keeps them equal. It is applied to the path
+*relative to the root*, so a vault that itself lives under a hidden directory is
+not excluded wholesale.
 
-The `.cubical-tmp` suffix is filtered by **filename**: without it every autosave
-echoes three events (temp create + temp modify + target modify) and the temp
-path leaks into the `files` table before the rename.
+A row an older scan indexed for a now-excluded path needs no migration: the
+walk no longer visits it, its `last_seen` stays behind the scan's start, and
+the ordinary vanished-file sweep deletes it (and reports it in
+`ScanOutcome::vanished`).
+
+Without the `.cubical/` exclusion every libSQL write echoes back as an event
+and re-triggers a write. The `.cubical-tmp` suffix is filtered by **filename**:
+without it every autosave echoes three events (temp create + temp modify +
+target modify) and the temp path leaks into the `files` table before the
+rename.
 
 ### Platform quirks
 
@@ -170,7 +188,7 @@ path leaks into the `files` table before the rename.
 
 ## Refreshers
 
-**Anchors:** refresh_frontmatter · refresh_links · refresh_tags · refresh_blocks
+**Anchors:** refresh_frontmatter_with_doc · refresh_links_with_doc · refresh_tags_with_doc · refresh_blocks
 · refresh_scanned_markdown · refresh_watched_markdown
 
 `frontmatter`, `links`, `tags`, `blocks` and the search doc all follow one
@@ -178,9 +196,17 @@ shape: **delete-then-insert keyed on the file path**. Idempotent across
 re-scans, naturally drops keys the user removed, no diff bookkeeping.
 
 The caller must ensure the `files` row exists first so the foreign key has a
-parent. A **read** failure yields an empty source, and an empty source really
-does parse to a document with no keys, so its rows are wiped. A **parse**
-failure is not the same statement: it is no evidence the links are gone. Both
+parent. A **read** failure never reaches the refreshers: the scan skips the
+file, and the watcher leaves its `files` row and every derived row untouched
+(it still writes the `audit_log` row), because an unreadable file is no
+evidence the file is empty — typically it vanished between the event and the
+read, and the `Removed` that follows, the next modification, or the next scan (on open or
+rebuild) settles it. The watcher
+used to substitute an empty source for a failed read, which wiped the rows and,
+on a `Created`, inserted a phantom `files` row with no hash. An empty source
+that *was* read really does parse to a document with no keys, so its rows are
+wiped. A **parse** failure is not the same statement either: it is no evidence
+the links are gone. Both
 fan-out sites — `refresh_scanned_markdown` for the scan and
 `refresh_watched_markdown` for the watcher — therefore leave every derived
 table **untouched** on a failed parse and let the next successful parse heal
@@ -204,16 +230,18 @@ runtime.
 
 ### Parse once, fan out
 
-Every refresher pairs up: `refresh_x(vault, path, source)` parses and delegates
-to `refresh_x_with_doc(vault, path, &doc)`. `vault::parse_off_executor` is the
-**single** owner of the `spawn_blocking` parse hop — the refreshers no longer
-each keep a private copy.
+The AST-backed refreshers take a parsed document only:
+`refresh_x_with_doc(vault, path, &doc)`. They never parse, so
+`vault::parse_off_executor` is the **single** owner of the `spawn_blocking`
+parse hop. The source-taking wrappers that used to sit beside them had no
+production caller left once every writer parsed up front, and were removed;
+a test that holds only source parses it with `cubical_ast::parse` itself.
 
 Callers holding one file's source (scan, the watcher, both rename paths) parse
 once up front and call the `_with_doc` arm, so a file is parsed **once**, not
 once per consumer. Before this, a scanned file went through `cubical_ast::parse`
 four times — frontmatter, links, tags, and the search projection — plus three
-more `parse_frontmatter` passes inside the projection, each behind its own
+more frontmatter-only parses inside the projection, each behind its own
 `spawn_blocking` hop and its own full copy of the source. On a 10k-note vault
 (~88 MiB) that was ~25% of cold open+scan: **5.78 s → 4.35 s** median, measured
 release-build on an M1 Pro.
@@ -240,12 +268,10 @@ folding into `document`: the census exempts same-domain edges, so folding would
 stop the gate from ever seeing an edge between block-ID code and the AST, which
 is a separate concern that happens to be substrate too.
 
-The `_with_doc` arms are the load-bearing ones; the source-taking wrappers exist
-for single-file callers that have no `Document` in hand. Both must stay
-behaviourally identical, a failed parse included (it leaves the rows alone) —
-`parse` and `parse_frontmatter` return the same
-frontmatter for the same source, which is what makes `Document::frontmatter`
-a safe substitute for a second parse.
+`Document::frontmatter` is the only frontmatter reading: `cubical_ast::parse`
+splits and decodes the YAML block itself, and there is no separate
+frontmatter-only parser to disagree with it, so every consumer handed the
+`Document` sees the same keys a second parse would have produced.
 
 ### Materialize-on-read
 

@@ -22,21 +22,20 @@ mod watcher;
 
 pub use atomic::atomic_write;
 pub use blocks::{block_id_at_line_end, refresh_block_refs_for_file, refresh_blocks};
-pub use frontmatter::{refresh_frontmatter, refresh_frontmatter_with_doc};
-pub use links::{
-    extract_links, refresh_links, refresh_links_with_doc, resolve_target, LinkExtraction,
-};
+pub use frontmatter::refresh_frontmatter_with_doc;
+pub use links::{extract_links, refresh_links_with_doc, resolve_target, LinkExtraction};
 pub use mentions::{extract_text_runs, find_mention_occurrences, MentionHit, TextRun};
 pub use parse::parse_off_executor;
 pub use pending::{apply_pending, materialize_on_read};
 pub use relpath::{
-    contained_join, directory_holds_exact_name, validate_rel_dir, validate_rel_file, RelPathError,
+    contained_join, directory_holds_exact_name, is_excluded, validate_rel_dir, validate_rel_file,
+    RelPathError,
 };
 pub use scan::{
-    inode_of, scan, ChangeSink, NoChangeSink, NoScanSink, ScanOutcome, ScanProgress, ScanSink,
-    VanishedFile,
+    inode_of, read_and_hash, scan, ChangeSink, NoChangeSink, NoScanSink, ScanOutcome, ScanProgress,
+    ScanSink, VanishedFile,
 };
-pub use tags::{extract_tags, refresh_tags, refresh_tags_with_doc, TagExtraction};
+pub use tags::{extract_tags, refresh_tags_with_doc, TagExtraction};
 pub use watcher::{start_watcher, WatchEvent, WatcherHandle};
 
 #[derive(Debug, thiserror::Error)]
